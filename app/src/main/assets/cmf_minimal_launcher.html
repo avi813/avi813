@@ -1,0 +1,2880 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>N-TEXT // CMF Phone 1 Minimalist OLED Launcher Prototype</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Instrument+Serif:ital@0;1&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500;600&family=Silkscreen:wght@400;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --accent: #FF3B00;
+      --oled-bg: #000000;
+      --text-primary: #FFFFFF;
+      --text-muted: #737373;
+      --border-subtle: #1F1F1F;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    body {
+      background-color: #080808;
+      color: #FFFFFF;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      margin: 0;
+      padding: 0;
+      overflow-x: hidden;
+    }
+
+    /* Prebuilt Launcher Font Styles */
+    .font-mono-tech {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .font-dot {
+      font-family: 'Silkscreen', 'DotGothic16', monospace;
+      letter-spacing: -0.03em;
+    }
+
+    .font-ndot-matrix {
+      font-family: 'DotGothic16', 'Silkscreen', monospace;
+      letter-spacing: 0.04em;
+    }
+
+    .font-space-mono {
+      font-family: 'Space Mono', monospace;
+      letter-spacing: -0.02em;
+    }
+
+    .font-editorial {
+      font-family: 'Instrument Serif', Georgia, serif;
+      letter-spacing: 0.01em;
+    }
+
+    /* Wallpaper Presets for OLED Screen */
+    .wp-oled-black {
+      background-color: #000000;
+      background-image: none;
+    }
+
+    .wp-dot-matrix {
+      background-color: #000000;
+      background-image: radial-gradient(rgba(255, 255, 255, 0.16) 1.25px, transparent 1.25px);
+      background-size: 16px 16px;
+    }
+
+    .wp-cmf-blueprint {
+      background-color: #030303;
+      background-image:
+        linear-gradient(rgba(255, 59, 0, 0.07) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 59, 0, 0.07) 1px, transparent 1px),
+        radial-gradient(circle at 80% 85%, rgba(255, 59, 0, 0.14), transparent 45%);
+      background-size: 28px 28px, 28px 28px, 100% 100%;
+    }
+
+    .wp-nothing-mesh {
+      background-color: #000000;
+      background-image:
+        radial-gradient(circle at 20% 25%, rgba(255, 255, 255, 0.10) 0%, transparent 45%),
+        radial-gradient(circle at 85% 75%, rgba(255, 59, 0, 0.12) 0%, transparent 50%),
+        radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+      background-size: 100% 100%, 100% 100%, 12px 12px;
+    }
+
+    .wp-topo-lines {
+      background-color: #000000;
+      background-image:
+        repeating-radial-gradient(
+          circle at 100% 100%,
+          transparent 0,
+          transparent 18px,
+          rgba(255, 255, 255, 0.05) 19px,
+          transparent 20px
+        );
+    }
+
+    /* Custom Scrollbar for Minimalist Feel */
+    ::-webkit-scrollbar {
+      width: 3px;
+      height: 3px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #262626;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--accent);
+    }
+
+    /* CMF Phone 1 Chassis Hardware Frame */
+    .cmf-chassis {
+      width: 376px;
+      height: 800px;
+      border-radius: 46px;
+      background: #000000;
+      position: relative;
+      box-shadow:
+        0 0 0 3px #1c1c1c,
+        0 0 0 7px #2a2a2a,
+        0 25px 60px -15px rgba(0, 0, 0, 0.95),
+        0 0 40px rgba(255, 59, 0, 0.06);
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .cmf-chassis.frame-orange {
+      box-shadow:
+        0 0 0 3px #1a1a1a,
+        0 0 0 8px #FF3B00,
+        0 25px 60px -15px rgba(0, 0, 0, 0.95),
+        0 0 50px rgba(255, 59, 0, 0.18);
+    }
+
+    /* CMF Rotary Dial Hardware Detail (Bottom Right Corner) */
+    .cmf-dial-wheel {
+      position: absolute;
+      bottom: -8px;
+      right: -8px;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: conic-gradient(from 45deg, #2b2b2b, #525252, #1f1f1f, #404040, #2b2b2b);
+      border: 2px solid #141414;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    /* Screen Area */
+    .cmf-screen {
+      width: 100%;
+      height: 100%;
+      border-radius: 42px;
+      background-color: #000000;
+      background-position: center;
+      background-size: cover;
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Niagara Launcher Wave / Traversing Animation Rules */
+    .app-item {
+      transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.1), color 0.15s ease, opacity 0.15s ease, letter-spacing 0.15s ease;
+      will-change: transform;
+    }
+    .app-item:active {
+      transform: scale(0.97);
+    }
+
+    .niagara-row {
+      transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.15s ease, opacity 0.16s ease;
+      will-change: transform;
+    }
+
+    .az-letter-node {
+      transition: transform 0.14s cubic-bezier(0.2, 0.9, 0.3, 1.2), color 0.12s ease, font-weight 0.12s ease;
+      will-change: transform;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.25; }
+    }
+    .animate-dot {
+      animation: pulseDot 1.8s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-[#070707] text-white flex flex-col">
+
+  <!-- TOP PROTOTYPE HEADER -->
+  <header class="w-full border-b border-neutral-900 bg-black/90 backdrop-blur-md sticky top-0 z-40 px-4 py-2.5">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-2.5 h-2.5 rounded-full bg-[#FF3B00] animate-dot"></div>
+        <div class="flex items-center gap-2">
+          <span class="font-mono-tech text-xs tracking-widest uppercase text-white font-semibold">CMF // N-TEXT LAUNCHER</span>
+          <span class="text-[10px] font-mono-tech px-2 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-neutral-400">Nothing OS 2.6 · Android 14</span>
+          <span id="ramBadgeHeader" class="hidden sm:inline-block text-[10px] font-mono-tech px-2 py-0.5 rounded bg-emerald-950/50 border border-emerald-800/50 text-emerald-400">RAM: 8.4 MB · 0 Bg Services</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button id="btnTogglePhoneOnlyMode" type="button" class="font-mono-tech text-xs px-3 py-1.5 rounded-lg border border-neutral-800 bg-neutral-950 hover:border-neutral-600 text-emerald-400 transition flex items-center gap-1.5" title="Hide outside panel to test 100% inside the phone">
+          <span>Phone-Only Mode: OFF</span>
+        </button>
+        <button id="btnToggleEditModeTop" type="button" class="font-mono-tech text-xs px-3 py-1.5 rounded-lg border border-neutral-800 bg-neutral-950 hover:border-neutral-600 text-neutral-200 transition flex items-center gap-1.5">
+          <span id="editModeDot" class="w-1.5 h-1.5 rounded-full bg-neutral-500"></span>
+          <span id="editModeLabelTop">Edit Home / Widgets</span>
+        </button>
+        <button id="btnToggleChassisColor" type="button" class="font-mono-tech text-xs px-3 py-1.5 rounded-lg border border-neutral-800 bg-neutral-950 hover:border-neutral-600 text-neutral-300 transition hidden sm:inline-flex items-center gap-1.5" title="Switch CMF Backplate Frame">
+          <span id="chassisColorDot" class="w-2 h-2 rounded-full bg-[#FF3B00]"></span>
+          <span>CMF Case</span>
+        </button>
+        <button id="btnExportSpecModal" type="button" class="font-mono-tech text-xs px-3 py-1.5 rounded-lg bg-[#FF3B00] hover:bg-[#e03500] text-black font-semibold transition">
+          APK Blueprint &amp; Config
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN WORKSPACE -->
+  <main id="mainWorkspaceGrid" class="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-5 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+    <!-- LEFT / CENTER: CMF PHONE 1 INTERACTIVE SIMULATOR -->
+    <section id="phoneSimulatorCol" class="lg:col-span-5 xl:col-span-5 flex flex-col items-center justify-center">
+      <!-- Quick Screen Navigation Bar Above Phone -->
+      <div class="mb-3 flex items-center gap-1.5 bg-neutral-950 border border-neutral-800/90 p-1 rounded-full text-xs font-mono-tech">
+        <button id="tabViewHome" type="button" class="px-3 py-1 rounded-full bg-white text-black font-medium transition">Home Screen</button>
+        <button id="tabViewDrawer" type="button" class="px-3 py-1 rounded-full text-neutral-400 hover:text-white transition">App Drawer</button>
+        <button id="tabViewWidgets" type="button" class="px-3 py-1 rounded-full text-neutral-400 hover:text-white transition">Widgets</button>
+        <button id="tabViewSettings" type="button" class="px-3 py-1 rounded-full text-neutral-400 hover:text-white transition">Settings</button>
+      </div>
+
+      <!-- CMF PHONE 1 HARDWARE FRAME -->
+      <div id="phoneChassis" class="cmf-chassis frame-orange">
+        <div class="cmf-dial-wheel" title="CMF Phone 1 Accessory Point"></div>
+
+        <!-- True OLED Screen (#000000 or Custom Wallpaper) -->
+        <div id="oledScreen" class="cmf-screen wp-oled-black">
+
+          <!-- Wallpaper Dimmer Overlay for Custom Uploaded Wallpapers -->
+          <div id="wallpaperDimOverlay" class="pointer-events-none absolute inset-0 bg-black/50 hidden z-0"></div>
+
+          <!-- DEFAULT ANDROID 14 SYSTEM NOTIFICATION BAR (Hidden by default per user preference!) -->
+          <div id="androidDefaultNotifBar" class="hidden w-full px-5 pt-2 pb-1 bg-neutral-900/90 border-b border-neutral-800 flex items-center justify-between text-[10px] font-sans text-neutral-300 z-20 shrink-0">
+            <div class="flex items-center gap-1.5">
+              <span class="font-semibold text-white">Jio 5G</span>
+              <span class="text-neutral-400">·</span>
+              <span title="WhatsApp Notification">💬</span>
+              <span title="Mail Notification">✉️</span>
+              <span title="USB Debugging">⚙</span>
+            </div>
+            <div class="w-3 h-3 rounded-full bg-black border border-neutral-700"></div>
+            <div class="flex items-center gap-1.5 text-[10px]">
+              <span>VoLTE</span>
+              <span>▲▼</span>
+              <span>🔋 86%</span>
+            </div>
+          </div>
+
+          <!-- CUSTOM N-TEXT MINIMAL TOP BAR (The one the user likes!) -->
+          <div id="statusBar" class="w-full px-6 pt-3 pb-1.5 flex items-center justify-between text-[11px] font-mono-tech text-neutral-300 z-20 shrink-0 relative">
+            <div class="flex items-center gap-2">
+              <span id="statusBarClock" class="font-medium tracking-tight">12:30</span>
+              <span id="focusStatusPill" class="hidden text-[9px] px-1.5 py-0.2 rounded bg-white/15 text-white uppercase">ZEN</span>
+            </div>
+
+            <!-- Punch-hole selfie camera (centered) -->
+            <div class="w-3.5 h-3.5 rounded-full bg-[#090909] border border-neutral-800/80 shadow-inner"></div>
+
+            <!-- Right status icons: 5G, Wi-Fi, Battery -->
+            <div class="flex items-center gap-2 text-[10px]">
+              <span class="tracking-tighter text-neutral-400">5G</span>
+              <svg class="w-3 h-3 text-neutral-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+                <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+                <circle cx="12" cy="20" r="1" fill="currentColor" />
+              </svg>
+              <span id="statusBarBattery" class="px-1 py-0.2 border border-neutral-600 rounded text-[9px] text-white">86%</span>
+            </div>
+          </div>
+
+          <!-- IN-PHONE TOAST NOTIFICATION -->
+          <div id="phoneToast" class="pointer-events-none opacity-0 transition-opacity duration-200 absolute top-11 left-1/2 -translate-x-1/2 z-50 bg-neutral-900/95 border border-neutral-700 text-white font-mono-tech text-[11px] px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap">
+            Saved
+          </div>
+
+          <!-- FLOATING NIAGARA WAVE LETTER INDICATOR BUBBLE -->
+          <div id="niagaraWaveBubble" class="pointer-events-none opacity-0 transition-all duration-150 absolute right-14 top-1/2 -translate-y-1/2 z-40 w-12 h-12 rounded-2xl bg-neutral-950/95 border border-neutral-700 flex items-center justify-center font-dot text-2xl text-white shadow-2xl">
+            A
+          </div>
+
+          <!-- EDIT MODE BANNER INSIDE PHONE (Visible when customizing home/widgets) -->
+          <div id="inPhoneEditBar" class="hidden mx-4 mt-1 mb-1 px-3 py-1.5 rounded-lg bg-neutral-950 border border-dashed border-neutral-700 flex items-center justify-between z-20 shrink-0 relative">
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-[#FF3B00] animate-dot"></span>
+              <span class="font-mono-tech text-[10px] uppercase tracking-wider text-neutral-300">Edit Mode: Tap [×] to remove widgets</span>
+            </div>
+            <button id="btnExitEditInPhone" type="button" class="font-mono-tech text-[10px] px-2 py-0.5 rounded bg-white text-black font-semibold">Done</button>
+          </div>
+
+          <!-- ========================================== -->
+          <!-- VIEW 1: MINIMALIST HOME SCREEN             -->
+          <!-- ========================================== -->
+          <div id="viewHome" class="flex-1 flex flex-col justify-between px-6 py-2 overflow-y-auto relative z-10">
+
+            <!-- TOP / REMOVABLE WIDGETS STACK -->
+            <div id="homeWidgetsContainer" class="flex flex-col gap-2.5 pt-1">
+              <!-- Populated dynamically by renderHomeWidgets() -->
+            </div>
+
+            <!-- MIDDLE / FAVORITE APPS (TEXT-ONLY LIST + NIAGARA TRAVERSING WAVE) -->
+            <div class="my-auto py-4 relative flex items-center">
+              <div id="homeAppsList" class="flex-1 flex flex-col pr-4">
+                <!-- Populated dynamically by renderHomeApps() -->
+              </div>
+
+              <!-- Subtle Niagara-style Right-Edge Wave Strip on Home Screen -->
+              <div id="homeWaveStrip" class="w-4 py-2 flex flex-col items-center justify-center gap-0.5 text-[8px] font-mono-tech text-neutral-600 cursor-ns-resize select-none" title="Slide or hover to traverse apps (Niagara Wave)">
+                <!-- Populated dynamically by renderHomeWaveStrip() -->
+              </div>
+            </div>
+
+            <!-- BOTTOM MINIMAL DOCK / SEARCH & ALL APPS TRIGGER -->
+            <div class="pt-1 pb-2 flex items-center justify-between border-t border-neutral-900/90 text-neutral-500">
+              <button id="btnQuickSearchHome" type="button" class="font-mono-tech text-[11px] hover:text-white transition flex items-center gap-1.5 py-1">
+                <span>/ search</span>
+              </button>
+
+              <button id="btnOpenDrawerFromHome" type="button" class="font-mono-tech text-[11px] hover:text-white transition flex items-center gap-1 py-1">
+                <span>all apps</span>
+                <span id="allAppsCountLabel" class="text-neutral-600">(22)</span>
+                <span>↑</span>
+              </button>
+
+              <div class="flex items-center gap-2.5">
+                <button id="btnLongPressHint" type="button" class="font-mono-tech text-[11px] hover:text-white transition py-1" title="Customize Widgets & Home">
+                  <span>+ widgets</span>
+                </button>
+                <button id="btnOpenSettingsFromHome" type="button" class="font-mono-tech text-[11px] hover:text-white transition py-1" title="Open Launcher Settings inside Phone">
+                  <span>⚙ settings</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========================================== -->
+          <!-- VIEW 2: ULTRA-LIGHT TEXT APP DRAWER        -->
+          <!-- ========================================== -->
+          <div id="viewDrawer" class="hidden flex-1 flex flex-col px-5 pt-2 pb-1 overflow-hidden relative bg-black/90 backdrop-blur-md z-10">
+            <!-- Instant Search Input -->
+            <div class="flex items-center gap-2 border-b border-neutral-800 pb-2 mb-2 shrink-0">
+              <span class="font-mono-tech text-xs accent-text">/</span>
+              <input
+                id="drawerSearchInput"
+                type="text"
+                placeholder="Type app name or math (e.g. 24*7)..."
+                autocomplete="off"
+                class="w-full bg-transparent text-white font-mono-tech text-xs focus:outline-none placeholder-neutral-600"
+              />
+              <button id="btnClearSearch" type="button" class="text-neutral-500 hover:text-white font-mono-tech text-xs px-1">esc</button>
+            </div>
+
+            <!-- Instant Calculator / Direct Action Pill (shows when user types math) -->
+            <div id="instantCalcResult" class="hidden mb-2 px-3 py-2 rounded bg-neutral-950 border border-neutral-800 flex items-center justify-between font-mono-tech text-xs">
+              <span class="text-neutral-400">Instant Calc</span>
+              <span id="instantCalcValue" class="text-white font-semibold">= 168</span>
+            </div>
+
+            <!-- Filter Bar: All vs Pinned vs Hidden -->
+            <div class="flex items-center justify-between text-[10px] font-mono-tech text-neutral-500 mb-2 shrink-0">
+              <div class="flex items-center gap-2">
+                <button id="filterDrawerAll" type="button" class="text-white underline">ALL</button>
+                <button id="filterDrawerPinned" type="button" class="hover:text-neutral-300">PINNED</button>
+                <button id="filterDrawerHidden" type="button" class="hover:text-neutral-300">HIDDEN</button>
+              </div>
+              <span class="text-neutral-600">Slide A–Z for Niagara Wave</span>
+            </div>
+
+            <!-- App List + Niagara A-Z Wave Scrubber -->
+            <div class="flex-1 flex overflow-hidden relative">
+              <div id="drawerAppsList" class="flex-1 overflow-y-auto pr-6 space-y-0.5">
+                <!-- Populated by renderDrawerApps() -->
+              </div>
+
+              <!-- A-Z Minimalist Index Scrubber with Niagara Wave Animation -->
+              <div id="azScrubber" class="w-6 flex flex-col justify-center items-center text-[9px] font-mono-tech text-neutral-500 select-none shrink-0 space-y-0.5 cursor-ns-resize z-30">
+                <!-- Populated by renderAzScrubber() -->
+              </div>
+            </div>
+          </div>
+
+          <!-- ========================================== -->
+          <!-- VIEW 3: WIDGET MANAGER & CUSTOMIZER        -->
+          <!-- ========================================== -->
+          <div id="viewWidgets" class="hidden flex-1 flex flex-col px-5 pt-2 pb-2 overflow-y-auto bg-black/95 z-10">
+            <div class="flex items-center justify-between border-b border-neutral-900 pb-2 mb-3">
+              <div>
+                <h2 class="font-mono-tech text-xs uppercase tracking-wider text-white">Modular OLED Widgets</h2>
+                <p class="text-[10px] text-neutral-500">Toggle, reorder, or remove all widgets for 100% text-only screen</p>
+              </div>
+              <button id="btnRemoveAllWidgetsPhone" type="button" class="font-mono-tech text-[10px] px-2 py-1 rounded border border-neutral-800 hover:border-red-500/60 text-neutral-400 hover:text-red-400 transition">
+                Clear All
+              </button>
+            </div>
+
+            <div id="inPhoneWidgetManagerList" class="space-y-2 flex-1">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+
+          <!-- ========================================== -->
+          <!-- VIEW 4: LAUNCHER SETTINGS (IN-PHONE)       -->
+          <!-- ========================================== -->
+          <div id="viewSettings" class="hidden flex-1 flex flex-col px-5 pt-2 pb-2 overflow-y-auto bg-black/95 font-mono-tech z-10">
+            <div class="border-b border-neutral-900 pb-2 mb-3 flex items-center justify-between">
+              <div>
+                <h2 class="text-xs uppercase tracking-wider text-white">N-TEXT // SETTINGS</h2>
+                <p class="text-[10px] text-neutral-500">Nothing OS 2.6 · API 34 (Android 14)</p>
+              </div>
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-neutral-900 text-neutral-400">v1.2-niagara</span>
+            </div>
+
+            <div class="space-y-2.5 text-xs pb-2">
+              <!-- 1. Set Default Home Launcher -->
+              <div class="p-2.5 rounded-lg border border-neutral-800 bg-neutral-950/90 flex items-center justify-between">
+                <div>
+                  <div class="text-white text-[11px] flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-[#FF3B00]"></span>
+                    <span>Default Home Launcher</span>
+                  </div>
+                  <div id="inPhoneDefaultHomeSub" class="text-[10px] text-emerald-400 mt-0.5">Active: N-TEXT Minimal</div>
+                </div>
+                <button id="btnOpenDefaultHomeDialogPhone" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">Change</button>
+              </div>
+
+              <!-- 2. Change Wallpaper Setting -->
+              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60">
+                <div class="flex items-center justify-between mb-1.5">
+                  <div>
+                    <div class="text-white text-[11px]">OLED Wallpaper</div>
+                    <div class="text-[10px] text-neutral-500">Pure #000000, Nothing Grids, or Custom</div>
+                  </div>
+                  <label for="wallpaperFileInput" class="cursor-pointer px-2 py-0.5 rounded text-[10px] border border-neutral-700 hover:border-white text-neutral-200">
+                    Upload
+                  </label>
+                </div>
+                <div class="grid grid-cols-5 gap-1 text-[9px]">
+                  <button type="button" data-set-wp="oled" class="py-1 rounded border border-neutral-700 bg-black text-white">OLED</button>
+                  <button type="button" data-set-wp="dots" class="py-1 rounded border border-neutral-800 bg-neutral-950 text-neutral-400">Dots</button>
+                  <button type="button" data-set-wp="blueprint" class="py-1 rounded border border-neutral-800 bg-neutral-950 text-neutral-400">CMF</button>
+                  <button type="button" data-set-wp="mesh" class="py-1 rounded border border-neutral-800 bg-neutral-950 text-neutral-400">Mesh</button>
+                  <button type="button" data-set-wp="topo" class="py-1 rounded border border-neutral-800 bg-neutral-950 text-neutral-400">Topo</button>
+                </div>
+                <div class="mt-2 pt-1.5 border-t border-neutral-900 flex items-center justify-between gap-2 text-[10px]">
+                  <span class="text-neutral-400">Wallpaper Dim: <strong id="inPhoneLabelWpDim" class="text-white">50%</strong></span>
+                  <input id="inPhoneRangeWpDim" type="range" min="0" max="85" value="50" class="w-28 accent-[#FF3B00] cursor-pointer" />
+                </div>
+              </div>
+
+              <!-- 2b. Home Text Alignment, Accent Color & Text Scale (In-Phone) -->
+              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60 space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-white text-[11px]">Text Alignment</span>
+                  <div class="flex items-center gap-1 text-[10px]">
+                    <button type="button" data-set-align="left" class="px-2 py-0.5 rounded border border-neutral-800 text-neutral-300">Left</button>
+                    <button type="button" data-set-align="center" class="px-2 py-0.5 rounded border border-neutral-800 text-neutral-300">Center</button>
+                    <button type="button" data-set-align="right" class="px-2 py-0.5 rounded border border-neutral-800 text-neutral-300">Right</button>
+                  </div>
+                </div>
+                <div class="flex items-center justify-between pt-1 border-t border-neutral-900">
+                  <span class="text-white text-[11px]">OLED Accent</span>
+                  <div class="flex items-center gap-1 text-[10px]">
+                    <button type="button" data-set-accent="#FF3B00" class="px-2 py-0.5 rounded border border-neutral-800 text-[#FF3B00]">CMF</button>
+                    <button type="button" data-set-accent="#FFFFFF" class="px-2 py-0.5 rounded border border-neutral-800 text-white">B&amp;W</button>
+                    <button type="button" data-set-accent="#D71921" class="px-2 py-0.5 rounded border border-neutral-800 text-[#D71921]">N-Red</button>
+                  </div>
+                </div>
+                <div class="flex items-center justify-between pt-1 border-t border-neutral-900 text-[10px]">
+                  <span class="text-white text-[11px]">Text Size: <strong id="inPhoneLabelTextSize" class="text-neutral-300">20px</strong></span>
+                  <input id="inPhoneRangeTextSize" type="range" min="15" max="28" value="20" class="w-28 accent-[#FF3B00] cursor-pointer" />
+                </div>
+              </div>
+
+              <!-- 2c. Manage Widgets & Clock/Top Bar (In-Phone) -->
+              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60 space-y-2">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <div class="text-white text-[11px]">Home Screen Widgets</div>
+                    <div class="text-[10px] text-neutral-500">Add, reorder, or remove all widgets</div>
+                  </div>
+                  <button id="btnOpenWidgetsFromSettings" type="button" class="px-2 py-1 rounded text-[10px] border border-neutral-700 hover:border-white text-white">Manage →</button>
+                </div>
+                <div class="flex items-center justify-between pt-1 border-t border-neutral-900 text-[10px]">
+                  <button id="inPhoneToggle24h" type="button" class="px-2 py-1 rounded border border-neutral-800 text-neutral-300">Clock: 24h</button>
+                  <button id="inPhoneToggleCustomTopBar" type="button" class="px-2 py-1 rounded border border-neutral-800 text-neutral-300">N-TEXT Bar: ON</button>
+                  <button id="inPhoneToggleNavMode" type="button" class="px-2 py-1 rounded border border-neutral-800 text-neutral-300">Nav: 3-Btn</button>
+                </div>
+              </div>
+
+              <!-- 3. Font Style Picker (In-Phone) -->
+              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60">
+                <div class="text-white text-[11px] mb-1.5">Prebuilt Font Style</div>
+                <div class="grid grid-cols-3 gap-1 text-[10px]">
+                  <button type="button" data-set-font="dot" class="py-1 rounded border border-neutral-800 text-neutral-300 font-dot">N-Dot</button>
+                  <button type="button" data-set-font="ndot" class="py-1 rounded border border-neutral-800 text-neutral-300 font-ndot-matrix">Matrix</button>
+                  <button type="button" data-set-font="mono" class="py-1 rounded border border-neutral-800 text-neutral-300 font-mono-tech">JetBrains</button>
+                  <button type="button" data-set-font="spacemono" class="py-1 rounded border border-neutral-800 text-neutral-300 font-space-mono">SpaceMono</button>
+                  <button type="button" data-set-font="sans" class="py-1 rounded border border-neutral-800 text-neutral-300 font-sans">Clean Sans</button>
+                  <button type="button" data-set-font="editorial" class="py-1 rounded border border-neutral-800 text-neutral-300 font-editorial text-xs">Editorial</button>
+                </div>
+              </div>
+
+              <!-- 4. Hide Default Android Notification Bar -->
+              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60 flex items-center justify-between">
+                <div>
+                  <div class="text-white text-[11px]">Hide Android Notif Bar</div>
+                  <div class="text-[10px] text-neutral-500">Keep only N-TEXT custom top bar</div>
+                </div>
+                <button id="toggleHideAndroidNotifBar" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">ON</button>
+              </div>
+
+              <!-- 5. Niagara Wave Traversing Animation -->
+              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60 flex items-center justify-between">
+                <div>
+                  <div class="text-white text-[11px]">Niagara Wave Traversal</div>
+                  <div class="text-[10px] text-neutral-500">Curved wave animation on app lists</div>
+                </div>
+                <button id="toggleNiagaraWave" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">ON</button>
+              </div>
+
+              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60 flex items-center justify-between">
+                <div>
+                  <div class="text-white text-[11px]">Auto-Open Keyboard</div>
+                  <div class="text-[10px] text-neutral-500">Focus search bar immediately on drawer swipe</div>
+                </div>
+                <button id="toggleAutoKeyboard" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">ON</button>
+              </div>
+
+              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60 flex items-center justify-between">
+                <div>
+                  <div class="text-white text-[11px]">Screen-Time Micro Labels</div>
+                  <div class="text-[10px] text-neutral-500">Show daily minutes next to home apps</div>
+                </div>
+                <button id="toggleScreenTimeLabels" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">ON</button>
+              </div>
+
+              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60 flex items-center justify-between">
+                <div>
+                  <div class="text-white text-[11px]">Notification Dots</div>
+                  <div class="text-[10px] text-neutral-500">Minimal count badge [2] on unread apps</div>
+                </div>
+                <button id="toggleNotifBadges" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">ON</button>
+              </div>
+
+              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60 flex items-center justify-between">
+                <div>
+                  <div class="text-white text-[11px]">Double-Tap OLED Lock</div>
+                  <div class="text-[10px] text-neutral-500">Double-tap empty black space to sleep</div>
+                </div>
+                <button id="toggleDoubleTapSleep" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">ON</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========================================== -->
+          <!-- VIEW 5: SIMULATED APP LAUNCH / RECENTS     -->
+          <!-- ========================================== -->
+          <div id="viewLaunchedApp" class="hidden flex-1 flex flex-col justify-between p-6 bg-black relative z-10">
+            <div class="border-b border-neutral-900 pb-3 flex items-center justify-between">
+              <div>
+                <span class="font-mono-tech text-[10px] uppercase tracking-widest text-neutral-500">NOTHING OS 2.6 // RUNNING</span>
+                <h2 id="launchedAppTitle" class="text-lg font-medium text-white mt-0.5">Camera</h2>
+              </div>
+              <span id="launchedAppUsage" class="font-mono-tech text-[10px] px-2 py-0.5 rounded border border-neutral-800 text-neutral-400">14m today</span>
+            </div>
+
+            <div id="launchedAppBody" class="my-auto py-8 text-center space-y-3">
+              <div class="w-12 h-12 rounded-full border border-neutral-800 mx-auto flex items-center justify-center font-mono-tech text-sm accent-text">
+                APP
+              </div>
+              <p id="launchedAppDesc" class="text-xs text-neutral-400 max-w-[230px] mx-auto leading-relaxed">
+                Simulated Android 14 activity. Use the System Navigation bar below (Back ◁ or Home ○) to return to the launcher.
+              </p>
+              <div class="pt-2 flex justify-center gap-2">
+                <button id="btnPinToggleFromLaunched" type="button" class="font-mono-tech text-[11px] px-3 py-1.5 rounded border border-neutral-800 hover:border-white text-neutral-300 transition">
+                  Toggle Home Pin
+                </button>
+                <button id="btnReturnHomeFromApp" type="button" class="font-mono-tech text-[11px] px-3 py-1.5 rounded bg-white text-black font-medium transition">
+                  Back to Launcher
+                </button>
+              </div>
+            </div>
+
+            <div class="text-center font-mono-tech text-[10px] text-neutral-600">
+              Android 14 WindowInsets · System Navigation Active
+            </div>
+          </div>
+
+          <!-- ========================================== -->
+          <!-- VIEW 6: ANDROID 14 RECENTS MULTITASKING    -->
+          <!-- ========================================== -->
+          <div id="viewRecents" class="hidden flex-1 flex flex-col justify-between px-5 py-3 bg-black/95 z-10">
+            <div class="flex items-center justify-between border-b border-neutral-900 pb-2">
+              <span class="font-mono-tech text-[11px] text-neutral-400 uppercase tracking-wider">Recent Tasks</span>
+              <span class="font-mono-tech text-[10px] text-emerald-400">6.1 GB / 8 GB Free</span>
+            </div>
+
+            <div id="recentsCardsContainer" class="my-auto space-y-2.5 py-3">
+              <!-- Populated dynamically -->
+            </div>
+
+            <div class="flex items-center justify-between pt-2 border-t border-neutral-900">
+              <button id="btnClearAllRecents" type="button" class="font-mono-tech text-[11px] text-neutral-400 hover:text-white transition">Clear all</button>
+              <button id="btnCloseRecents" type="button" class="font-mono-tech text-[11px] text-white underline">Return Home</button>
+            </div>
+          </div>
+
+          <!-- ========================================== -->
+          <!-- IN-PHONE MODAL: ANDROID 14 DEFAULT HOME    -->
+          <!-- ========================================== -->
+          <div id="defaultHomeSheet" class="hidden absolute inset-0 z-40 bg-black/85 backdrop-blur-sm flex items-end justify-center p-3">
+            <div class="w-full rounded-3xl border border-neutral-800 bg-neutral-950 p-4 space-y-3 shadow-2xl">
+              <div class="flex items-center justify-between border-b border-neutral-900 pb-2">
+                <div>
+                  <span class="font-mono-tech text-[9px] uppercase tracking-widest text-[#FF3B00]">Android 14 · RoleManager</span>
+                  <h3 class="font-mono-tech text-xs text-white font-semibold">Choose Default Home App</h3>
+                </div>
+                <button id="btnCloseDefaultHomeSheet" type="button" class="font-mono-tech text-[10px] text-neutral-400 hover:text-white">✕</button>
+              </div>
+
+              <div id="defaultLauncherOptionsList" class="space-y-1.5 font-mono-tech text-xs">
+                <!-- Populated dynamically -->
+              </div>
+
+              <div class="text-[10px] font-mono-tech text-neutral-500 leading-snug">
+                Calls <code class="text-neutral-300">RoleManager.ROLE_HOME</code> on Nothing OS 2.6 so pressing the Home ○ button always returns to N-TEXT.
+              </div>
+            </div>
+          </div>
+
+          <!-- ========================================== -->
+          <!-- ANDROID 14 SYSTEM NAVIGATION BAR (BOTTOM)  -->
+          <!-- ========================================== -->
+          <div id="systemNavContainer" class="w-full bg-black border-t border-neutral-950 z-30 shrink-0 relative">
+            <!-- 3-Button System Navigation (Default per user's system navigation preference) -->
+            <div id="navThreeButton" class="h-11 px-10 flex items-center justify-between text-neutral-400">
+              <button id="sysBtnBack" type="button" class="w-12 h-9 flex items-center justify-center rounded-full hover:bg-neutral-900 hover:text-white active:scale-90 transition" title="System Back">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="19 20 9 12 19 4 19 20" fill="currentColor"></polygon>
+                </svg>
+              </button>
+              <button id="sysBtnHome" type="button" class="w-12 h-9 flex items-center justify-center rounded-full hover:bg-neutral-900 hover:text-white active:scale-90 transition" title="System Home">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <circle cx="12" cy="12" r="7"></circle>
+                </svg>
+              </button>
+              <button id="sysBtnRecents" type="button" class="w-12 h-9 flex items-center justify-center rounded-full hover:bg-neutral-900 hover:text-white active:scale-90 transition" title="System Recents">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Alternative Gesture Pill Bar (Toggleable) -->
+            <div id="navGestureBar" class="hidden h-7 flex items-center justify-center">
+              <button id="sysGesturePill" type="button" class="w-32 h-1 rounded-full bg-neutral-600 hover:bg-white transition" title="Tap to go Home"></button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Subtle Interactive Hints Below Phone -->
+      <div class="mt-3 flex flex-wrap items-center justify-center gap-3 text-[11px] font-mono-tech text-neutral-500">
+        <span>Tip: Hover/drag right edge for Niagara Wave</span>
+        <span>·</span>
+        <span>Use ◁ ○ ▢ System Nav</span>
+        <span>·</span>
+        <span>Double-click empty black area for OLED Lock</span>
+      </div>
+    </section>
+
+    <!-- RIGHT: CUSTOMIZATION STUDIO & REMOVABLE WIDGETS CONTROLLER -->
+    <section id="studioSidePanel" class="lg:col-span-7 xl:col-span-7 space-y-5">
+
+      <!-- CARD 1: REMOVABLE HOME SCREEN WIDGETS -->
+      <div class="rounded-2xl border border-neutral-800/90 bg-neutral-950/70 p-5">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-800/80 pb-3.5 mb-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-[#FF3B00]"></span>
+              <h2 class="font-mono-tech text-sm uppercase tracking-wider text-white font-semibold">1. Removable Home Screen Widgets</h2>
+            </div>
+            <p class="text-xs text-neutral-400 mt-0.5">
+              Add, reorder, or completely remove any widget from the OLED home screen. You can also remove them directly on the phone in Edit Mode.
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="btnEnableAllWidgets" type="button" class="font-mono-tech text-[11px] px-2.5 py-1 rounded border border-neutral-700 hover:border-white text-neutral-300 transition">
+              Show Default Set
+            </button>
+            <button id="btnStripAllWidgets" type="button" class="font-mono-tech text-[11px] px-2.5 py-1 rounded border border-neutral-800 hover:border-red-500/70 text-neutral-400 hover:text-red-400 transition">
+              Zero Widgets (Pure Text)
+            </button>
+          </div>
+        </div>
+
+        <!-- Widget Cards Grid -->
+        <div id="studioWidgetsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <!-- Dynamically populated by renderStudioWidgets() -->
+        </div>
+      </div>
+
+      <!-- CARD 2: PREBUILT FONTS, NIAGARA WAVE, NOTIF BAR & SYSTEM NAV -->
+      <div class="rounded-2xl border border-neutral-800/90 bg-neutral-950/70 p-5">
+        <div class="flex items-center justify-between border-b border-neutral-800/80 pb-3 mb-4">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-white"></span>
+            <h2 class="font-mono-tech text-sm uppercase tracking-wider text-white font-semibold">2. Fonts, Niagara Wave, Status Bar &amp; Default Launcher</h2>
+          </div>
+          <button id="btnStudioDefaultLauncher" type="button" class="font-mono-tech text-[11px] px-3 py-1 rounded-lg bg-[#FF3B00]/15 border border-[#FF3B00] text-[#FF3B00] hover:bg-[#FF3B00] hover:text-black font-semibold transition">
+            Set Default Home App
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <!-- Expanded Prebuilt Font Styles (6 Fonts including Nothing Dot-Matrix) -->
+          <div class="p-3.5 rounded-xl border border-neutral-900 bg-black/60 sm:col-span-2">
+            <div class="flex items-center justify-between mb-2">
+              <label class="font-mono-tech text-[11px] uppercase text-neutral-400">Prebuilt Launcher Font Family (6 Built-In Fonts)</label>
+              <span id="activeFontBadge" class="font-mono-tech text-[10px] text-[#FF3B00]">Nothing Dot-Matrix</span>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-6 gap-1.5 text-xs">
+              <button id="fontBtnDot" type="button" class="py-2 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600 font-dot">N-Dot</button>
+              <button id="fontBtnNdotMatrix" type="button" class="py-2 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600 font-ndot-matrix">Dot Matrix</button>
+              <button id="fontBtnMono" type="button" class="py-2 px-2 rounded border border-white bg-white text-black font-medium font-mono-tech">Tech Mono</button>
+              <button id="fontBtnSpaceMono" type="button" class="py-2 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600 font-space-mono">Space Mono</button>
+              <button id="fontBtnSans" type="button" class="py-2 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600 font-sans">Clean Sans</button>
+              <button id="fontBtnEditorial" type="button" class="py-2 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600 font-editorial text-sm">Editorial</button>
+            </div>
+          </div>
+
+          <!-- Niagara Wave Traversal Animation Setting -->
+          <div class="p-3.5 rounded-xl border border-neutral-900 bg-black/60">
+            <div class="flex items-center justify-between mb-2">
+              <label class="font-mono-tech text-[11px] uppercase text-neutral-400">Niagara List Wave Animation</label>
+              <span class="font-mono-tech text-[10px] text-emerald-400">60/120Hz Smooth</span>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5 font-mono-tech text-xs">
+              <button id="waveBtnFull" type="button" class="py-1.5 px-2 rounded border border-white bg-white text-black font-medium">Niagara Wave</button>
+              <button id="waveBtnSubtle" type="button" class="py-1.5 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600">Subtle Arc</button>
+              <button id="waveBtnOff" type="button" class="py-1.5 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600">Static</button>
+            </div>
+          </div>
+
+          <!-- Notification / Status Bar Controls (Hide Default Android Bar vs Custom N-TEXT Bar) -->
+          <div class="p-3.5 rounded-xl border border-neutral-900 bg-black/60 flex flex-col justify-between">
+            <label class="block font-mono-tech text-[11px] uppercase text-neutral-400 mb-2">Android Status Bar &amp; Custom Top Bar</label>
+            <div class="grid grid-cols-2 gap-1.5 font-mono-tech text-[11px]">
+              <button id="btnHideDefaultAndroidBar" type="button" class="py-1.5 px-2 rounded border border-white bg-white text-black font-medium">Android Bar: HIDDEN</button>
+              <button id="btnToggleStatusBar" type="button" class="py-1.5 px-2 rounded border border-neutral-800 text-neutral-200 hover:border-neutral-600">Status Bar: ON</button>
+            </div>
+          </div>
+
+          <!-- Home App Alignment -->
+          <div class="p-3.5 rounded-xl border border-neutral-900 bg-black/60">
+            <label class="block font-mono-tech text-[11px] uppercase text-neutral-400 mb-2">Home Text Alignment</label>
+            <div class="grid grid-cols-3 gap-1.5 font-mono-tech text-xs">
+              <button id="alignBtnLeft" type="button" class="py-1.5 px-2 rounded border border-white bg-white text-black font-medium">Left</button>
+              <button id="alignBtnCenter" type="button" class="py-1.5 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600">Center</button>
+              <button id="alignBtnRight" type="button" class="py-1.5 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600">Right</button>
+            </div>
+          </div>
+
+          <!-- Accent Color (Monochrome vs CMF Orange) -->
+          <div class="p-3.5 rounded-xl border border-neutral-900 bg-black/60">
+            <label class="block font-mono-tech text-[11px] uppercase text-neutral-400 mb-2">OLED Accent Highlight</label>
+            <div class="grid grid-cols-3 gap-1.5 font-mono-tech text-xs">
+              <button id="accentBtnOrange" type="button" class="py-1.5 px-2 rounded border border-[#FF3B00] bg-[#FF3B00]/15 text-[#FF3B00] font-medium flex items-center justify-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-[#FF3B00]"></span>CMF
+              </button>
+              <button id="accentBtnMono" type="button" class="py-1.5 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600 flex items-center justify-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-white"></span>Pure B&amp;W
+              </button>
+              <button id="accentBtnRed" type="button" class="py-1.5 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600 flex items-center justify-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-[#D71921]"></span>N-Red
+              </button>
+            </div>
+          </div>
+
+          <!-- Android 14 System Navigation Mode -->
+          <div class="p-3.5 rounded-xl border border-neutral-900 bg-black/60">
+            <label class="block font-mono-tech text-[11px] uppercase text-neutral-400 mb-2">Android 14 System Navigation</label>
+            <div class="grid grid-cols-2 gap-1.5 font-mono-tech text-xs">
+              <button id="navMode3Btn" type="button" class="py-1.5 px-2 rounded border border-white bg-white text-black font-medium">3-Button (◁ ○ ▢)</button>
+              <button id="navModeGesture" type="button" class="py-1.5 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600">Gesture Bar</button>
+            </div>
+          </div>
+
+          <!-- List Spacing / Text Size & 24h Clock -->
+          <div class="p-3.5 rounded-xl border border-neutral-900 bg-black/60">
+            <div class="flex items-center justify-between mb-2">
+              <label for="rangeTextSize" class="font-mono-tech text-[11px] uppercase text-neutral-400">App Text Scale</label>
+              <div class="flex items-center gap-2">
+                <span id="labelTextSize" class="font-mono-tech text-xs text-white">20px (Balanced)</span>
+                <button id="btnToggle24h" type="button" class="font-mono-tech text-[10px] px-1.5 py-0.5 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600">Clock: 24-Hour</button>
+              </div>
+            </div>
+            <input id="rangeTextSize" type="range" min="15" max="28" value="20" class="w-full accent-[#FF3B00] cursor-pointer" />
+          </div>
+        </div>
+      </div>
+
+      <!-- CARD 3: WALLPAPER ENGINE (OLED PRESETS + CUSTOM IMAGE UPLOAD) -->
+      <div class="rounded-2xl border border-neutral-800/90 bg-neutral-950/70 p-5">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-800/80 pb-3 mb-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-[#FF3B00]"></span>
+              <h2 class="font-mono-tech text-sm uppercase tracking-wider text-white font-semibold">3. Wallpaper Settings (OLED Presets &amp; Custom Image)</h2>
+            </div>
+            <p class="text-xs text-neutral-400 mt-0.5">
+              Choose pure `#000000` OLED black, Nothing OS dot-matrix textures, or upload your own wallpaper with OLED dimming.
+            </p>
+          </div>
+          <div>
+            <input id="wallpaperFileInput" type="file" accept="image/*" class="hidden" />
+            <label for="wallpaperFileInput" class="cursor-pointer font-mono-tech text-xs px-3 py-1.5 rounded-lg bg-white text-black font-semibold hover:bg-neutral-200 transition inline-flex items-center gap-1.5">
+              <span>+ Upload Custom Wallpaper</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2.5 font-mono-tech text-xs">
+          <button id="wpBtnOled" type="button" data-set-wp="oled" class="p-3 rounded-xl border border-white bg-black text-left transition flex flex-col justify-between h-20">
+            <span class="w-3 h-3 rounded-full bg-black border border-neutral-600"></span>
+            <div>
+              <div class="text-white font-semibold text-[11px]">Pure OLED</div>
+              <div class="text-[9px] text-neutral-500">#000000 · 0% Power</div>
+            </div>
+          </button>
+
+          <button id="wpBtnDots" type="button" data-set-wp="dots" class="p-3 rounded-xl border border-neutral-800 wp-dot-matrix text-left transition flex flex-col justify-between h-20">
+            <span class="w-3 h-3 rounded-full bg-neutral-400"></span>
+            <div>
+              <div class="text-white font-semibold text-[11px]">Nothing Dots</div>
+              <div class="text-[9px] text-neutral-400">Dot-Matrix Grid</div>
+            </div>
+          </button>
+
+          <button id="wpBtnBlueprint" type="button" data-set-wp="blueprint" class="p-3 rounded-xl border border-neutral-800 wp-cmf-blueprint text-left transition flex flex-col justify-between h-20">
+            <span class="w-3 h-3 rounded-full bg-[#FF3B00]"></span>
+            <div>
+              <div class="text-white font-semibold text-[11px]">CMF Schematic</div>
+              <div class="text-[9px] text-neutral-400">Industrial Grid</div>
+            </div>
+          </button>
+
+          <button id="wpBtnMesh" type="button" data-set-wp="mesh" class="p-3 rounded-xl border border-neutral-800 wp-nothing-mesh text-left transition flex flex-col justify-between h-20">
+            <span class="w-3 h-3 rounded-full bg-neutral-200"></span>
+            <div>
+              <div class="text-white font-semibold text-[11px]">Nothing Glow</div>
+              <div class="text-[9px] text-neutral-400">Dark Radial Mesh</div>
+            </div>
+          </button>
+
+          <button id="wpBtnTopo" type="button" data-set-wp="topo" class="p-3 rounded-xl border border-neutral-800 wp-topo-lines text-left transition flex flex-col justify-between h-20">
+            <span class="w-3 h-3 rounded-full border border-neutral-400"></span>
+            <div>
+              <div class="text-white font-semibold text-[11px]">Dial Rings</div>
+              <div class="text-[9px] text-neutral-400">CMF Rotary Contours</div>
+            </div>
+          </button>
+        </div>
+
+        <!-- Custom Wallpaper Dimmer Control -->
+        <div id="customWpDimContainer" class="mt-3 pt-3 border-t border-neutral-900 flex flex-wrap items-center justify-between gap-4">
+          <div class="flex items-center gap-2 font-mono-tech text-xs">
+            <span class="text-neutral-400">OLED Wallpaper Dimmer Overlay:</span>
+            <span id="labelWpDim" class="text-white font-semibold">50% Dim</span>
+          </div>
+          <input id="rangeWpDim" type="range" min="0" max="85" value="50" class="w-48 accent-[#FF3B00] cursor-pointer" />
+        </div>
+      </div>
+
+      <!-- CARD 4: HOME SCREEN FAVORITE APPS MANAGER -->
+      <div class="rounded-2xl border border-neutral-800/90 bg-neutral-950/70 p-5">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-800/80 pb-3 mb-3">
+          <div>
+            <h2 class="font-mono-tech text-sm uppercase tracking-wider text-white font-semibold">4. Pinned Home Apps (Text List)</h2>
+            <p class="text-xs text-neutral-400">Click any app chip below to pin or unpin it from the Home Screen (recommended: 4–7 apps).</p>
+          </div>
+          <span id="pinnedCountBadge" class="font-mono-tech text-xs px-2.5 py-1 rounded bg-neutral-900 border border-neutral-800 text-neutral-300">6 Pinned</span>
+        </div>
+
+        <div id="studioPinnedAppsChips" class="flex flex-wrap gap-2">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- OLED SLEEP OVERLAY (Triggered on double-tap empty home space) -->
+  <div id="oledSleepModal" class="hidden fixed inset-0 z-50 bg-black flex flex-col items-center justify-center cursor-pointer">
+    <div class="text-center space-y-3">
+      <div id="aodClock" class="font-dot text-4xl text-neutral-600 tracking-widest">12:30</div>
+      <div class="font-mono-tech text-xs text-neutral-700 uppercase tracking-widest">CMF Always-On OLED · Tap anywhere to wake</div>
+    </div>
+  </div>
+
+  <!-- APK BLUEPRINT & EXPORT CONFIGURATION MODAL -->
+  <div id="apkModal" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="max-w-2xl w-full rounded-2xl border border-neutral-800 bg-neutral-950 p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
+        <div>
+          <span class="font-mono-tech text-[10px] uppercase tracking-widest text-[#FF3B00]">Nothing OS 2.6 · Android 14 (API 34)</span>
+          <h3 class="text-base font-semibold text-white mt-0.5">Lightweight APK Architecture &amp; Live Config</h3>
+        </div>
+        <button id="btnCloseApkModal" type="button" class="font-mono-tech text-xs px-2.5 py-1 rounded border border-neutral-800 hover:border-neutral-600 text-neutral-400 hover:text-white">Close [ESC]</button>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 font-mono-tech text-xs">
+        <div class="p-3 rounded-lg bg-black border border-neutral-900">
+          <div class="text-neutral-500 text-[10px]">TARGET APK SIZE</div>
+          <div class="text-white font-semibold mt-0.5">~1.1 MB (R8 Shrunk)</div>
+        </div>
+        <div class="p-3 rounded-lg bg-black border border-neutral-900">
+          <div class="text-neutral-500 text-[10px]">SYSTEM NAVIGATION</div>
+          <div id="modalNavSpec" class="text-white font-semibold mt-0.5">3-Button + Insets</div>
+        </div>
+        <div class="p-3 rounded-lg bg-black border border-neutral-900">
+          <div class="text-neutral-500 text-[10px]">ACTIVE WIDGETS</div>
+          <div id="modalWidgetsSpec" class="text-emerald-400 font-semibold mt-0.5">3 Enabled</div>
+        </div>
+      </div>
+
+      <div class="text-xs text-neutral-300 space-y-1.5 leading-relaxed">
+        <p class="font-mono-tech text-[11px] text-neutral-400 uppercase">Current Prototype State JSON (Ready for Kotlin/Compose APK Generation):</p>
+        <pre id="configJsonPreview" class="p-3 rounded-lg bg-black border border-neutral-900 font-mono-tech text-[11px] text-neutral-300 overflow-x-auto"></pre>
+      </div>
+
+      <div class="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-neutral-900">
+        <span id="copyFeedbackText" class="font-mono-tech text-xs text-neutral-400">Test changes in the prototype, or tell me when you are ready to compile the APK project.</span>
+        <button id="btnCopyConfigJson" type="button" class="font-mono-tech text-xs px-4 py-2 rounded-lg bg-[#FF3B00] hover:bg-[#e03500] text-black font-semibold transition">
+          Copy Config JSON
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // STATE MANAGEMENT (CMF Phone 1 Minimalist OLED Launcher v1.2)
+    // =========================================================================
+    const STORAGE_KEY = 'cmf_ntext_launcher_v2';
+
+    const DEFAULT_STATE = {
+      currentView: 'home', // 'home' | 'drawer' | 'widgets' | 'settings' | 'launched' | 'recents'
+      editMode: false,
+      chassisOrange: true,
+      fontStyle: 'dot', // 'dot' | 'ndot' | 'mono' | 'spacemono' | 'sans' | 'editorial'
+      alignment: 'left', // 'left' | 'center' | 'right'
+      accentColor: '#FF3B00', // '#FF3B00' (CMF Orange) | '#FFFFFF' (Pure B&W) | '#D71921' (Nothing Red)
+      navMode: '3button', // '3button' | 'gesture'
+      textSize: 20,
+      use24Hour: true,
+      showStatusBar: true, // Our custom N-TEXT minimal top bar
+      hideDefaultAndroidBar: true, // Hides the cluttered stock Android status/notification bar
+      niagaraWaveMode: 'full', // 'full' | 'subtle' | 'off'
+      wallpaperPreset: 'oled', // 'oled' | 'dots' | 'blueprint' | 'mesh' | 'topo' | 'custom'
+      customWallpaperDataUrl: null,
+      wallpaperDimPercent: 50,
+      defaultLauncherApp: 'ntext', // 'ntext' | 'nothing' | 'niagara'
+      autoKeyboard: true,
+      showScreenTime: true,
+      showNotifBadges: true,
+      doubleTapSleep: true,
+      drawerFilter: 'all', // 'all' | 'pinned' | 'hidden'
+      zenFocusActive: false,
+      zenRemainingSec: 1500, // 25m
+      tempUnitCelsius: true,
+      quickNoteText: 'Ship CMF APK build v1',
+      editingNote: false,
+      mediaPlaying: false,
+      mediaTrackIndex: 0,
+      launchedAppId: null,
+      recentAppIds: ['phone', 'camera', 'notes'],
+      widgets: [
+        {
+          id: 'clock',
+          name: 'Dot-Matrix Clock & Date',
+          desc: 'Nothing OS 2.6 dot-matrix digital time, date & next alarm',
+          enabled: true
+        },
+        {
+          id: 'weather',
+          name: 'Minimal Weather & AQI Pill',
+          desc: 'Lightweight single-line temperature, sky condition & AQI',
+          enabled: true
+        },
+        {
+          id: 'telemetry',
+          name: 'CMF Battery & RAM Bar',
+          desc: 'Battery %, daily screen-on time & launcher RAM footprint',
+          enabled: true
+        },
+        {
+          id: 'zen',
+          name: 'Zen Focus Timer (25m)',
+          desc: 'One-tap minimalist Pomodoro timer that mutes app badges',
+          enabled: false
+        },
+        {
+          id: 'media',
+          name: 'CMF Buds / Media Ticker',
+          desc: 'Text-only now playing bar with play/skip & buds battery',
+          enabled: false
+        },
+        {
+          id: 'scratchpad',
+          name: 'One-Line Terminal Scratchpad',
+          desc: 'Editable plain-text micro note pinned to home screen',
+          enabled: false
+        }
+      ],
+      apps: [
+        { id: 'phone', name: 'Phone', category: 'Comm', pinned: true, hidden: false, badge: 0, minutes: 12 },
+        { id: 'messages', name: 'Messages', category: 'Comm', pinned: true, hidden: false, badge: 2, minutes: 19 },
+        { id: 'browser', name: 'Brave Browser', category: 'Web', pinned: true, hidden: false, badge: 0, minutes: 34 },
+        { id: 'camera', name: 'Camera', category: 'Media', pinned: true, hidden: false, badge: 0, minutes: 8 },
+        { id: 'notes', name: 'Nothing Notes', category: 'Tools', pinned: true, hidden: false, badge: 0, minutes: 15 },
+        { id: 'music', name: 'Spotify Lite', category: 'Media', pinned: true, hidden: false, badge: 0, minutes: 42 },
+        { id: 'whatsapp', name: 'WhatsApp', category: 'Comm', pinned: false, hidden: false, badge: 5, minutes: 28 },
+        { id: 'calendar', name: 'Calendar', category: 'Tools', pinned: false, hidden: false, badge: 1, minutes: 6 },
+        { id: 'calculator', name: 'Calculator', category: 'Tools', pinned: false, hidden: false, badge: 0, minutes: 3 },
+        { id: 'clockapp', name: 'Clock & Alarms', category: 'Tools', pinned: false, hidden: false, badge: 0, minutes: 4 },
+        { id: 'cmfwatch', name: 'CMF Watch', category: 'Hardware', pinned: false, hidden: false, badge: 0, minutes: 5 },
+        { id: 'files', name: 'Files', category: 'Tools', pinned: false, hidden: false, badge: 0, minutes: 7 },
+        { id: 'gallery', name: 'Gallery', category: 'Media', pinned: false, hidden: false, badge: 0, minutes: 11 },
+        { id: 'gmail', name: 'Proton Mail', category: 'Comm', pinned: false, hidden: false, badge: 3, minutes: 16 },
+        { id: 'maps', name: 'Maps', category: 'Nav', pinned: false, hidden: false, badge: 0, minutes: 22 },
+        { id: 'nothingx', name: 'Nothing X', category: 'Hardware', pinned: false, hidden: false, badge: 0, minutes: 4 },
+        { id: 'podcasts', name: 'Pocket Casts', category: 'Media', pinned: false, hidden: false, badge: 0, minutes: 18 },
+        { id: 'recorder', name: 'Glyph Recorder', category: 'Tools', pinned: false, hidden: false, badge: 0, minutes: 2 },
+        { id: 'settingsapp', name: 'System Settings', category: 'System', pinned: false, hidden: false, badge: 0, minutes: 9 },
+        { id: 'signal', name: 'Signal', category: 'Comm', pinned: false, hidden: false, badge: 1, minutes: 14 },
+        { id: 'terminal', name: 'Termux', category: 'Dev', pinned: false, hidden: false, badge: 0, minutes: 25 },
+        { id: 'youtube', name: 'NewPipe', category: 'Media', pinned: false, hidden: true, badge: 0, minutes: 45 }
+      ]
+    };
+
+    const FONT_NAMES = {
+      dot: 'Nothing N-Dot (Silkscreen)',
+      ndot: 'Nothing Dot-Matrix (DotGothic16)',
+      mono: 'JetBrains Tech Mono',
+      spacemono: 'Space Mono (Industrial)',
+      sans: 'Clean Geometric Sans (Inter)',
+      editorial: 'Minimal Editorial Serif'
+    };
+
+    const LAUNCHER_CHOICES = [
+      { id: 'ntext', name: 'N-TEXT Minimal Launcher', meta: '8.4 MB RAM · Pure OLED · Niagara Wave' },
+      { id: 'nothing', name: 'Nothing Launcher (OS 2.6)', meta: '145 MB RAM · Stock Nothing Grid' },
+      { id: 'niagara', name: 'Niagara Launcher', meta: '68 MB RAM · Classic Wave List' }
+    ];
+
+    const MEDIA_TRACKS = [
+      { title: 'Solaris Minimal — Carbon', buds: 'CMF Buds Pro · 90%' },
+      { title: 'Nothing Tape 04 — Subbass', buds: 'CMF Buds Pro · 90%' },
+      { title: 'Monochrome Drift — Analog', buds: 'CMF Buds Pro · 90%' }
+    ];
+
+    let state = loadState();
+    let zenInterval = null;
+    let clockInterval = null;
+    let toastTimer = null;
+    let waveBubbleTimer = null;
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          return Object.assign({}, DEFAULT_STATE, parsed, {
+            widgets: Array.isArray(parsed.widgets) && parsed.widgets.length === DEFAULT_STATE.widgets.length
+              ? parsed.widgets
+              : DEFAULT_STATE.widgets,
+            apps: Array.isArray(parsed.apps) && parsed.apps.length > 0
+              ? parsed.apps
+              : DEFAULT_STATE.apps
+          });
+        }
+      } catch (err) {
+        // Ignore storage errors in sandboxed iframe
+      }
+      return JSON.parse(JSON.stringify(DEFAULT_STATE));
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (err) {
+        // Ignore storage errors in sandboxed iframe
+      }
+    }
+
+    function showToast(msg) {
+      const el = document.getElementById('phoneToast');
+      if (!el) return;
+      el.textContent = msg;
+      el.style.opacity = '1';
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        el.style.opacity = '0';
+      }, 1700);
+    }
+
+    // =========================================================================
+    // TIME & ZEN TIMER HELPERS
+    // =========================================================================
+    function getFormattedTime() {
+      const now = new Date();
+      let hours = now.getHours();
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      let suffix = '';
+      if (!state.use24Hour) {
+        suffix = hours >= 12 ? ' PM' : ' AM';
+        hours = hours % 12 || 12;
+      }
+      const hh = state.use24Hour ? String(hours).padStart(2, '0') : String(hours);
+      return { hh, mm: minutes, suffix, full: `${hh}:${minutes}` };
+    }
+
+    function getFormattedDate() {
+      const now = new Date();
+      const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+      const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+      return `${days[now.getDay()]} · ${now.getDate()} ${months[now.getMonth()]}`;
+    }
+
+    function formatZenTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    function syncZenTimer() {
+      if (zenInterval) {
+        clearInterval(zenInterval);
+        zenInterval = null;
+      }
+      if (state.zenFocusActive) {
+        zenInterval = setInterval(() => {
+          if (state.zenRemainingSec > 0) {
+            state.zenRemainingSec -= 1;
+          } else {
+            state.zenFocusActive = false;
+            state.zenRemainingSec = 1500;
+            showToast('Zen session complete');
+          }
+          renderHomeWidgets();
+          updateStatusBar();
+        }, 1000);
+      }
+    }
+
+    // =========================================================================
+    // WALLPAPER, THEME & STATUS BAR FUNCTIONS
+    // =========================================================================
+    function applyThemeAndWallpaper() {
+      document.documentElement.style.setProperty('--accent', state.accentColor);
+      const chassis = document.getElementById('phoneChassis');
+      const dot = document.getElementById('chassisColorDot');
+      if (state.chassisOrange) {
+        chassis.classList.add('frame-orange');
+        dot.style.backgroundColor = '#FF3B00';
+      } else {
+        chassis.classList.remove('frame-orange');
+        dot.style.backgroundColor = '#525252';
+      }
+
+      // Apply Wallpaper to OLED Screen
+      const screen = document.getElementById('oledScreen');
+      const dimOverlay = document.getElementById('wallpaperDimOverlay');
+      screen.classList.remove('wp-oled-black', 'wp-dot-matrix', 'wp-cmf-blueprint', 'wp-nothing-mesh', 'wp-topo-lines');
+      screen.style.backgroundImage = '';
+
+      if (state.wallpaperPreset === 'custom' && state.customWallpaperDataUrl) {
+        screen.style.backgroundImage = `url(${state.customWallpaperDataUrl})`;
+        dimOverlay.classList.remove('hidden');
+        dimOverlay.style.backgroundColor = `rgba(0, 0, 0, ${state.wallpaperDimPercent / 100})`;
+      } else {
+        dimOverlay.classList.add('hidden');
+        const map = {
+          oled: 'wp-oled-black',
+          dots: 'wp-dot-matrix',
+          blueprint: 'wp-cmf-blueprint',
+          mesh: 'wp-nothing-mesh',
+          topo: 'wp-topo-lines'
+        };
+        screen.classList.add(map[state.wallpaperPreset] || 'wp-oled-black');
+      }
+
+      // Edit Mode top bar indicator
+      const editDot = document.getElementById('editModeDot');
+      const editLabel = document.getElementById('editModeLabelTop');
+      const inPhoneEditBar = document.getElementById('inPhoneEditBar');
+      if (state.editMode) {
+        editDot.style.backgroundColor = state.accentColor;
+        editLabel.textContent = 'Done Editing';
+        inPhoneEditBar.classList.remove('hidden');
+      } else {
+        editDot.style.backgroundColor = '#737373';
+        editLabel.textContent = 'Edit Home / Widgets';
+        inPhoneEditBar.classList.add('hidden');
+      }
+    }
+
+    function updateStatusBar() {
+      const sb = document.getElementById('statusBar');
+      const androidDefaultBar = document.getElementById('androidDefaultNotifBar');
+      const clockEl = document.getElementById('statusBarClock');
+      const aodEl = document.getElementById('aodClock');
+      const focusPill = document.getElementById('focusStatusPill');
+
+      const t = getFormattedTime();
+      if (clockEl) clockEl.textContent = t.full;
+      if (aodEl) aodEl.textContent = t.full;
+
+      // Custom N-TEXT minimal top bar visibility
+      if (state.showStatusBar) {
+        sb.classList.remove('hidden');
+      } else {
+        sb.classList.add('hidden');
+      }
+
+      // Stock Android Notification Bar visibility (Hidden when hideDefaultAndroidBar is true)
+      if (androidDefaultBar) {
+        if (state.hideDefaultAndroidBar) {
+          androidDefaultBar.classList.add('hidden');
+        } else {
+          androidDefaultBar.classList.remove('hidden');
+        }
+      }
+
+      if (state.zenFocusActive) {
+        focusPill.classList.remove('hidden');
+      } else {
+        focusPill.classList.add('hidden');
+      }
+    }
+
+    function getFontClass() {
+      if (state.fontStyle === 'dot') return 'font-dot';
+      if (state.fontStyle === 'ndot') return 'font-ndot-matrix';
+      if (state.fontStyle === 'mono') return 'font-mono-tech';
+      if (state.fontStyle === 'spacemono') return 'font-space-mono';
+      if (state.fontStyle === 'editorial') return 'font-editorial';
+      return 'font-sans';
+    }
+
+    // =========================================================================
+    // NIAGARA LAUNCHER WAVE TRAVERSAL ENGINE
+    // =========================================================================
+    function showWaveBubble(letter, clientY) {
+      const bubble = document.getElementById('niagaraWaveBubble');
+      const screen = document.getElementById('oledScreen');
+      if (!bubble || !screen) return;
+
+      const rect = screen.getBoundingClientRect();
+      const relY = Math.max(90, Math.min(rect.height - 90, clientY - rect.top));
+      bubble.style.top = `${relY}px`;
+      bubble.textContent = letter;
+      bubble.style.borderColor = state.accentColor;
+      bubble.style.opacity = '1';
+
+      if (waveBubbleTimer) clearTimeout(waveBubbleTimer);
+      waveBubbleTimer = setTimeout(() => {
+        bubble.style.opacity = '0';
+      }, 650);
+    }
+
+    function applyNiagaraWaveToElements(nodes, clientY, directionSign) {
+      if (state.niagaraWaveMode === 'off') return;
+      const maxShift = state.niagaraWaveMode === 'full' ? 24 : 11;
+      const radius = 95; // vertical wave spread in px
+
+      nodes.forEach((node) => {
+        const r = node.getBoundingClientRect();
+        const centerY = r.top + r.height / 2;
+        const dist = Math.abs(clientY - centerY);
+        if (dist < radius) {
+          const factor = Math.cos((dist / radius) * (Math.PI / 2));
+          const shiftX = ( factor * factor * maxShift * directionSign ).toFixed(1);
+          const scale = (1 + factor * 0.14).toFixed(3);
+          node.style.transform = `translateX(${shiftX}px) scale(${scale})`;
+          if (factor > 0.72) {
+            node.style.color = state.accentColor;
+          } else {
+            node.style.color = '';
+          }
+        } else {
+          node.style.transform = '';
+          node.style.color = '';
+        }
+      });
+    }
+
+    function resetNiagaraWave(nodes) {
+      nodes.forEach((node) => {
+        node.style.transform = '';
+        node.style.color = '';
+      });
+      const bubble = document.getElementById('niagaraWaveBubble');
+      if (bubble) bubble.style.opacity = '0';
+    }
+
+    // =========================================================================
+    // RENDER FUNCTIONS
+    // =========================================================================
+    function renderHomeWidgets() {
+      const container = document.getElementById('homeWidgetsContainer');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const enabledWidgets = state.widgets.filter(w => w.enabled);
+
+      if (enabledWidgets.length === 0) {
+        if (state.editMode) {
+          const emptyHint = document.createElement('div');
+          emptyHint.className = 'py-2 px-3 rounded border border-dashed border-neutral-800 text-center font-mono-tech text-[10px] text-neutral-500';
+          emptyHint.textContent = 'No widgets active (100% pure text mode). Toggle widgets in studio or tap + widgets.';
+          container.appendChild(emptyHint);
+        }
+        return;
+      }
+
+      enabledWidgets.forEach((w) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'relative group rounded-lg transition-all ' + (
+          state.editMode
+            ? 'p-2 border border-dashed border-neutral-700 bg-neutral-950/70'
+            : 'py-1'
+        );
+
+        let innerHTML = '';
+        if (w.id === 'clock') {
+          const t = getFormattedTime();
+          const d = getFormattedDate();
+          const alignCls = state.alignment === 'center' ? 'text-center items-center' : state.alignment === 'right' ? 'text-right items-end' : 'text-left items-start';
+          innerHTML = `
+            <div class="flex flex-col ${alignCls}">
+              <div class="flex items-baseline gap-1.5 cursor-pointer" data-widget-action="toggle24h" title="Tap to switch 12h/24h">
+                <span class="font-dot text-4xl tracking-tight text-white leading-none">${t.hh}<span class="animate-dot" style="color:${state.accentColor}">:</span>${t.mm}</span>
+                ${t.suffix ? `<span class="font-mono-tech text-[10px] text-neutral-500">${t.suffix}</span>` : ''}
+              </div>
+              <div class="font-mono-tech text-[10px] tracking-widest uppercase text-neutral-400 mt-1 flex items-center gap-2">
+                <span>${d}</span>
+                <span style="color:${state.accentColor}">·</span>
+                <span class="text-neutral-500">ALARM 07:00</span>
+              </div>
+            </div>
+          `;
+        } else if (w.id === 'weather') {
+          const temp = state.tempUnitCelsius ? '28°C' : '82°F';
+          const alignJustify = state.alignment === 'center' ? 'justify-center' : state.alignment === 'right' ? 'justify-end' : 'justify-between';
+          innerHTML = `
+            <div class="flex items-center ${alignJustify} gap-2 font-mono-tech text-[11px] py-1 border-b border-neutral-900 cursor-pointer" data-widget-action="toggleTempUnit" title="Tap to switch °C / °F">
+              <div class="flex items-center gap-2">
+                <span class="w-1.5 h-1.5 rounded-full" style="background:${state.accentColor}"></span>
+                <span class="text-white font-medium">${temp}</span>
+                <span class="text-neutral-400">CLEAR SKY</span>
+              </div>
+              <span class="text-[10px] px-1.5 py-0.2 rounded bg-neutral-900 text-neutral-400">AQI 42 · GOOD</span>
+            </div>
+          `;
+        } else if (w.id === 'telemetry') {
+          const totalScreenMin = state.apps.reduce((acc, a) => acc + a.minutes, 0);
+          const hrs = Math.floor(totalScreenMin / 60);
+          const mins = totalScreenMin % 60;
+          innerHTML = `
+            <div class="font-mono-tech text-[10px] py-1 border-b border-neutral-900 flex items-center justify-between text-neutral-400">
+              <div class="flex items-center gap-2">
+                <span class="text-white">BAT 86%</span>
+                <div class="w-14 h-1.5 bg-neutral-900 rounded-full overflow-hidden">
+                  <div class="h-full rounded-full" style="width:86%; background:${state.accentColor}"></div>
+                </div>
+              </div>
+              <span>SOT ${hrs}h ${mins}m</span>
+              <span class="text-neutral-500">8.4MB</span>
+            </div>
+          `;
+        } else if (w.id === 'zen') {
+          innerHTML = `
+            <div class="font-mono-tech text-[11px] py-1.5 px-2.5 rounded border border-neutral-800 bg-neutral-950/60 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full ${state.zenFocusActive ? 'animate-dot' : ''}" style="background:${state.zenFocusActive ? state.accentColor : '#525252'}"></span>
+                <span class="text-neutral-300">ZEN FOCUS</span>
+                <span class="text-white font-semibold">${formatZenTime(state.zenRemainingSec)}</span>
+              </div>
+              <button type="button" data-widget-action="toggleZen" class="px-2 py-0.5 rounded text-[10px] ${state.zenFocusActive ? 'bg-white text-black font-semibold' : 'border border-neutral-700 text-neutral-300 hover:border-white'}">
+                ${state.zenFocusActive ? 'STOP' : 'START'}
+              </button>
+            </div>
+          `;
+        } else if (w.id === 'media') {
+          const track = MEDIA_TRACKS[state.mediaTrackIndex % MEDIA_TRACKS.length];
+          innerHTML = `
+            <div class="font-mono-tech text-[10px] py-1.5 px-2.5 rounded border border-neutral-900 bg-neutral-950/40 flex items-center justify-between gap-2">
+              <div class="truncate">
+                <div class="text-white truncate">${state.mediaPlaying ? '▸ ' : '❚❚ '} ${track.title}</div>
+                <div class="text-[9px] text-neutral-500">${track.buds}</div>
+              </div>
+              <div class="flex items-center gap-1 shrink-0">
+                <button type="button" data-widget-action="playPauseMedia" class="px-1.5 py-0.5 rounded border border-neutral-800 hover:border-white text-neutral-300">${state.mediaPlaying ? 'PAUSE' : 'PLAY'}</button>
+                <button type="button" data-widget-action="nextMedia" class="px-1.5 py-0.5 rounded border border-neutral-800 hover:border-white text-neutral-300">⏭</button>
+              </div>
+            </div>
+          `;
+        } else if (w.id === 'scratchpad') {
+          if (state.editingNote) {
+            innerHTML = `
+              <div class="font-mono-tech text-[11px] py-1 px-2 rounded border border-neutral-700 bg-neutral-950 flex items-center gap-1.5">
+                <span style="color:${state.accentColor}">&gt;</span>
+                <input id="scratchpadInput" type="text" value="${state.quickNoteText.replace(/"/g, '&quot;')}" class="bg-transparent text-white text-[11px] w-full focus:outline-none" maxlength="48" />
+                <button type="button" data-widget-action="saveScratchpad" class="text-[10px] px-1.5 py-0.5 rounded bg-white text-black font-semibold">OK</button>
+              </div>
+            `;
+          } else {
+            innerHTML = `
+              <div class="font-mono-tech text-[11px] py-1 border-b border-neutral-900 flex items-center justify-between cursor-pointer" data-widget-action="editScratchpad" title="Click to edit quick note">
+                <div class="truncate text-neutral-300">
+                  <span style="color:${state.accentColor}">&gt;</span> ${state.quickNoteText || 'Tap to add note...'}
+                </div>
+                <span class="text-[9px] text-neutral-600 uppercase ml-2">edit</span>
+              </div>
+            `;
+          }
+        }
+
+        wrapper.innerHTML = innerHTML;
+
+        if (state.editMode) {
+          const ctrlBar = document.createElement('div');
+          ctrlBar.className = 'mt-1.5 pt-1 border-t border-neutral-800/80 flex items-center justify-between font-mono-tech text-[10px]';
+          ctrlBar.innerHTML = `
+            <span class="text-neutral-400 truncate">${w.name}</span>
+            <div class="flex items-center gap-1">
+              <button type="button" data-move-widget="${w.id}" data-dir="-1" class="px-1.5 py-0.5 rounded bg-neutral-900 hover:bg-neutral-800 text-neutral-300" title="Move Up">↑</button>
+              <button type="button" data-move-widget="${w.id}" data-dir="1" class="px-1.5 py-0.5 rounded bg-neutral-900 hover:bg-neutral-800 text-neutral-300" title="Move Down">↓</button>
+              <button type="button" data-remove-widget="${w.id}" class="px-2 py-0.5 rounded bg-red-950/80 border border-red-800/60 text-red-300 hover:bg-red-900">× Remove</button>
+            </div>
+          `;
+          wrapper.appendChild(ctrlBar);
+        }
+
+        container.appendChild(wrapper);
+      });
+
+      const modalWidgetsSpec = document.getElementById('modalWidgetsSpec');
+      if (modalWidgetsSpec) {
+        modalWidgetsSpec.textContent = `${enabledWidgets.length} of ${state.widgets.length} Enabled`;
+      }
+    }
+
+    function renderHomeApps() {
+      const listEl = document.getElementById('homeAppsList');
+      if (!listEl) return;
+      listEl.innerHTML = '';
+
+      const pinnedApps = state.apps.filter(a => a.pinned && !a.hidden);
+      const fontCls = getFontClass();
+      const alignCls = state.alignment === 'center'
+        ? 'justify-center text-center'
+        : state.alignment === 'right'
+        ? 'justify-end text-right'
+        : 'justify-between text-left';
+
+      const visibleAppsCount = state.apps.filter(a => !a.hidden).length;
+      const countLabel = document.getElementById('allAppsCountLabel');
+      if (countLabel) countLabel.textContent = `(${visibleAppsCount})`;
+
+      if (pinnedApps.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'font-mono-tech text-xs text-neutral-500 py-6 text-center';
+        empty.textContent = 'No pinned apps. Tap an app chip on the right or open All Apps (↑) to pin.';
+        listEl.appendChild(empty);
+        return;
+      }
+
+      pinnedApps.forEach((app) => {
+        const row = document.createElement('div');
+        row.className = `niagara-row group flex items-center ${alignCls} py-1.5`;
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.dataset.launchApp = app.id;
+        btn.className = `app-item ${fontCls} tracking-tight text-white hover:opacity-85 flex items-baseline gap-2 focus:outline-none`;
+        btn.style.fontSize = `${state.textSize}px`;
+        btn.style.lineHeight = '1.35';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = app.name;
+        btn.appendChild(nameSpan);
+
+        if (state.showNotifBadges && !state.zenFocusActive && app.badge > 0) {
+          const badgeSpan = document.createElement('span');
+          badgeSpan.className = 'font-mono-tech text-[10px] font-semibold align-top';
+          badgeSpan.style.color = state.accentColor;
+          badgeSpan.textContent = `[${app.badge}]`;
+          btn.appendChild(badgeSpan);
+        }
+
+        row.appendChild(btn);
+
+        if (state.editMode) {
+          const unpinBtn = document.createElement('button');
+          unpinBtn.type = 'button';
+          unpinBtn.dataset.togglePin = app.id;
+          unpinBtn.className = 'font-mono-tech text-[10px] px-2 py-0.5 rounded border border-neutral-800 text-neutral-400 hover:text-red-400 hover:border-red-800 ml-2';
+          unpinBtn.textContent = 'unpin';
+          row.appendChild(unpinBtn);
+        } else if (state.showScreenTime && state.alignment === 'left') {
+          const metaSpan = document.createElement('span');
+          metaSpan.className = 'font-mono-tech text-[10px] text-neutral-600 group-hover:text-neutral-400 transition ml-2';
+          metaSpan.textContent = `${app.minutes}m`;
+          row.appendChild(metaSpan);
+        }
+
+        listEl.appendChild(row);
+      });
+
+      renderHomeWaveStrip();
+    }
+
+    function renderHomeWaveStrip() {
+      const strip = document.getElementById('homeWaveStrip');
+      if (!strip) return;
+      strip.innerHTML = '';
+      if (state.niagaraWaveMode === 'off') {
+        strip.classList.add('hidden');
+        return;
+      }
+      strip.classList.remove('hidden');
+
+      const dots = '•·•·•·•·•·•·•'.split('');
+      dots.forEach((d) => {
+        const span = document.createElement('span');
+        span.className = 'az-letter-node leading-none py-0.5';
+        span.textContent = d;
+        strip.appendChild(span);
+      });
+    }
+
+    function renderDrawerApps() {
+      const listEl = document.getElementById('drawerAppsList');
+      const searchInput = document.getElementById('drawerSearchInput');
+      const calcBox = document.getElementById('instantCalcResult');
+      const calcVal = document.getElementById('instantCalcValue');
+      if (!listEl) return;
+
+      const q = (searchInput ? searchInput.value : '').trim();
+      const qLower = q.toLowerCase();
+
+      if (/^[0-9+\-*/().\s]+$/.test(q) && /[+\-*/]/.test(q)) {
+        try {
+          const sanitized = q.replace(/[^0-9+\-*/().]/g, '');
+          const res = Function(`"use strict"; return (${sanitized})`)();
+          if (typeof res === 'number' && isFinite(res)) {
+            calcBox.classList.remove('hidden');
+            calcVal.textContent = `= ${Number(res.toFixed(4))}`;
+          } else {
+            calcBox.classList.add('hidden');
+          }
+        } catch (e) {
+          calcBox.classList.add('hidden');
+        }
+      } else {
+        calcBox.classList.add('hidden');
+      }
+
+      const filtered = state.apps
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .filter((app) => {
+          if (state.drawerFilter === 'pinned' && !app.pinned) return false;
+          if (state.drawerFilter === 'hidden' && !app.hidden) return false;
+          if (state.drawerFilter === 'all' && app.hidden) return false;
+          if (qLower && !app.name.toLowerCase().includes(qLower) && !app.category.toLowerCase().includes(qLower)) {
+            return false;
+          }
+          return true;
+        });
+
+      listEl.innerHTML = '';
+
+      if (filtered.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'font-mono-tech text-xs text-neutral-500 py-8 text-center';
+        empty.textContent = 'No matching apps found.';
+        listEl.appendChild(empty);
+        return;
+      }
+
+      const fontCls = getFontClass();
+      let currentLetter = '';
+
+      filtered.forEach((app) => {
+        const firstLetter = app.name.charAt(0).toUpperCase();
+        if (firstLetter !== currentLetter) {
+          currentLetter = firstLetter;
+          const header = document.createElement('div');
+          header.id = `drawer-letter-${currentLetter}`;
+          header.className = 'font-mono-tech text-[10px] pt-2 pb-0.5 border-b border-neutral-900/80';
+          header.style.color = state.accentColor;
+          header.textContent = currentLetter;
+          listEl.appendChild(header);
+        }
+
+        const row = document.createElement('div');
+        row.className = 'niagara-row flex items-center justify-between py-1.5 border-b border-neutral-950 hover:bg-neutral-900/50 px-1 rounded';
+
+        const leftBtn = document.createElement('button');
+        leftBtn.type = 'button';
+        leftBtn.dataset.launchApp = app.id;
+        leftBtn.className = `app-item ${fontCls} text-sm text-white hover:opacity-85 text-left flex items-center gap-2 flex-1`;
+        leftBtn.innerHTML = `
+          <span>${app.name}</span>
+          <span class="font-mono-tech text-[9px] text-neutral-600">${app.category}</span>
+        `;
+
+        const rightActions = document.createElement('div');
+        rightActions.className = 'flex items-center gap-1.5 font-mono-tech text-[10px]';
+
+        const pinBtn = document.createElement('button');
+        pinBtn.type = 'button';
+        pinBtn.dataset.togglePin = app.id;
+        pinBtn.className = `px-1.5 py-0.5 rounded ${app.pinned ? 'text-white font-semibold' : 'text-neutral-600 hover:text-neutral-300'}`;
+        if (app.pinned) pinBtn.style.color = state.accentColor;
+        pinBtn.textContent = app.pinned ? '★ pinned' : '☆ pin';
+
+        const hideBtn = document.createElement('button');
+        hideBtn.type = 'button';
+        hideBtn.dataset.toggleHide = app.id;
+        hideBtn.className = 'px-1.5 py-0.5 rounded text-neutral-600 hover:text-neutral-300';
+        hideBtn.textContent = app.hidden ? 'unhide' : 'hide';
+
+        rightActions.appendChild(pinBtn);
+        rightActions.appendChild(hideBtn);
+
+        row.appendChild(leftBtn);
+        row.appendChild(rightActions);
+        listEl.appendChild(row);
+      });
+
+      const fAll = document.getElementById('filterDrawerAll');
+      const fPin = document.getElementById('filterDrawerPinned');
+      const fHid = document.getElementById('filterDrawerHidden');
+      [
+        [fAll, 'all'],
+        [fPin, 'pinned'],
+        [fHid, 'hidden']
+      ].forEach(([el, key]) => {
+        if (!el) return;
+        if (state.drawerFilter === key) {
+          el.className = 'text-white underline font-semibold';
+        } else {
+          el.className = 'text-neutral-500 hover:text-neutral-300';
+        }
+      });
+    }
+
+    function renderAzScrubber() {
+      const scrubber = document.getElementById('azScrubber');
+      if (!scrubber) return;
+      scrubber.innerHTML = '';
+      const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+      letters.forEach((ch) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.dataset.scrollLetter = ch;
+        btn.className = 'az-letter-node hover:text-white leading-none py-0.2 w-full';
+        btn.textContent = ch;
+        scrubber.appendChild(btn);
+      });
+    }
+
+    function renderInPhoneWidgetManager() {
+      const list = document.getElementById('inPhoneWidgetManagerList');
+      if (!list) return;
+      list.innerHTML = '';
+
+      state.widgets.forEach((w, idx) => {
+        const card = document.createElement('div');
+        card.className = 'p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/70 flex items-center justify-between gap-2';
+        card.innerHTML = `
+          <div class="min-w-0">
+            <div class="font-mono-tech text-xs text-white flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full" style="background:${w.enabled ? state.accentColor : '#404040'}"></span>
+              <span class="truncate">${w.name}</span>
+            </div>
+            <div class="text-[10px] text-neutral-500 truncate mt-0.5">${w.desc}</div>
+          </div>
+          <div class="flex items-center gap-1 shrink-0 font-mono-tech text-[10px]">
+            <button type="button" data-move-widget="${w.id}" data-dir="-1" ${idx === 0 ? 'disabled' : ''} class="px-1.5 py-1 rounded border border-neutral-800 text-neutral-400 hover:text-white disabled:opacity-30">↑</button>
+            <button type="button" data-move-widget="${w.id}" data-dir="1" ${idx === state.widgets.length - 1 ? 'disabled' : ''} class="px-1.5 py-1 rounded border border-neutral-800 text-neutral-400 hover:text-white disabled:opacity-30">↓</button>
+            <button type="button" data-toggle-widget="${w.id}" class="px-2.5 py-1 rounded font-semibold ${w.enabled ? 'bg-white text-black' : 'border border-neutral-800 text-neutral-400 hover:border-neutral-600'}">
+              ${w.enabled ? 'ON' : 'OFF'}
+            </button>
+          </div>
+        `;
+        list.appendChild(card);
+      });
+    }
+
+    function renderStudioWidgets() {
+      const grid = document.getElementById('studioWidgetsGrid');
+      if (!grid) return;
+      grid.innerHTML = '';
+
+      state.widgets.forEach((w, idx) => {
+        const item = document.createElement('div');
+        item.className = `p-3.5 rounded-xl border transition flex flex-col justify-between gap-2.5 ${
+          w.enabled
+            ? 'border-neutral-700 bg-black'
+            : 'border-neutral-900 bg-black/40 opacity-75'
+        }`;
+
+        item.innerHTML = `
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full" style="background:${w.enabled ? state.accentColor : '#404040'}"></span>
+                <h3 class="font-mono-tech text-xs text-white font-semibold">${w.name}</h3>
+              </div>
+              <p class="text-[11px] text-neutral-400 mt-1 leading-snug">${w.desc}</p>
+            </div>
+            <span class="font-mono-tech text-[10px] px-1.5 py-0.5 rounded ${w.enabled ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/50' : 'bg-neutral-900 text-neutral-500'}">
+              ${w.enabled ? 'ACTIVE' : 'REMOVED'}
+            </span>
+          </div>
+
+          <div class="flex items-center justify-between pt-2 border-t border-neutral-900 font-mono-tech text-[11px]">
+            <div class="flex items-center gap-1">
+              <button type="button" data-move-widget="${w.id}" data-dir="-1" ${idx === 0 ? 'disabled' : ''} class="px-2 py-0.5 rounded border border-neutral-800 text-neutral-400 hover:text-white disabled:opacity-30" title="Move Up on Home">↑ Up</button>
+              <button type="button" data-move-widget="${w.id}" data-dir="1" ${idx === state.widgets.length - 1 ? 'disabled' : ''} class="px-2 py-0.5 rounded border border-neutral-800 text-neutral-400 hover:text-white disabled:opacity-30" title="Move Down on Home">↓ Down</button>
+            </div>
+            <button type="button" data-toggle-widget="${w.id}" class="px-3 py-1 rounded font-medium transition ${
+              w.enabled
+                ? 'bg-neutral-900 hover:bg-red-950/70 text-neutral-200 hover:text-red-300 border border-neutral-800'
+                : 'bg-white text-black hover:bg-neutral-200'
+            }">
+              ${w.enabled ? '× Remove from Home' : '+ Add to Home'}
+            </button>
+          </div>
+        `;
+
+        grid.appendChild(item);
+      });
+    }
+
+    function renderStudioPinnedChips() {
+      const container = document.getElementById('studioPinnedAppsChips');
+      const badge = document.getElementById('pinnedCountBadge');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const pinnedCount = state.apps.filter(a => a.pinned && !a.hidden).length;
+      if (badge) badge.textContent = `${pinnedCount} Pinned`;
+
+      state.apps
+        .filter(a => !a.hidden)
+        .forEach((app) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.dataset.togglePin = app.id;
+          btn.className = `font-mono-tech text-xs px-3 py-1.5 rounded-lg border transition flex items-center gap-1.5 ${
+            app.pinned
+              ? 'border-white bg-white text-black font-semibold'
+              : 'border-neutral-800 bg-black text-neutral-400 hover:border-neutral-600 hover:text-white'
+          }`;
+          btn.innerHTML = `
+            <span>${app.pinned ? '★' : '+'}</span>
+            <span>${app.name}</span>
+          `;
+          container.appendChild(btn);
+        });
+    }
+
+    function renderDefaultHomeLauncherSheet() {
+      const container = document.getElementById('defaultLauncherOptionsList');
+      const inPhoneSub = document.getElementById('inPhoneDefaultHomeSub');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const activeObj = LAUNCHER_CHOICES.find(c => c.id === state.defaultLauncherApp) || LAUNCHER_CHOICES[0];
+      if (inPhoneSub) {
+        inPhoneSub.textContent = `Active: ${activeObj.name}`;
+      }
+
+      LAUNCHER_CHOICES.forEach((choice) => {
+        const isSelected = choice.id === state.defaultLauncherApp;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.dataset.selectDefaultHome = choice.id;
+        btn.className = `w-full p-2.5 rounded-xl border text-left flex items-center justify-between transition ${
+          isSelected
+            ? 'border-white bg-white/10 text-white'
+            : 'border-neutral-800 bg-black text-neutral-400 hover:border-neutral-600'
+        }`;
+        btn.innerHTML = `
+          <div>
+            <div class="text-xs font-semibold text-white">${choice.name}</div>
+            <div class="text-[10px] text-neutral-500 mt-0.5">${choice.meta}</div>
+          </div>
+          <span class="w-4 h-4 rounded-full border flex items-center justify-center ${
+            isSelected ? 'border-[#FF3B00]' : 'border-neutral-700'
+          }">
+            ${isSelected ? '<span class="w-2 h-2 rounded-full bg-[#FF3B00]"></span>' : ''}
+          </span>
+        `;
+        container.appendChild(btn);
+      });
+    }
+
+    function renderRecentsView() {
+      const container = document.getElementById('recentsCardsContainer');
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (state.recentAppIds.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'font-mono-tech text-xs text-neutral-500 text-center py-12';
+        empty.textContent = 'No recent tasks in memory.';
+        container.appendChild(empty);
+        return;
+      }
+
+      state.recentAppIds.forEach((id) => {
+        const app = state.apps.find(a => a.id === id);
+        if (!app) return;
+        const card = document.createElement('div');
+        card.className = 'p-3 rounded-xl border border-neutral-800 bg-neutral-950 flex items-center justify-between';
+        card.innerHTML = `
+          <div>
+            <div class="font-mono-tech text-xs text-white font-semibold">${app.name}</div>
+            <div class="font-mono-tech text-[10px] text-neutral-500">${app.category} · Active in Android 14</div>
+          </div>
+          <div class="flex items-center gap-1.5 font-mono-tech text-[10px]">
+            <button type="button" data-launch-app="${app.id}" class="px-2.5 py-1 rounded bg-white text-black font-medium">Open</button>
+            <button type="button" data-dismiss-recent="${app.id}" class="px-2 py-1 rounded border border-neutral-800 text-neutral-400 hover:text-red-400">×</button>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function renderStudioControlsState() {
+      // 6 Prebuilt Font buttons
+      const fontMap = {
+        dot: [document.getElementById('fontBtnDot'), 'font-dot'],
+        ndot: [document.getElementById('fontBtnNdotMatrix'), 'font-ndot-matrix'],
+        mono: [document.getElementById('fontBtnMono'), 'font-mono-tech'],
+        spacemono: [document.getElementById('fontBtnSpaceMono'), 'font-space-mono'],
+        sans: [document.getElementById('fontBtnSans'), 'font-sans'],
+        editorial: [document.getElementById('fontBtnEditorial'), 'font-editorial text-sm']
+      };
+      Object.entries(fontMap).forEach(([k, [btn, extraCls]]) => {
+        if (!btn) return;
+        btn.className = k === state.fontStyle
+          ? `py-2 px-2 rounded border border-white bg-white text-black font-semibold ${extraCls}`
+          : `py-2 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600 ${extraCls}`;
+      });
+
+      // Highlight active font in in-phone settings too
+      document.querySelectorAll('[data-set-font]').forEach((btn) => {
+        const fKey = btn.dataset.setFont;
+        if (fKey === state.fontStyle) {
+          btn.classList.add('border-white', 'bg-white', 'text-black', 'font-semibold');
+          btn.classList.remove('border-neutral-800', 'text-neutral-300');
+        } else {
+          btn.classList.remove('border-white', 'bg-white', 'text-black', 'font-semibold');
+          btn.classList.add('border-neutral-800', 'text-neutral-300');
+        }
+      });
+
+      const activeFontBadge = document.getElementById('activeFontBadge');
+      if (activeFontBadge) {
+        activeFontBadge.textContent = FONT_NAMES[state.fontStyle] || 'Nothing N-Dot';
+      }
+
+      // Niagara Wave buttons
+      const waveMap = {
+        full: document.getElementById('waveBtnFull'),
+        subtle: document.getElementById('waveBtnSubtle'),
+        off: document.getElementById('waveBtnOff')
+      };
+      Object.entries(waveMap).forEach(([k, btn]) => {
+        if (!btn) return;
+        btn.className = k === state.niagaraWaveMode
+          ? 'py-1.5 px-2 rounded border border-white bg-white text-black font-medium'
+          : 'py-1.5 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600';
+      });
+
+      // Alignment buttons
+      const alignMap = {
+        left: document.getElementById('alignBtnLeft'),
+        center: document.getElementById('alignBtnCenter'),
+        right: document.getElementById('alignBtnRight')
+      };
+      Object.entries(alignMap).forEach(([k, btn]) => {
+        if (!btn) return;
+        btn.className = k === state.alignment
+          ? 'py-1.5 px-2 rounded border border-white bg-white text-black font-medium'
+          : 'py-1.5 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600';
+      });
+
+      // Accent buttons
+      const accOrange = document.getElementById('accentBtnOrange');
+      const accMono = document.getElementById('accentBtnMono');
+      const accRed = document.getElementById('accentBtnRed');
+      [
+        [accOrange, '#FF3B00'],
+        [accMono, '#FFFFFF'],
+        [accRed, '#D71921']
+      ].forEach(([btn, color]) => {
+        if (!btn) return;
+        if (state.accentColor === color) {
+          btn.className = 'py-1.5 px-2 rounded border border-white bg-white/15 text-white font-semibold flex items-center justify-center gap-1.5';
+        } else {
+          btn.className = 'py-1.5 px-2 rounded border border-neutral-800 text-neutral-400 hover:border-neutral-600 flex items-center justify-center gap-1.5';
+        }
+      });
+
+      // Wallpaper preset cards highlight
+      document.querySelectorAll('[data-set-wp]').forEach((btn) => {
+        const wpKey = btn.dataset.setWp;
+        if (wpKey === state.wallpaperPreset) {
+          btn.classList.add('border-white');
+          btn.classList.remove('border-neutral-800');
+        } else {
+          btn.classList.remove('border-white');
+          btn.classList.add('border-neutral-800');
+        }
+      });
+
+      const rangeWpDim = document.getElementById('rangeWpDim');
+      const labelWpDim = document.getElementById('labelWpDim');
+      if (rangeWpDim) rangeWpDim.value = state.wallpaperDimPercent;
+      if (labelWpDim) labelWpDim.textContent = `${state.wallpaperDimPercent}% Dim`;
+
+      // System Navigation Mode
+      const nav3 = document.getElementById('navMode3Btn');
+      const navG = document.getElementById('navModeGesture');
+      const bar3 = document.getElementById('navThreeButton');
+      const barG = document.getElementById('navGestureBar');
+      const modalNavSpec = document.getElementById('modalNavSpec');
+
+      if (state.navMode === '3button') {
+        nav3.className = 'py-1.5 px-2 rounded border border-white bg-white text-black font-medium';
+        navG.className = 'py-1.5 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600';
+        bar3.classList.remove('hidden');
+        barG.classList.add('hidden');
+        if (modalNavSpec) modalNavSpec.textContent = '3-Button (◁ ○ ▢)';
+      } else {
+        navG.className = 'py-1.5 px-2 rounded border border-white bg-white text-black font-medium';
+        nav3.className = 'py-1.5 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600';
+        bar3.classList.add('hidden');
+        barG.classList.remove('hidden');
+        if (modalNavSpec) modalNavSpec.textContent = 'Gesture Pill Insets';
+      }
+
+      // Sync in-phone alignment & accent buttons
+      document.querySelectorAll('[data-set-align]').forEach((btn) => {
+        if (btn.dataset.setAlign === state.alignment) {
+          btn.className = 'px-2 py-0.5 rounded border border-white bg-white text-black font-semibold';
+        } else {
+          btn.className = 'px-2 py-0.5 rounded border border-neutral-800 text-neutral-300';
+        }
+      });
+      document.querySelectorAll('[data-set-accent]').forEach((btn) => {
+        if (btn.dataset.setAccent === state.accentColor) {
+          btn.className = 'px-2 py-0.5 rounded border border-white bg-white/15 text-white font-semibold';
+        } else {
+          btn.className = 'px-2 py-0.5 rounded border border-neutral-800 text-neutral-400';
+        }
+      });
+      const inPhoneRangeWpDim = document.getElementById('inPhoneRangeWpDim');
+      const inPhoneLabelWpDim = document.getElementById('inPhoneLabelWpDim');
+      if (inPhoneRangeWpDim) inPhoneRangeWpDim.value = state.wallpaperDimPercent;
+      if (inPhoneLabelWpDim) inPhoneLabelWpDim.textContent = `${state.wallpaperDimPercent}%`;
+
+      const inPhoneRangeText = document.getElementById('inPhoneRangeTextSize');
+      const inPhoneLabelText = document.getElementById('inPhoneLabelTextSize');
+      if (inPhoneRangeText) inPhoneRangeText.value = state.textSize;
+      if (inPhoneLabelText) inPhoneLabelText.textContent = `${state.textSize}px`;
+
+      const inPhone24h = document.getElementById('inPhoneToggle24h');
+      const inPhoneTopBar = document.getElementById('inPhoneToggleCustomTopBar');
+      const inPhoneNav = document.getElementById('inPhoneToggleNavMode');
+      if (inPhone24h) inPhone24h.textContent = `Clock: ${state.use24Hour ? '24h' : '12h'}`;
+      if (inPhoneTopBar) inPhoneTopBar.textContent = `N-TEXT Bar: ${state.showStatusBar ? 'ON' : 'OFF'}`;
+      if (inPhoneNav) inPhoneNav.textContent = `Nav: ${state.navMode === '3button' ? '3-Btn' : 'Gesture'}`;
+
+      // Text size slider
+      const rangeEl = document.getElementById('rangeTextSize');
+      const labelSize = document.getElementById('labelTextSize');
+      if (rangeEl) rangeEl.value = state.textSize;
+      if (labelSize) {
+        const tag = state.textSize <= 17 ? 'Compact' : state.textSize >= 24 ? 'Large' : 'Balanced';
+        labelSize.textContent = `${state.textSize}px (${tag})`;
+      }
+
+      // 24h & Status Bar buttons
+      const btn24 = document.getElementById('btnToggle24h');
+      const btnSb = document.getElementById('btnToggleStatusBar');
+      const btnHideDef = document.getElementById('btnHideDefaultAndroidBar');
+      if (btn24) btn24.textContent = `Clock: ${state.use24Hour ? '24-Hour' : '12-Hour'}`;
+      if (btnSb) btnSb.textContent = `Status Bar: ${state.showStatusBar ? 'ON' : 'HIDDEN'}`;
+      if (btnHideDef) {
+        btnHideDef.textContent = state.hideDefaultAndroidBar ? 'Android Bar: HIDDEN' : 'Android Bar: SHOWN';
+        btnHideDef.className = state.hideDefaultAndroidBar
+          ? 'py-1.5 px-2 rounded border border-white bg-white text-black font-medium'
+          : 'py-1.5 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600';
+      }
+
+      // In-phone settings toggles
+      const setBtn = (id, val) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = val ? 'ON' : 'OFF';
+        el.className = val
+          ? 'px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold'
+          : 'px-2.5 py-1 rounded text-[10px] border border-neutral-700 text-neutral-400';
+      };
+      setBtn('toggleHideAndroidNotifBar', state.hideDefaultAndroidBar);
+      setBtn('toggleNiagaraWave', state.niagaraWaveMode !== 'off');
+      setBtn('toggleAutoKeyboard', state.autoKeyboard);
+      setBtn('toggleScreenTimeLabels', state.showScreenTime);
+      setBtn('toggleNotifBadges', state.showNotifBadges);
+      setBtn('toggleDoubleTapSleep', state.doubleTapSleep);
+    }
+
+    function switchPhoneView(viewName) {
+      state.currentView = viewName;
+      const views = {
+        home: document.getElementById('viewHome'),
+        drawer: document.getElementById('viewDrawer'),
+        widgets: document.getElementById('viewWidgets'),
+        settings: document.getElementById('viewSettings'),
+        launched: document.getElementById('viewLaunchedApp'),
+        recents: document.getElementById('viewRecents')
+      };
+      Object.entries(views).forEach(([k, el]) => {
+        if (!el) return;
+        if (k === viewName) {
+          el.classList.remove('hidden');
+        } else {
+          el.classList.add('hidden');
+        }
+      });
+
+      const tabs = {
+        home: document.getElementById('tabViewHome'),
+        drawer: document.getElementById('tabViewDrawer'),
+        widgets: document.getElementById('tabViewWidgets'),
+        settings: document.getElementById('tabViewSettings')
+      };
+      Object.entries(tabs).forEach(([k, btn]) => {
+        if (!btn) return;
+        if (k === viewName) {
+          btn.className = 'px-3 py-1 rounded-full bg-white text-black font-medium transition';
+        } else {
+          btn.className = 'px-3 py-1 rounded-full text-neutral-400 hover:text-white transition';
+        }
+      });
+
+      if (viewName === 'drawer') {
+        renderDrawerApps();
+        if (state.autoKeyboard) {
+          const inp = document.getElementById('drawerSearchInput');
+          if (inp) setTimeout(() => inp.focus(), 50);
+        }
+      } else if (viewName === 'widgets') {
+        renderInPhoneWidgetManager();
+      } else if (viewName === 'recents') {
+        renderRecentsView();
+      }
+    }
+
+    function launchSimulatedApp(appId) {
+      const app = state.apps.find(a => a.id === appId);
+      if (!app) return;
+      state.launchedAppId = app.id;
+      app.badge = 0;
+
+      state.recentAppIds = [app.id, ...state.recentAppIds.filter(id => id !== app.id)].slice(0, 5);
+
+      document.getElementById('launchedAppTitle').textContent = app.name;
+      document.getElementById('launchedAppUsage').textContent = `${app.minutes}m today`;
+      document.getElementById('launchedAppDesc').textContent =
+        `Simulated ${app.name} (${app.category}) on Nothing OS 2.6. Test the Android 14 System Navigation buttons (◁ Back, ○ Home, ▢ Recents) at the bottom of the screen.`;
+
+      switchPhoneView('launched');
+      renderAll();
+    }
+
+    function renderAll() {
+      applyThemeAndWallpaper();
+      updateStatusBar();
+      renderHomeWidgets();
+      renderHomeApps();
+      renderDrawerApps();
+      renderInPhoneWidgetManager();
+      renderStudioWidgets();
+      renderStudioPinnedChips();
+      renderDefaultHomeLauncherSheet();
+      renderStudioControlsState();
+      saveState();
+    }
+
+    // =========================================================================
+    // EVENT LISTENERS & INTERACTIONS
+    // =========================================================================
+    window.addEventListener('DOMContentLoaded', () => {
+      renderAzScrubber();
+      renderAll();
+      syncZenTimer();
+
+      if (clockInterval) clearInterval(clockInterval);
+      clockInterval = setInterval(() => {
+        updateStatusBar();
+        if (state.currentView === 'home' && !state.editingNote) {
+          renderHomeWidgets();
+        }
+      }, 15000);
+
+      // View switcher tabs above phone
+      document.getElementById('tabViewHome').addEventListener('click', () => switchPhoneView('home'));
+      document.getElementById('tabViewDrawer').addEventListener('click', () => switchPhoneView('drawer'));
+      document.getElementById('tabViewWidgets').addEventListener('click', () => switchPhoneView('widgets'));
+      document.getElementById('tabViewSettings').addEventListener('click', () => switchPhoneView('settings'));
+
+      // Home bottom triggers
+      document.getElementById('btnQuickSearchHome').addEventListener('click', () => switchPhoneView('drawer'));
+      document.getElementById('btnOpenDrawerFromHome').addEventListener('click', () => switchPhoneView('drawer'));
+      document.getElementById('btnLongPressHint').addEventListener('click', () => {
+        state.editMode = !state.editMode;
+        renderAll();
+        showToast(state.editMode ? 'Edit Mode: Remove or reorder widgets' : 'Home layout saved');
+      });
+
+      // Top Header Buttons
+      document.getElementById('btnToggleEditModeTop').addEventListener('click', () => {
+        state.editMode = !state.editMode;
+        switchPhoneView('home');
+        renderAll();
+        showToast(state.editMode ? 'Edit Mode Active' : 'Edit Mode Closed');
+      });
+
+      document.getElementById('btnExitEditInPhone').addEventListener('click', () => {
+        state.editMode = false;
+        renderAll();
+        showToast('Home layout saved');
+      });
+
+      document.getElementById('btnToggleChassisColor').addEventListener('click', () => {
+        state.chassisOrange = !state.chassisOrange;
+        renderAll();
+        showToast(state.chassisOrange ? 'CMF International Orange Case' : 'CMF Matte Black Case');
+      });
+
+      // =======================================================================
+      // NIAGARA LAUNCHER WAVE TRAVERSAL LISTENERS (HOME & APP DRAWER)
+      // =======================================================================
+      const azScrubber = document.getElementById('azScrubber');
+      const homeWaveStrip = document.getElementById('homeWaveStrip');
+      const homeAppsList = document.getElementById('homeAppsList');
+      const drawerAppsList = document.getElementById('drawerAppsList');
+
+      function handleDrawerWaveMove(clientY) {
+        if (state.niagaraWaveMode === 'off') return;
+        const letterNodes = Array.from(azScrubber.querySelectorAll('.az-letter-node'));
+        const rowNodes = Array.from(drawerAppsList.querySelectorAll('.niagara-row'));
+        applyNiagaraWaveToElements(letterNodes, clientY, -1); // curve left
+        applyNiagaraWaveToElements(rowNodes, clientY, 0.55); // ripple app list right
+
+        // Find closest letter to clientY and scroll/show bubble
+        let closestLetter = null;
+        let minDist = Infinity;
+        letterNodes.forEach((node) => {
+          const r = node.getBoundingClientRect();
+          const d = Math.abs(clientY - (r.top + r.height / 2));
+          if (d < minDist) {
+            minDist = d;
+            closestLetter = node.textContent;
+          }
+        });
+
+        if (closestLetter && minDist < 40) {
+          showWaveBubble(closestLetter, clientY);
+          const targetHeader = document.getElementById(`drawer-letter-${closestLetter}`);
+          if (targetHeader) {
+            targetHeader.scrollIntoView({ behavior: 'auto', block: 'start' });
+          }
+        }
+      }
+
+      azScrubber.addEventListener('mousemove', (e) => handleDrawerWaveMove(e.clientY));
+      azScrubber.addEventListener('touchmove', (e) => {
+        if (e.touches && e.touches[0]) {
+          e.preventDefault();
+          handleDrawerWaveMove(e.touches[0].clientY);
+        }
+      }, { passive: false });
+
+      azScrubber.addEventListener('mouseleave', () => {
+        resetNiagaraWave(Array.from(azScrubber.querySelectorAll('.az-letter-node')));
+        resetNiagaraWave(Array.from(drawerAppsList.querySelectorAll('.niagara-row')));
+      });
+      azScrubber.addEventListener('touchend', () => {
+        resetNiagaraWave(Array.from(azScrubber.querySelectorAll('.az-letter-node')));
+        resetNiagaraWave(Array.from(drawerAppsList.querySelectorAll('.niagara-row')));
+      });
+
+      // Also apply Niagara Wave when hovering/traversing directly over Home App List or Home Wave Strip
+      function handleHomeWaveMove(clientY) {
+        if (state.niagaraWaveMode === 'off') return;
+        const rows = Array.from(homeAppsList.querySelectorAll('.niagara-row'));
+        const dots = Array.from(homeWaveStrip.querySelectorAll('.az-letter-node'));
+        applyNiagaraWaveToElements(rows, clientY, 0.75);
+        applyNiagaraWaveToElements(dots, clientY, -0.7);
+      }
+
+      homeAppsList.addEventListener('mousemove', (e) => handleHomeWaveMove(e.clientY));
+      homeWaveStrip.addEventListener('mousemove', (e) => handleHomeWaveMove(e.clientY));
+      homeWaveStrip.addEventListener('touchmove', (e) => {
+        if (e.touches && e.touches[0]) {
+          e.preventDefault();
+          handleHomeWaveMove(e.touches[0].clientY);
+        }
+      }, { passive: false });
+
+      homeAppsList.addEventListener('mouseleave', () => {
+        resetNiagaraWave(Array.from(homeAppsList.querySelectorAll('.niagara-row')));
+        resetNiagaraWave(Array.from(homeWaveStrip.querySelectorAll('.az-letter-node')));
+      });
+      homeWaveStrip.addEventListener('mouseleave', () => {
+        resetNiagaraWave(Array.from(homeAppsList.querySelectorAll('.niagara-row')));
+        resetNiagaraWave(Array.from(homeWaveStrip.querySelectorAll('.az-letter-node')));
+      });
+
+      // System Navigation Buttons (Android 14 3-Button + Gesture)
+      document.getElementById('sysBtnBack').addEventListener('click', () => {
+        const sheet = document.getElementById('defaultHomeSheet');
+        if (sheet && !sheet.classList.contains('hidden')) {
+          sheet.classList.add('hidden');
+          return;
+        }
+        if (state.editMode) {
+          state.editMode = false;
+          renderAll();
+          showToast('Exited Edit Mode');
+          return;
+        }
+        if (state.currentView !== 'home') {
+          switchPhoneView('home');
+        } else {
+          showToast('Already on Home Screen');
+        }
+      });
+
+      document.getElementById('sysBtnHome').addEventListener('click', () => {
+        document.getElementById('defaultHomeSheet').classList.add('hidden');
+        state.editMode = false;
+        switchPhoneView('home');
+        renderAll();
+      });
+
+      document.getElementById('sysBtnRecents').addEventListener('click', () => {
+        document.getElementById('defaultHomeSheet').classList.add('hidden');
+        if (state.currentView === 'recents') {
+          switchPhoneView('home');
+        } else {
+          switchPhoneView('recents');
+        }
+      });
+
+      document.getElementById('sysGesturePill').addEventListener('click', () => {
+        document.getElementById('defaultHomeSheet').classList.add('hidden');
+        state.editMode = false;
+        switchPhoneView('home');
+        renderAll();
+      });
+
+      // Double-click empty home space to test OLED Sleep
+      document.getElementById('viewHome').addEventListener('dblclick', (e) => {
+        if (!state.doubleTapSleep) return;
+        if (e.target.closest('button') || e.target.closest('input')) return;
+        document.getElementById('oledSleepModal').classList.remove('hidden');
+      });
+
+      document.getElementById('oledSleepModal').addEventListener('click', () => {
+        document.getElementById('oledSleepModal').classList.add('hidden');
+        showToast('OLED Awake');
+      });
+
+      // Drawer Search & Filters
+      const searchInput = document.getElementById('drawerSearchInput');
+      searchInput.addEventListener('input', () => {
+        renderDrawerApps();
+      });
+
+      document.getElementById('btnClearSearch').addEventListener('click', () => {
+        searchInput.value = '';
+        renderDrawerApps();
+      });
+
+      document.getElementById('filterDrawerAll').addEventListener('click', () => {
+        state.drawerFilter = 'all';
+        renderDrawerApps();
+      });
+      document.getElementById('filterDrawerPinned').addEventListener('click', () => {
+        state.drawerFilter = 'pinned';
+        renderDrawerApps();
+      });
+      document.getElementById('filterDrawerHidden').addEventListener('click', () => {
+        state.drawerFilter = 'hidden';
+        renderDrawerApps();
+      });
+
+      // Phone-Only Mode Toggle (hides right-hand web studio so user can test 100% inside the phone)
+      let phoneOnlyMode = false;
+      document.getElementById('btnTogglePhoneOnlyMode').addEventListener('click', () => {
+        phoneOnlyMode = !phoneOnlyMode;
+        const sidePanel = document.getElementById('studioSidePanel');
+        const simCol = document.getElementById('phoneSimulatorCol');
+        const btn = document.getElementById('btnTogglePhoneOnlyMode');
+        if (phoneOnlyMode) {
+          sidePanel.classList.add('hidden');
+          simCol.className = 'lg:col-span-12 xl:col-span-12 flex flex-col items-center justify-center';
+          btn.innerHTML = '<span>Phone-Only Mode: ON (APK View)</span>';
+          btn.className = 'font-mono-tech text-xs px-3 py-1.5 rounded-lg bg-emerald-500 text-black font-semibold transition flex items-center gap-1.5';
+          showToast('Phone-Only Mode: All settings inside ⚙ settings');
+        } else {
+          sidePanel.classList.remove('hidden');
+          simCol.className = 'lg:col-span-5 xl:col-span-5 flex flex-col items-center justify-center';
+          btn.innerHTML = '<span>Phone-Only Mode: OFF</span>';
+          btn.className = 'font-mono-tech text-xs px-3 py-1.5 rounded-lg border border-neutral-800 bg-neutral-950 hover:border-neutral-600 text-emerald-400 transition flex items-center gap-1.5';
+        }
+      });
+
+      document.getElementById('btnOpenSettingsFromHome').addEventListener('click', () => {
+        switchPhoneView('settings');
+      });
+
+      document.getElementById('btnOpenWidgetsFromSettings').addEventListener('click', () => {
+        switchPhoneView('widgets');
+      });
+
+      document.getElementById('inPhoneRangeWpDim').addEventListener('input', (e) => {
+        state.wallpaperDimPercent = parseInt(e.target.value, 10);
+        renderAll();
+      });
+
+      document.getElementById('inPhoneRangeTextSize').addEventListener('input', (e) => {
+        state.textSize = parseInt(e.target.value, 10);
+        renderAll();
+      });
+
+      document.getElementById('inPhoneToggle24h').addEventListener('click', () => {
+        state.use24Hour = !state.use24Hour;
+        renderAll();
+        showToast(state.use24Hour ? '24-Hour Clock' : '12-Hour Clock');
+      });
+
+      document.getElementById('inPhoneToggleCustomTopBar').addEventListener('click', () => {
+        state.showStatusBar = !state.showStatusBar;
+        renderAll();
+        showToast(state.showStatusBar ? 'N-TEXT Bar: ON' : 'N-TEXT Bar: HIDDEN');
+      });
+
+      document.getElementById('inPhoneToggleNavMode').addEventListener('click', () => {
+        state.navMode = state.navMode === '3button' ? 'gesture' : '3button';
+        renderAll();
+        showToast(state.navMode === '3button' ? '3-Button Nav' : 'Gesture Pill Nav');
+      });
+
+      // Custom Wallpaper File Input Listener
+      const wpInput = document.getElementById('wallpaperFileInput');
+      wpInput.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          state.customWallpaperDataUrl = ev.target.result;
+          state.wallpaperPreset = 'custom';
+          renderAll();
+          showToast('Custom Wallpaper Applied');
+        };
+        reader.readAsDataURL(file);
+      });
+
+      document.getElementById('rangeWpDim').addEventListener('input', (e) => {
+        state.wallpaperDimPercent = parseInt(e.target.value, 10);
+        renderAll();
+      });
+
+      // Default Home Launcher Sheet Open/Close
+      document.getElementById('btnOpenDefaultHomeDialogPhone').addEventListener('click', () => {
+        document.getElementById('defaultHomeSheet').classList.remove('hidden');
+      });
+      document.getElementById('btnStudioDefaultLauncher').addEventListener('click', () => {
+        document.getElementById('defaultHomeSheet').classList.remove('hidden');
+      });
+      document.getElementById('btnCloseDefaultHomeSheet').addEventListener('click', () => {
+        document.getElementById('defaultHomeSheet').classList.add('hidden');
+      });
+
+      // Delegated clicks for Dynamic App Lists, Widgets, Fonts, Wallpapers & Default Home
+      document.body.addEventListener('click', (e) => {
+        // 1. Launch app
+        const launchBtn = e.target.closest('[data-launch-app]');
+        if (launchBtn) {
+          const appId = launchBtn.dataset.launchApp;
+          launchSimulatedApp(appId);
+          return;
+        }
+
+        // 2. Pin / Unpin app
+        const pinBtn = e.target.closest('[data-toggle-pin]');
+        if (pinBtn) {
+          const appId = pinBtn.dataset.togglePin;
+          const app = state.apps.find(a => a.id === appId);
+          if (app) {
+            app.pinned = !app.pinned;
+            renderAll();
+            showToast(app.pinned ? `Pinned ${app.name} to Home` : `Removed ${app.name} from Home`);
+          }
+          return;
+        }
+
+        // 3. Hide / Unhide app
+        const hideBtn = e.target.closest('[data-toggle-hide]');
+        if (hideBtn) {
+          const appId = hideBtn.dataset.toggleHide;
+          const app = state.apps.find(a => a.id === appId);
+          if (app) {
+            app.hidden = !app.hidden;
+            if (app.hidden) app.pinned = false;
+            renderAll();
+            showToast(app.hidden ? `Hidden ${app.name}` : `Restored ${app.name}`);
+          }
+          return;
+        }
+
+        // 4. Remove widget directly from Home Screen (Edit Mode)
+        const remWidgetBtn = e.target.closest('[data-remove-widget]');
+        if (remWidgetBtn) {
+          const wId = remWidgetBtn.dataset.removeWidget;
+          const w = state.widgets.find(item => item.id === wId);
+          if (w) {
+            w.enabled = false;
+            renderAll();
+            showToast(`Removed ${w.name}`);
+          }
+          return;
+        }
+
+        // 5. Toggle widget on/off
+        const togWidgetBtn = e.target.closest('[data-toggle-widget]');
+        if (togWidgetBtn) {
+          const wId = togWidgetBtn.dataset.toggleWidget;
+          const w = state.widgets.find(item => item.id === wId);
+          if (w) {
+            w.enabled = !w.enabled;
+            renderAll();
+            showToast(w.enabled ? `Added ${w.name}` : `Removed ${w.name}`);
+          }
+          return;
+        }
+
+        // 6. Move widget up/down
+        const moveWidgetBtn = e.target.closest('[data-move-widget]');
+        if (moveWidgetBtn) {
+          const wId = moveWidgetBtn.dataset.moveWidget;
+          const dir = parseInt(moveWidgetBtn.dataset.dir, 10);
+          const idx = state.widgets.findIndex(item => item.id === wId);
+          const targetIdx = idx + dir;
+          if (idx >= 0 && targetIdx >= 0 && targetIdx < state.widgets.length) {
+            const temp = state.widgets[idx];
+            state.widgets[idx] = state.widgets[targetIdx];
+            state.widgets[targetIdx] = temp;
+            renderAll();
+            showToast('Reordered widgets');
+          }
+          return;
+        }
+
+        // 7. Interactive Widget Actions on Home Screen
+        const widgetAct = e.target.closest('[data-widget-action]');
+        if (widgetAct) {
+          const act = widgetAct.dataset.widgetAction;
+          if (act === 'toggle24h') {
+            state.use24Hour = !state.use24Hour;
+            renderAll();
+            showToast(state.use24Hour ? '24-Hour Clock' : '12-Hour Clock');
+          } else if (act === 'toggleTempUnit') {
+            state.tempUnitCelsius = !state.tempUnitCelsius;
+            renderAll();
+            showToast(state.tempUnitCelsius ? 'Weather: °C' : 'Weather: °F');
+          } else if (act === 'toggleZen') {
+            state.zenFocusActive = !state.zenFocusActive;
+            if (!state.zenFocusActive) state.zenRemainingSec = 1500;
+            syncZenTimer();
+            renderAll();
+            showToast(state.zenFocusActive ? 'Zen Focus Active (Badges Muted)' : 'Zen Focus Ended');
+          } else if (act === 'playPauseMedia') {
+            state.mediaPlaying = !state.mediaPlaying;
+            renderAll();
+          } else if (act === 'nextMedia') {
+            state.mediaTrackIndex = (state.mediaTrackIndex + 1) % MEDIA_TRACKS.length;
+            state.mediaPlaying = true;
+            renderAll();
+          } else if (act === 'editScratchpad') {
+            state.editingNote = true;
+            renderHomeWidgets();
+            const inp = document.getElementById('scratchpadInput');
+            if (inp) setTimeout(() => inp.focus(), 30);
+          } else if (act === 'saveScratchpad') {
+            const inp = document.getElementById('scratchpadInput');
+            if (inp) state.quickNoteText = inp.value.trim() || 'Tap to add note...';
+            state.editingNote = false;
+            renderAll();
+            showToast('Scratchpad updated');
+          }
+          return;
+        }
+
+        // 8. A-Z Scrubber in App Drawer
+        const scrubBtn = e.target.closest('[data-scroll-letter]');
+        if (scrubBtn) {
+          const ch = scrubBtn.dataset.scrollLetter;
+          showWaveBubble(ch, scrubBtn.getBoundingClientRect().top);
+          const target = document.getElementById(`drawer-letter-${ch}`);
+          if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+          return;
+        }
+
+        // 9. Dismiss single recent task
+        const dismissRec = e.target.closest('[data-dismiss-recent]');
+        if (dismissRec) {
+          const id = dismissRec.dataset.dismissRecent;
+          state.recentAppIds = state.recentAppIds.filter(item => item !== id);
+          renderRecentsView();
+          return;
+        }
+
+        // 10. Set Wallpaper Preset
+        const wpBtn = e.target.closest('[data-set-wp]');
+        if (wpBtn) {
+          state.wallpaperPreset = wpBtn.dataset.setWp;
+          renderAll();
+          showToast(`Wallpaper: ${state.wallpaperPreset.toUpperCase()}`);
+          return;
+        }
+
+        // 11. Set Font Style from In-Phone Settings
+        const fontSetBtn = e.target.closest('[data-set-font]');
+        if (fontSetBtn) {
+          state.fontStyle = fontSetBtn.dataset.setFont;
+          renderAll();
+          showToast(`Font: ${FONT_NAMES[state.fontStyle]}`);
+          return;
+        }
+
+        // 11b. Set Alignment from In-Phone Settings
+        const alignSetBtn = e.target.closest('[data-set-align]');
+        if (alignSetBtn) {
+          state.alignment = alignSetBtn.dataset.setAlign;
+          renderAll();
+          showToast(`Alignment: ${state.alignment.toUpperCase()}`);
+          return;
+        }
+
+        // 11c. Set Accent from In-Phone Settings
+        const accentSetBtn = e.target.closest('[data-set-accent]');
+        if (accentSetBtn) {
+          state.accentColor = accentSetBtn.dataset.setAccent;
+          renderAll();
+          showToast('Updated OLED Accent');
+          return;
+        }
+
+        // 12. Select Default Home Launcher in RoleManager Sheet
+        const defHomeBtn = e.target.closest('[data-select-default-home]');
+        if (defHomeBtn) {
+          state.defaultLauncherApp = defHomeBtn.dataset.selectDefaultHome;
+          document.getElementById('defaultHomeSheet').classList.add('hidden');
+          renderAll();
+          const chosen = LAUNCHER_CHOICES.find(c => c.id === state.defaultLauncherApp);
+          showToast(`Default Home: ${chosen ? chosen.name : 'Updated'}`);
+          return;
+        }
+      });
+
+      // Launched App screen buttons
+      document.getElementById('btnReturnHomeFromApp').addEventListener('click', () => {
+        switchPhoneView('home');
+      });
+      document.getElementById('btnPinToggleFromLaunched').addEventListener('click', () => {
+        if (!state.launchedAppId) return;
+        const app = state.apps.find(a => a.id === state.launchedAppId);
+        if (app) {
+          app.pinned = !app.pinned;
+          renderAll();
+          showToast(app.pinned ? `Pinned ${app.name} to Home` : `Unpinned ${app.name}`);
+        }
+      });
+
+      // Recents view actions
+      document.getElementById('btnClearAllRecents').addEventListener('click', () => {
+        state.recentAppIds = [];
+        renderRecentsView();
+        showToast('Memory cleared');
+      });
+      document.getElementById('btnCloseRecents').addEventListener('click', () => {
+        switchPhoneView('home');
+      });
+
+      // Bulk widget buttons
+      document.getElementById('btnStripAllWidgets').addEventListener('click', () => {
+        state.widgets.forEach(w => { w.enabled = false; });
+        switchPhoneView('home');
+        renderAll();
+        showToast('All widgets removed (Pure Text Home)');
+      });
+
+      document.getElementById('btnRemoveAllWidgetsPhone').addEventListener('click', () => {
+        state.widgets.forEach(w => { w.enabled = false; });
+        renderAll();
+        showToast('All widgets removed');
+      });
+
+      document.getElementById('btnEnableAllWidgets').addEventListener('click', () => {
+        state.widgets.forEach((w) => {
+          w.enabled = ['clock', 'weather', 'telemetry'].includes(w.id);
+        });
+        switchPhoneView('home');
+        renderAll();
+        showToast('Restored default widgets');
+      });
+
+      // Studio Typography & Layout Controls (6 Prebuilt Fonts)
+      document.getElementById('fontBtnDot').addEventListener('click', () => {
+        state.fontStyle = 'dot';
+        renderAll();
+        showToast('Font: Nothing N-Dot');
+      });
+      document.getElementById('fontBtnNdotMatrix').addEventListener('click', () => {
+        state.fontStyle = 'ndot';
+        renderAll();
+        showToast('Font: Nothing Dot-Matrix');
+      });
+      document.getElementById('fontBtnMono').addEventListener('click', () => {
+        state.fontStyle = 'mono';
+        renderAll();
+        showToast('Font: JetBrains Mono');
+      });
+      document.getElementById('fontBtnSpaceMono').addEventListener('click', () => {
+        state.fontStyle = 'spacemono';
+        renderAll();
+        showToast('Font: Space Mono');
+      });
+      document.getElementById('fontBtnSans').addEventListener('click', () => {
+        state.fontStyle = 'sans';
+        renderAll();
+        showToast('Font: Clean Sans');
+      });
+      document.getElementById('fontBtnEditorial').addEventListener('click', () => {
+        state.fontStyle = 'editorial';
+        renderAll();
+        showToast('Font: Editorial Serif');
+      });
+
+      // Niagara Wave Mode Buttons
+      document.getElementById('waveBtnFull').addEventListener('click', () => {
+        state.niagaraWaveMode = 'full';
+        renderAll();
+        showToast('Niagara Wave: Full');
+      });
+      document.getElementById('waveBtnSubtle').addEventListener('click', () => {
+        state.niagaraWaveMode = 'subtle';
+        renderAll();
+        showToast('Niagara Wave: Subtle Arc');
+      });
+      document.getElementById('waveBtnOff').addEventListener('click', () => {
+        state.niagaraWaveMode = 'off';
+        renderAll();
+        showToast('Niagara Wave: Static');
+      });
+
+      document.getElementById('alignBtnLeft').addEventListener('click', () => {
+        state.alignment = 'left';
+        renderAll();
+      });
+      document.getElementById('alignBtnCenter').addEventListener('click', () => {
+        state.alignment = 'center';
+        renderAll();
+      });
+      document.getElementById('alignBtnRight').addEventListener('click', () => {
+        state.alignment = 'right';
+        renderAll();
+      });
+
+      document.getElementById('accentBtnOrange').addEventListener('click', () => {
+        state.accentColor = '#FF3B00';
+        renderAll();
+      });
+      document.getElementById('accentBtnMono').addEventListener('click', () => {
+        state.accentColor = '#FFFFFF';
+        renderAll();
+      });
+      document.getElementById('accentBtnRed').addEventListener('click', () => {
+        state.accentColor = '#D71921';
+        renderAll();
+      });
+
+      document.getElementById('navMode3Btn').addEventListener('click', () => {
+        state.navMode = '3button';
+        renderAll();
+        showToast('System Nav: 3-Button Bar');
+      });
+      document.getElementById('navModeGesture').addEventListener('click', () => {
+        state.navMode = 'gesture';
+        renderAll();
+        showToast('System Nav: Gesture Pill');
+      });
+
+      document.getElementById('rangeTextSize').addEventListener('input', (e) => {
+        state.textSize = parseInt(e.target.value, 10);
+        renderAll();
+      });
+
+      document.getElementById('btnToggle24h').addEventListener('click', () => {
+        state.use24Hour = !state.use24Hour;
+        renderAll();
+      });
+
+      document.getElementById('btnToggleStatusBar').addEventListener('click', () => {
+        state.showStatusBar = !state.showStatusBar;
+        renderAll();
+        showToast(state.showStatusBar ? 'Custom N-TEXT Top Bar: ON' : 'Custom N-TEXT Top Bar: HIDDEN');
+      });
+
+      document.getElementById('btnHideDefaultAndroidBar').addEventListener('click', () => {
+        state.hideDefaultAndroidBar = !state.hideDefaultAndroidBar;
+        renderAll();
+        showToast(state.hideDefaultAndroidBar ? 'Default Android Notif Bar Hidden' : 'Default Android Notif Bar Shown');
+      });
+
+      // In-Phone Settings Toggles
+      document.getElementById('toggleHideAndroidNotifBar').addEventListener('click', () => {
+        state.hideDefaultAndroidBar = !state.hideDefaultAndroidBar;
+        renderAll();
+        showToast(state.hideDefaultAndroidBar ? 'Default Android Bar Hidden' : 'Default Android Bar Shown');
+      });
+      document.getElementById('toggleNiagaraWave').addEventListener('click', () => {
+        state.niagaraWaveMode = state.niagaraWaveMode === 'off' ? 'full' : 'off';
+        renderAll();
+        showToast(state.niagaraWaveMode === 'full' ? 'Niagara Wave Enabled' : 'Niagara Wave Disabled');
+      });
+      document.getElementById('toggleAutoKeyboard').addEventListener('click', () => {
+        state.autoKeyboard = !state.autoKeyboard;
+        renderAll();
+      });
+      document.getElementById('toggleScreenTimeLabels').addEventListener('click', () => {
+        state.showScreenTime = !state.showScreenTime;
+        renderAll();
+      });
+      document.getElementById('toggleNotifBadges').addEventListener('click', () => {
+        state.showNotifBadges = !state.showNotifBadges;
+        renderAll();
+      });
+      document.getElementById('toggleDoubleTapSleep').addEventListener('click', () => {
+        state.doubleTapSleep = !state.doubleTapSleep;
+        renderAll();
+      });
+
+      // APK Blueprint & Config Modal
+      const apkModal = document.getElementById('apkModal');
+      document.getElementById('btnExportSpecModal').addEventListener('click', () => {
+        const exportPayload = {
+          device: 'CMF by Nothing Phone 1',
+          osTarget: 'Android 14 (API 34) / Nothing OS 2.6',
+          defaultHomeRole: state.defaultLauncherApp,
+          theme: {
+            wallpaperPreset: state.wallpaperPreset,
+            customWallpaperUploaded: Boolean(state.customWallpaperDataUrl),
+            wallpaperDimPercent: state.wallpaperDimPercent,
+            accentColor: state.accentColor,
+            fontStyle: state.fontStyle,
+            fontFamilyName: FONT_NAMES[state.fontStyle],
+            textAlignment: state.alignment,
+            appTextSizeSp: state.textSize
+          },
+          animations: {
+            niagaraWaveTraversal: state.niagaraWaveMode
+          },
+          systemBars: {
+            hideDefaultAndroidNotificationBar: state.hideDefaultAndroidBar,
+            showCustomNTextTopBar: state.showStatusBar,
+            systemNavigation: state.navMode
+          },
+          behavior: {
+            autoFocusDrawerSearch: state.autoKeyboard,
+            showScreenTimeMinutes: state.showScreenTime,
+            showNotificationBadges: state.showNotifBadges,
+            doubleTapLock: state.doubleTapSleep
+          },
+          enabledWidgets: state.widgets.filter(w => w.enabled).map(w => w.id),
+          pinnedHomeApps: state.apps.filter(a => a.pinned && !a.hidden).map(a => a.name)
+        };
+        document.getElementById('configJsonPreview').textContent = JSON.stringify(exportPayload, null, 2);
+        apkModal.classList.remove('hidden');
+      });
+
+      document.getElementById('btnCloseApkModal').addEventListener('click', () => {
+        apkModal.classList.add('hidden');
+      });
+
+      document.getElementById('btnCopyConfigJson').addEventListener('click', () => {
+        const text = document.getElementById('configJsonPreview').textContent;
+        const feedback = document.getElementById('copyFeedbackText');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(() => {
+            feedback.textContent = 'Copied current launcher configuration to clipboard!';
+            feedback.style.color = '#10B981';
+          }).catch(() => {
+            fallbackCopy(text, feedback);
+          });
+        } else {
+          fallbackCopy(text, feedback);
+        }
+      });
+
+      function fallbackCopy(text, feedbackEl) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand('copy');
+          feedbackEl.textContent = 'Copied current launcher configuration to clipboard!';
+          feedbackEl.style.color = '#10B981';
+        } catch (err) {
+          feedbackEl.textContent = 'Select and copy the JSON above.';
+        }
+        document.body.removeChild(ta);
+      }
+    });
+  </script>
+</body>
+</html>
