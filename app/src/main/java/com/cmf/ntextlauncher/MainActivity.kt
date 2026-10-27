@@ -1446,9 +1446,8 @@ fun HomeScreenView(
     onWaveTick: () -> Unit
 ) {
     val density = LocalDensity.current
-    var waveTouchRootY by remember { mutableStateOf<Float?>(null) }
-    var waveStripRootTopY by remember { mutableStateOf(0f) }
-    var lastHoveredPkg by remember { mutableStateOf<String?>(null) }
+    var waveFloatIndex by remember { mutableStateOf<Float?>(null) }
+    var lastHoveredIndex by remember { mutableStateOf<Int?>(null) }
 
     // Pulsing orange colon animation matching the prototype's .animate-dot
     val infiniteTransition = rememberInfiniteTransition(label = "colonPulse")
@@ -2147,148 +2146,197 @@ fun HomeScreenView(
             }
         }
 
-        // 2. PINNED HOME APPS: Shifted to a bit bottom per user request (ergonomic thumb zone!)
-        Row(
+        // 2. PINNED HOME APPS + 1:1 MATCHED RIGHT-SIDE DOTS WAVE SCROLLER
+        Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .padding(bottom = 28.dp),
-            verticalAlignment = Alignment.Bottom
+            contentAlignment = Alignment.BottomStart
         ) {
-            val waveRadiusPx = with(density) { 105.dp.toPx() }
-            val maxWaveShiftPx = with(density) { (if (niagaraWaveMode == "full") 26.dp else 13.dp).toPx() }
+            val waveRadiusRows = 2.25f
+            val maxWaveShiftPx = with(density) { (if (niagaraWaveMode == "full") 32.dp else 16.dp).toPx() }
+            val verticalSpreadPx = with(density) { 4.dp.toPx() }
             val pressHoverShiftPx = with(density) { 14.dp.toPx() }
+            val maxDotWaveShiftPx = with(density) { 14.dp.toPx() }
 
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.Bottom
-            ) {
-                pinnedApps.forEach { app ->
-                    var itemCenterRootY by remember { mutableStateOf(0f) }
-                    val interactionSource = remember { MutableInteractionSource() }
-                    val isPressed by interactionSource.collectIsPressedAsState()
-
-                    val waveFactor = remember(waveTouchRootY, itemCenterRootY, niagaraWaveMode) {
-                        if (waveTouchRootY == null || niagaraWaveMode == "off") 0f
-                        else {
-                            val dist = abs(waveTouchRootY!! - itemCenterRootY)
-                            if (dist < waveRadiusPx) {
-                                cos((dist / waveRadiusPx) * (PI / 2)).toFloat().coerceIn(0f, 1f)
-                            } else 0f
-                        }
-                    }
-
-                    val isWaveFocused = waveFactor > 0.74f
-                    LaunchedEffect(isWaveFocused) {
-                        if (isWaveFocused && lastHoveredPkg != app.packageName) {
-                            lastHoveredPkg = app.packageName
-                            onWaveTick()
-                        }
-                    }
-
-                    val targetShiftX = when {
-                        waveFactor > 0f -> waveFactor * waveFactor * maxWaveShiftPx
-                        isPressed -> pressHoverShiftPx
-                        else -> 0f
-                    }
-                    val targetScale = when {
-                        waveFactor > 0f -> 1f + waveFactor * 0.10f
-                        isPressed -> 1.04f
-                        else -> 1f
-                    }
-
-                    val animatedShiftX by animateFloatAsState(
-                        targetValue = targetShiftX,
-                        animationSpec = tween(durationMillis = 65)
-                    )
-                    val animatedScale by animateFloatAsState(
-                        targetValue = targetScale,
-                        animationSpec = tween(durationMillis = 65)
-                    )
-                    val isHighlighted = isWaveFocused || isPressed
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onGloballyPositioned { coords ->
-                                itemCenterRootY = coords.positionInRoot().y + coords.size.height / 2f
-                            }
-                            .graphicsLayer {
-                                translationX = animatedShiftX
-                                scaleX = animatedScale
-                                scaleY = animatedScale
-                                transformOrigin = TransformOrigin(0f, 0.5f)
-                            }
-                            .combinedClickable(
-                                interactionSource = interactionSource,
-                                indication = null,
-                                onClick = { onLaunchApp(app.packageName) },
-                                onLongClick = { onLongPressApp(app) }
-                            )
-                            .padding(vertical = 8.dp),
-                        horizontalArrangement = when (textAlign) {
-                            TextAlign.Center -> Arrangement.Center
-                            TextAlign.End -> Arrangement.End
-                            else -> Arrangement.Start
-                        },
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val displayLabel = if (uppercaseHome) {
-                            app.label.uppercase(Locale.getDefault())
-                        } else {
-                            app.label
-                        }
-                        Text(
-                            text = if (isHighlighted) "▸ $displayLabel" else displayLabel,
-                            color = if (isHighlighted) accentColor else Color(0xFFF5F5F5),
-                            fontSize = textSizeSp.sp,
-                            fontFamily = selectedFont,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+            val activeFocusedIndex = remember(waveFloatIndex, pinnedApps.size) {
+                val w = waveFloatIndex
+                if (w == null || pinnedApps.isEmpty() || niagaraWaveMode == "off") {
+                    null
+                } else {
+                    w.toInt().coerceIn(0, pinnedApps.lastIndex)
                 }
             }
 
-            // Subtle Right-Edge Niagara Hover Wave Strip on Home Screen
-            if (niagaraWaveMode != "off") {
+            LaunchedEffect(activeFocusedIndex) {
+                if (activeFocusedIndex != null && activeFocusedIndex != lastHoveredIndex) {
+                    lastHoveredIndex = activeFocusedIndex
+                    onWaveTick()
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Left/Main Column: Pinned Home Screen Apps
                 Column(
-                    modifier = Modifier
-                        .width(20.dp)
-                        .padding(start = 4.dp)
-                        .onGloballyPositioned { coords ->
-                            waveStripRootTopY = coords.positionInRoot().y
-                        }
-                        .pointerInput(Unit) {
-                            detectVerticalDragGestures(
-                                onDragStart = { offset ->
-                                    waveTouchRootY = waveStripRootTopY + offset.y
-                                },
-                                onVerticalDrag = { change, _ ->
-                                    change.consume()
-                                    waveTouchRootY = waveStripRootTopY + change.position.y
-                                },
-                                onDragEnd = {
-                                    waveTouchRootY = null
-                                    lastHoveredPkg = null
-                                },
-                                onDragCancel = {
-                                    waveTouchRootY = null
-                                    lastHoveredPkg = null
-                                }
-                            )
-                        },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.Bottom
                 ) {
-                    repeat(pinnedApps.size.coerceAtLeast(4)) { idx ->
-                        Text(
-                            text = "·",
-                            color = if (waveTouchRootY != null) accentColor else Color(0xFF404040),
-                            fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
+                    pinnedApps.forEachIndexed { index, app ->
+                        val interactionSource = remember { MutableInteractionSource() }
+                        val isPressed by interactionSource.collectIsPressedAsState()
+
+                        val targetWaveFactor = if (waveFloatIndex != null && niagaraWaveMode != "off") {
+                            val distRows = abs(waveFloatIndex!! - (index + 0.5f))
+                            if (distRows < waveRadiusRows) {
+                                val c = cos((distRows / waveRadiusRows) * (PI / 2)).toFloat().coerceIn(0f, 1f)
+                                c * c * (3f - 2f * c)
+                            } else 0f
+                        } else 0f
+
+                        val animWave by animateFloatAsState(
+                            targetValue = targetWaveFactor,
+                            animationSpec = spring(
+                                dampingRatio = 0.78f,
+                                stiffness = Spring.StiffnessMediumLow
+                            ),
+                            label = "homeAppWave"
                         )
+
+                        val isWaveFocused = activeFocusedIndex == index
+                        val isHighlighted = isWaveFocused || isPressed
+
+                        val pressAnim by animateFloatAsState(
+                            targetValue = if (isPressed) 1f else 0f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            ),
+                            label = "homeAppPress"
+                        )
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer {
+                                    val shiftX = (animWave * maxWaveShiftPx) + (pressAnim * pressHoverShiftPx)
+                                    val shiftY = if (waveFloatIndex != null && animWave > 0.01f) {
+                                        ((index + 0.5f) - waveFloatIndex!!) * verticalSpreadPx * animWave
+                                    } else 0f
+                                    val sc = 1f + (animWave * 0.14f) + (pressAnim * 0.04f)
+                                    translationX = shiftX
+                                    translationY = shiftY
+                                    scaleX = sc
+                                    scaleY = sc
+                                    transformOrigin = TransformOrigin(0f, 0.5f)
+                                }
+                                .combinedClickable(
+                                    interactionSource = interactionSource,
+                                    indication = null,
+                                    onClick = { onLaunchApp(app.packageName) },
+                                    onLongClick = { onLongPressApp(app) }
+                                )
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = when (textAlign) {
+                                TextAlign.Center -> Arrangement.Center
+                                TextAlign.End -> Arrangement.End
+                                else -> Arrangement.Start
+                            },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val displayLabel = if (uppercaseHome) {
+                                app.label.uppercase(Locale.getDefault())
+                            } else {
+                                app.label
+                            }
+                            Text(
+                                text = if (isHighlighted) "▸ $displayLabel" else displayLabel,
+                                color = if (isHighlighted) accentColor else if (animWave > 0.35f) Color.White else Color(0xFFF5F5F5),
+                                fontSize = textSizeSp.sp,
+                                fontFamily = selectedFont,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                // Right-Side Dots Scroller: Exact same count as pinnedApps.size, aligned 1-to-1 with each app row!
+                if (niagaraWaveMode != "off" && pinnedApps.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .width(34.dp)
+                            .fillMaxHeight()
+                            .pointerInput(pinnedApps.size) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    down.consume()
+                                    val h0 = size.height.toFloat().coerceAtLeast(1f)
+                                    waveFloatIndex = (down.position.y.coerceIn(0f, h0) / h0) * pinnedApps.size
+                                    do {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull()
+                                        if (change != null && change.pressed) {
+                                            change.consume()
+                                            val h = size.height.toFloat().coerceAtLeast(1f)
+                                            waveFloatIndex = (change.position.y.coerceIn(0f, h) / h) * pinnedApps.size
+                                        }
+                                    } while (event.changes.any { it.pressed })
+                                    waveFloatIndex = null
+                                    lastHoveredIndex = null
+                                }
+                            },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.SpaceAround
+                    ) {
+                        pinnedApps.forEachIndexed { dotIdx, _ ->
+                            val isDotFocused = activeFocusedIndex == dotIdx
+                            val targetDotWave = if (waveFloatIndex != null) {
+                                val dist = abs(waveFloatIndex!! - (dotIdx + 0.5f))
+                                if (dist < waveRadiusRows) {
+                                    cos((dist / waveRadiusRows) * (PI / 2)).toFloat().coerceIn(0f, 1f)
+                                } else 0f
+                            } else 0f
+
+                            val animDotWave by animateFloatAsState(
+                                targetValue = targetDotWave,
+                                animationSpec = spring(
+                                    dampingRatio = 0.75f,
+                                    stiffness = Spring.StiffnessMedium
+                                ),
+                                label = "homeDotWave"
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .graphicsLayer {
+                                        translationX = -animDotWave * maxDotWaveShiftPx
+                                        val sc = 1f + animDotWave * 0.9f
+                                        scaleX = sc
+                                        scaleY = sc
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(if (isDotFocused) 6.dp else 4.dp)
+                                        .background(
+                                            color = when {
+                                                isDotFocused -> accentColor
+                                                animDotWave > 0.35f -> Color.White
+                                                else -> Color(0xFF525252)
+                                            },
+                                            shape = CircleShape
+                                        )
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -2297,7 +2345,8 @@ fun HomeScreenView(
 }
 
 // ============================================================================
-// ULTRA-LIGHT TEXT APP DRAWER (120Hz GPU-Fluid Scroll + Center-Aligned A-Z Scrubber)
+// ULTRA-LIGHT TEXT APP DRAWER (120Hz Pure Fluid Scroll + Top-Aligned A-Z Scrubber)
+// Zero row highlighting, zero hover animations on drawer apps, zero recomposition!
 // ============================================================================
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -2319,9 +2368,7 @@ fun AppDrawerView(
     onClose: () -> Unit,
     onWaveTick: () -> Unit
 ) {
-    val density = LocalDensity.current
     var query by remember { mutableStateOf("") }
-    var activeLetter by remember { mutableStateOf<Char?>(null) }
     val searchFocusRequester = remember { FocusRequester() }
     LaunchedEffect(focusSearchOnOpen) {
         if (focusSearchOnOpen) {
@@ -2334,9 +2381,6 @@ fun AppDrawerView(
         }
     }
 
-    var railHeightPx by remember { mutableStateOf(1f) }
-    var scrubLocalY by remember { mutableStateOf<Float?>(null) }
-
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
@@ -2345,8 +2389,6 @@ fun AppDrawerView(
             .filter { !it.isHidden && (query.isBlank() || it.label.contains(query, ignoreCase = true)) }
             .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
     }
-
-    val letters = remember { ('A'..'Z').toList() }
 
     val currentOnDragDelta by rememberUpdatedState(onDragDrawerDelta)
     val currentOnSettle by rememberUpdatedState(onSettleDrawer)
@@ -2497,28 +2539,17 @@ fun AppDrawerView(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // App List + Niagara A-Z Wave Scrubber Rail
-            val letterWaveRadiusPx = with(density) { 95.dp.toPx() }
-            val maxLetterShiftPx = with(density) { 18.dp.toPx() }
-            val activeRowShiftPx = with(density) { 14.dp.toPx() }
-            val pressRowShiftPx = with(density) { 10.dp.toPx() }
-            val centerSpacerPx = screenHeightPx * 0.40f
-            val centerSpacerDp = with(density) { centerSpacerPx.toDp() }
-            val avgItemHeightPx = with(density) { 52.dp.toPx() }
-
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                // Top & Bottom Center Spacers ensure every letter (from A to Z) centers at screenHeight / 2!
-                // Zero layoutInfo search inside composition -> 100% native 120Hz GPU touch scrolling!
+                // Ultra-clean 120Hz LazyColumn:
+                // Apps listed at the top as before, zero hover/highlight animations on rows,
+                // and 520.dp bottom runway so every alphabet group (even T, W, Z) scrolls to the top!
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxHeight()
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 520.dp)
                 ) {
-                    item(key = "__top_center_spacer__") {
-                        Spacer(modifier = Modifier.height(centerSpacerDp))
-                    }
-
                     itemsIndexed(
                         items = filteredApps,
                         key = { _, app -> app.packageName },
@@ -2529,10 +2560,6 @@ fun AppDrawerView(
                         val isFirstInAlphabetGroup = app.firstLetter != prevLetter
                         val isLastInAlphabetGroup = app.firstLetter != nextLetter
 
-                        val interactionSource = remember { MutableInteractionSource() }
-                        val isPressed by interactionSource.collectIsPressedAsState()
-
-                        val isRowHighlighted = (activeLetter != null && app.firstLetter == activeLetter) || isPressed
                         val displayLabel = if (uppercaseHome) {
                             app.label.uppercase(Locale.getDefault())
                         } else {
@@ -2566,16 +2593,7 @@ fun AppDrawerView(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .graphicsLayer {
-                                        val isCurrentChar = activeLetter != null && app.firstLetter == activeLetter
-                                        translationX = if (isCurrentChar) activeRowShiftPx else if (isPressed) pressRowShiftPx else 0f
-                                        scaleX = if (isCurrentChar) 1.04f else if (isPressed) 1.02f else 1f
-                                        scaleY = if (isCurrentChar) 1.04f else if (isPressed) 1.02f else 1f
-                                        transformOrigin = TransformOrigin(0f, 0.5f)
-                                    }
                                     .combinedClickable(
-                                        interactionSource = interactionSource,
-                                        indication = null,
                                         onClick = { onLaunchApp(app.packageName) },
                                         onLongClick = { onLongPressApp(app) }
                                     )
@@ -2589,8 +2607,8 @@ fun AppDrawerView(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Text(
-                                        text = if (isRowHighlighted) "▸ $displayLabel" else displayLabel,
-                                        color = if (isRowHighlighted) accentColor else Color(0xFFF5F5F5),
+                                        text = displayLabel,
+                                        color = Color(0xFFF5F5F5),
                                         fontSize = 16.sp,
                                         fontFamily = selectedFont,
                                         maxLines = 1,
@@ -2625,24 +2643,15 @@ fun AppDrawerView(
                             }
                         }
                     }
-
-                    item(key = "__bottom_center_spacer__") {
-                        Spacer(modifier = Modifier.height(centerSpacerDp))
-                    }
                 }
 
-                // Niagara A-Z Wave Scrubber Rail: Centers chosen letter (e.g. G) right at the vertical center of screen!
-                fun updateScrubFromLocalY(localY: Float, currentRailHeight: Float) {
-                    val validHeight = currentRailHeight.coerceAtLeast(1f)
-                    railHeightPx = validHeight
-                    val clampedLocalY = localY.coerceIn(0f, validHeight)
-                    scrubLocalY = clampedLocalY
-
-                    val idx = ((clampedLocalY / validHeight) * letters.size).toInt().coerceIn(0, letters.lastIndex)
-                    val chosenLetter = letters[idx]
-
-                    if (activeLetter != chosenLetter) {
-                        activeLetter = chosenLetter
+                // Isolated A-Z Scrubber Rail Composable:
+                // Keeps touch scrub state isolated so LazyColumn NEVER recomposes during A-Z scrubbing!
+                AlphabetScrubberRail(
+                    accentColor = accentColor,
+                    niagaraWaveMode = niagaraWaveMode,
+                    lomoFontFamily = lomoFontFamily,
+                    onSelectLetter = { chosenLetter ->
                         onWaveTick()
                         if (filteredApps.isNotEmpty()) {
                             val exactIdx = filteredApps.indexOfFirst { it.firstLetter == chosenLetter }
@@ -2653,95 +2662,120 @@ fun AppDrawerView(
                                 if (nextIdx >= 0) nextIdx else filteredApps.lastIndex
                             }
                             scope.launch {
-                                val totalScrollPx = targetIdx * avgItemHeightPx
-                                if (totalScrollPx < centerSpacerPx) {
-                                    listState.scrollToItem(index = 0, scrollOffset = totalScrollPx.toInt())
-                                } else {
-                                    val excessPx = totalScrollPx - centerSpacerPx
-                                    val appOffset = (excessPx / avgItemHeightPx).toInt()
-                                    val remPx = (excessPx % avgItemHeightPx).toInt()
-                                    listState.scrollToItem(index = 1 + appOffset, scrollOffset = remPx)
-                                }
+                                listState.scrollToItem(targetIdx, scrollOffset = 0)
                             }
                         }
                     }
-                }
+                )
+            }
+        }
+    }
+}
 
-                Column(
+@Composable
+private fun AlphabetScrubberRail(
+    accentColor: Color,
+    niagaraWaveMode: String,
+    lomoFontFamily: FontFamily,
+    onSelectLetter: (Char) -> Unit
+) {
+    val density = LocalDensity.current
+    val letters = remember { ('A'..'Z').toList() }
+    var railHeightPx by remember { mutableStateOf(1f) }
+    var scrubLocalY by remember { mutableStateOf<Float?>(null) }
+    var activeLetter by remember { mutableStateOf<Char?>(null) }
+    val currentOnSelect by rememberUpdatedState(onSelectLetter)
+
+    val letterWaveRadiusPx = with(density) { 95.dp.toPx() }
+    val maxLetterShiftPx = with(density) { 18.dp.toPx() }
+
+    fun updateScrubFromLocalY(localY: Float, currentRailHeight: Float) {
+        val validHeight = currentRailHeight.coerceAtLeast(1f)
+        railHeightPx = validHeight
+        val clampedLocalY = localY.coerceIn(0f, validHeight)
+        scrubLocalY = clampedLocalY
+
+        val idx = ((clampedLocalY / validHeight) * letters.size).toInt().coerceIn(0, letters.lastIndex)
+        val chosenLetter = letters[idx]
+
+        if (activeLetter != chosenLetter) {
+            activeLetter = chosenLetter
+            currentOnSelect(chosenLetter)
+        }
+    }
+
+    Box(contentAlignment = Alignment.CenterEnd) {
+        Column(
+            modifier = Modifier
+                .width(36.dp)
+                .fillMaxHeight()
+                .onGloballyPositioned { coords ->
+                    railHeightPx = coords.size.height.toFloat().coerceAtLeast(1f)
+                }
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        updateScrubFromLocalY(down.position.y, size.height.toFloat())
+                        do {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull()
+                            if (change != null && change.pressed) {
+                                change.consume()
+                                updateScrubFromLocalY(change.position.y, size.height.toFloat())
+                            }
+                        } while (event.changes.any { it.pressed })
+                        scrubLocalY = null
+                        activeLetter = null
+                    }
+                },
+            verticalArrangement = Arrangement.SpaceEvenly,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            letters.forEachIndexed { lIdx, ch ->
+                val isCurrent = activeLetter == ch
+                val currentScrub = scrubLocalY
+                val targetLetterFactor = if (currentScrub != null && niagaraWaveMode != "off") {
+                    val lCenterY = ((lIdx + 0.5f) / letters.size.toFloat()) * railHeightPx
+                    val d = abs(currentScrub - lCenterY)
+                    if (d < letterWaveRadiusPx) {
+                        cos((d / letterWaveRadiusPx) * (PI / 2)).toFloat().coerceIn(0f, 1f)
+                    } else 0f
+                } else 0f
+
+                val animLetterFactor by animateFloatAsState(
+                    targetValue = targetLetterFactor,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessHigh
+                    ),
+                    label = "letterWave"
+                )
+
+                Text(
+                    text = ch.toString(),
+                    color = if (isCurrent) accentColor else if (animLetterFactor > 0.4f) Color.White else Color(0xFF555555),
+                    fontSize = if (isCurrent) 12.sp else 9.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
                     modifier = Modifier
-                        .width(36.dp)
-                        .fillMaxHeight()
-                        .onGloballyPositioned { coords ->
-                            railHeightPx = coords.size.height.toFloat().coerceAtLeast(1f)
-                        }
-                        .pointerInput(filteredApps) {
-                            awaitEachGesture {
-                                val down = awaitFirstDown(requireUnconsumed = false)
-                                down.consume()
-                                updateScrubFromLocalY(down.position.y, size.height.toFloat())
-                                do {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull()
-                                    if (change != null && change.pressed) {
-                                        change.consume()
-                                        updateScrubFromLocalY(change.position.y, size.height.toFloat())
-                                    }
-                                } while (event.changes.any { it.pressed })
-                                scrubLocalY = null
-                                activeLetter = null
+                        .graphicsLayer {
+                            if (animLetterFactor > 0.005f) {
+                                translationX = -animLetterFactor * maxLetterShiftPx
+                                scaleX = 1f + animLetterFactor * 0.35f
+                                scaleY = 1f + animLetterFactor * 0.35f
                             }
-                        },
-                    verticalArrangement = Arrangement.SpaceEvenly,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    letters.forEachIndexed { lIdx, ch ->
-                        val isCurrent = activeLetter == ch
-                        val currentScrub = scrubLocalY
-                        val targetLetterFactor = if (currentScrub != null && niagaraWaveMode != "off") {
-                            val lCenterY = ((lIdx + 0.5f) / letters.size.toFloat()) * railHeightPx
-                            val d = abs(currentScrub - lCenterY)
-                            if (d < letterWaveRadiusPx) {
-                                cos((d / letterWaveRadiusPx) * (PI / 2)).toFloat().coerceIn(0f, 1f)
-                            } else 0f
-                        } else 0f
-
-                        val animLetterFactor by animateFloatAsState(
-                            targetValue = targetLetterFactor,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessHigh
-                            ),
-                            label = "letterWave"
-                        )
-
-                        Text(
-                            text = ch.toString(),
-                            color = if (isCurrent) accentColor else if (animLetterFactor > 0.4f) Color.White else Color(0xFF555555),
-                            fontSize = if (isCurrent) 12.sp else 9.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                            modifier = Modifier
-                                .graphicsLayer {
-                                    if (animLetterFactor > 0.005f) {
-                                        translationX = -animLetterFactor * maxLetterShiftPx
-                                        scaleX = 1f + animLetterFactor * 0.35f
-                                        scaleY = 1f + animLetterFactor * 0.35f
-                                    }
-                                }
-                                .padding(vertical = 0.5.dp)
-                        )
-                    }
-                }
+                        }
+                        .padding(vertical = 0.5.dp)
+                )
             }
         }
 
-        // Floating Letter Preview Indicator
         if (activeLetter != null) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 48.dp)
-                    .size(54.dp)
+                    .padding(end = 44.dp)
+                    .size(52.dp)
                     .border(1.dp, accentColor, RoundedCornerShape(12.dp))
                     .background(Color.Black, RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center
@@ -2749,7 +2783,7 @@ fun AppDrawerView(
                 Text(
                     text = activeLetter.toString(),
                     color = Color.White,
-                    fontSize = 28.sp,
+                    fontSize = 26.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold
                 )
