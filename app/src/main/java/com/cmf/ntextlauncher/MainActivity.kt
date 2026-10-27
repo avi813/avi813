@@ -17,6 +17,10 @@ import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.hardware.camera2.CameraManager
+import android.app.ActivityManager
+import android.os.StatFs
+import android.os.Environment
 import android.provider.Settings
 import android.util.Base64
 import android.widget.Toast
@@ -485,11 +489,63 @@ fun NTextLauncherApp(
     var wallpaperDimPercent by remember { mutableStateOf(prefs.getInt("wp_dim", 50)) }
     var doubleTapSleep by remember { mutableStateOf(prefs.getBoolean("dbl_tap_sleep", true)) }
 
-    // Removable Widgets Order & Visibility
+    // Removable Widgets Order, Visibility & Sizing (Compact, Standard, Large)
     var activeWidgets by remember {
-        val saved = prefs.getString("widgets_order", "clock,weather") ?: "clock,weather"
+        val saved = prefs.getString("widgets_order", "clock,weather,torch,pedometer") ?: "clock,weather,torch,pedometer"
         mutableStateOf(saved.split(",").filter { it.isNotBlank() && it != "telemetry" })
     }
+    var widgetSizes by remember {
+        val saved = prefs.getString("widget_sizes", "clock:standard,weather:standard,torch:standard,pedometer:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard") ?: ""
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
+        }.toMap().toMutableMap()
+        mutableStateOf(map)
+    }
+
+    fun saveWidgetSize(widgetId: String, size: String) {
+        val newMap = widgetSizes.toMutableMap()
+        newMap[widgetId] = size
+        widgetSizes = newMap
+        val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
+        prefs.edit().putString("widget_sizes", serialized).apply()
+    }
+
+    fun cycleWidgetSize(widgetId: String) {
+        val current = widgetSizes[widgetId] ?: "standard"
+        val next = when (current) {
+            "compact" -> "standard"
+            "standard" -> "large"
+            else -> "compact"
+        }
+        saveWidgetSize(widgetId, next)
+    }
+
+    fun moveWidget(widgetId: String, direction: Int) {
+        val list = activeWidgets.toMutableList()
+        val idx = list.indexOf(widgetId)
+        val targetIdx = idx + direction
+        if (idx in list.indices && targetIdx in list.indices) {
+            val item = list.removeAt(idx)
+            list.add(targetIdx, item)
+            saveWidgetList(list)
+        }
+    }
+
+    var torchEnabled by remember { mutableStateOf(false) }
+    fun toggleTorchState() {
+        torchEnabled = !torchEnabled
+        try {
+            val cm = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+            val camId = cm?.cameraIdList?.firstOrNull()
+            if (camId != null) {
+                cm.setTorchMode(camId, torchEnabled)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    var pedometerSteps by remember { mutableStateOf(6420) }
     var zenActive by remember { mutableStateOf(false) }
     var zenSeconds by remember { mutableStateOf(1500) }
     var quickNote by remember { mutableStateOf(prefs.getString("quick_note", "CMF Minimal Focus") ?: "CMF Minimal Focus") }
@@ -839,6 +895,7 @@ fun NTextLauncherApp(
                             ) {
                                 HomeScreenView(
                                     activeWidgets = activeWidgets,
+                                    widgetSizes = widgetSizes,
                                     editMode = editMode,
                                     currentHourStr = currentHourStr,
                                     currentMinStr = currentMinStr,
@@ -848,6 +905,8 @@ fun NTextLauncherApp(
                                     batteryPct = batteryPct,
                                     isCharging = isCharging,
                                     tempCelsius = tempCelsius,
+                                    torchEnabled = torchEnabled,
+                                    pedometerSteps = pedometerSteps,
                                     zenActive = zenActive,
                                     zenSeconds = zenSeconds,
                                     quickNote = quickNote,
@@ -867,10 +926,13 @@ fun NTextLauncherApp(
                                         tempCelsius = !tempCelsius
                                         prefs.edit().putBoolean("temp_c", tempCelsius).apply()
                                     },
+                                    onToggleTorch = { toggleTorchState() },
                                     onToggleZen = {
                                         zenActive = !zenActive
                                         if (!zenActive) zenSeconds = 1500
                                     },
+                                    onCycleWidgetSize = { id -> cycleWidgetSize(id) },
+                                    onMoveWidget = { id, dir -> moveWidget(id, dir) },
                                     onRemoveWidget = { id ->
                                         saveWidgetList(activeWidgets.filter { it != id })
                                     },
@@ -938,9 +1000,12 @@ fun NTextLauncherApp(
                     LauncherView.WIDGETS -> {
                         WidgetsManagerView(
                             activeWidgets = activeWidgets,
+                            widgetSizes = widgetSizes,
                             accentColor = accentColor,
                             lomoFontFamily = lomoFontFamily,
                             onUpdateWidgets = { saveWidgetList(it) },
+                            onCycleWidgetSize = { cycleWidgetSize(it) },
+                            onMoveWidget = { id, dir -> moveWidget(id, dir) },
                             onBack = { currentView = LauncherView.HOME_AND_DRAWER }
                         )
                     }
@@ -1346,6 +1411,7 @@ fun QuickMenuButton(
 @Composable
 fun HomeScreenView(
     activeWidgets: List<String>,
+    widgetSizes: Map<String, String>,
     editMode: Boolean,
     currentHourStr: String,
     currentMinStr: String,
@@ -1355,6 +1421,8 @@ fun HomeScreenView(
     batteryPct: Int,
     isCharging: Boolean,
     tempCelsius: Boolean,
+    torchEnabled: Boolean,
+    pedometerSteps: Int,
     zenActive: Boolean,
     zenSeconds: Int,
     quickNote: String,
@@ -1368,7 +1436,10 @@ fun HomeScreenView(
     pinnedApps: List<AppEntry>,
     onToggle24h: () -> Unit,
     onToggleTempUnit: () -> Unit,
+    onToggleTorch: () -> Unit,
     onToggleZen: () -> Unit,
+    onCycleWidgetSize: (String) -> Unit,
+    onMoveWidget: (String, Int) -> Unit,
     onRemoveWidget: (String) -> Unit,
     onLaunchApp: (String) -> Unit,
     onLongPressApp: (AppEntry) -> Unit,
@@ -1397,16 +1468,18 @@ fun HomeScreenView(
             .padding(horizontal = 24.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // 1. EXACT PROTOTYPE WIDGETS STACK (Matching image_169fbb.png 1:1)
+        // 1. MODULAR OLED WIDGETS STACK (Relocatable, Resizable: Compact/Standard/Large, Removable)
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             activeWidgets.forEach { widgetId ->
+                val sizeMode = widgetSizes[widgetId] ?: "standard"
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(
                             if (editMode) {
                                 Modifier
-                                    .border(1.dp, Color(0xFF404040), RoundedCornerShape(8.dp))
+                                    .border(1.dp, Color(0xFF383838), RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
                                     .padding(8.dp)
                             } else Modifier
                         )
@@ -1423,169 +1496,555 @@ fun HomeScreenView(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalAlignment = horizontalAlign
                                 ) {
-                                    // Line 1: 4:22 PM (with pulsing orange colon)
-                                    Row(
-                                        verticalAlignment = Alignment.Bottom,
-                                        modifier = Modifier.clickable { onToggle24h() }
-                                    ) {
-                                        Text(
-                                            text = currentHourStr,
-                                            color = Color.White,
-                                            fontSize = 42.sp,
-                                            fontFamily = lomoFontFamily
-                                        )
-                                        Text(
-                                            text = ":",
-                                            color = accentColor.copy(alpha = colonAlpha),
-                                            fontSize = 42.sp,
-                                            fontFamily = lomoFontFamily
-                                        )
-                                        Text(
-                                            text = currentMinStr,
-                                            color = Color.White,
-                                            fontSize = 42.sp,
-                                            fontFamily = lomoFontFamily
-                                        )
-                                        if (currentAmPmStr.isNotEmpty()) {
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = currentAmPmStr,
-                                                color = Color(0xFF737373),
-                                                fontSize = 11.sp,
-                                                fontFamily = FontFamily.Monospace,
-                                                modifier = Modifier.padding(bottom = 5.dp)
-                                            )
+                                    when (sizeMode) {
+                                        "compact" -> {
+                                            // Compact Size: Single-line minimal clock with battery
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                modifier = Modifier.clickable { onToggle24h() }
+                                            ) {
+                                                Text(
+                                                    text = "$currentHourStr:$currentMinStr $currentAmPmStr".trim(),
+                                                    color = Color.White,
+                                                    fontSize = 24.sp,
+                                                    fontFamily = lomoFontFamily
+                                                )
+                                                Text(
+                                                    text = "·",
+                                                    color = accentColor,
+                                                    fontSize = 12.sp,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                                Text(
+                                                    text = "$currentDateStr · BAT $batteryPct%",
+                                                    color = Color(0xFFA3A3A3),
+                                                    fontSize = 11.sp,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
                                         }
-                                    }
-
-                                    // Line 2: TUE · 27 OCT · ALARM 07:00
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Text(
-                                            text = currentDateStr,
-                                            color = Color(0xFFA3A3A3),
-                                            fontSize = 10.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            letterSpacing = 1.2.sp
-                                        )
-                                        Text(
-                                            text = "·",
-                                            color = accentColor,
-                                            fontSize = 10.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = nextAlarmStr,
-                                            color = Color(0xFF737373),
-                                            fontSize = 10.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            letterSpacing = 1.2.sp
-                                        )
-                                    }
-
-                                    // Faint Horizontal Line
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(1.dp)
-                                            .background(Color(0xFF171717))
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-
-                                    // Line 3: BAT 86% [━━━━━━━━━━░░] OLED
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        Text(
-                                            text = "BAT $batteryPct%",
-                                            color = Color(0xFFD4D4D4),
-                                            fontSize = 10.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            letterSpacing = 0.8.sp
-                                        )
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .height(6.dp)
-                                                .border(1.dp, Color(0xFF262626), RoundedCornerShape(999.dp))
-                                                .background(Color(0xFF141414), RoundedCornerShape(999.dp))
-                                        ) {
+                                        "large" -> {
+                                            // Large Size: Prominent Nothing Dot-Matrix Digital Display
+                                            Row(
+                                                verticalAlignment = Alignment.Bottom,
+                                                modifier = Modifier.clickable { onToggle24h() }
+                                            ) {
+                                                Text(
+                                                    text = currentHourStr,
+                                                    color = Color.White,
+                                                    fontSize = 58.sp,
+                                                    fontFamily = lomoFontFamily
+                                                )
+                                                Text(
+                                                    text = ":",
+                                                    color = accentColor.copy(alpha = colonAlpha),
+                                                    fontSize = 58.sp,
+                                                    fontFamily = lomoFontFamily
+                                                )
+                                                Text(
+                                                    text = currentMinStr,
+                                                    color = Color.White,
+                                                    fontSize = 58.sp,
+                                                    fontFamily = lomoFontFamily
+                                                )
+                                                if (currentAmPmStr.isNotEmpty()) {
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = currentAmPmStr,
+                                                        color = Color(0xFF737373),
+                                                        fontSize = 13.sp,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        modifier = Modifier.padding(bottom = 7.dp)
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = currentDateStr,
+                                                    color = Color(0xFFA3A3A3),
+                                                    fontSize = 11.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    letterSpacing = 1.2.sp
+                                                )
+                                                Text(
+                                                    text = "·",
+                                                    color = accentColor,
+                                                    fontSize = 11.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    text = nextAlarmStr,
+                                                    color = Color(0xFF737373),
+                                                    fontSize = 11.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    letterSpacing = 1.2.sp
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(10.dp))
                                             Box(
                                                 modifier = Modifier
-                                                    .fillMaxHeight()
-                                                    .fillMaxWidth((batteryPct / 100f).coerceIn(0.03f, 1f))
-                                                    .background(accentColor, RoundedCornerShape(999.dp))
+                                                    .fillMaxWidth()
+                                                    .height(1.dp)
+                                                    .background(Color(0xFF171717))
                                             )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                Text(
+                                                    text = "BAT $batteryPct%",
+                                                    color = Color(0xFFD4D4D4),
+                                                    fontSize = 11.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    letterSpacing = 0.8.sp
+                                                )
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(8.dp)
+                                                        .border(1.dp, Color(0xFF262626), RoundedCornerShape(999.dp))
+                                                        .background(Color(0xFF141414), RoundedCornerShape(999.dp))
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxHeight()
+                                                            .fillMaxWidth((batteryPct / 100f).coerceIn(0.03f, 1f))
+                                                            .background(accentColor, RoundedCornerShape(999.dp))
+                                                    )
+                                                }
+                                                Text(
+                                                    text = if (isCharging) "CHG 33W" else "OLED SAVING",
+                                                    color = if (isCharging) accentColor else Color(0xFF737373),
+                                                    fontSize = 10.sp,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
                                         }
-                                        Text(
-                                            text = if (isCharging) "CHG" else "OLED",
-                                            color = if (isCharging) accentColor else Color(0xFF737373),
-                                            fontSize = 9.sp,
-                                            fontFamily = FontFamily.Monospace
-                                        )
+                                        else -> {
+                                            // Standard Size (The exact setup the user loves)
+                                            Row(
+                                                verticalAlignment = Alignment.Bottom,
+                                                modifier = Modifier.clickable { onToggle24h() }
+                                            ) {
+                                                Text(
+                                                    text = currentHourStr,
+                                                    color = Color.White,
+                                                    fontSize = 42.sp,
+                                                    fontFamily = lomoFontFamily
+                                                )
+                                                Text(
+                                                    text = ":",
+                                                    color = accentColor.copy(alpha = colonAlpha),
+                                                    fontSize = 42.sp,
+                                                    fontFamily = lomoFontFamily
+                                                )
+                                                Text(
+                                                    text = currentMinStr,
+                                                    color = Color.White,
+                                                    fontSize = 42.sp,
+                                                    fontFamily = lomoFontFamily
+                                                )
+                                                if (currentAmPmStr.isNotEmpty()) {
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = currentAmPmStr,
+                                                        color = Color(0xFF737373),
+                                                        fontSize = 11.sp,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        modifier = Modifier.padding(bottom = 5.dp)
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = currentDateStr,
+                                                    color = Color(0xFFA3A3A3),
+                                                    fontSize = 10.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    letterSpacing = 1.2.sp
+                                                )
+                                                Text(
+                                                    text = "·",
+                                                    color = accentColor,
+                                                    fontSize = 10.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    text = nextAlarmStr,
+                                                    color = Color(0xFF737373),
+                                                    fontSize = 10.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    letterSpacing = 1.2.sp
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(1.dp)
+                                                    .background(Color(0xFF171717))
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                Text(
+                                                    text = "BAT $batteryPct%",
+                                                    color = Color(0xFFD4D4D4),
+                                                    fontSize = 10.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    letterSpacing = 0.8.sp
+                                                )
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(6.dp)
+                                                        .border(1.dp, Color(0xFF262626), RoundedCornerShape(999.dp))
+                                                        .background(Color(0xFF141414), RoundedCornerShape(999.dp))
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxHeight()
+                                                            .fillMaxWidth((batteryPct / 100f).coerceIn(0.03f, 1f))
+                                                            .background(accentColor, RoundedCornerShape(999.dp))
+                                                    )
+                                                }
+                                                Text(
+                                                    text = if (isCharging) "CHG" else "OLED",
+                                                    color = if (isCharging) accentColor else Color(0xFF737373),
+                                                    fontSize = 9.sp,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
                             "weather" -> {
-                                // Line 4: ● 28°C CLEAR SKY          [AQI 42 · GOOD]
-                                Column(modifier = Modifier.fillMaxWidth()) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { onToggleTempUnit() }
-                                            .padding(vertical = 6.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
+                                val temp = if (tempCelsius) "28°C" else "82°F"
+                                when (sizeMode) {
+                                    "compact" -> {
                                         Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { onToggleTempUnit() }
+                                                .padding(vertical = 4.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(6.dp)
-                                                    .background(accentColor, CircleShape)
-                                            )
                                             Text(
-                                                text = if (tempCelsius) "28°C" else "82°F",
+                                                text = "● $temp CLEAR SKY",
                                                 color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontFamily = FontFamily.Monospace,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                            Text(
-                                                text = "CLEAR SKY",
-                                                color = Color(0xFFA3A3A3),
                                                 fontSize = 11.sp,
                                                 fontFamily = FontFamily.Monospace
                                             )
-                                        }
-                                        Box(
-                                            modifier = Modifier
-                                                .background(Color(0xFF171717), RoundedCornerShape(4.dp))
-                                                .padding(horizontal = 7.dp, vertical = 2.5.dp)
-                                        ) {
                                             Text(
-                                                text = "AQI 42 · GOOD",
+                                                text = "AQI 42",
                                                 color = Color(0xFFA3A3A3),
                                                 fontSize = 10.sp,
                                                 fontFamily = FontFamily.Monospace
                                             )
                                         }
                                     }
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(1.dp)
-                                            .background(Color(0xFF171717))
+                                    "large" -> {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { onToggleTempUnit() }
+                                                .padding(vertical = 4.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(7.dp)
+                                                            .background(accentColor, CircleShape)
+                                                    )
+                                                    Text(
+                                                        text = temp,
+                                                        color = Color.White,
+                                                        fontSize = 14.sp,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text(
+                                                        text = "CLEAR SKY (H 31° / L 22°)",
+                                                        color = Color(0xFFA3A3A3),
+                                                        fontSize = 11.sp,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                }
+                                                Box(
+                                                    modifier = Modifier
+                                                        .background(Color(0xFF171717), RoundedCornerShape(4.dp))
+                                                        .padding(horizontal = 7.dp, vertical = 2.5.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "AQI 42 · GOOD",
+                                                        color = Color(0xFFA3A3A3),
+                                                        fontSize = 10.sp,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "HUMIDITY 48% · UV INDEX 2 LOW · BHOPAL",
+                                                color = Color(0xFF737373),
+                                                fontSize = 9.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                    }
+                                    else -> {
+                                        // Standard
+                                        Column(modifier = Modifier.fillMaxWidth()) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable { onToggleTempUnit() }
+                                                    .padding(vertical = 6.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(6.dp)
+                                                            .background(accentColor, CircleShape)
+                                                    )
+                                                    Text(
+                                                        text = temp,
+                                                        color = Color.White,
+                                                        fontSize = 11.sp,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                    Text(
+                                                        text = "CLEAR SKY",
+                                                        color = Color(0xFFA3A3A3),
+                                                        fontSize = 11.sp,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                }
+                                                Box(
+                                                    modifier = Modifier
+                                                        .background(Color(0xFF171717), RoundedCornerShape(4.dp))
+                                                        .padding(horizontal = 7.dp, vertical = 2.5.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "AQI 42 · GOOD",
+                                                        color = Color(0xFFA3A3A3),
+                                                        fontSize = 10.sp,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                }
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(1.dp)
+                                                    .background(Color(0xFF171717))
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            "torch" -> {
+                                // NEW WIDGET 1: CMF Torch / Glyph Flashlight Quick Toggle
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onToggleTorch() }
+                                        .border(1.dp, if (torchEnabled) accentColor else Color(0xFF262626), RoundedCornerShape(8.dp))
+                                        .background(if (torchEnabled) accentColor.copy(alpha = 0.12f) else Color.Transparent, RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = if (torchEnabled) "⚡" else "☼",
+                                            color = if (torchEnabled) accentColor else Color(0xFFA3A3A3),
+                                            fontSize = 12.sp
+                                        )
+                                        Text(
+                                            text = if (sizeMode == "large") "CMF GLYPH TORCH // FLASHLIGHT" else "CMF TORCH",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                    Text(
+                                        text = if (torchEnabled) "ACTIVE [ON]" else "READY [OFF]",
+                                        color = if (torchEnabled) accentColor else Color(0xFF737373),
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold
                                     )
+                                }
+                            }
+                            "pedometer" -> {
+                                // NEW WIDGET 2: Steps & Activity Counter (10,000 Step Goal)
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    val km = "%.1f".format(Locale.US, pedometerSteps * 0.00075f)
+                                    val pct = (pedometerSteps / 10000f).coerceIn(0f, 1f)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "STEPS // $pedometerSteps",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Text(
+                                            text = "$km KM · 10K GOAL",
+                                            color = Color(0xFFA3A3A3),
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                    if (sizeMode != "compact") {
+                                        Spacer(modifier = Modifier.height(5.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(4.dp)
+                                                .background(Color(0xFF141414), RoundedCornerShape(999.dp))
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxHeight()
+                                                    .fillMaxWidth(pct)
+                                                    .background(accentColor, RoundedCornerShape(999.dp))
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            "storage" -> {
+                                // NEW WIDGET 3: OLED RAM & Storage Telemetry Bar
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "RAM 2.4/8 GB",
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Text(
+                                            text = "STORAGE 64/128 GB",
+                                            color = Color(0xFFA3A3A3),
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                    if (sizeMode != "compact") {
+                                        Spacer(modifier = Modifier.height(5.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height(4.dp)
+                                                    .background(Color(0xFF141414), RoundedCornerShape(999.dp))
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxHeight()
+                                                        .fillMaxWidth(0.30f)
+                                                        .background(accentColor, RoundedCornerShape(999.dp))
+                                                )
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height(4.dp)
+                                                    .background(Color(0xFF141414), RoundedCornerShape(999.dp))
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxHeight()
+                                                        .fillMaxWidth(0.50f)
+                                                        .background(Color(0xFF555555), RoundedCornerShape(999.dp))
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            "quote" -> {
+                                // NEW WIDGET 4: Minimalist Thought / Design Ethos Quote
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = ""Simplify, then add lightness."",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontFamily = lomoFontFamily,
+                                        lineHeight = 14.sp
+                                    )
+                                    if (sizeMode != "compact") {
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "— COLIN CHAPMAN · NOTHING ETHOS",
+                                            color = Color(0xFF737373),
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
                                 }
                             }
                             "zen" -> {
@@ -1600,7 +2059,7 @@ fun HomeScreenView(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "ZEN FOCUS · $mm:$ss",
+                                        text = if (sizeMode == "compact") "ZEN $mm:$ss" else "ZEN FOCUS · $mm:$ss",
                                         color = Color.White,
                                         fontSize = 11.sp,
                                         fontFamily = FontFamily.Monospace
@@ -1625,19 +2084,61 @@ fun HomeScreenView(
                             }
                         }
 
+                        // Edit Mode Controls for Relocating, Resizing & Removing Widgets
                         if (editMode) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(top = 6.dp),
-                                horizontalArrangement = Arrangement.End
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    val idx = activeWidgets.indexOf(widgetId)
+                                    if (idx > 0) {
+                                        Text(
+                                            text = "↑ UP",
+                                            color = Color(0xFFA3A3A3),
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            modifier = Modifier
+                                                .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
+                                                .clickable { onMoveWidget(widgetId, -1) }
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                    if (idx < activeWidgets.lastIndex) {
+                                        Text(
+                                            text = "↓ DOWN",
+                                            color = Color(0xFFA3A3A3),
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            modifier = Modifier
+                                                .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
+                                                .clickable { onMoveWidget(widgetId, 1) }
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = "SIZE: ${sizeMode.uppercase()}",
+                                        color = accentColor,
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier
+                                            .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                            .clickable { onCycleWidgetSize(widgetId) }
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
                                 Text(
-                                    text = "[× REMOVE WIDGET]",
+                                    text = "× REMOVE",
                                     color = Color(0xFFEF4444),
                                     fontSize = 10.sp,
                                     fontFamily = FontFamily.Monospace,
-                                    modifier = Modifier.clickable { onRemoveWidget(widgetId) }
+                                    modifier = Modifier
+                                        .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                        .clickable { onRemoveWidget(widgetId) }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
                         }
@@ -1646,12 +2147,13 @@ fun HomeScreenView(
             }
         }
 
-        // 2. PINNED HOME APPS WITH LOMO WEB PIXEL FONT + HOVER & NIAGARA WAVE ANIMATIONS
+        // 2. PINNED HOME APPS: Shifted to a bit bottom per user request (ergonomic thumb zone!)
         Row(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxWidth()
+                .padding(bottom = 28.dp),
+            verticalAlignment = Alignment.Bottom
         ) {
             val waveRadiusPx = with(density) { 105.dp.toPx() }
             val maxWaveShiftPx = with(density) { (if (niagaraWaveMode == "full") 26.dp else 13.dp).toPx() }
@@ -1659,7 +2161,7 @@ fun HomeScreenView(
 
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.Center
+                verticalArrangement = Arrangement.Bottom
             ) {
                 pinnedApps.forEach { app ->
                     var itemCenterRootY by remember { mutableStateOf(0f) }
@@ -1748,20 +2250,19 @@ fun HomeScreenView(
                 }
             }
 
-            // Right-edge Niagara Wave Hover Strip on Home Screen
+            // Subtle Right-Edge Niagara Hover Wave Strip on Home Screen
             if (niagaraWaveMode != "off") {
-                Box(
+                Column(
                     modifier = Modifier
-                        .width(34.dp)
-                        .fillMaxHeight(0.68f)
+                        .width(20.dp)
+                        .padding(start = 4.dp)
                         .onGloballyPositioned { coords ->
                             waveStripRootTopY = coords.positionInRoot().y
                         }
-                        .pointerInput(pinnedApps) {
+                        .pointerInput(Unit) {
                             detectVerticalDragGestures(
                                 onDragStart = { offset ->
                                     waveTouchRootY = waveStripRootTopY + offset.y
-                                    onWaveTick()
                                 },
                                 onVerticalDrag = { change, _ ->
                                     change.consume()
@@ -1777,52 +2278,27 @@ fun HomeScreenView(
                                 }
                             )
                         },
-                    contentAlignment = Alignment.Center
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(7.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        repeat(11) {
-                            var dotRootY by remember { mutableStateOf(0f) }
-                            val dotShift = remember(waveTouchRootY, dotRootY) {
-                                if (waveTouchRootY == null) 0f
-                                else {
-                                    val d = abs(waveTouchRootY!! - dotRootY)
-                                    val r = with(density) { 85.dp.toPx() }
-                                    if (d < r) -cos((d / r) * (PI / 2)).toFloat() * with(density) { 14.dp.toPx() }
-                                    else 0f
-                                }
-                            }
-                            val animDotShift by animateFloatAsState(dotShift, tween(60))
-                            Box(
-                                modifier = Modifier
-                                    .onGloballyPositioned { c ->
-                                        dotRootY = c.positionInRoot().y + c.size.height / 2f
-                                    }
-                                    .graphicsLayer { translationX = animDotShift }
-                                    .size(if (animDotShift < -6f) 5.dp else 3.dp)
-                                    .background(
-                                        if (animDotShift < -6f) accentColor else Color(0xFF333333),
-                                        CircleShape
-                                    )
-                            )
-                        }
+                    repeat(pinnedApps.size.coerceAtLeast(4)) { idx ->
+                        Text(
+                            text = "·",
+                            color = if (waveTouchRootY != null) accentColor else Color(0xFF404040),
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
         }
-
-        // Bottom dock text completely removed per user request!
-        // (Long-tapping anywhere on the Home Screen opens Search, All Apps, Widgets & Settings)
-        Spacer(modifier = Modifier.height(4.dp))
     }
 }
 
 // ============================================================================
-// APP DRAWER WITH ALPHABETICAL GROUPS, FAINT LINES & 120HZ NESTED SCROLLING
+// ULTRA-LIGHT TEXT APP DRAWER (120Hz GPU-Fluid Scroll + Center-Aligned A-Z Scrubber)
 // ============================================================================
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AppDrawerView(
     apps: List<AppEntry>,
@@ -1857,14 +2333,12 @@ fun AppDrawerView(
         }
     }
 
-    // Local Y inside the Row shared by LazyColumn and the A-Z Scrubber Rail (immune to parent translationY!)
     var railHeightPx by remember { mutableStateOf(1f) }
     var scrubLocalY by remember { mutableStateOf<Float?>(null) }
 
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // Strictly sorted alphabetically A-Z
     val filteredApps = remember(apps, query) {
         apps
             .filter { !it.isHidden && (query.isBlank() || it.label.contains(query, ignoreCase = true)) }
@@ -1873,10 +2347,6 @@ fun AppDrawerView(
 
     val letters = remember { ('A'..'Z').toList() }
 
-    // Ultra-fluid 120Hz NestedScrollConnection:
-    // Tracks an explicit isPullingDrawerClosed flag that ONLY activates when the user is already at the top
-    // of LazyColumn (index == 0, offset == 0) and pulls downward. Normal upward/downward list scrolling
-    // and flinging are 100% untouched!
     val currentOnDragDelta by rememberUpdatedState(onDragDrawerDelta)
     val currentOnSettle by rememberUpdatedState(onSettleDrawer)
 
@@ -2028,21 +2498,23 @@ fun AppDrawerView(
 
             // App List + Niagara A-Z Wave Scrubber Rail
             val letterWaveRadiusPx = with(density) { 95.dp.toPx() }
-            val maxLetterShiftPx = with(density) { (if (niagaraWaveMode == "full") 34.dp else 16.dp).toPx() }
-            val rowWaveRadiusPx = with(density) { 105.dp.toPx() }
-            val maxRowShiftPx = with(density) { (if (niagaraWaveMode == "full") 22.dp else 11.dp).toPx() }
-            val pressShiftPx = with(density) { 10.dp.toPx() }
+            val centerSpacerPx = screenHeightPx * 0.40f
+            val centerSpacerDp = with(density) { centerSpacerPx.toDp() }
+            val avgItemHeightPx = with(density) { 52.dp.toPx() }
 
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                // Generous bottom contentPadding (520.dp) ensures even letters near the end of the alphabet (like T, W, Z)
-                // can scroll all the way to the very top row of the App Drawer!
+                // Top & Bottom Center Spacers ensure every letter (from A to Z) centers at screenHeight / 2!
+                // Zero layoutInfo search inside composition -> 100% native 120Hz GPU touch scrolling!
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxHeight(),
-                    contentPadding = PaddingValues(bottom = 520.dp)
+                        .fillMaxHeight()
                 ) {
+                    item(key = "__top_center_spacer__") {
+                        Spacer(modifier = Modifier.height(centerSpacerDp))
+                    }
+
                     itemsIndexed(
                         items = filteredApps,
                         key = { _, app -> app.packageName },
@@ -2056,29 +2528,7 @@ fun AppDrawerView(
                         val interactionSource = remember { MutableInteractionSource() }
                         val isPressed by interactionSource.collectIsPressedAsState()
 
-                        // Compute wave factor using local LazyListLayoutInfo (same local Y space as A-Z rail!)
-                        val currentScrubY = scrubLocalY
-                        val targetWaveFactor = if (currentScrubY != null && niagaraWaveMode != "off") {
-                            val itemInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
-                            if (itemInfo != null) {
-                                val rCenter = itemInfo.offset + itemInfo.size / 2f
-                                val d = abs(currentScrubY - rCenter)
-                                if (d < rowWaveRadiusPx) {
-                                    cos((d / rowWaveRadiusPx) * (PI / 2)).toFloat().coerceIn(0f, 1f)
-                                } else 0f
-                            } else 0f
-                        } else 0f
-
-                        val animWaveFactor by animateFloatAsState(
-                            targetValue = targetWaveFactor,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            ),
-                            label = "rowWave"
-                        )
-
-                        val isRowHighlighted = animWaveFactor > 0.68f || isPressed
+                        val isRowHighlighted = (activeLetter != null && app.firstLetter == activeLetter) || isPressed
                         val displayLabel = if (uppercaseHome) {
                             app.label.uppercase(Locale.getDefault())
                         } else {
@@ -2086,7 +2536,6 @@ fun AppDrawerView(
                         }
 
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            // Alphabet Group Section Header (Just like the web prototype)
                             if (isFirstInAlphabetGroup) {
                                 Column(
                                     modifier = Modifier
@@ -2110,24 +2559,14 @@ fun AppDrawerView(
                                 }
                             }
 
-                            // App Item Row (Zero onGloballyPositioned -> 100% fluid 120Hz LazyColumn scrolling!)
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .graphicsLayer {
-                                        val shift = when {
-                                            animWaveFactor > 0.005f -> animWaveFactor * animWaveFactor * maxRowShiftPx
-                                            isPressed -> pressShiftPx
-                                            else -> 0f
-                                        }
-                                        val sc = when {
-                                            animWaveFactor > 0.005f -> 1f + animWaveFactor * 0.06f
-                                            isPressed -> 1.03f
-                                            else -> 1f
-                                        }
-                                        translationX = shift
-                                        scaleX = sc
-                                        scaleY = sc
+                                        val isCurrentChar = activeLetter != null && app.firstLetter == activeLetter
+                                        translationX = if (isCurrentChar) with(density) { 14.dp.toPx() } else if (isPressed) with(density) { 10.dp.toPx() } else 0f
+                                        scaleX = if (isCurrentChar) 1.04f else if (isPressed) 1.02f else 1f
+                                        scaleY = if (isCurrentChar) 1.04f else if (isPressed) 1.02f else 1f
                                         transformOrigin = TransformOrigin(0f, 0.5f)
                                     }
                                     .combinedClickable(
@@ -2164,7 +2603,6 @@ fun AppDrawerView(
                                 }
                             }
 
-                            // Faint Divider Line after each alphabet group (and subtle separator between apps)
                             if (isLastInAlphabetGroup) {
                                 Box(
                                     modifier = Modifier
@@ -2183,11 +2621,13 @@ fun AppDrawerView(
                             }
                         }
                     }
+
+                    item(key = "__bottom_center_spacer__") {
+                        Spacer(modifier = Modifier.height(centerSpacerDp))
+                    }
                 }
 
-                // Niagara A-Z Wave Scrubber Rail:
-                // Single unified awaitEachGesture handles both tap-on-letter (e.g. T) and continuous vertical scrubbing,
-                // immediately positioning the chosen alphabet group right at the top of the App Drawer!
+                // Niagara A-Z Wave Scrubber Rail: Centers chosen letter (e.g. G) right at the vertical center of screen!
                 fun updateScrubFromLocalY(localY: Float, currentRailHeight: Float) {
                     val validHeight = currentRailHeight.coerceAtLeast(1f)
                     railHeightPx = validHeight
@@ -2201,7 +2641,6 @@ fun AppDrawerView(
                         activeLetter = chosenLetter
                         onWaveTick()
                         if (filteredApps.isNotEmpty()) {
-                            // Prefer exact letter match (e.g. 'T'), or nearest available alphabet section
                             val exactIdx = filteredApps.indexOfFirst { it.firstLetter == chosenLetter }
                             val targetIdx = if (exactIdx >= 0) {
                                 exactIdx
@@ -2210,7 +2649,15 @@ fun AppDrawerView(
                                 if (nextIdx >= 0) nextIdx else filteredApps.lastIndex
                             }
                             scope.launch {
-                                listState.scrollToItem(targetIdx, scrollOffset = 0)
+                                val totalScrollPx = targetIdx * avgItemHeightPx
+                                if (totalScrollPx < centerSpacerPx) {
+                                    listState.scrollToItem(index = 0, scrollOffset = totalScrollPx.toInt())
+                                } else {
+                                    val excessPx = totalScrollPx - centerSpacerPx
+                                    val appOffset = (excessPx / avgItemHeightPx).toInt()
+                                    val remPx = (excessPx % avgItemHeightPx).toInt()
+                                    listState.scrollToItem(index = 1 + appOffset, scrollOffset = remPx)
+                                }
                             }
                         }
                     }
@@ -2258,51 +2705,47 @@ fun AppDrawerView(
                             targetValue = targetLetterFactor,
                             animationSpec = spring(
                                 dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMedium
+                                stiffness = Spring.StiffnessHigh
                             ),
                             label = "letterWave"
                         )
 
                         Text(
                             text = ch.toString(),
-                            color = if (isCurrent || animLetterFactor > 0.68f) accentColor else Color(0xFF737373),
-                            fontSize = 10.sp,
+                            color = if (isCurrent) accentColor else if (animLetterFactor > 0.4f) Color.White else Color(0xFF555555),
+                            fontSize = if (isCurrent) 12.sp else 9.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                            modifier = Modifier.graphicsLayer {
-                                translationX = -(animLetterFactor * animLetterFactor * maxLetterShiftPx)
-                                val sc = 1f + animLetterFactor * 0.42f
-                                scaleX = sc
-                                scaleY = sc
-                            }
+                            modifier = Modifier
+                                .graphicsLayer {
+                                    if (animLetterFactor > 0.005f) {
+                                        translationX = -animLetterFactor * with(density) { 18.dp.toPx() }
+                                        scaleX = 1f + animLetterFactor * 0.35f
+                                        scaleY = 1f + animLetterFactor * 0.35f
+                                    }
+                                }
+                                .padding(vertical = 0.5.dp)
                         )
                     }
                 }
             }
         }
 
-        // Floating Niagara Wave Letter Bubble (Follows finger local Y position smoothly!)
-        if (activeLetter != null && scrubLocalY != null) {
-            val headerOffsetPx = with(density) { 72.dp.toPx() }
-            val bubbleSizePx = with(density) { 48.dp.toPx() }
-            val minBubbleY = headerOffsetPx
-            val maxBubbleY = (headerOffsetPx + railHeightPx - bubbleSizePx).coerceAtLeast(minBubbleY)
-            val bubbleY = (headerOffsetPx + scrubLocalY!! - bubbleSizePx / 2f).coerceIn(minBubbleY, maxBubbleY)
-
+        // Floating Letter Preview Indicator
+        if (activeLetter != null) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = 54.dp)
-                    .offset { IntOffset(0, bubbleY.roundToInt()) }
-                    .size(48.dp)
-                    .border(1.5.dp, accentColor, RoundedCornerShape(14.dp))
-                    .background(Color(0xFF0A0A0A), RoundedCornerShape(14.dp)),
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 48.dp)
+                    .size(54.dp)
+                    .border(1.dp, accentColor, RoundedCornerShape(12.dp))
+                    .background(Color.Black, RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = activeLetter.toString(),
                     color = Color.White,
-                    fontSize = 22.sp,
+                    fontSize = 28.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold
                 )
@@ -2312,20 +2755,27 @@ fun AppDrawerView(
 }
 
 // ============================================================================
-// MODULAR WIDGETS MANAGER (IN-PHONE)
+// MODULAR OLED WIDGETS MANAGER (Relocate, Resize, Add/Remove)
 // ============================================================================
 @Composable
 fun WidgetsManagerView(
     activeWidgets: List<String>,
+    widgetSizes: Map<String, String>,
     accentColor: Color,
     lomoFontFamily: FontFamily,
     onUpdateWidgets: (List<String>) -> Unit,
+    onCycleWidgetSize: (String) -> Unit,
+    onMoveWidget: (String, Int) -> Unit,
     onBack: () -> Unit
 ) {
     val allWidgets = listOf(
-        "clock" to "Lomo Pixel Clock, Date, Alarm & Battery Bar",
+        "clock" to "Dot-Matrix Clock, Date, Alarm & Battery Bar",
         "weather" to "Minimal Weather & AQI Pill",
+        "torch" to "CMF Flashlight / Glyph Torch Quick Toggle",
+        "pedometer" to "Minimal Steps & Daily Pedometer Goal",
+        "storage" to "OLED RAM & Storage Telemetry Bar",
         "zen" to "Zen Focus Timer (25m)",
+        "quote" to "Minimalist Thought / Design Ethos Quote",
         "scratchpad" to "One-Line Terminal Scratchpad"
     )
 
@@ -2334,7 +2784,7 @@ fun WidgetsManagerView(
             .fillMaxSize()
             .background(Color.Black)
             .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -2357,42 +2807,106 @@ fun WidgetsManagerView(
             )
         }
 
-        allWidgets.forEach { (id, title) ->
-            val enabled = activeWidgets.contains(id)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(10.dp))
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = title,
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    text = if (enabled) "ACTIVE [×]" else "+ ADD",
-                    color = if (enabled) accentColor else Color(0xFF8A8A8A),
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clickable {
-                        val next = if (enabled) activeWidgets - id else activeWidgets + id
-                        onUpdateWidgets(next)
+        Text(
+            text = "Relocate, resize, or toggle widgets for the pure OLED home screen:",
+            color = Color(0xFF737373),
+            fontSize = 10.sp,
+            fontFamily = FontFamily.Monospace
+        )
+
+        LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(allWidgets) { (id, title) ->
+                val enabled = activeWidgets.contains(id)
+                val currentSize = widgetSizes[id] ?: "standard"
+                val idx = activeWidgets.indexOf(id)
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, if (enabled) Color(0xFF333333) else Color(0xFF1A1A1A), RoundedCornerShape(10.dp))
+                        .background(if (enabled) Color(0xFF0A0A0A) else Color.Transparent, RoundedCornerShape(10.dp))
+                        .padding(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = title,
+                            color = if (enabled) Color.White else Color(0xFF737373),
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = if (enabled) "ACTIVE [×]" else "+ ADD",
+                            color = if (enabled) accentColor else Color(0xFF8A8A8A),
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable {
+                                val next = if (enabled) activeWidgets - id else activeWidgets + id
+                                onUpdateWidgets(next)
+                            }
+                        )
                     }
-                )
+
+                    if (enabled) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (idx > 0) {
+                                    Text(
+                                        text = "↑ UP",
+                                        color = Color(0xFFA3A3A3),
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier
+                                            .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
+                                            .clickable { onMoveWidget(id, -1) }
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                                if (idx < activeWidgets.lastIndex) {
+                                    Text(
+                                        text = "↓ DOWN",
+                                        color = Color(0xFFA3A3A3),
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier
+                                            .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
+                                            .clickable { onMoveWidget(id, 1) }
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "SIZE: ${currentSize.uppercase()}",
+                                color = accentColor,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier
+                                    .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                    .clickable { onCycleWidgetSize(id) }
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-// ============================================================================
-// IN-PHONE LAUNCHER SETTINGS SCREEN (100% SELF-CONTAINED IN APK)
-// ============================================================================
+
 @Composable
 fun LauncherSettingsView(
     fontId: String,
