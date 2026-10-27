@@ -63,6 +63,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import kotlin.math.exp
+import kotlin.math.min
+import kotlin.math.sin
+import kotlin.math.sqrt
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -489,6 +499,8 @@ fun NTextLauncherApp(
     var wallpaperPreset by remember { mutableStateOf(prefs.getString("wallpaper", "oled") ?: "oled") }
     var wallpaperDimPercent by remember { mutableStateOf(prefs.getInt("wp_dim", 50)) }
     var doubleTapSleep by remember { mutableStateOf(prefs.getBoolean("dbl_tap_sleep", true)) }
+    var globeTheme by remember { mutableStateOf(prefs.getString("globe_theme", "retro_holo") ?: "retro_holo") }
+    var globeWireframeColor by remember { mutableStateOf(prefs.getString("globe_wf_color", "#FF3B00") ?: "#FF3B00") }
 
     // Removable Widgets Order, Visibility & Sizing (Compact, Standard, Large)
     var activeWidgets by remember {
@@ -917,6 +929,8 @@ fun NTextLauncherApp(
                                     textAlign = textAlign,
                                     textSizeSp = textSizeSp,
                                     niagaraWaveMode = niagaraWaveMode,
+                                    globeTheme = globeTheme,
+                                    globeWireframeColor = globeWireframeColor,
                                     pinnedApps = installedApps.filter { it.isPinned && !it.isHidden },
                                     onToggle24h = {
                                         use24Hour = !use24Hour
@@ -1022,6 +1036,16 @@ fun NTextLauncherApp(
                             wallpaperPreset = wallpaperPreset,
                             lomoFontFamily = lomoFontFamily,
                             doubleTapSleep = doubleTapSleep,
+                            globeTheme = globeTheme,
+                            globeWireframeColor = globeWireframeColor,
+                            onChangeGlobeTheme = {
+                                globeTheme = it
+                                prefs.edit().putString("globe_theme", it).apply()
+                            },
+                            onChangeGlobeWireframeColor = {
+                                globeWireframeColor = it
+                                prefs.edit().putString("globe_wf_color", it).apply()
+                            },
                             onChangeFont = {
                                 fontId = it
                                 prefs.edit().putString("font_id", it).apply()
@@ -1182,7 +1206,21 @@ fun NTextLauncherApp(
                         }
                     )
 
-                    // 5. Launcher Settings
+                    // 5. Switch 3D Globe Theme (Retro Hologram vs Customizable Wireframe)
+                    QuickMenuButton(
+                        label = if (globeTheme == "retro_holo") "🌐 Globe: 80s Hologram (Green/Blue)" else "🌐 Globe: Wireframe ($globeWireframeColor)",
+                        badge = "GLOBE",
+                        accentColor = accentColor,
+                        lomoFontFamily = lomoFontFamily,
+                        onClick = {
+                            val next = if (globeTheme == "retro_holo") "wireframe" else "retro_holo"
+                            globeTheme = next
+                            prefs.edit().putString("globe_theme", next).apply()
+                            tickHaptic(heavy = false)
+                        }
+                    )
+
+                    // 6. Launcher Settings
                     QuickMenuButton(
                         label = "⚙ Launcher Settings",
                         badge = "CFG",
@@ -1433,6 +1471,8 @@ fun HomeScreenView(
     textAlign: TextAlign,
     textSizeSp: Int,
     niagaraWaveMode: String,
+    globeTheme: String,
+    globeWireframeColor: String,
     pinnedApps: List<AppEntry>,
     onToggle24h: () -> Unit,
     onToggleTempUnit: () -> Unit,
@@ -2146,12 +2186,25 @@ fun HomeScreenView(
             }
         }
 
-        // 2. PINNED HOME APPS + 1:1 MATCHED RIGHT-SIDE DOTS WAVE SCROLLER
+        // 2. MIDDLE EMPTY SPACE: LARGE HIGH-PRECISION 3D INTERACTIVE GLOBE (NO TEXT OR EXTRA SHAPES)
         Box(
             modifier = Modifier
                 .weight(1f)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            RetroFuturisticGlobeView(
+                globeTheme = globeTheme,
+                globeWireframeColor = globeWireframeColor,
+                onTick = onWaveTick
+            )
+        }
+
+        // 3. PINNED HOME APPS + 1:1 MATCHED RIGHT-SIDE DOTS WAVE SCROLLER (Anchored at Bottom)
+        Box(
+            modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 28.dp),
+                .padding(bottom = 18.dp),
             contentAlignment = Alignment.BottomStart
         ) {
             val waveRadiusRows = 2.25f
@@ -2340,6 +2393,924 @@ fun HomeScreenView(
                     }
                 }
             }
+        }
+    }
+}
+
+// ============================================================================
+// HIGH-PRECISION 3D INTERACTIVE GLOBE (106 COUNTRY BORDERS · 2 THEMES)
+// Theme 1 ("retro_holo"): Translucent Blue Ocean + Translucent Green Countries + Glowing Mint Borders
+// Theme 2 ("wireframe"): Pure 3D Vector Wireframe with User-Customizable Color
+// Pure floating globe with zero surrounding text or shapes, larger radius,
+// slow autonomous spin, 360-degree omnidirectional finger spin, and spring posture recovery.
+// ============================================================================
+private val WORLD_COUNTRY_BORDERS: List<List<Pair<Float, Float>>> = listOf(
+    listOf(
+        49.0f to -123.1f, 49.0f to -119.6f, 49.0f to -116.1f, 49.0f to -112.6f, 49.0f to -109.2f, 49.0f to -105.7f, 49.0f to -102.2f, 49.0f to -98.7f,
+        49.0f to -95.2f, 48.5f to -92.3f, 48.0f to -89.5f, 47.2f to -86.9f, 46.5f to -84.3f, 45.0f to -82.5f, 42.3f to -83.0f, 42.6f to -81.0f,
+        42.9f to -78.9f, 44.0f to -76.8f, 45.0f to -74.7f, 45.0f to -71.5f, 47.4f to -69.2f, 45.1f to -67.1f, 44.9f to -65.3f, 44.6f to -63.5f,
+        45.8f to -62.0f, 46.9f to -60.4f, 49.5f to -58.1f, 52.0f to -55.8f, 54.2f to -58.1f, 56.3f to -60.5f, 58.5f to -62.8f, 60.9f to -64.8f,
+        59.8f to -66.6f, 58.8f to -68.4f, 60.0f to -71.5f, 61.3f to -74.7f, 62.5f to -77.8f, 60.1f to -79.3f, 57.6f to -80.8f, 55.2f to -82.3f,
+        55.8f to -85.6f, 56.5f to -89.0f, 57.1f to -92.3f, 59.4f to -92.9f, 61.8f to -93.4f, 64.1f to -94.0f, 66.3f to -95.2f, 68.5f to -96.5f,
+        68.7f to -99.6f, 68.8f to -102.7f, 69.0f to -105.8f, 69.2f to -108.8f, 69.3f to -111.9f, 69.5f to -115.0f, 69.6f to -117.8f, 69.7f to -120.6f,
+        69.9f to -123.4f, 70.0f to -126.2f, 70.1f to -129.0f, 70.0f to -132.0f, 69.8f to -135.0f, 69.7f to -138.0f, 69.6f to -141.0f, 66.5f to -141.0f,
+        63.4f to -141.0f, 60.3f to -141.0f, 58.9f to -138.4f, 57.5f to -135.8f, 56.1f to -133.2f, 54.7f to -130.6f, 52.8f to -129.5f, 50.8f to -128.4f,
+        49.9f to -125.8f, 49.0f to -123.1f
+    ),
+    listOf(
+        62.0f to -66.0f, 64.2f to -63.8f, 66.5f to -61.5f, 67.8f to -64.2f, 69.0f to -67.0f, 70.2f to -69.8f, 71.5f to -72.5f, 72.0f to -75.4f,
+        72.6f to -78.2f, 73.2f to -81.1f, 73.7f to -84.0f, 71.8f to -85.0f, 70.0f to -86.0f, 68.3f to -83.3f, 66.7f to -80.7f, 65.0f to -78.0f,
+        64.2f to -75.0f, 63.5f to -72.0f, 62.8f to -69.0f, 62.0f to -66.0f
+    ),
+    listOf(
+        49.0f to -123.1f, 48.4f to -124.7f, 46.2f to -124.0f, 44.1f to -124.1f, 42.0f to -124.2f, 40.0f to -123.6f, 38.0f to -123.0f, 36.2f to -121.8f,
+        34.5f to -120.5f, 33.5f to -118.8f, 32.5f to -117.1f, 31.9f to -114.0f, 31.3f to -111.0f, 31.6f to -108.8f, 31.8f to -106.5f, 30.4f to -104.8f,
+        29.0f to -103.1f, 27.5f to -100.2f, 26.0f to -97.2f, 27.8f to -97.1f, 28.8f to -95.4f, 29.7f to -93.8f, 29.4f to -91.5f, 29.1f to -89.2f,
+        30.2f to -88.0f, 30.1f to -86.0f, 30.0f to -84.0f, 28.0f to -82.8f, 26.6f to -81.6f, 25.1f to -80.4f, 28.5f to -80.6f, 30.7f to -81.4f,
+        32.8f to -79.9f, 34.0f to -77.7f, 35.2f to -75.5f, 37.0f to -76.0f, 39.5f to -74.3f, 40.6f to -74.0f, 41.3f to -71.8f, 42.0f to -70.0f,
+        43.6f to -70.2f, 44.2f to -68.6f, 44.8f to -66.9f, 47.4f to -69.2f, 45.0f to -71.5f, 45.0f to -74.7f, 44.0f to -76.8f, 42.9f to -78.9f,
+        42.6f to -81.0f, 42.3f to -83.0f, 45.0f to -82.5f, 46.5f to -84.3f, 47.2f to -86.9f, 48.0f to -89.5f, 48.5f to -92.3f, 49.0f to -95.2f,
+        49.0f to -98.7f, 49.0f to -102.2f, 49.0f to -105.7f, 49.0f to -109.2f, 49.0f to -112.6f, 49.0f to -116.1f, 49.0f to -119.6f, 49.0f to -123.1f
+    ),
+    listOf(
+        60.3f to -141.0f, 63.4f to -141.0f, 66.5f to -141.0f, 69.6f to -141.0f, 69.9f to -144.2f, 70.3f to -147.3f, 70.6f to -150.5f, 71.0f to -153.6f,
+        71.3f to -156.8f, 70.5f to -159.9f, 69.7f to -163.1f, 68.9f to -166.2f, 67.2f to -167.1f, 65.6f to -168.1f, 64.5f to -165.1f, 63.5f to -162.0f,
+        61.8f to -163.8f, 60.0f to -165.6f, 59.3f to -163.0f, 58.7f to -160.3f, 58.0f to -157.7f, 56.4f to -160.6f, 54.8f to -163.4f, 55.8f to -160.7f,
+        56.7f to -157.9f, 57.6f to -155.2f, 58.6f to -152.5f, 59.5f to -149.2f, 60.5f to -146.0f, 59.8f to -142.6f, 59.1f to -139.2f, 58.4f to -135.8f,
+        56.5f to -133.2f, 54.7f to -130.6f, 56.1f to -133.2f, 57.5f to -135.8f, 58.9f to -138.4f, 60.3f to -141.0f
+    ),
+    listOf(
+        32.5f to -117.1f, 30.1f to -116.0f, 27.8f to -114.9f, 26.2f to -113.2f, 24.5f to -111.6f, 22.9f to -109.9f, 24.7f to -110.7f, 26.5f to -111.5f,
+        28.9f to -112.5f, 31.2f to -113.5f, 29.6f to -112.2f, 28.0f to -111.0f, 25.6f to -108.7f, 23.2f to -106.4f, 21.1f to -105.3f, 19.0f to -104.3f,
+        17.9f to -102.1f, 16.9f to -99.9f, 16.4f to -98.2f, 15.8f to -96.5f, 15.2f to -94.3f, 14.5f to -92.2f, 16.1f to -91.6f, 17.8f to -91.0f,
+        17.8f to -89.2f, 19.6f to -88.2f, 21.5f to -87.1f, 21.2f to -90.0f, 18.6f to -91.8f, 18.2f to -94.4f, 19.9f to -95.9f, 21.5f to -97.4f,
+        23.8f to -97.3f, 26.0f to -97.2f, 27.5f to -100.2f, 29.0f to -103.1f, 30.4f to -104.8f, 31.8f to -106.5f, 31.6f to -108.8f, 31.3f to -111.0f,
+        31.9f to -114.0f, 32.5f to -117.1f
+    ),
+    listOf(
+        17.8f to -89.2f, 15.9f to -88.6f, 15.9f to -85.8f, 15.9f to -83.1f, 13.4f to -83.4f, 11.0f to -83.7f, 9.7f to -80.6f, 8.3f to -77.4f,
+        7.2f to -77.9f, 7.7f to -80.4f, 8.1f to -82.9f, 9.5f to -84.3f, 10.9f to -85.7f, 13.0f to -87.6f, 13.8f to -89.9f, 14.5f to -92.2f,
+        16.1f to -91.6f, 17.8f to -91.0f, 17.8f to -89.2f
+    ),
+    listOf(
+        21.9f to -84.9f, 23.1f to -81.8f, 22.3f to -79.4f, 21.5f to -77.0f, 19.8f to -74.1f, 19.9f to -75.9f, 19.9f to -77.7f, 21.6f to -80.0f,
+        21.8f to -82.5f, 21.9f to -84.9f
+    ),
+    listOf(
+        19.9f to -73.4f, 19.8f to -71.7f, 19.7f to -69.9f, 18.4f to -68.4f, 18.0f to -71.7f, 18.4f to -74.4f, 19.9f to -73.4f
+    ),
+    listOf(
+        60.0f to -43.5f, 61.9f to -41.4f, 63.7f to -39.3f, 65.6f to -37.2f, 66.6f to -34.2f, 67.5f to -31.1f, 68.5f to -28.1f, 69.4f to -25.0f,
+        70.4f to -22.0f, 72.5f to -20.9f, 74.7f to -19.9f, 76.8f to -18.8f, 78.5f to -16.7f, 80.1f to -14.6f, 81.8f to -12.5f, 82.1f to -15.8f,
+        82.4f to -19.0f, 82.7f to -22.2f, 83.0f to -25.5f, 83.3f to -28.8f, 83.6f to -32.0f, 83.3f to -35.3f, 83.1f to -38.7f, 82.8f to -42.0f,
+        82.5f to -45.3f, 82.3f to -48.7f, 82.0f to -52.0f, 81.7f to -55.3f, 81.5f to -58.7f, 81.2f to -62.0f, 79.6f to -64.7f, 77.9f to -67.3f,
+        76.3f to -70.0f, 75.6f to -67.2f, 74.9f to -64.4f, 74.2f to -61.6f, 73.5f to -58.8f, 72.8f to -56.0f, 70.4f to -54.8f, 68.0f to -53.5f,
+        65.9f to -52.5f, 63.8f to -51.5f, 62.5f to -48.8f, 61.3f to -46.2f, 60.0f to -43.5f
+    ),
+    listOf(
+        8.3f to -77.4f, 9.8f to -75.8f, 11.2f to -74.2f, 12.4f to -71.6f, 9.7f to -71.2f, 7.0f to -70.7f, 4.3f to -68.9f, 1.7f to -67.1f,
+        -1.3f to -68.5f, -4.2f to -69.9f, -2.3f to -72.6f, -0.4f to -75.2f, 0.5f to -77.0f, 1.4f to -78.8f, 4.0f to -77.3f, 6.2f to -77.3f,
+        8.3f to -77.4f
+    ),
+    listOf(
+        12.4f to -71.6f, 11.5f to -69.2f, 10.6f to -66.9f, 10.6f to -64.2f, 10.6f to -61.6f, 8.4f to -59.8f, 7.2f to -57.5f, 6.0f to -55.2f,
+        5.2f to -53.4f, 4.3f to -51.6f, 2.2f to -52.9f, 2.0f to -55.3f, 1.7f to -57.6f, 1.5f to -60.0f, 4.5f to -61.0f, 3.1f to -64.0f,
+        1.7f to -67.1f, 4.3f to -68.9f, 7.0f to -70.7f, 9.7f to -71.2f, 12.4f to -71.6f
+    ),
+    listOf(
+        1.4f to -78.8f, 0.5f to -77.0f, -0.4f to -75.2f, -2.3f to -72.6f, -4.2f to -69.9f, -5.8f to -71.9f, -7.4f to -73.9f, -9.2f to -71.7f,
+        -11.0f to -69.5f, -13.8f to -69.2f, -16.5f to -69.0f, -18.3f to -70.4f, -16.9f to -72.4f, -15.4f to -74.3f, -14.0f to -76.3f, -11.1f to -77.7f,
+        -8.1f to -79.1f, -6.4f to -80.2f, -4.7f to -81.3f, -2.2f to -81.0f, -0.4f to -79.9f, 1.4f to -78.8f
+    ),
+    listOf(
+        4.3f to -51.6f, 2.1f to -50.5f, 0.0f to -49.5f, -1.2f to -46.9f, -2.5f to -44.3f, -3.1f to -41.4f, -3.7f to -38.5f, -4.8f to -36.9f,
+        -5.8f to -35.2f, -8.0f to -34.9f, -10.5f to -36.7f, -13.0f to -38.5f, -15.5f to -39.0f, -18.0f to -39.5f, -20.5f to -41.4f, -23.0f to -43.2f,
+        -24.2f to -45.9f, -25.5f to -48.5f, -27.8f to -49.4f, -30.0f to -50.2f, -31.9f to -51.8f, -33.7f to -53.4f, -32.0f to -55.5f, -30.2f to -57.6f,
+        -27.9f to -56.1f, -25.6f to -54.6f, -23.9f to -56.3f, -22.1f to -58.0f, -20.1f to -57.8f, -18.0f to -57.6f, -15.8f to -59.0f, -13.6f to -60.4f,
+        -12.2f to -62.9f, -10.8f to -65.4f, -10.9f to -67.5f, -11.0f to -69.5f, -9.2f to -71.7f, -7.4f to -73.9f, -5.8f to -71.9f, -4.2f to -69.9f,
+        -1.2f to -68.5f, 1.7f to -67.1f, 3.1f to -64.0f, 4.5f to -61.0f, 1.5f to -60.0f, 1.7f to -57.6f, 2.0f to -55.3f, 2.2f to -52.9f,
+        4.3f to -51.6f
+    ),
+    listOf(
+        -11.0f to -69.5f, -10.9f to -67.5f, -10.8f to -65.4f, -12.2f to -62.9f, -13.6f to -60.4f, -15.8f to -59.0f, -18.0f to -57.6f, -20.1f to -57.8f,
+        -22.1f to -58.0f, -23.9f to -56.3f, -25.6f to -54.6f, -26.5f to -56.6f, -27.3f to -58.6f, -25.1f to -60.7f, -22.9f to -62.7f, -22.9f to -65.2f,
+        -22.9f to -67.8f, -19.7f to -68.4f, -16.5f to -69.0f, -13.8f to -69.2f, -11.0f to -69.5f
+    ),
+    listOf(
+        -18.3f to -70.4f, -16.5f to -69.0f, -19.7f to -68.4f, -22.9f to -67.8f, -24.9f to -68.2f, -27.0f to -68.5f, -30.0f to -69.2f, -33.0f to -70.0f,
+        -35.7f to -70.6f, -38.3f to -71.2f, -41.0f to -71.8f, -43.7f to -72.2f, -46.3f to -72.6f, -49.0f to -73.0f, -51.0f to -71.2f, -52.9f to -69.3f,
+        -54.9f to -67.5f, -54.4f to -70.0f, -53.9f to -72.4f, -51.5f to -73.5f, -49.2f to -74.5f, -46.8f to -75.6f, -44.1f to -74.7f, -41.5f to -73.8f,
+        -38.7f to -73.1f, -35.8f to -72.3f, -33.0f to -71.6f, -29.9f to -71.2f, -26.7f to -70.8f, -23.6f to -70.4f, -21.0f to -70.4f, -18.3f to -70.4f
+    ),
+    listOf(
+        -22.9f to -67.8f, -22.9f to -65.2f, -22.9f to -62.7f, -25.1f to -60.7f, -27.3f to -58.6f, -26.5f to -56.6f, -25.6f to -54.6f, -27.9f to -56.1f,
+        -30.2f to -57.6f, -32.0f to -55.5f, -33.7f to -53.4f, -35.0f to -54.9f, -34.9f to -57.9f, -38.0f to -57.5f, -39.5f to -60.1f, -41.0f to -62.8f,
+        -43.5f to -65.2f, -46.0f to -67.5f, -49.2f to -68.0f, -52.4f to -68.4f, -54.9f to -67.5f, -52.9f to -69.3f, -51.0f to -71.2f, -49.0f to -73.0f,
+        -46.3f to -72.6f, -43.7f to -72.2f, -41.0f to -71.8f, -38.3f to -71.2f, -35.7f to -70.6f, -33.0f to -70.0f, -30.0f to -69.2f, -27.0f to -68.5f,
+        -24.9f to -68.2f, -22.9f to -67.8f
+    ),
+    listOf(
+        50.1f to -5.2f, 50.5f to -2.5f, 50.8f to 0.2f, 51.4f to 1.4f, 52.7f to 1.7f, 53.6f to 0.1f, 55.8f to -2.1f, 57.7f to -1.8f,
+        58.6f to -3.1f, 58.6f to -5.0f, 56.5f to -5.6f, 54.8f to -5.0f, 53.4f to -3.0f, 51.7f to -5.1f, 50.1f to -5.2f
+    ),
+    listOf(
+        51.5f to -9.8f, 52.2f to -6.4f, 54.5f to -5.5f, 55.4f to -7.4f, 53.5f to -10.1f, 51.5f to -9.8f
+    ),
+    listOf(
+        63.4f to -19.0f, 63.9f to -16.8f, 64.4f to -14.5f, 66.5f to -16.0f, 66.2f to -18.7f, 65.9f to -21.5f, 65.6f to -24.2f, 64.5f to -21.6f,
+        63.4f to -19.0f
+    ),
+    listOf(
+        36.0f to -5.6f, 37.0f to -8.9f, 38.8f to -9.5f, 41.9f to -8.9f, 43.0f to -9.3f, 43.2f to -6.2f, 43.4f to -3.0f, 43.3f to -1.8f,
+        42.8f to 0.7f, 42.4f to 3.2f, 40.7f to 0.8f, 38.7f to 0.2f, 36.7f to -2.2f, 36.0f to -5.6f
+    ),
+    listOf(
+        37.0f to -8.9f, 37.2f to -7.4f, 39.5f to -7.0f, 41.9f to -6.6f, 41.9f to -8.9f, 38.8f to -9.5f, 37.0f to -8.9f
+    ),
+    listOf(
+        43.3f to -1.8f, 46.0f to -1.2f, 47.2f to -3.0f, 48.4f to -4.8f, 48.7f to -1.8f, 49.7f to -1.9f, 50.4f to 0.3f, 51.0f to 2.5f,
+        50.0f to 5.3f, 49.0f to 8.2f, 47.6f to 7.6f, 45.8f to 6.8f, 43.8f to 7.5f, 43.1f to 5.9f, 43.3f to 3.5f, 42.4f to 3.2f,
+        42.8f to 0.7f, 43.3f to -1.8f
+    ),
+    listOf(
+        51.0f to 2.5f, 52.2f to 4.0f, 53.4f to 5.5f, 53.9f to 8.7f, 54.8f to 8.4f, 54.4f to 11.0f, 53.9f to 14.2f, 51.0f to 15.0f,
+        49.0f to 13.8f, 47.6f to 13.0f, 46.8f to 11.0f, 46.0f to 9.0f, 46.2f to 6.1f, 47.6f to 7.6f, 49.0f to 8.2f, 50.0f to 5.3f,
+        51.0f to 2.5f
+    ),
+    listOf(
+        43.8f to 7.5f, 45.8f to 6.8f, 46.0f to 9.0f, 47.0f to 12.2f, 45.6f to 13.8f, 44.4f to 12.3f, 43.2f to 13.7f, 42.0f to 15.0f,
+        41.0f to 16.8f, 40.1f to 18.5f, 39.8f to 16.5f, 38.0f to 15.6f, 39.0f to 16.0f, 40.8f to 14.2f, 41.8f to 12.2f, 43.1f to 10.6f,
+        44.4f to 8.9f, 43.8f to 7.5f
+    ),
+    listOf(
+        58.0f to 7.0f, 60.0f to 6.0f, 62.0f to 5.0f, 63.0f to 7.5f, 64.0f to 10.0f, 66.0f to 12.2f, 68.0f to 14.5f, 68.8f to 17.3f,
+        69.5f to 20.1f, 70.3f to 23.0f, 71.1f to 25.8f, 70.5f to 27.8f, 69.9f to 29.7f, 69.6f to 26.7f, 69.3f to 23.8f, 69.0f to 20.8f,
+        67.3f to 18.5f, 65.7f to 16.3f, 64.0f to 14.0f, 61.5f to 12.6f, 59.0f to 11.2f, 58.5f to 9.1f, 58.0f to 7.0f
+    ),
+    listOf(
+        59.0f to 11.2f, 61.5f to 12.6f, 64.0f to 14.0f, 65.7f to 16.3f, 67.3f to 18.5f, 69.0f to 20.8f, 67.4f to 22.5f, 65.8f to 24.1f,
+        64.7f to 22.1f, 63.5f to 20.0f, 61.9f to 19.4f, 60.2f to 18.8f, 58.1f to 17.4f, 56.0f to 16.0f, 55.4f to 13.0f, 57.7f to 11.9f,
+        59.0f to 11.2f
+    ),
+    listOf(
+        65.8f to 24.1f, 67.4f to 22.5f, 69.0f to 20.8f, 69.3f to 23.8f, 69.6f to 26.7f, 69.9f to 29.7f, 67.5f to 29.8f, 65.0f to 29.8f,
+        62.8f to 28.8f, 60.5f to 27.8f, 60.1f to 25.4f, 59.8f to 23.0f, 61.5f to 21.5f, 63.6f to 22.8f, 65.8f to 24.1f
+    ),
+    listOf(
+        53.9f to 14.2f, 54.3f to 16.3f, 54.8f to 18.4f, 55.9f to 21.1f, 57.0f to 22.8f, 58.0f to 24.4f, 59.4f to 24.7f, 59.4f to 28.0f,
+        56.0f to 28.2f, 55.0f to 25.9f, 53.9f to 23.5f, 50.5f to 24.0f, 49.0f to 22.5f, 49.2f to 20.6f, 49.5f to 18.8f, 49.2f to 16.3f,
+        49.0f to 13.8f, 51.0f to 15.0f, 53.9f to 14.2f
+    ),
+    listOf(
+        53.9f to 23.5f, 55.0f to 25.9f, 56.0f to 28.2f, 54.8f to 30.4f, 53.5f to 32.5f, 52.1f to 34.0f, 51.0f to 36.1f, 49.8f to 38.2f,
+        47.1f to 39.2f, 46.5f to 37.1f, 46.0f to 35.0f, 44.4f to 33.8f, 45.5f to 32.2f, 46.5f to 30.7f, 45.3f to 29.7f, 46.2f to 27.5f,
+        47.1f to 25.2f, 48.0f to 23.0f, 50.5f to 24.0f, 53.9f to 23.5f
+    ),
+    listOf(
+        45.6f to 13.8f, 47.0f to 17.0f, 47.5f to 20.0f, 48.0f to 23.0f, 47.1f to 25.2f, 46.2f to 27.5f, 45.3f to 29.7f, 43.6f to 28.9f,
+        42.0f to 28.0f, 40.8f to 26.0f, 40.5f to 23.0f, 38.0f to 24.0f, 36.4f to 22.5f, 37.7f to 21.2f, 39.0f to 20.0f, 42.0f to 19.2f,
+        43.8f to 16.5f, 45.6f to 13.8f
+    ),
+    listOf(
+        59.4f to 28.0f, 60.5f to 27.8f, 62.8f to 28.8f, 65.0f to 29.8f, 67.5f to 29.8f, 69.9f to 29.7f, 69.5f to 33.1f, 69.0f to 36.5f,
+        67.8f to 35.2f, 66.5f to 34.0f, 65.8f to 37.0f, 65.0f to 40.0f, 66.8f to 42.0f, 68.5f to 44.0f, 68.7f to 47.2f, 68.9f to 50.4f,
+        69.1f to 53.6f, 69.3f to 56.8f, 69.5f to 60.0f, 70.4f to 62.5f, 71.2f to 65.0f, 72.1f to 67.5f, 73.0f to 70.0f, 73.1f to 72.6f,
+        73.2f to 75.2f, 73.4f to 77.9f, 73.5f to 80.5f, 74.1f to 83.9f, 74.7f to 87.3f, 75.3f to 90.7f, 75.9f to 94.1f, 76.5f to 97.5f,
+        77.1f to 100.9f, 77.7f to 104.3f, 76.7f to 106.7f, 75.6f to 109.2f, 74.5f to 111.6f, 73.5f to 114.0f, 73.2f to 117.1f, 72.9f to 120.3f,
+        72.6f to 123.4f, 72.4f to 126.6f, 72.1f to 129.7f, 71.8f to 132.9f, 71.5f to 136.0f, 71.3f to 139.2f, 71.0f to 142.5f, 70.8f to 145.8f,
+        70.5f to 149.0f, 70.3f to 152.2f, 70.1f to 155.5f, 69.8f to 158.8f, 69.6f to 162.0f, 69.0f to 164.9f, 68.4f to 167.8f, 67.8f to 170.8f,
+        67.2f to 173.7f, 66.6f to 176.6f, 66.0f to 179.5f, 64.8f to 176.6f, 63.6f to 173.7f, 62.4f to 170.8f, 61.2f to 167.9f, 60.0f to 165.0f,
+        57.8f to 162.9f, 55.5f to 160.8f, 53.2f to 158.8f, 51.0f to 156.7f, 54.0f to 156.1f, 57.0f to 155.6f, 60.0f to 155.0f, 59.0f to 152.0f,
+        58.0f to 149.0f, 57.0f to 146.0f, 56.0f to 143.0f, 55.0f to 140.0f, 54.0f to 137.0f, 51.2f to 135.8f, 48.5f to 134.5f, 45.8f to 133.2f,
+        43.0f to 132.0f, 45.8f to 133.5f, 48.5f to 135.0f, 49.5f to 132.2f, 50.4f to 129.4f, 51.4f to 126.6f, 52.3f to 123.8f, 53.3f to 121.0f,
+        51.6f to 118.0f, 50.0f to 115.0f, 50.0f to 111.7f, 50.0f to 108.3f, 50.0f to 105.0f, 50.0f to 101.7f, 50.0f to 98.3f, 50.0f to 95.0f,
+        49.7f to 92.4f, 49.3f to 89.9f, 49.0f to 87.3f, 50.2f to 84.2f, 51.5f to 81.2f, 52.8f to 78.1f, 54.0f to 75.0f, 53.4f to 72.0f,
+        52.8f to 69.0f, 52.2f to 66.0f, 51.6f to 63.0f, 51.0f to 60.0f, 51.1f to 57.0f, 51.1f to 54.0f, 51.2f to 51.0f, 49.1f to 49.2f,
+        47.0f to 47.5f, 45.0f to 47.5f, 43.0f to 47.5f, 43.2f to 45.0f, 43.3f to 42.5f, 43.5f to 40.0f, 45.3f to 39.6f, 47.1f to 39.2f,
+        49.8f to 38.2f, 51.0f to 36.1f, 52.1f to 34.0f, 53.5f to 32.5f, 54.8f to 30.4f, 56.0f to 28.2f, 59.4f to 28.0f
+    ),
+    listOf(
+        47.0f to 47.5f, 49.1f to 49.2f, 51.2f to 51.0f, 51.1f to 54.0f, 51.1f to 57.0f, 51.0f to 60.0f, 51.6f to 63.0f, 52.2f to 66.0f,
+        52.8f to 69.0f, 53.4f to 72.0f, 54.0f to 75.0f, 52.8f to 78.1f, 51.5f to 81.2f, 50.2f to 84.2f, 49.0f to 87.3f, 47.0f to 84.9f,
+        45.0f to 82.6f, 43.0f to 80.2f, 42.1f to 78.0f, 41.1f to 75.7f, 40.2f to 73.5f, 38.7f to 70.7f, 37.2f to 67.8f, 37.5f to 65.1f,
+        37.9f to 62.4f, 38.2f to 59.7f, 38.5f to 57.0f, 37.4f to 54.0f, 39.7f to 53.2f, 42.0f to 52.5f, 44.5f to 50.3f, 45.8f to 48.9f,
+        47.0f to 47.5f
+    ),
+    listOf(
+        41.2f to 29.0f, 41.6f to 32.1f, 42.0f to 35.2f, 41.5f to 37.9f, 41.0f to 40.5f, 40.5f to 42.5f, 40.0f to 44.5f, 37.2f to 44.8f,
+        37.1f to 41.9f, 36.9f to 39.1f, 36.8f to 36.2f, 36.5f to 34.4f, 36.2f to 32.5f, 36.5f to 29.9f, 36.8f to 27.4f, 39.5f to 26.2f,
+        41.2f to 29.0f
+    ),
+    listOf(
+        36.8f to 36.2f, 36.9f to 39.1f, 37.1f to 41.9f, 37.2f to 44.8f, 40.0f to 44.5f, 39.4f to 46.7f, 38.8f to 48.9f, 38.1f to 51.5f,
+        37.4f to 54.0f, 38.5f to 57.0f, 37.0f to 59.1f, 35.6f to 61.2f, 32.8f to 61.0f, 29.9f to 60.9f, 27.5f to 61.2f, 25.2f to 61.6f,
+        25.9f to 59.0f, 26.6f to 56.3f, 27.7f to 53.7f, 28.9f to 51.1f, 30.0f to 48.5f, 29.1f to 46.5f, 29.2f to 43.6f, 29.3f to 40.8f,
+        29.4f to 37.9f, 29.5f to 35.0f, 31.5f to 34.5f, 34.1f to 35.4f, 36.8f to 36.2f
+    ),
+    listOf(
+        29.5f to 35.0f, 29.4f to 37.9f, 29.3f to 40.8f, 29.2f to 43.6f, 29.1f to 46.5f, 30.0f to 48.5f, 28.1f to 49.5f, 26.2f to 50.6f,
+        24.5f to 51.5f, 25.4f to 53.9f, 26.2f to 56.3f, 24.4f to 58.0f, 22.5f to 59.8f, 20.7f to 58.0f, 18.8f to 56.3f, 17.0f to 54.5f,
+        15.8f to 51.9f, 14.5f to 49.2f, 13.6f to 46.4f, 12.7f to 43.5f, 14.6f to 43.1f, 16.5f to 42.8f, 19.0f to 41.0f, 21.5f to 39.1f,
+        23.7f to 37.7f, 25.8f to 36.2f, 28.0f to 34.8f, 29.5f to 35.0f
+    ),
+    listOf(
+        35.6f to 61.2f, 36.4f to 64.5f, 37.2f to 67.8f, 37.1f to 70.1f, 37.1f to 72.5f, 37.0f to 74.8f, 34.5f to 74.0f, 32.2f to 74.0f,
+        30.0f to 74.0f, 28.0f to 72.3f, 26.0f to 70.5f, 24.0f to 68.8f, 24.8f to 67.0f, 25.0f to 64.3f, 25.2f to 61.6f, 27.5f to 61.2f,
+        29.9f to 60.9f, 32.8f to 61.0f, 35.6f to 61.2f
+    ),
+    listOf(
+        34.5f to 74.0f, 35.5f to 76.5f, 34.2f to 79.0f, 31.0f to 79.8f, 29.2f to 81.0f, 28.4f to 82.8f, 27.5f to 84.5f, 27.1f to 86.3f,
+        26.7f to 88.2f, 27.8f to 88.8f, 27.8f to 91.7f, 28.1f to 94.1f, 28.3f to 96.5f, 27.0f to 97.1f, 25.5f to 95.7f, 24.0f to 94.2f,
+        22.0f to 92.6f, 25.2f to 91.5f, 25.2f to 89.8f, 23.4f to 89.4f, 21.6f to 89.1f, 21.5f to 87.0f, 19.8f to 85.8f, 17.7f to 83.3f,
+        15.9f to 80.8f, 13.1f to 80.3f, 10.3f to 79.8f, 8.1f to 77.5f, 9.9f to 76.2f, 12.9f to 74.8f, 15.4f to 73.8f, 17.2f to 73.3f,
+        19.0f to 72.8f, 21.6f to 72.6f, 20.7f to 70.4f, 22.3f to 69.0f, 23.8f to 68.4f, 24.3f to 71.0f, 26.1f to 70.8f, 28.0f to 70.5f,
+        29.0f to 72.2f, 30.0f to 74.0f, 32.2f to 74.0f, 34.5f to 74.0f
+    ),
+    listOf(
+        9.8f to 80.2f, 8.6f to 81.2f, 6.0f to 80.2f, 7.5f to 79.8f, 9.8f to 80.2f
+    ),
+    listOf(
+        49.0f to 87.3f, 49.3f to 89.9f, 49.7f to 92.4f, 50.0f to 95.0f, 50.0f to 98.3f, 50.0f to 101.7f, 50.0f to 105.0f, 50.0f to 108.3f,
+        50.0f to 111.7f, 50.0f to 115.0f, 51.6f to 118.0f, 53.3f to 121.0f, 52.3f to 123.8f, 51.4f to 126.6f, 50.4f to 129.4f, 49.5f to 132.2f,
+        48.5f to 135.0f, 45.8f to 133.0f, 43.0f to 131.0f, 42.0f to 128.7f, 41.0f to 126.5f, 40.0f to 124.2f, 38.8f to 121.2f, 38.9f to 119.5f,
+        39.0f to 117.7f, 38.2f to 119.8f, 37.5f to 122.0f, 36.2f to 120.8f, 35.0f to 119.5f, 33.1f to 120.5f, 31.2f to 121.5f, 28.6f to 120.5f,
+        26.0f to 119.6f, 24.2f to 116.9f, 22.5f to 114.2f, 22.0f to 111.6f, 21.5f to 109.0f, 21.5f to 108.0f, 22.1f to 105.8f, 22.8f to 103.5f,
+        21.5f to 101.2f, 22.8f to 99.5f, 24.0f to 97.8f, 26.1f to 97.2f, 28.3f to 96.5f, 28.1f to 94.1f, 27.8f to 91.7f, 27.8f to 88.8f,
+        28.3f to 86.2f, 28.7f to 83.6f, 29.2f to 81.0f, 31.0f to 79.8f, 34.2f to 79.0f, 35.6f to 76.9f, 37.0f to 74.8f, 40.2f to 73.5f,
+        41.1f to 75.7f, 42.1f to 78.0f, 43.0f to 80.2f, 45.0f to 82.6f, 47.0f to 84.9f, 49.0f to 87.3f
+    ),
+    listOf(
+        49.0f to 87.3f, 49.3f to 89.9f, 49.7f to 92.4f, 50.0f to 95.0f, 50.0f to 98.3f, 50.0f to 101.7f, 50.0f to 105.0f, 50.0f to 108.3f,
+        50.0f to 111.7f, 50.0f to 115.0f, 48.5f to 117.2f, 47.0f to 119.5f, 45.5f to 116.5f, 44.0f to 113.5f, 42.5f to 110.5f, 42.6f to 107.6f,
+        42.7f to 104.7f, 42.8f to 101.8f, 42.9f to 98.9f, 43.0f to 96.0f, 44.5f to 93.8f, 46.0f to 91.7f, 47.5f to 89.5f, 49.0f to 87.3f
+    ),
+    listOf(
+        40.0f to 124.2f, 41.1f to 127.4f, 42.3f to 130.6f, 40.5f to 129.5f, 38.6f to 128.4f, 36.9f to 128.8f, 35.1f to 129.1f, 34.5f to 126.3f,
+        37.5f to 126.6f, 40.0f to 124.2f
+    ),
+    listOf(
+        41.5f to 140.9f, 42.5f to 143.2f, 43.4f to 145.6f, 44.5f to 143.8f, 45.5f to 141.9f, 43.5f to 141.4f, 41.5f to 140.9f
+    ),
+    listOf(
+        41.0f to 140.6f, 39.0f to 141.9f, 35.7f to 140.8f, 34.7f to 138.9f, 33.5f to 135.8f, 33.8f to 133.4f, 34.0f to 130.9f, 35.5f to 133.2f,
+        36.5f to 135.2f, 37.5f to 137.3f, 39.2f to 138.9f, 41.0f to 140.6f
+    ),
+    listOf(
+        33.9f to 130.9f, 31.2f to 130.7f, 32.8f to 129.9f, 33.9f to 130.9f
+    ),
+    listOf(
+        25.3f to 121.6f, 22.0f to 120.8f, 23.5f to 120.1f, 25.3f to 121.6f
+    ),
+    listOf(
+        28.3f to 96.5f, 26.1f to 97.2f, 24.0f to 97.8f, 22.8f to 99.5f, 21.5f to 101.2f, 22.8f to 103.5f, 22.1f to 105.8f, 21.5f to 108.0f,
+        18.8f to 108.1f, 16.0f to 108.2f, 13.9f to 108.7f, 11.9f to 109.2f, 10.2f to 107.0f, 8.6f to 104.8f, 10.6f to 103.5f, 12.1f to 102.0f,
+        13.5f to 100.6f, 10.8f to 100.4f, 8.0f to 100.2f, 5.8f to 101.5f, 3.5f to 102.9f, 1.3f to 104.2f, 3.1f to 101.4f, 4.8f to 100.8f,
+        6.5f to 100.1f, 8.2f to 99.3f, 9.9f to 98.6f, 13.2f to 98.1f, 16.5f to 97.6f, 16.0f to 94.3f, 18.1f to 93.6f, 20.1f to 92.9f,
+        22.1f to 93.6f, 24.0f to 94.2f, 25.5f to 95.7f, 27.0f to 97.1f, 28.3f to 96.5f
+    ),
+    listOf(
+        5.6f to 95.3f, 4.1f to 97.7f, 2.5f to 100.1f, 1.0f to 102.5f, -1.3f to 103.6f, -3.6f to 104.7f, -5.9f to 105.8f, -4.8f to 104.0f,
+        -3.8f to 102.2f, -1.0f to 100.5f, 1.7f to 98.8f, 3.6f to 97.0f, 5.6f to 95.3f
+    ),
+    listOf(
+        -6.0f to 106.0f, -6.5f to 109.2f, -6.9f to 112.5f, -8.4f to 114.4f, -8.1f to 111.7f, -7.8f to 109.0f, -6.0f to 106.0f
+    ),
+    listOf(
+        7.0f to 116.8f, 4.2f to 117.9f, 1.5f to 117.3f, -1.2f to 116.8f, -3.5f to 114.5f, -3.2f to 112.3f, -2.9f to 110.2f, -0.9f to 109.6f,
+        1.0f to 109.0f, 2.8f to 111.5f, 4.5f to 114.0f, 5.8f to 115.4f, 7.0f to 116.8f
+    ),
+    listOf(
+        18.5f to 121.0f, 16.6f to 121.0f, 14.6f to 121.0f, 13.0f to 123.8f, 14.5f to 121.9f, 16.0f to 120.0f, 18.5f to 121.0f
+    ),
+    listOf(
+        9.8f to 125.5f, 8.0f to 125.3f, 6.1f to 125.2f, 7.0f to 122.1f, 8.4f to 123.8f, 9.8f to 125.5f
+    ),
+    listOf(
+        -0.8f to 131.3f, -1.7f to 134.5f, -2.6f to 137.8f, -3.5f to 141.0f, -4.5f to 143.3f, -5.5f to 145.5f, -6.5f to 147.8f, -8.5f to 149.3f,
+        -10.5f to 150.8f, -9.8f to 147.5f, -9.2f to 144.3f, -8.5f to 141.0f, -7.2f to 139.0f, -5.8f to 137.0f, -4.5f to 135.0f, -2.6f to 133.2f,
+        -0.8f to 131.3f
+    ),
+    listOf(
+        35.8f to -5.8f, 35.5f to -4.0f, 35.1f to -2.2f, 32.0f to -1.2f, 30.8f to -3.7f, 29.7f to -6.2f, 28.5f to -8.7f, 26.7f to -10.8f,
+        24.9f to -12.8f, 23.1f to -14.9f, 21.3f to -17.0f, 24.1f to -15.2f, 27.0f to -13.5f, 28.7f to -11.6f, 30.4f to -9.6f, 32.0f to -8.6f,
+        33.6f to -7.6f, 35.8f to -5.8f
+    ),
+    listOf(
+        35.1f to -2.2f, 36.0f to 0.5f, 36.8f to 3.1f, 37.0f to 6.5f, 37.3f to 9.8f, 35.2f to 10.7f, 33.2f to 11.5f, 31.7f to 10.5f,
+        30.2f to 9.5f, 28.0f to 10.3f, 25.7f to 11.2f, 23.5f to 12.0f, 22.0f to 9.2f, 20.5f to 6.3f, 19.0f to 3.5f, 20.5f to 1.2f,
+        22.0f to -1.0f, 23.5f to -3.2f, 25.0f to -5.5f, 26.8f to -7.1f, 28.5f to -8.7f, 29.7f to -6.2f, 30.8f to -3.7f, 32.0f to -1.2f,
+        35.1f to -2.2f
+    ),
+    listOf(
+        33.2f to 11.5f, 32.9f to 13.2f, 31.6f to 16.1f, 30.4f to 19.0f, 31.6f to 20.8f, 32.8f to 22.6f, 31.6f to 25.2f, 28.4f to 25.1f,
+        25.2f to 25.1f, 22.0f to 25.0f, 19.5f to 24.0f, 20.5f to 21.0f, 21.5f to 18.0f, 22.5f to 15.0f, 23.5f to 12.0f, 25.7f to 11.2f,
+        28.0f to 10.3f, 30.2f to 9.5f, 31.7f to 10.5f, 33.2f to 11.5f
+    ),
+    listOf(
+        31.6f to 25.2f, 31.4f to 27.5f, 31.2f to 29.9f, 31.4f to 32.2f, 31.5f to 34.5f, 29.5f to 35.0f, 27.0f to 35.6f, 24.5f to 36.3f,
+        22.0f to 36.9f, 22.0f to 33.9f, 22.0f to 30.9f, 22.0f to 28.0f, 22.0f to 25.0f, 25.2f to 25.1f, 28.4f to 25.1f, 31.6f to 25.2f
+    ),
+    listOf(
+        22.0f to 25.0f, 22.0f to 28.0f, 22.0f to 30.9f, 22.0f to 33.9f, 22.0f to 36.9f, 20.0f to 37.8f, 18.0f to 38.6f, 15.0f to 37.3f,
+        12.0f to 36.0f, 9.5f to 35.3f, 7.0f to 34.7f, 4.5f to 34.0f, 4.8f to 30.8f, 5.0f to 27.5f, 6.7f to 25.8f, 8.3f to 24.2f,
+        10.0f to 22.5f, 13.2f to 23.0f, 16.3f to 23.5f, 19.5f to 24.0f, 22.0f to 25.0f
+    ),
+    listOf(
+        21.3f to -17.0f, 23.1f to -14.9f, 24.9f to -12.8f, 26.7f to -10.8f, 28.5f to -8.7f, 26.8f to -7.1f, 25.0f to -5.5f, 23.5f to -3.2f,
+        22.0f to -1.0f, 20.5f to 1.2f, 19.0f to 3.5f, 20.5f to 6.3f, 22.0f to 9.2f, 23.5f to 12.0f, 22.5f to 15.0f, 21.5f to 18.0f,
+        20.5f to 21.0f, 19.5f to 24.0f, 16.3f to 23.5f, 13.2f to 23.0f, 10.0f to 22.5f, 8.8f to 19.9f, 7.6f to 17.2f, 6.4f to 14.6f,
+        5.2f to 11.9f, 4.0f to 9.3f, 5.2f to 6.4f, 6.4f to 3.4f, 5.6f to 0.7f, 4.7f to -2.0f, 4.6f to -4.8f, 4.4f to -7.7f,
+        6.5f to -10.4f, 8.5f to -13.2f, 10.6f to -14.6f, 12.6f to -16.0f, 14.7f to -17.4f, 18.0f to -17.2f, 21.3f to -17.0f
+    ),
+    listOf(
+        18.0f to 38.6f, 16.2f to 40.2f, 14.4f to 41.8f, 12.6f to 43.4f, 12.3f to 46.0f, 12.1f to 48.7f, 11.8f to 51.3f, 9.4f to 50.2f,
+        6.9f to 49.1f, 4.5f to 48.0f, 2.5f to 45.9f, 0.4f to 43.7f, -1.6f to 41.6f, -4.2f to 40.5f, -6.8f to 39.3f, -8.7f to 39.8f,
+        -10.5f to 40.4f, -11.0f to 37.7f, -11.5f to 35.0f, -8.9f to 33.9f, -6.2f to 32.8f, -3.6f to 31.6f, -1.0f to 30.5f, 1.8f to 32.2f,
+        4.5f to 34.0f, 7.0f to 34.7f, 9.5f to 35.3f, 12.0f to 36.0f, 15.0f to 37.3f, 18.0f to 38.6f
+    ),
+    listOf(
+        4.0f to 9.3f, 5.2f to 11.9f, 6.4f to 14.6f, 7.6f to 17.2f, 8.8f to 19.9f, 10.0f to 22.5f, 8.3f to 24.2f, 6.7f to 25.8f,
+        5.0f to 27.5f, 4.8f to 30.8f, 4.5f to 34.0f, 1.8f to 32.2f, -1.0f to 30.5f, -3.6f to 31.6f, -6.2f to 32.8f, -8.9f to 33.9f,
+        -11.5f to 35.0f, -13.0f to 32.9f, -14.5f to 30.9f, -16.0f to 28.8f, -17.8f to 25.8f, -17.7f to 23.0f, -17.6f to 20.2f, -17.6f to 17.4f,
+        -17.5f to 14.6f, -17.4f to 11.8f, -14.9f to 12.6f, -12.5f to 13.4f, -9.2f to 12.8f, -6.0f to 12.2f, -3.4f to 10.5f, -0.7f to 8.8f,
+        1.7f to 9.1f, 4.0f to 9.3f
+    ),
+    listOf(
+        -17.4f to 11.8f, -17.5f to 14.6f, -17.6f to 17.4f, -17.6f to 20.2f, -17.7f to 23.0f, -17.8f to 25.8f, -16.0f to 28.8f, -14.5f to 30.9f,
+        -13.0f to 32.9f, -11.5f to 35.0f, -11.0f to 37.7f, -10.5f to 40.4f, -13.8f to 39.7f, -17.0f to 39.0f, -18.5f to 37.0f, -20.0f to 35.0f,
+        -23.0f to 34.0f, -26.0f to 32.9f, -27.9f to 31.9f, -29.8f to 31.0f, -31.9f to 28.3f, -34.0f to 25.6f, -34.4f to 22.8f, -34.8f to 20.0f,
+        -33.9f to 18.4f, -31.2f to 17.4f, -28.6f to 16.5f, -25.8f to 15.5f, -23.0f to 14.5f, -20.2f to 13.2f, -17.4f to 11.8f
+    ),
+    listOf(
+        -12.0f to 49.3f, -15.3f to 50.4f, -18.5f to 49.3f, -21.8f to 48.1f, -25.0f to 47.0f, -25.5f to 45.2f, -22.8f to 44.8f, -20.0f to 44.3f,
+        -17.9f to 45.3f, -15.7f to 46.3f, -13.8f to 47.8f, -12.0f to 49.3f
+    ),
+    listOf(
+        -12.4f to 130.8f, -11.7f to 133.8f, -11.0f to 136.8f, -13.8f to 138.0f, -16.5f to 139.2f, -13.6f to 140.8f, -10.7f to 142.5f, -12.8f to 143.6f,
+        -14.8f to 144.7f, -16.9f to 145.8f, -19.1f to 147.5f, -21.2f to 149.1f, -23.4f to 150.8f, -26.0f to 152.2f, -28.6f to 153.6f, -31.2f to 152.4f,
+        -33.9f to 151.2f, -35.7f to 150.6f, -37.5f to 150.0f, -37.9f to 147.4f, -38.3f to 144.9f, -38.1f to 142.7f, -38.0f to 140.5f, -36.5f to 139.6f,
+        -35.0f to 138.6f, -34.7f to 135.5f, -33.1f to 133.2f, -31.5f to 131.0f, -32.3f to 128.0f, -33.2f to 125.0f, -34.0f to 122.0f, -34.5f to 120.0f,
+        -35.0f to 117.9f, -34.0f to 115.0f, -32.0f to 115.8f, -28.9f to 114.7f, -25.9f to 113.5f, -23.9f to 113.8f, -21.8f to 114.1f, -21.1f to 116.3f,
+        -20.3f to 118.6f, -19.1f to 120.4f, -18.0f to 122.2f, -16.2f to 123.8f, -14.5f to 125.5f, -13.4f to 128.2f, -12.4f to 130.8f
+    ),
+    listOf(
+        -40.8f to 144.7f, -40.9f to 146.5f, -41.0f to 148.3f, -43.6f to 146.9f, -42.2f to 145.2f, -40.8f to 144.7f
+    ),
+    listOf(
+        -34.4f to 172.7f, -36.0f to 175.6f, -37.7f to 178.5f, -39.5f to 176.7f, -41.3f to 174.8f, -39.3f to 173.8f, -36.8f to 173.2f, -34.4f to 172.7f
+    ),
+    listOf(
+        -40.5f to 172.7f, -42.4f to 173.7f, -44.5f to 171.0f, -46.6f to 168.3f, -45.8f to 166.5f, -44.0f to 168.6f, -42.3f to 170.6f, -40.5f to 172.7f
+    ),
+    listOf(
+        17.8f to -91.0f, 17.8f to -89.2f, 15.9f to -88.6f, 13.8f to -90.1f, 14.5f to -92.2f, 16.1f to -91.6f, 17.8f to -91.0f
+    ),
+    listOf(
+        15.9f to -88.6f, 15.9f to -85.8f, 15.9f to -83.1f, 14.4f to -85.3f, 13.0f to -87.6f, 13.8f to -90.1f, 15.9f to -88.6f
+    ),
+    listOf(
+        15.9f to -83.1f, 13.4f to -83.4f, 11.0f to -83.7f, 10.9f to -85.7f, 13.0f to -87.6f, 14.4f to -85.3f, 15.9f to -83.1f
+    ),
+    listOf(
+        1.4f to -78.8f, 0.7f to -77.0f, 0.0f to -75.2f, -1.5f to -76.5f, -3.0f to -77.8f, -3.9f to -79.5f, -4.7f to -81.3f, -2.2f to -81.0f,
+        -0.4f to -79.9f, 1.4f to -78.8f
+    ),
+    listOf(
+        -19.3f to -58.0f, -22.1f to -58.0f, -23.9f to -56.3f, -25.6f to -54.6f, -26.5f to -56.6f, -27.3f to -58.6f, -25.1f to -60.7f, -22.9f to -62.7f,
+        -21.1f to -60.4f, -19.3f to -58.0f
+    ),
+    listOf(
+        -30.2f to -57.6f, -32.0f to -55.5f, -33.7f to -53.4f, -35.0f to -54.9f, -34.4f to -57.9f, -32.3f to -57.8f, -30.2f to -57.6f
+    ),
+    listOf(
+        8.4f to -59.8f, 7.2f to -58.5f, 6.0f to -57.1f, 3.8f to -57.8f, 1.5f to -58.5f, 1.5f to -60.0f, 3.4f to -60.4f, 5.2f to -60.7f,
+        8.4f to -59.8f
+    ),
+    listOf(
+        6.0f to -57.1f, 6.0f to -54.0f, 4.0f to -54.0f, 2.0f to -54.0f, 1.8f to -56.2f, 1.5f to -58.5f, 3.8f to -57.8f, 6.0f to -57.1f
+    ),
+    listOf(
+        51.0f to 2.5f, 52.2f to 4.0f, 53.4f to 5.5f, 53.4f to 7.2f, 50.8f to 6.0f, 49.5f to 5.8f, 50.2f to 4.2f, 51.0f to 2.5f
+    ),
+    listOf(
+        54.8f to 8.4f, 56.2f to 9.5f, 57.7f to 10.6f, 55.5f to 12.6f, 54.4f to 11.0f, 54.8f to 8.4f
+    ),
+    listOf(
+        47.6f to 7.6f, 47.5f to 9.6f, 46.2f to 10.5f, 45.8f to 9.0f, 46.2f to 6.1f, 47.6f to 7.6f
+    ),
+    listOf(
+        47.5f to 9.6f, 48.0f to 11.7f, 48.5f to 13.8f, 48.0f to 17.1f, 46.5f to 16.0f, 46.5f to 13.7f, 47.0f to 11.6f, 47.5f to 9.6f
+    ),
+    listOf(
+        51.0f to 14.3f, 50.2f to 16.6f, 49.5f to 18.8f, 48.6f to 16.9f, 49.0f to 13.8f, 50.2f to 12.1f, 51.0f to 14.3f
+    ),
+    listOf(
+        48.6f to 16.9f, 49.5f to 18.8f, 49.2f to 20.6f, 49.0f to 22.5f, 48.0f to 22.9f, 46.2f to 20.1f, 45.8f to 18.4f, 47.7f to 16.5f,
+        48.6f to 16.9f
+    ),
+    listOf(
+        48.0f to 22.9f, 48.1f to 24.8f, 48.2f to 26.7f, 46.8f to 28.2f, 45.3f to 29.7f, 43.7f to 28.6f, 43.9f to 25.8f, 44.0f to 22.9f,
+        45.1f to 21.5f, 46.2f to 20.1f, 48.0f to 22.9f
+    ),
+    listOf(
+        44.0f to 22.9f, 43.9f to 25.8f, 43.7f to 28.6f, 42.0f to 28.0f, 41.3f to 26.6f, 41.3f to 24.8f, 41.4f to 22.9f, 44.0f to 22.9f
+    ),
+    listOf(
+        59.4f to 24.7f, 59.4f to 28.0f, 57.5f to 27.5f, 57.8f to 24.4f, 59.4f to 24.7f
+    ),
+    listOf(
+        57.8f to 24.4f, 57.5f to 27.5f, 55.7f to 26.6f, 55.9f to 23.9f, 56.0f to 21.1f, 56.9f to 22.8f, 57.8f to 24.4f
+    ),
+    listOf(
+        56.0f to 21.1f, 55.9f to 23.9f, 55.7f to 26.6f, 54.8f to 25.1f, 53.9f to 23.5f, 54.1f to 21.6f, 54.4f to 19.6f, 56.0f to 21.1f
+    ),
+    listOf(
+        56.0f to 28.2f, 54.8f to 30.4f, 53.5f to 32.5f, 51.5f to 30.6f, 51.5f to 27.1f, 51.5f to 23.6f, 53.9f to 23.5f, 55.0f to 25.9f,
+        56.0f to 28.2f
+    ),
+    listOf(
+        37.2f to 42.4f, 35.4f to 44.1f, 33.5f to 45.9f, 31.8f to 47.2f, 30.0f to 48.5f, 29.1f to 46.5f, 30.1f to 44.1f, 31.0f to 41.6f,
+        32.0f to 39.2f, 33.4f to 38.8f, 35.3f to 40.6f, 37.2f to 42.4f
+    ),
+    listOf(
+        36.8f to 36.2f, 37.0f to 39.3f, 37.2f to 42.4f, 35.3f to 40.6f, 33.4f to 38.8f, 32.3f to 36.8f, 33.3f to 35.6f, 35.8f to 35.8f,
+        36.8f to 36.2f
+    ),
+    listOf(
+        17.0f to 54.5f, 15.8f to 51.9f, 14.5f to 49.2f, 13.6f to 46.4f, 12.7f to 43.5f, 14.6f to 43.1f, 16.5f to 42.8f, 17.3f to 45.9f,
+        18.2f to 48.9f, 19.0f to 52.0f, 17.0f to 54.5f
+    ),
+    listOf(
+        26.2f to 56.3f, 24.4f to 58.0f, 22.5f to 59.8f, 20.7f to 58.0f, 18.8f to 56.3f, 17.0f to 54.5f, 19.0f to 52.0f, 21.5f to 53.8f,
+        24.0f to 55.5f, 26.2f to 56.3f
+    ),
+    listOf(
+        35.6f to 61.2f, 36.4f to 64.5f, 37.2f to 67.8f, 37.1f to 70.1f, 37.1f to 72.5f, 37.0f to 74.8f, 35.5f to 72.4f, 34.0f to 70.0f,
+        31.5f to 69.3f, 30.5f to 67.7f, 29.5f to 66.0f, 29.7f to 63.5f, 29.9f to 60.9f, 32.8f to 61.0f, 35.6f to 61.2f
+    ),
+    listOf(
+        30.2f to 81.0f, 29.4f to 83.4f, 28.6f to 85.8f, 27.8f to 88.2f, 26.4f to 88.0f, 26.9f to 86.0f, 27.5f to 84.0f, 28.2f to 82.0f,
+        29.0f to 80.1f, 30.2f to 81.0f
+    ),
+    listOf(
+        26.6f to 88.4f, 25.2f to 89.8f, 25.2f to 91.5f, 22.0f to 92.6f, 21.8f to 90.8f, 21.6f to 89.1f, 24.5f to 88.0f, 26.6f to 88.4f
+    ),
+    listOf(
+        28.3f to 96.5f, 26.1f to 97.2f, 24.0f to 97.8f, 22.8f to 99.5f, 21.5f to 101.2f, 20.4f to 100.1f, 18.4f to 99.3f, 16.5f to 98.5f,
+        13.2f to 98.5f, 9.9f to 98.6f, 13.2f to 98.1f, 16.5f to 97.6f, 16.0f to 94.3f, 18.1f to 93.6f, 20.1f to 92.9f, 22.1f to 93.6f,
+        24.0f to 94.2f, 25.5f to 95.7f, 27.0f to 97.1f, 28.3f to 96.5f
+    ),
+    listOf(
+        20.4f to 100.1f, 19.2f to 102.4f, 18.0f to 104.8f, 15.0f to 105.6f, 13.5f to 102.5f, 12.0f to 102.5f, 13.5f to 100.6f, 10.8f to 100.4f,
+        8.0f to 100.2f, 6.5f to 100.1f, 8.2f to 99.3f, 9.9f to 98.6f, 13.2f to 98.5f, 16.5f to 98.5f, 18.4f to 99.3f, 20.4f to 100.1f
+    ),
+    listOf(
+        14.4f to 102.8f, 14.0f to 106.0f, 11.5f to 107.5f, 10.4f to 104.4f, 12.0f to 102.5f, 14.4f to 102.8f
+    ),
+    listOf(
+        13.9f to 5.5f, 13.6f to 8.3f, 13.3f to 11.2f, 13.0f to 14.0f, 11.0f to 13.8f, 9.0f to 13.5f, 6.8f to 11.2f, 4.5f to 8.9f,
+        4.3f to 6.0f, 6.4f to 3.4f, 8.9f to 3.5f, 11.5f to 3.6f, 13.9f to 5.5f
+    ),
+    listOf(
+        13.0f to 14.0f, 10.0f to 15.5f, 7.4f to 15.7f, 4.8f to 15.8f, 2.2f to 16.0f, 2.2f to 12.9f, 2.2f to 9.8f, 4.5f to 8.9f,
+        6.8f to 11.2f, 9.0f to 13.5f, 11.0f to 13.8f, 13.0f to 14.0f
+    ),
+    listOf(
+        23.5f to 12.0f, 23.5f to 15.0f, 22.2f to 18.0f, 20.8f to 21.0f, 19.5f to 24.0f, 17.2f to 23.5f, 15.0f to 23.0f, 12.5f to 22.8f,
+        10.0f to 22.5f, 9.3f to 20.2f, 8.7f to 17.8f, 8.0f to 15.5f, 10.5f to 14.8f, 13.0f to 14.0f, 13.3f to 11.2f, 13.6f to 8.3f,
+        13.9f to 5.5f, 16.5f to 4.0f, 18.2f to 5.0f, 20.0f to 6.0f, 21.8f to 9.0f, 23.5f to 12.0f
+    ),
+    listOf(
+        14.5f to 36.6f, 15.5f to 39.5f, 14.1f to 41.5f, 12.6f to 43.4f, 10.8f to 43.7f, 9.0f to 44.0f, 7.0f to 44.5f, 5.0f to 45.0f,
+        4.0f to 41.9f, 3.8f to 40.0f, 3.5f to 38.0f, 4.5f to 35.9f, 7.0f to 35.0f, 9.5f to 34.0f, 12.0f to 35.3f, 14.5f to 36.6f
+    ),
+    listOf(
+        4.5f to 35.9f, 3.5f to 38.0f, 3.8f to 40.0f, 4.0f to 41.9f, 1.2f to 41.8f, -1.6f to 41.6f, -3.2f to 40.4f, -4.7f to 39.2f,
+        -2.9f to 36.6f, -1.0f to 34.0f, 1.0f to 34.5f, 2.8f to 35.2f, 4.5f to 35.9f
+    ),
+    listOf(
+        -1.0f to 30.5f, -1.0f to 34.0f, -2.9f to 36.6f, -4.7f to 39.2f, -7.6f to 39.8f, -10.5f to 40.4f, -11.0f to 37.7f, -11.5f to 35.0f,
+        -9.4f to 33.0f, -8.5f to 30.8f, -6.5f to 30.0f, -4.4f to 29.2f, -2.7f to 29.9f, -1.0f to 30.5f
+    ),
+    listOf(
+        -6.0f to 12.2f, -6.4f to 15.1f, -6.9f to 17.9f, -7.3f to 20.8f, -9.2f to 22.4f, -11.0f to 24.0f, -13.0f to 22.0f, -15.4f to 22.5f,
+        -17.8f to 23.0f, -17.7f to 20.2f, -17.6f to 17.4f, -17.5f to 14.6f, -17.4f to 11.8f, -14.9f to 12.6f, -12.5f to 13.4f, -9.2f to 12.8f,
+        -6.0f to 12.2f
+    ),
+    listOf(
+        -17.4f to 11.8f, -17.5f to 15.1f, -17.6f to 18.4f, -17.7f to 21.7f, -17.8f to 25.0f, -19.9f to 22.5f, -22.0f to 20.0f, -25.2f to 20.0f,
+        -28.5f to 20.0f, -28.6f to 18.2f, -28.6f to 16.5f, -25.8f to 15.5f, -23.0f to 14.5f, -20.2f to 13.2f, -17.4f to 11.8f
+    ),
+    listOf(
+        -17.8f to 25.0f, -20.0f to 27.2f, -22.2f to 29.4f, -23.4f to 27.7f, -24.7f to 26.0f, -25.8f to 23.3f, -26.8f to 20.6f, -24.4f to 20.3f,
+        -22.0f to 20.0f, -19.9f to 22.5f, -17.8f to 25.0f
+    ),
+    listOf(
+        -15.6f to 30.4f, -16.5f to 28.9f, -17.1f to 27.1f, -17.8f to 25.3f, -20.0f to 27.4f, -22.2f to 29.4f, -22.4f to 31.3f, -19.8f to 33.0f,
+        -16.5f to 33.0f, -15.6f to 30.4f
+    )
+)
+
+@Composable
+fun RetroFuturisticGlobeView(
+    globeTheme: String,
+    globeWireframeColor: String,
+    onTick: () -> Unit
+) {
+    // Default spinning posture constants
+    val defaultPitch = 0.24f   // ~14 deg natural axial tilt
+    val defaultRoll = -0.08f   // subtle orbital inclination
+    val baseSpinSpeed = 0.36f  // smooth autonomous Y-axis spin (radians/sec)
+
+    var yaw by remember { mutableStateOf(-1.25f) }
+    var pitch by remember { mutableStateOf(defaultPitch) }
+    var roll by remember { mutableStateOf(defaultRoll) }
+
+    var velYaw by remember { mutableStateOf(baseSpinSpeed) }
+    var velPitch by remember { mutableStateOf(0f) }
+    var velRoll by remember { mutableStateOf(0f) }
+    var isDragging by remember { mutableStateOf(false) }
+
+    // 120Hz physics & smooth spring posture recovery loop
+    LaunchedEffect(Unit) {
+        var lastFrameNanos = 0L
+        while (true) {
+            withFrameNanos { frameNanos ->
+                val dt = if (lastFrameNanos == 0L) {
+                    0.016f
+                } else {
+                    ((frameNanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
+                }
+                lastFrameNanos = frameNanos
+
+                if (!isDragging) {
+                    // Advance rotation by angular velocity
+                    yaw += velYaw * dt
+                    pitch = (pitch + velPitch * dt).coerceIn(-1.45f, 1.45f)
+                    roll = (roll + velRoll * dt).coerceIn(-0.95f, 0.95f)
+
+                    // Smooth exponential decay of user flick velocity back to autonomous spin
+                    val decay = exp(-3.1f * dt)
+                    velYaw = baseSpinSpeed + (velYaw - baseSpinSpeed) * decay
+                    velPitch *= decay
+                    velRoll *= decay
+
+                    // Restoring spring torque back to original spinning posture (defaultPitch, defaultRoll)
+                    val restoreFactor = (1f - exp(-2.8f * dt)).coerceIn(0f, 1f)
+                    pitch += (defaultPitch - pitch) * restoreFactor
+                    roll += (defaultRoll - roll) * restoreFactor
+                }
+            }
+        }
+    }
+
+    val wfColor = remember(globeWireframeColor) {
+        when (globeWireframeColor.uppercase(Locale.US)) {
+            "#00FF66" -> Color(0xFF00FF66)
+            "#00E5FF" -> Color(0xFF00E5FF)
+            "#FFFFFF" -> Color(0xFFFFFFFF)
+            "#D71921" -> Color(0xFFD71921)
+            "#FFB000" -> Color(0xFFFFB000)
+            "#3B82F6" -> Color(0xFF3B82F6)
+            else -> Color(0xFFFF3B00) // CMF Orange default wireframe color
+        }
+    }
+
+    val isWireframe = globeTheme == "wireframe"
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                var lastHapticStep = 0
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    isDragging = true
+                    velYaw = 0f
+                    velPitch = 0f
+                    velRoll = 0f
+                    var prevPos = down.position
+                    var prevTime = down.uptimeMillis
+
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull()
+                        if (change != null && change.pressed) {
+                            change.consume()
+                            val curPos = change.position
+                            val curTime = change.uptimeMillis
+                            val dx = curPos.x - prevPos.x
+                            val dy = curPos.y - prevPos.y
+                            val dtMs = (curTime - prevTime).coerceAtLeast(1L)
+                            val dtSec = dtMs / 1000f
+
+                            val sens = 0.0102f
+                            yaw += dx * sens
+                            pitch = (pitch - dy * sens).coerceIn(-1.42f, 1.42f)
+                            roll = (roll + (dx * dy) * 0.00016f).coerceIn(-0.85f, 0.85f)
+
+                            val instVelYaw = (dx * sens) / dtSec
+                            val instVelPitch = (-dy * sens) / dtSec
+                            val instVelRoll = ((dx * dy) * 0.00016f) / dtSec
+                            velYaw = (velYaw * 0.35f + instVelYaw * 0.65f).coerceIn(-14f, 14f)
+                            velPitch = (velPitch * 0.35f + instVelPitch * 0.65f).coerceIn(-12f, 12f)
+                            velRoll = (velRoll * 0.35f + instVelRoll * 0.65f).coerceIn(-8f, 8f)
+
+                            val step = ((yaw * 6f).toInt())
+                            if (step != lastHapticStep) {
+                                lastHapticStep = step
+                                onTick()
+                            }
+
+                            prevPos = curPos
+                            prevTime = curTime
+                        }
+                    } while (event.changes.any { it.pressed })
+
+                    isDragging = false
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val cx = w / 2f
+            val cy = h / 2f
+            // Larger globe radius (0.47f of available middle space) with zero text/shape clutter
+            val radius = (min(w, h) * 0.47f).coerceAtLeast(36f)
+
+            val cosY = cos(yaw)
+            val sinY = sin(yaw)
+            val cosP = cos(pitch)
+            val sinP = sin(pitch)
+            val cosR = cos(roll)
+            val sinR = sin(roll)
+
+            // Project (latDeg, lonDeg) onto 3D rotated unit sphere -> (screenX, screenY, normZ)
+            fun projectLatLon(latDeg: Float, lonDeg: Float): Triple<Float, Float, Float> {
+                val lat = (latDeg * PI / 180.0).toFloat()
+                val lon = (lonDeg * PI / 180.0).toFloat()
+                val cosLat = cos(lat)
+                val x0 = cosLat * sin(lon)
+                val y0 = -sin(lat)
+                val z0 = cosLat * cos(lon)
+
+                // 1. Rotate around Y-axis (yaw)
+                val x1 = x0 * cosY + z0 * sinY
+                val y1 = y0
+                val z1 = -x0 * sinY + z0 * cosY
+
+                // 2. Rotate around X-axis (pitch)
+                val x2 = x1
+                val y2 = y1 * cosP - z1 * sinP
+                val z2 = y1 * sinP + z1 * cosP
+
+                // 3. Rotate around Z-axis (roll)
+                val x3 = x2 * cosR - y2 * sinR
+                val y3 = x2 * sinR + y2 * cosR
+                val z3 = z2
+
+                return Triple(cx + x3 * radius, cy + y3 * radius, z3)
+            }
+
+            // 1. Sphere Ocean / Interior Background
+            if (!isWireframe) {
+                // "retro_holo": Translucent deep cyan-blue hologram ocean sphere matching image_d2e577.jpg
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF0A6699).copy(alpha = 0.56f),
+                            Color(0xFF064269).copy(alpha = 0.68f),
+                            Color(0xFF03223A).copy(alpha = 0.80f)
+                        ),
+                        center = Offset(cx - radius * 0.18f, cy - radius * 0.18f),
+                        radius = radius * 1.15f
+                    ),
+                    radius = radius,
+                    center = Offset(cx, cy)
+                )
+            } else {
+                // "wireframe": Subtle translucent core glow in user's wireframe color
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            wfColor.copy(alpha = 0.07f),
+                            wfColor.copy(alpha = 0.02f),
+                            Color.Transparent
+                        ),
+                        center = Offset(cx, cy),
+                        radius = radius
+                    ),
+                    radius = radius,
+                    center = Offset(cx, cy)
+                )
+            }
+
+            // 2. Back-Hemisphere Latitude & Longitude Grid (z < 0) for 3D Transparency
+            val latLevels = listOf(-75f, -60f, -45f, -30f, -15f, 0f, 15f, 30f, 45f, 60f, 75f)
+            val backGridColor = if (isWireframe) wfColor.copy(alpha = 0.11f) else Color(0xFF1E96C8).copy(alpha = 0.14f)
+            for (latDeg in latLevels) {
+                var prevPt: Triple<Float, Float, Float>? = null
+                for (lonStep in 0..360 step 10) {
+                    val curPt = projectLatLon(latDeg, lonStep.toFloat())
+                    if (prevPt != null) {
+                        val zAvg = (prevPt.third + curPt.third) * 0.5f
+                        if (zAvg < 0f) {
+                            drawLine(
+                                color = backGridColor,
+                                start = Offset(prevPt.first, prevPt.second),
+                                end = Offset(curPt.first, curPt.second),
+                                strokeWidth = 0.65.dp.toPx()
+                            )
+                        }
+                    }
+                    prevPt = curPt
+                }
+            }
+            for (lonDeg in 0 until 360 step 15) {
+                var prevPt: Triple<Float, Float, Float>? = null
+                for (latStep in -75..75 step 10) {
+                    val curPt = projectLatLon(latStep.toFloat(), lonDeg.toFloat())
+                    if (prevPt != null) {
+                        val zAvg = (prevPt.third + curPt.third) * 0.5f
+                        if (zAvg < 0f) {
+                            drawLine(
+                                color = backGridColor,
+                                start = Offset(prevPt.first, prevPt.second),
+                                end = Offset(curPt.first, curPt.second),
+                                strokeWidth = 0.65.dp.toPx()
+                            )
+                        }
+                    }
+                    prevPt = curPt
+                }
+            }
+
+            // 3. Back-Hemisphere Ghost Country Outlines (for 3D Transparent Depth)
+            val backBorderColor = if (isWireframe) wfColor.copy(alpha = 0.14f) else Color(0xFF18B868).copy(alpha = 0.15f)
+            for (poly in WORLD_COUNTRY_BORDERS) {
+                var prevPt: Triple<Float, Float, Float>? = null
+                for ((lat, lon) in poly) {
+                    val curPt = projectLatLon(lat, lon)
+                    if (prevPt != null && prevPt.third < 0f && curPt.third < 0f) {
+                        drawLine(
+                            color = backBorderColor,
+                            start = Offset(prevPt.first, prevPt.second),
+                            end = Offset(curPt.first, curPt.second),
+                            strokeWidth = 0.65.dp.toPx()
+                        )
+                    }
+                    prevPt = curPt
+                }
+            }
+
+            // 4. Front-Hemisphere Latitude & Longitude Grid (z >= 0)
+            for (latDeg in latLevels) {
+                val isEquator = latDeg == 0f
+                var prevPt: Triple<Float, Float, Float>? = null
+                for (lonStep in 0..360 step 8) {
+                    val curPt = projectLatLon(latDeg, lonStep.toFloat())
+                    if (prevPt != null) {
+                        val zAvg = (prevPt.third + curPt.third) * 0.5f
+                        if (zAvg >= 0f) {
+                            val gridAlpha = if (isEquator) (0.35f + 0.25f * zAvg) else (0.18f + 0.22f * zAvg)
+                            val gridCol = if (isWireframe) {
+                                wfColor.copy(alpha = gridAlpha.coerceIn(0f, 1f))
+                            } else {
+                                Color(0xFF28B8E8).copy(alpha = gridAlpha.coerceIn(0f, 1f))
+                            }
+                            drawLine(
+                                color = gridCol,
+                                start = Offset(prevPt.first, prevPt.second),
+                                end = Offset(curPt.first, curPt.second),
+                                strokeWidth = if (isEquator) 1.05.dp.toPx() else 0.72.dp.toPx()
+                            )
+                        }
+                    }
+                    prevPt = curPt
+                }
+            }
+            for (lonDeg in 0 until 360 step 15) {
+                var prevPt: Triple<Float, Float, Float>? = null
+                for (latStep in -75..75 step 8) {
+                    val curPt = projectLatLon(latStep.toFloat(), lonDeg.toFloat())
+                    if (prevPt != null) {
+                        val zAvg = (prevPt.third + curPt.third) * 0.5f
+                        if (zAvg >= 0f) {
+                            val gridAlpha = 0.18f + 0.22f * zAvg
+                            val gridCol = if (isWireframe) {
+                                wfColor.copy(alpha = gridAlpha.coerceIn(0f, 1f))
+                            } else {
+                                Color(0xFF28B8E8).copy(alpha = gridAlpha.coerceIn(0f, 1f))
+                            }
+                            drawLine(
+                                color = gridCol,
+                                start = Offset(prevPt.first, prevPt.second),
+                                end = Offset(curPt.first, curPt.second),
+                                strokeWidth = 0.72.dp.toPx()
+                            )
+                        }
+                    }
+                    prevPt = curPt
+                }
+            }
+
+            // 5. Front-Hemisphere High-Detail Country Polygons (Fill + Precise Glowing Country Borders)
+            for (poly in WORLD_COUNTRY_BORDERS) {
+                val projected = poly.map { (lat, lon) -> projectLatLon(lat, lon) }
+                val anyFront = projected.any { it.third > -0.02f }
+                if (!anyFront) continue
+
+                // In "retro_holo" theme, fill each visible country polygon with translucent emerald green
+                // clamping any horizon-crossing vertex cleanly to the sphere's circular rim
+                if (!isWireframe) {
+                    val frontCount = projected.count { it.third > 0.0f }
+                    if (frontCount >= 3) {
+                        val fillPath = Path()
+                        var started = false
+                        for (pt in projected) {
+                            val px: Float
+                            val py: Float
+                            if (pt.third >= 0f) {
+                                px = pt.first
+                                py = pt.second
+                            } else {
+                                val dx = pt.first - cx
+                                val dy = pt.second - cy
+                                val d = sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
+                                px = cx + (dx / d) * radius * 0.992f
+                                py = cy + (dy / d) * radius * 0.992f
+                            }
+                            if (!started) {
+                                fillPath.moveTo(px, py)
+                                started = true
+                            } else {
+                                fillPath.lineTo(px, py)
+                            }
+                        }
+                        fillPath.close()
+                        drawPath(
+                            path = fillPath,
+                            color = Color(0xFF0D944E).copy(alpha = 0.48f)
+                        )
+                    }
+                }
+
+                // Draw precise country border segments on the front hemisphere
+                for (i in 0 until projected.lastIndex) {
+                    val p1 = projected[i]
+                    val p2 = projected[i + 1]
+                    val zAvg = (p1.third + p2.third) * 0.5f
+                    if (zAvg >= -0.03f) {
+                        val vis = zAvg.coerceIn(0f, 1f)
+                        val edgeAlpha = (0.45f + 0.55f * vis).coerceIn(0.25f, 1f)
+                        if (!isWireframe) {
+                            // "retro_holo": Outer emerald phosphor glow + crisp pale-mint/neon-green border
+                            drawLine(
+                                color = Color(0xFF1EFF6E).copy(alpha = edgeAlpha * 0.45f),
+                                start = Offset(p1.first, p1.second),
+                                end = Offset(p2.first, p2.second),
+                                strokeWidth = 2.1.dp.toPx(),
+                                cap = StrokeCap.Round
+                            )
+                            drawLine(
+                                color = Color(0xFFD6FFCC).copy(alpha = edgeAlpha * 0.96f),
+                                start = Offset(p1.first, p1.second),
+                                end = Offset(p2.first, p2.second),
+                                strokeWidth = 1.05.dp.toPx(),
+                                cap = StrokeCap.Round
+                            )
+                        } else {
+                            // "wireframe": Crisp customizable wireframe border + subtle white core highlight
+                            drawLine(
+                                color = wfColor.copy(alpha = edgeAlpha * 0.95f),
+                                start = Offset(p1.first, p1.second),
+                                end = Offset(p2.first, p2.second),
+                                strokeWidth = 1.35.dp.toPx(),
+                                cap = StrokeCap.Round
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 6. Clean Outer Sphere Horizon Rim (No extra rings, brackets, crosshairs, or text)
+            val rimGlowColor = if (isWireframe) wfColor.copy(alpha = 0.28f) else Color(0xFF28E098).copy(alpha = 0.30f)
+            val rimCoreColor = if (isWireframe) wfColor.copy(alpha = 0.88f) else Color(0xFF70FFBA).copy(alpha = 0.85f)
+            drawCircle(
+                color = rimGlowColor,
+                radius = radius,
+                center = Offset(cx, cy),
+                style = Stroke(width = 3.0.dp.toPx())
+            )
+            drawCircle(
+                color = rimCoreColor,
+                radius = radius,
+                center = Offset(cx, cy),
+                style = Stroke(width = 1.3.dp.toPx())
+            )
         }
     }
 }
@@ -2960,6 +3931,10 @@ fun LauncherSettingsView(
     wallpaperPreset: String,
     lomoFontFamily: FontFamily,
     doubleTapSleep: Boolean,
+    globeTheme: String,
+    globeWireframeColor: String,
+    onChangeGlobeTheme: (String) -> Unit,
+    onChangeGlobeWireframeColor: (String) -> Unit,
     onChangeFont: (String) -> Unit,
     onChangeAlign: (String) -> Unit,
     onChangeAccent: (String) -> Unit,
@@ -3047,6 +4022,110 @@ fun LauncherSettingsView(
                 lomoFontFamily = lomoFontFamily,
                 onClick = onToggleAndroidBar
             )
+        }
+
+        // 3B. 3D Interactive Globe Theme & Wireframe Color Customizer
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(10.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("3D Home Globe Theme", color = Color.White, fontSize = 13.sp, fontFamily = lomoFontFamily)
+                        Text(
+                            text = "Switch between 80s Green/Blue Hologram & Custom Wireframe",
+                            color = Color(0xFF737373),
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        "retro_holo" to "80s HOLOGRAM (GREEN/BLUE)",
+                        "wireframe" to "3D WIREFRAME"
+                    ).forEach { (id, label) ->
+                        val active = globeTheme == id
+                        Text(
+                            text = label,
+                            color = if (active) Color.Black else Color.White,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .background(if (active) Color.White else Color(0xFF141414), RoundedCornerShape(6.dp))
+                                .clickable { onChangeGlobeTheme(id) }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+                if (globeTheme == "wireframe") {
+                    Text(
+                        text = "WIREFRAME COLOR PALETTE",
+                        color = Color(0xFFA3A3A3),
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            "#FF3B00" to "CMF",
+                            "#00FF66" to "GRN",
+                            "#00E5FF" to "CYN",
+                            "#FFFFFF" to "WHT",
+                            "#D71921" to "RED",
+                            "#FFB000" to "AMB",
+                            "#3B82F6" to "BLU"
+                        ).forEach { (hex, name) ->
+                            val selected = globeWireframeColor.equals(hex, ignoreCase = true)
+                            val swatchColor = when (hex) {
+                                "#00FF66" -> Color(0xFF00FF66)
+                                "#00E5FF" -> Color(0xFF00E5FF)
+                                "#FFFFFF" -> Color(0xFFFFFFFF)
+                                "#D71921" -> Color(0xFFD71921)
+                                "#FFB000" -> Color(0xFFFFB000)
+                                "#3B82F6" -> Color(0xFF3B82F6)
+                                else -> Color(0xFFFF3B00)
+                            }
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .border(
+                                        width = if (selected) 1.5.dp else 1.dp,
+                                        color = if (selected) Color.White else Color(0xFF262626),
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .background(Color(0xFF111111), RoundedCornerShape(6.dp))
+                                    .clickable { onChangeGlobeWireframeColor(hex) }
+                                    .padding(horizontal = 7.dp, vertical = 5.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .background(swatchColor, CircleShape)
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = name,
+                                    color = if (selected) Color.White else Color(0xFF737373),
+                                    fontSize = 8.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // 4. Wallpaper Presets + System Wallpaper Picker
