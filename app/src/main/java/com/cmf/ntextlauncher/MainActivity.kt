@@ -65,6 +65,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
@@ -631,16 +632,19 @@ fun NTextLauncherApp(
         prefs.edit().putString("widgets_order", updated.joinToString(",")).apply()
     }
 
-    fun animateDrawerTo(target: Float, focusSearch: Boolean = false) {
+    fun animateDrawerTo(target: Float, initialVelocity: Float = 0f, focusSearch: Boolean = false) {
         focusDrawerSearchOnOpen = focusSearch && target > 0.5f
         scope.launch {
             drawerProgress.animateTo(
                 targetValue = target,
+                initialVelocity = initialVelocity,
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMediumLow
+                    stiffness = Spring.StiffnessLow,
+                    visibilityThreshold = 0.001f
                 )
             )
+            drawerProgress.snapTo(target)
         }
     }
 
@@ -760,67 +764,76 @@ fun NTextLauncherApp(
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when (currentView) {
                     LauncherView.HOME_AND_DRAWER -> {
-                        val progress = drawerProgress.value
-
-                        // 1. HOME SCREEN LAYER (Swipe UP -> App Drawer, Swipe DOWN -> Notifications, Long-Tap -> Quick Menu)
-                        if (progress < 0.99f) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer {
-                                        alpha = (1f - progress * 1.25f).coerceIn(0f, 1f)
-                                        translationY = -progress * 88.dp.toPx()
-                                        val s = 1f - progress * 0.04f
+                        // 1. HOME SCREEN LAYER (Reads drawerProgress.value ONLY inside graphicsLayer -> 0 recompositions, 120 FPS!)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    val p = drawerProgress.value
+                                    if (p >= 0.995f) {
+                                        alpha = 0f
+                                        translationY = -screenHeightPx * 2f
+                                    } else {
+                                        alpha = (1f - p * 1.15f).coerceIn(0f, 1f)
+                                        translationY = -p * 110.dp.toPx()
+                                        val s = 1f - p * 0.045f
                                         scaleX = s
                                         scaleY = s
                                     }
-                                    .pointerInput(doubleTapSleep) {
-                                        detectTapGestures(
-                                            onDoubleTap = {
-                                                if (doubleTapSleep) oledSleepActive = true
-                                            },
-                                            onLongPress = {
+                                }
+                                .pointerInput(doubleTapSleep) {
+                                    detectTapGestures(
+                                        onDoubleTap = {
+                                            if (doubleTapSleep && drawerProgress.value < 0.1f) oledSleepActive = true
+                                        },
+                                        onLongPress = {
+                                            if (drawerProgress.value < 0.1f) {
                                                 tickHaptic(heavy = true)
                                                 showHomeQuickMenu = true
                                             }
-                                        )
-                                    }
-                                    .pointerInput(screenHeightPx) {
-                                        var totalDy = 0f
-                                        var notifTriggered = false
-                                        detectVerticalDragGestures(
-                                            onDragStart = {
-                                                totalDy = 0f
-                                                notifTriggered = false
-                                            },
-                                            onVerticalDrag = { change, dragAmount ->
-                                                change.consume()
-                                                totalDy += dragAmount
-                                                // If swiping up (or closing an already partially dragged drawer)
-                                                if (totalDy < 0f || drawerProgress.value > 0.01f) {
-                                                    val delta = -dragAmount / (screenHeightPx * 0.52f)
-                                                    val next = (drawerProgress.value + delta).coerceIn(0f, 1f)
-                                                    scope.launch { drawerProgress.snapTo(next) }
-                                                } else if (totalDy > 110f && !notifTriggered && drawerProgress.value < 0.01f) {
-                                                    // Swipe DOWN on Home Screen -> Reveal Android Notifications!
-                                                    notifTriggered = true
-                                                    tickHaptic(heavy = false)
-                                                    onExpandNotifications()
-                                                }
-                                            },
-                                            onDragEnd = {
-                                                if (drawerProgress.value > 0.16f || totalDy < -90f) {
-                                                    animateDrawerTo(1f)
-                                                } else if (drawerProgress.value > 0f) {
-                                                    animateDrawerTo(0f)
-                                                }
-                                            },
-                                            onDragCancel = {
-                                                if (drawerProgress.value > 0.5f) animateDrawerTo(1f)
-                                                else if (drawerProgress.value > 0f) animateDrawerTo(0f)
+                                        }
+                                    )
+                                }
+                                .pointerInput(screenHeightPx) {
+                                    var totalDy = 0f
+                                    var notifTriggered = false
+                                    val velocityTracker = VelocityTracker()
+                                    val dragDistancePx = (screenHeightPx * 0.58f).coerceAtLeast(1f)
+                                    detectVerticalDragGestures(
+                                        onDragStart = {
+                                            totalDy = 0f
+                                            notifTriggered = false
+                                            velocityTracker.resetTracking()
+                                        },
+                                        onVerticalDrag = { change, dragAmount ->
+                                            velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                            change.consume()
+                                            totalDy += dragAmount
+                                            if (totalDy < 0f || drawerProgress.value > 0.005f) {
+                                                val delta = -dragAmount / dragDistancePx
+                                                val next = (drawerProgress.value + delta).coerceIn(0f, 1f)
+                                                scope.launch { drawerProgress.snapTo(next) }
+                                            } else if (totalDy > 95f && !notifTriggered && drawerProgress.value < 0.01f) {
+                                                notifTriggered = true
+                                                tickHaptic(heavy = false)
+                                                onExpandNotifications()
                                             }
-                                        )
-                                    }
+                                        },
+                                        onDragEnd = {
+                                            val vy = velocityTracker.calculateVelocity().y
+                                            val normVel = (-vy / dragDistancePx).coerceIn(-6f, 6f)
+                                            if (drawerProgress.value > 0.14f || totalDy < -75f || vy < -550f) {
+                                                animateDrawerTo(1f, initialVelocity = normVel)
+                                            } else if (drawerProgress.value > 0f) {
+                                                animateDrawerTo(0f, initialVelocity = normVel)
+                                            }
+                                        },
+                                        onDragCancel = {
+                                            if (drawerProgress.value > 0.5f) animateDrawerTo(1f)
+                                            else if (drawerProgress.value > 0f) animateDrawerTo(0f)
+                                        }
+                                    )
+                                }
                             ) {
                                 HomeScreenView(
                                     activeWidgets = activeWidgets,
@@ -866,28 +879,32 @@ fun NTextLauncherApp(
                                     },
                                     onWaveTick = { tickHaptic(heavy = false) }
                                 )
-                            }
                         }
 
-                        // 2. APP DRAWER LAYER (Slides up smoothly + native 120Hz NestedScrollConnection)
-                        if (progress > 0.01f) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer {
-                                        alpha = (progress * 1.35f).coerceIn(0f, 1f)
-                                        translationY = (1f - progress) * (screenHeightPx * 0.42f)
+                        // 2. APP DRAWER LAYER (Reads drawerProgress.value ONLY inside graphicsLayer -> locked 120 FPS!)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    val p = drawerProgress.value
+                                    if (p <= 0.005f) {
+                                        alpha = 0f
+                                        translationY = screenHeightPx * 2f
+                                    } else {
+                                        alpha = (p * 1.25f).coerceIn(0f, 1f)
+                                        translationY = (1f - p) * (screenHeightPx * 0.48f)
                                     }
-                            ) {
-                                AppDrawerView(
-                                    apps = installedApps,
-                                    lomoFontFamily = lomoFontFamily,
-                                    selectedFont = selectedFont,
-                                    uppercaseHome = prebuiltFont.uppercaseHome,
-                                    accentColor = accentColor,
-                                    niagaraWaveMode = niagaraWaveMode,
-                                    screenHeightPx = screenHeightPx,
-                                    drawerProgressValue = progress,
+                                }
+                        ) {
+                            AppDrawerView(
+                                apps = installedApps,
+                                lomoFontFamily = lomoFontFamily,
+                                selectedFont = selectedFont,
+                                uppercaseHome = prebuiltFont.uppercaseHome,
+                                accentColor = accentColor,
+                                niagaraWaveMode = niagaraWaveMode,
+                                screenHeightPx = screenHeightPx,
+                                getDrawerProgress = { drawerProgress.value },
                                     focusSearchOnOpen = focusDrawerSearchOnOpen,
                                     onConsumedSearchFocus = { focusDrawerSearchOnOpen = false },
                                     onDragDrawerDelta = { dy ->
@@ -912,8 +929,7 @@ fun NTextLauncherApp(
                                     },
                                     onClose = { animateDrawerTo(0f) },
                                     onWaveTick = { tickHaptic(heavy = false) }
-                                )
-                            }
+                            )
                         }
                     }
 
@@ -1814,7 +1830,7 @@ fun AppDrawerView(
     accentColor: Color,
     niagaraWaveMode: String,
     screenHeightPx: Float,
-    drawerProgressValue: Float,
+    getDrawerProgress: () -> Float,
     focusSearchOnOpen: Boolean,
     onConsumedSearchFocus: () -> Unit,
     onDragDrawerDelta: (Float) -> Unit,
@@ -1828,9 +1844,9 @@ fun AppDrawerView(
     var query by remember { mutableStateOf("") }
     var activeLetter by remember { mutableStateOf<Char?>(null) }
     val searchFocusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(focusSearchOnOpen, drawerProgressValue) {
-        if (focusSearchOnOpen && drawerProgressValue > 0.95f) {
+    LaunchedEffect(focusSearchOnOpen) {
+        if (focusSearchOnOpen) {
+            delay(180)
             try {
                 searchFocusRequester.requestFocus()
             } catch (_: Exception) {
@@ -1841,13 +1857,10 @@ fun AppDrawerView(
 
     var drawerBoxRootTopY by remember { mutableStateOf(0f) }
     var drawerBoxHeightPx by remember { mutableStateOf(screenHeightPx) }
+    var lazyListRootTopY by remember { mutableStateOf(0f) }
     var railRootTopY by remember { mutableStateOf(0f) }
     var railHeightPx by remember { mutableStateOf(1f) }
     var scrubRootY by remember { mutableStateOf<Float?>(null) }
-
-    // Non-observable HashMaps prevent per-frame recomposition jank during normal LazyColumn fling scrolling!
-    val letterCenterRootY = remember { HashMap<Char, Float>() }
-    val rowCenterRootY = remember { HashMap<String, Float>() }
 
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -1861,13 +1874,24 @@ fun AppDrawerView(
 
     val letters = remember { ('A'..'Z').toList() }
 
-    // Native 120Hz NestedScrollConnection: lets LazyColumn scroll/fling with zero gesture interference,
-    // and smoothly pulls the App Drawer closed when pulling down at the top of the list!
-    val drawerNestedScroll = remember(screenHeightPx) {
+    // Ultra-fluid 120Hz NestedScrollConnection:
+    // Tracks an explicit isPullingDrawerClosed flag that ONLY activates when the user is already at the top
+    // of LazyColumn (index == 0, offset == 0) and pulls downward. Normal upward/downward list scrolling
+    // and flinging are 100% untouched!
+    val currentOnDragDelta by rememberUpdatedState(onDragDrawerDelta)
+    val currentOnSettle by rememberUpdatedState(onSettleDrawer)
+
+    val drawerNestedScroll = remember {
+        var isPullingDrawerClosed = false
+        var totalPullDownPx = 0f
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.Drag && drawerProgressValue < 0.995f && available.y < 0f) {
-                    onDragDrawerDelta(available.y)
+                if (source == NestedScrollSource.Drag && isPullingDrawerClosed && available.y < 0f) {
+                    totalPullDownPx = (totalPullDownPx + available.y).coerceAtLeast(0f)
+                    currentOnDragDelta(available.y)
+                    if (totalPullDownPx <= 0f) {
+                        isPullingDrawerClosed = false
+                    }
                     return Offset(0f, available.y)
                 }
                 return Offset.Zero
@@ -1878,10 +1902,12 @@ fun AppDrawerView(
                 available: Offset,
                 source: NestedScrollSource
             ): Offset {
-                if (source == NestedScrollSource.Drag && available.y > 0f) {
+                if (source == NestedScrollSource.Drag && available.y > 0f && consumed.y == 0f) {
                     val atTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
                     if (atTop) {
-                        onDragDrawerDelta(available.y)
+                        isPullingDrawerClosed = true
+                        totalPullDownPx += available.y
+                        currentOnDragDelta(available.y)
                         return Offset(0f, available.y)
                     }
                 }
@@ -1889,9 +1915,22 @@ fun AppDrawerView(
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
-                if (drawerProgressValue < 0.98f) {
-                    onSettleDrawer(if (available.y > 500f) 140f else 0f)
+                if (isPullingDrawerClosed) {
+                    val pulled = totalPullDownPx
+                    isPullingDrawerClosed = false
+                    totalPullDownPx = 0f
+                    currentOnSettle(if (available.y > 400f) 150f else pulled)
                     return available
+                }
+                return Velocity.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (isPullingDrawerClosed) {
+                    val pulled = totalPullDownPx
+                    isPullingDrawerClosed = false
+                    totalPullDownPx = 0f
+                    currentOnSettle(pulled)
                 }
                 return Velocity.Zero
             }
@@ -2004,12 +2043,16 @@ fun AppDrawerView(
                     state = listState,
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxHeight(),
-                    contentPadding = PaddingValues(bottom = 24.dp)
+                        .fillMaxHeight()
+                        .onGloballyPositioned { coords ->
+                            lazyListRootTopY = coords.positionInRoot().y
+                        },
+                    contentPadding = PaddingValues(bottom = 32.dp)
                 ) {
                     itemsIndexed(
                         items = filteredApps,
-                        key = { _, app -> app.packageName }
+                        key = { _, app -> app.packageName },
+                        contentType = { _, _ -> "app_row" }
                     ) { index, app ->
                         val prevLetter = if (index > 0) filteredApps[index - 1].firstLetter else null
                         val nextLetter = if (index < filteredApps.lastIndex) filteredApps[index + 1].firstLetter else null
@@ -2019,16 +2062,29 @@ fun AppDrawerView(
                         val interactionSource = remember { MutableInteractionSource() }
                         val isPressed by interactionSource.collectIsPressedAsState()
 
+                        // Compute wave factor using LazyListLayoutInfo (zero per-row onGloballyPositioned overhead!)
                         val currentScrubY = scrubRootY
-                        val rowWaveFactor = if (currentScrubY != null && niagaraWaveMode != "off") {
-                            val rCenter = rowCenterRootY[app.packageName] ?: -1000f
-                            val d = abs(currentScrubY - rCenter)
-                            if (rCenter > 0f && d < rowWaveRadiusPx) {
-                                cos((d / rowWaveRadiusPx) * (PI / 2)).toFloat().coerceIn(0f, 1f)
+                        val targetWaveFactor = if (currentScrubY != null && niagaraWaveMode != "off") {
+                            val itemInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+                            if (itemInfo != null) {
+                                val rCenter = lazyListRootTopY + itemInfo.offset + itemInfo.size / 2f
+                                val d = abs(currentScrubY - rCenter)
+                                if (d < rowWaveRadiusPx) {
+                                    cos((d / rowWaveRadiusPx) * (PI / 2)).toFloat().coerceIn(0f, 1f)
+                                } else 0f
                             } else 0f
                         } else 0f
 
-                        val isRowHighlighted = rowWaveFactor > 0.72f || isPressed
+                        val animWaveFactor by animateFloatAsState(
+                            targetValue = targetWaveFactor,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            ),
+                            label = "rowWave"
+                        )
+
+                        val isRowHighlighted = animWaveFactor > 0.68f || isPressed
                         val displayLabel = if (uppercaseHome) {
                             app.label.uppercase(Locale.getDefault())
                         } else {
@@ -2060,22 +2116,18 @@ fun AppDrawerView(
                                 }
                             }
 
-                            // App Item Row
+                            // App Item Row (Zero onGloballyPositioned -> 100% fluid 120Hz LazyColumn scrolling!)
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .onGloballyPositioned { coords ->
-                                        rowCenterRootY[app.packageName] =
-                                            coords.positionInRoot().y + coords.size.height / 2f
-                                    }
                                     .graphicsLayer {
                                         val shift = when {
-                                            rowWaveFactor > 0f -> rowWaveFactor * rowWaveFactor * maxRowShiftPx
+                                            animWaveFactor > 0.005f -> animWaveFactor * animWaveFactor * maxRowShiftPx
                                             isPressed -> pressShiftPx
                                             else -> 0f
                                         }
                                         val sc = when {
-                                            rowWaveFactor > 0f -> 1f + rowWaveFactor * 0.06f
+                                            animWaveFactor > 0.005f -> 1f + animWaveFactor * 0.06f
                                             isPressed -> 1.03f
                                             else -> 1f
                                         }
@@ -2139,34 +2191,37 @@ fun AppDrawerView(
                     }
                 }
 
-                // Niagara A-Z Wave Scrubber Rail
+                // Niagara A-Z Wave Scrubber Rail (Direct geometric letter Y calculation + spring physics)
                 fun updateScrubFromLocalY(localY: Float) {
                     val clampedLocalY = localY.coerceIn(0f, railHeightPx)
                     val currentRootY = railRootTopY + clampedLocalY
                     scrubRootY = currentRootY
 
-                    val chosenLetter = if (letterCenterRootY.isNotEmpty()) {
-                        letterCenterRootY.minByOrNull { (_, cy) -> abs(cy - currentRootY) }?.key
-                    } else {
-                        val idx = ((clampedLocalY / railHeightPx) * letters.size).toInt().coerceIn(0, letters.lastIndex)
-                        letters[idx]
-                    } ?: 'A'
+                    val idx = ((clampedLocalY / railHeightPx) * letters.size).toInt().coerceIn(0, letters.lastIndex)
+                    val chosenLetter = letters[idx]
 
                     if (activeLetter != chosenLetter) {
                         activeLetter = chosenLetter
                         onWaveTick()
                         val targetIdx = filteredApps.indexOfFirst {
-                            it.firstLetter == chosenLetter
+                            it.firstLetter >= chosenLetter
                         }
                         if (targetIdx >= 0) {
-                            scope.launch { listState.scrollToItem(targetIdx) }
+                            scope.launch {
+                                val curIdx = listState.firstVisibleItemIndex
+                                if (abs(targetIdx - curIdx) > 10) {
+                                    val preIdx = if (targetIdx > curIdx) targetIdx - 6 else targetIdx + 6
+                                    listState.scrollToItem(preIdx.coerceIn(0, filteredApps.lastIndex))
+                                }
+                                listState.animateScrollToItem(targetIdx)
+                            }
                         }
                     }
                 }
 
                 Column(
                     modifier = Modifier
-                        .width(32.dp)
+                        .width(34.dp)
                         .fillMaxHeight()
                         .onGloballyPositioned { coords ->
                             railRootTopY = coords.positionInRoot().y
@@ -2204,33 +2259,38 @@ fun AppDrawerView(
                     verticalArrangement = Arrangement.SpaceEvenly,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    letters.forEach { ch ->
+                    letters.forEachIndexed { lIdx, ch ->
                         val isCurrent = activeLetter == ch
                         val currentScrub = scrubRootY
-                        val letterFactor = if (currentScrub != null && niagaraWaveMode != "off") {
-                            val lCenterY = letterCenterRootY[ch] ?: 0f
+                        val targetLetterFactor = if (currentScrub != null && niagaraWaveMode != "off") {
+                            val lCenterY = railRootTopY + ((lIdx + 0.5f) / letters.size.toFloat()) * railHeightPx
                             val d = abs(currentScrub - lCenterY)
-                            if (lCenterY > 0f && d < letterWaveRadiusPx) {
+                            if (d < letterWaveRadiusPx) {
                                 cos((d / letterWaveRadiusPx) * (PI / 2)).toFloat().coerceIn(0f, 1f)
                             } else 0f
                         } else 0f
 
+                        val animLetterFactor by animateFloatAsState(
+                            targetValue = targetLetterFactor,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            ),
+                            label = "letterWave"
+                        )
+
                         Text(
                             text = ch.toString(),
-                            color = if (isCurrent || letterFactor > 0.72f) accentColor else Color(0xFF737373),
+                            color = if (isCurrent || animLetterFactor > 0.68f) accentColor else Color(0xFF737373),
                             fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                            modifier = Modifier
-                                .onGloballyPositioned { coords ->
-                                    letterCenterRootY[ch] = coords.positionInRoot().y + coords.size.height / 2f
-                                }
-                                .graphicsLayer {
-                                    translationX = -(letterFactor * letterFactor * maxLetterShiftPx)
-                                    val sc = 1f + letterFactor * 0.42f
-                                    scaleX = sc
-                                    scaleY = sc
-                                }
+                            modifier = Modifier.graphicsLayer {
+                                translationX = -(animLetterFactor * animLetterFactor * maxLetterShiftPx)
+                                val sc = 1f + animLetterFactor * 0.42f
+                                scaleX = sc
+                                scaleY = sc
+                            }
                         )
                     }
                 }
