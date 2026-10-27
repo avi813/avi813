@@ -2030,7 +2030,7 @@ fun HomeScreenView(
                                         .padding(horizontal = 10.dp, vertical = 6.dp)
                                 ) {
                                     Text(
-                                        text = ""Simplify, then add lightness."",
+                                        text = "“Simplify, then add lightness.”",
                                         color = Color.White,
                                         fontSize = 11.sp,
                                         fontFamily = lomoFontFamily,
