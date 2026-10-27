@@ -50,6 +50,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -499,52 +500,10 @@ fun NTextLauncherApp(
         val map = saved.split(",").mapNotNull {
             val parts = it.split(":")
             if (parts.size == 2) parts[0] to parts[1] else null
-        }.toMap().toMutableMap()
+        }.toMap()
         mutableStateOf(map)
     }
-
-    fun saveWidgetSize(widgetId: String, size: String) {
-        val newMap = widgetSizes.toMutableMap()
-        newMap[widgetId] = size
-        widgetSizes = newMap
-        val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
-        prefs.edit().putString("widget_sizes", serialized).apply()
-    }
-
-    fun cycleWidgetSize(widgetId: String) {
-        val current = widgetSizes[widgetId] ?: "standard"
-        val next = when (current) {
-            "compact" -> "standard"
-            "standard" -> "large"
-            else -> "compact"
-        }
-        saveWidgetSize(widgetId, next)
-    }
-
-    fun moveWidget(widgetId: String, direction: Int) {
-        val list = activeWidgets.toMutableList()
-        val idx = list.indexOf(widgetId)
-        val targetIdx = idx + direction
-        if (idx in list.indices && targetIdx in list.indices) {
-            val item = list.removeAt(idx)
-            list.add(targetIdx, item)
-            saveWidgetList(list)
-        }
-    }
-
     var torchEnabled by remember { mutableStateOf(false) }
-    fun toggleTorchState() {
-        torchEnabled = !torchEnabled
-        try {
-            val cm = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
-            val camId = cm?.cameraIdList?.firstOrNull()
-            if (camId != null) {
-                cm.setTorchMode(camId, torchEnabled)
-            }
-        } catch (_: Exception) {
-        }
-    }
-
     var pedometerSteps by remember { mutableStateOf(6420) }
     var zenActive by remember { mutableStateOf(false) }
     var zenSeconds by remember { mutableStateOf(1500) }
@@ -688,6 +647,47 @@ fun NTextLauncherApp(
     fun saveWidgetList(updated: List<String>) {
         activeWidgets = updated
         prefs.edit().putString("widgets_order", updated.joinToString(",")).apply()
+    }
+
+    fun saveWidgetSize(widgetId: String, size: String) {
+        val newMap = widgetSizes.toMutableMap()
+        newMap[widgetId] = size
+        widgetSizes = newMap.toMap()
+        val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
+        prefs.edit().putString("widget_sizes", serialized).apply()
+    }
+
+    fun cycleWidgetSize(widgetId: String) {
+        val current = widgetSizes[widgetId] ?: "standard"
+        val next = when (current) {
+            "compact" -> "standard"
+            "standard" -> "large"
+            else -> "compact"
+        }
+        saveWidgetSize(widgetId, next)
+    }
+
+    fun moveWidget(widgetId: String, direction: Int) {
+        val list = activeWidgets.toMutableList()
+        val idx = list.indexOf(widgetId)
+        val targetIdx = idx + direction
+        if (idx in list.indices && targetIdx in list.indices) {
+            val item = list.removeAt(idx)
+            list.add(targetIdx, item)
+            saveWidgetList(list)
+        }
+    }
+
+    fun toggleTorchState() {
+        torchEnabled = !torchEnabled
+        try {
+            val cm = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+            val camId = cm?.cameraIdList?.firstOrNull()
+            if (camId != null) {
+                cm.setTorchMode(camId, torchEnabled)
+            }
+        } catch (_: Exception) {
+        }
     }
 
     fun animateDrawerTo(target: Float, initialVelocity: Float = 0f, focusSearch: Boolean = false) {
@@ -2299,6 +2299,7 @@ fun HomeScreenView(
 // ============================================================================
 // ULTRA-LIGHT TEXT APP DRAWER (120Hz GPU-Fluid Scroll + Center-Aligned A-Z Scrubber)
 // ============================================================================
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AppDrawerView(
     apps: List<AppEntry>,
@@ -2498,6 +2499,9 @@ fun AppDrawerView(
 
             // App List + Niagara A-Z Wave Scrubber Rail
             val letterWaveRadiusPx = with(density) { 95.dp.toPx() }
+            val maxLetterShiftPx = with(density) { 18.dp.toPx() }
+            val activeRowShiftPx = with(density) { 14.dp.toPx() }
+            val pressRowShiftPx = with(density) { 10.dp.toPx() }
             val centerSpacerPx = screenHeightPx * 0.40f
             val centerSpacerDp = with(density) { centerSpacerPx.toDp() }
             val avgItemHeightPx = with(density) { 52.dp.toPx() }
@@ -2564,7 +2568,7 @@ fun AppDrawerView(
                                     .fillMaxWidth()
                                     .graphicsLayer {
                                         val isCurrentChar = activeLetter != null && app.firstLetter == activeLetter
-                                        translationX = if (isCurrentChar) with(density) { 14.dp.toPx() } else if (isPressed) with(density) { 10.dp.toPx() } else 0f
+                                        translationX = if (isCurrentChar) activeRowShiftPx else if (isPressed) pressRowShiftPx else 0f
                                         scaleX = if (isCurrentChar) 1.04f else if (isPressed) 1.02f else 1f
                                         scaleY = if (isCurrentChar) 1.04f else if (isPressed) 1.02f else 1f
                                         transformOrigin = TransformOrigin(0f, 0.5f)
@@ -2719,7 +2723,7 @@ fun AppDrawerView(
                             modifier = Modifier
                                 .graphicsLayer {
                                     if (animLetterFactor > 0.005f) {
-                                        translationX = -animLetterFactor * with(density) { 18.dp.toPx() }
+                                        translationX = -animLetterFactor * maxLetterShiftPx
                                         scaleX = 1f + animLetterFactor * 0.35f
                                         scaleY = 1f + animLetterFactor * 0.35f
                                     }
@@ -2907,6 +2911,9 @@ fun WidgetsManagerView(
 }
 
 
+// ============================================================================
+// IN-PHONE LAUNCHER SETTINGS SCREEN (100% SELF-CONTAINED IN APK)
+// ============================================================================
 @Composable
 fun LauncherSettingsView(
     fontId: String,
