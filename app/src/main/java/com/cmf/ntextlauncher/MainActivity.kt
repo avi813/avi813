@@ -38,6 +38,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -1855,12 +1857,9 @@ fun AppDrawerView(
         }
     }
 
-    var drawerBoxRootTopY by remember { mutableStateOf(0f) }
-    var drawerBoxHeightPx by remember { mutableStateOf(screenHeightPx) }
-    var lazyListRootTopY by remember { mutableStateOf(0f) }
-    var railRootTopY by remember { mutableStateOf(0f) }
+    // Local Y inside the Row shared by LazyColumn and the A-Z Scrubber Rail (immune to parent translationY!)
     var railHeightPx by remember { mutableStateOf(1f) }
-    var scrubRootY by remember { mutableStateOf<Float?>(null) }
+    var scrubLocalY by remember { mutableStateOf<Float?>(null) }
 
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -1942,10 +1941,6 @@ fun AppDrawerView(
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.97f))
             .nestedScroll(drawerNestedScroll)
-            .onGloballyPositioned { coords ->
-                drawerBoxRootTopY = coords.positionInRoot().y
-                drawerBoxHeightPx = coords.size.height.toFloat().coerceAtLeast(1f)
-            }
             .padding(horizontal = 20.dp, vertical = 10.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -2039,15 +2034,14 @@ fun AppDrawerView(
             val pressShiftPx = with(density) { 10.dp.toPx() }
 
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                // Generous bottom contentPadding (520.dp) ensures even letters near the end of the alphabet (like T, W, Z)
+                // can scroll all the way to the very top row of the App Drawer!
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxHeight()
-                        .onGloballyPositioned { coords ->
-                            lazyListRootTopY = coords.positionInRoot().y
-                        },
-                    contentPadding = PaddingValues(bottom = 32.dp)
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(bottom = 520.dp)
                 ) {
                     itemsIndexed(
                         items = filteredApps,
@@ -2062,12 +2056,12 @@ fun AppDrawerView(
                         val interactionSource = remember { MutableInteractionSource() }
                         val isPressed by interactionSource.collectIsPressedAsState()
 
-                        // Compute wave factor using LazyListLayoutInfo (zero per-row onGloballyPositioned overhead!)
-                        val currentScrubY = scrubRootY
+                        // Compute wave factor using local LazyListLayoutInfo (same local Y space as A-Z rail!)
+                        val currentScrubY = scrubLocalY
                         val targetWaveFactor = if (currentScrubY != null && niagaraWaveMode != "off") {
                             val itemInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
                             if (itemInfo != null) {
-                                val rCenter = lazyListRootTopY + itemInfo.offset + itemInfo.size / 2f
+                                val rCenter = itemInfo.offset + itemInfo.size / 2f
                                 val d = abs(currentScrubY - rCenter)
                                 if (d < rowWaveRadiusPx) {
                                     cos((d / rowWaveRadiusPx) * (PI / 2)).toFloat().coerceIn(0f, 1f)
@@ -2191,29 +2185,32 @@ fun AppDrawerView(
                     }
                 }
 
-                // Niagara A-Z Wave Scrubber Rail (Direct geometric letter Y calculation + spring physics)
-                fun updateScrubFromLocalY(localY: Float) {
-                    val clampedLocalY = localY.coerceIn(0f, railHeightPx)
-                    val currentRootY = railRootTopY + clampedLocalY
-                    scrubRootY = currentRootY
+                // Niagara A-Z Wave Scrubber Rail:
+                // Single unified awaitEachGesture handles both tap-on-letter (e.g. T) and continuous vertical scrubbing,
+                // immediately positioning the chosen alphabet group right at the top of the App Drawer!
+                fun updateScrubFromLocalY(localY: Float, currentRailHeight: Float) {
+                    val validHeight = currentRailHeight.coerceAtLeast(1f)
+                    railHeightPx = validHeight
+                    val clampedLocalY = localY.coerceIn(0f, validHeight)
+                    scrubLocalY = clampedLocalY
 
-                    val idx = ((clampedLocalY / railHeightPx) * letters.size).toInt().coerceIn(0, letters.lastIndex)
+                    val idx = ((clampedLocalY / validHeight) * letters.size).toInt().coerceIn(0, letters.lastIndex)
                     val chosenLetter = letters[idx]
 
                     if (activeLetter != chosenLetter) {
                         activeLetter = chosenLetter
                         onWaveTick()
-                        val targetIdx = filteredApps.indexOfFirst {
-                            it.firstLetter >= chosenLetter
-                        }
-                        if (targetIdx >= 0) {
+                        if (filteredApps.isNotEmpty()) {
+                            // Prefer exact letter match (e.g. 'T'), or nearest available alphabet section
+                            val exactIdx = filteredApps.indexOfFirst { it.firstLetter == chosenLetter }
+                            val targetIdx = if (exactIdx >= 0) {
+                                exactIdx
+                            } else {
+                                val nextIdx = filteredApps.indexOfFirst { it.firstLetter >= chosenLetter }
+                                if (nextIdx >= 0) nextIdx else filteredApps.lastIndex
+                            }
                             scope.launch {
-                                val curIdx = listState.firstVisibleItemIndex
-                                if (abs(targetIdx - curIdx) > 10) {
-                                    val preIdx = if (targetIdx > curIdx) targetIdx - 6 else targetIdx + 6
-                                    listState.scrollToItem(preIdx.coerceIn(0, filteredApps.lastIndex))
-                                }
-                                listState.animateScrollToItem(targetIdx)
+                                listState.scrollToItem(targetIdx, scrollOffset = 0)
                             }
                         }
                     }
@@ -2221,49 +2218,36 @@ fun AppDrawerView(
 
                 Column(
                     modifier = Modifier
-                        .width(34.dp)
+                        .width(36.dp)
                         .fillMaxHeight()
                         .onGloballyPositioned { coords ->
-                            railRootTopY = coords.positionInRoot().y
                             railHeightPx = coords.size.height.toFloat().coerceAtLeast(1f)
                         }
                         .pointerInput(filteredApps) {
-                            detectTapGestures(
-                                onPress = { offset ->
-                                    updateScrubFromLocalY(offset.y)
-                                    tryAwaitRelease()
-                                    scrubRootY = null
-                                    activeLetter = null
-                                }
-                            )
-                        }
-                        .pointerInput(filteredApps) {
-                            detectVerticalDragGestures(
-                                onDragStart = { offset ->
-                                    updateScrubFromLocalY(offset.y)
-                                },
-                                onVerticalDrag = { change, _ ->
-                                    change.consume()
-                                    updateScrubFromLocalY(change.position.y)
-                                },
-                                onDragEnd = {
-                                    scrubRootY = null
-                                    activeLetter = null
-                                },
-                                onDragCancel = {
-                                    scrubRootY = null
-                                    activeLetter = null
-                                }
-                            )
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                down.consume()
+                                updateScrubFromLocalY(down.position.y, size.height.toFloat())
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull()
+                                    if (change != null && change.pressed) {
+                                        change.consume()
+                                        updateScrubFromLocalY(change.position.y, size.height.toFloat())
+                                    }
+                                } while (event.changes.any { it.pressed })
+                                scrubLocalY = null
+                                activeLetter = null
+                            }
                         },
                     verticalArrangement = Arrangement.SpaceEvenly,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     letters.forEachIndexed { lIdx, ch ->
                         val isCurrent = activeLetter == ch
-                        val currentScrub = scrubRootY
+                        val currentScrub = scrubLocalY
                         val targetLetterFactor = if (currentScrub != null && niagaraWaveMode != "off") {
-                            val lCenterY = railRootTopY + ((lIdx + 0.5f) / letters.size.toFloat()) * railHeightPx
+                            val lCenterY = ((lIdx + 0.5f) / letters.size.toFloat()) * railHeightPx
                             val d = abs(currentScrub - lCenterY)
                             if (d < letterWaveRadiusPx) {
                                 cos((d / letterWaveRadiusPx) * (PI / 2)).toFloat().coerceIn(0f, 1f)
@@ -2297,12 +2281,13 @@ fun AppDrawerView(
             }
         }
 
-        // Floating Niagara Wave Letter Bubble (Follows finger Y position smoothly!)
-        if (activeLetter != null && scrubRootY != null) {
+        // Floating Niagara Wave Letter Bubble (Follows finger local Y position smoothly!)
+        if (activeLetter != null && scrubLocalY != null) {
+            val headerOffsetPx = with(density) { 72.dp.toPx() }
             val bubbleSizePx = with(density) { 48.dp.toPx() }
-            val minBubbleY = with(density) { 56.dp.toPx() }
-            val maxBubbleY = (drawerBoxHeightPx - bubbleSizePx - with(density) { 24.dp.toPx() }).coerceAtLeast(minBubbleY)
-            val bubbleY = (scrubRootY!! - drawerBoxRootTopY - bubbleSizePx / 2f).coerceIn(minBubbleY, maxBubbleY)
+            val minBubbleY = headerOffsetPx
+            val maxBubbleY = (headerOffsetPx + railHeightPx - bubbleSizePx).coerceAtLeast(minBubbleY)
+            val bubbleY = (headerOffsetPx + scrubLocalY!! - bubbleSizePx / 2f).coerceIn(minBubbleY, maxBubbleY)
 
             Box(
                 modifier = Modifier
