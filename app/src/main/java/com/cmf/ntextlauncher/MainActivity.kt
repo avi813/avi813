@@ -534,14 +534,16 @@ fun NTextLauncherApp(
     var doubleTapSleep by remember { mutableStateOf(prefs.getBoolean("dbl_tap_sleep", true)) }
     var globeTheme by remember { mutableStateOf(prefs.getString("globe_theme", "retro_holo") ?: "retro_holo") }
     var globeWireframeColor by remember { mutableStateOf(prefs.getString("globe_wf_color", "#FF3B00") ?: "#FF3B00") }
+    var blackHoleAccentColor by remember { mutableStateOf(prefs.getString("bh_accent_color", "#FF3B00") ?: "#FF3B00") }
 
     // Removable Widgets Order, Visibility & Sizing (Compact, Standard, Large)
+    // Uses widgets_order_v5 so existing installs automatically get the resizable "globe" widget and can add/toggle "blackhole"!
     var activeWidgets by remember {
-        val saved = prefs.getString("widgets_order", "clock,weather,torch,pedometer") ?: "clock,weather,torch,pedometer"
+        val saved = prefs.getString("widgets_order_v5", "clock,weather,globe,blackhole") ?: "clock,weather,globe,blackhole"
         mutableStateOf(saved.split(",").filter { it.isNotBlank() && it != "telemetry" })
     }
     var widgetSizes by remember {
-        val saved = prefs.getString("widget_sizes", "clock:standard,weather:standard,torch:standard,pedometer:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard") ?: ""
+        val saved = prefs.getString("widget_sizes_v5", "clock:standard,weather:standard,globe:standard,blackhole:standard,torch:standard,pedometer:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard") ?: ""
         val map = saved.split(",").mapNotNull {
             val parts = it.split(":")
             if (parts.size == 2) parts[0] to parts[1] else null
@@ -691,7 +693,7 @@ fun NTextLauncherApp(
 
     fun saveWidgetList(updated: List<String>) {
         activeWidgets = updated
-        prefs.edit().putString("widgets_order", updated.joinToString(",")).apply()
+        prefs.edit().putString("widgets_order_v5", updated.joinToString(",")).apply()
     }
 
     fun saveWidgetSize(widgetId: String, size: String) {
@@ -699,7 +701,7 @@ fun NTextLauncherApp(
         newMap[widgetId] = size
         widgetSizes = newMap.toMap()
         val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
-        prefs.edit().putString("widget_sizes", serialized).apply()
+        prefs.edit().putString("widget_sizes_v5", serialized).apply()
     }
 
     fun cycleWidgetSize(widgetId: String) {
@@ -1010,6 +1012,7 @@ fun NTextLauncherApp(
                                     niagaraWaveMode = niagaraWaveMode,
                                     globeTheme = globeTheme,
                                     globeWireframeColor = globeWireframeColor,
+                                    blackHoleAccentColor = blackHoleAccentColor,
                                     pinnedApps = installedApps.filter { it.isPinned && !it.isHidden },
                                     onToggle24h = {
                                         use24Hour = !use24Hour
@@ -1097,6 +1100,21 @@ fun NTextLauncherApp(
                             widgetSizes = widgetSizes,
                             accentColor = accentColor,
                             lomoFontFamily = lomoFontFamily,
+                            globeTheme = globeTheme,
+                            globeWireframeColor = globeWireframeColor,
+                            blackHoleAccentColor = blackHoleAccentColor,
+                            onChangeGlobeTheme = {
+                                globeTheme = it
+                                prefs.edit().putString("globe_theme", it).apply()
+                            },
+                            onChangeGlobeWireframeColor = {
+                                globeWireframeColor = it
+                                prefs.edit().putString("globe_wf_color", it).apply()
+                            },
+                            onChangeBlackHoleColor = {
+                                blackHoleAccentColor = it
+                                prefs.edit().putString("bh_accent_color", it).apply()
+                            },
                             onUpdateWidgets = { saveWidgetList(it) },
                             onCycleWidgetSize = { cycleWidgetSize(it) },
                             onMoveWidget = { id, dir -> moveWidget(id, dir) },
@@ -1118,6 +1136,7 @@ fun NTextLauncherApp(
                             doubleTapSleep = doubleTapSleep,
                             globeTheme = globeTheme,
                             globeWireframeColor = globeWireframeColor,
+                            blackHoleAccentColor = blackHoleAccentColor,
                             onChangeGlobeTheme = {
                                 globeTheme = it
                                 prefs.edit().putString("globe_theme", it).apply()
@@ -1125,6 +1144,10 @@ fun NTextLauncherApp(
                             onChangeGlobeWireframeColor = {
                                 globeWireframeColor = it
                                 prefs.edit().putString("globe_wf_color", it).apply()
+                            },
+                            onChangeBlackHoleColor = {
+                                blackHoleAccentColor = it
+                                prefs.edit().putString("bh_accent_color", it).apply()
                             },
                             onChangeFont = {
                                 fontId = it
@@ -1535,6 +1558,7 @@ fun HomeScreenView(
     niagaraWaveMode: String,
     globeTheme: String,
     globeWireframeColor: String,
+    blackHoleAccentColor: String,
     pinnedApps: List<AppEntry>,
     onToggle24h: () -> Unit,
     onToggleTempUnit: () -> Unit,
@@ -2183,6 +2207,42 @@ fun HomeScreenView(
                                     fontFamily = FontFamily.Monospace
                                 )
                             }
+                            "globe" -> {
+                                val globeHeight = when (sizeMode) {
+                                    "compact" -> 130.dp
+                                    "large" -> 250.dp
+                                    else -> 185.dp
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(globeHeight),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    RetroFuturisticGlobeView(
+                                        globeTheme = globeTheme,
+                                        globeWireframeColor = globeWireframeColor,
+                                        onTick = onWaveTick
+                                    )
+                                }
+                            }
+                            "blackhole" -> {
+                                val bhHeight = when (sizeMode) {
+                                    "compact" -> 115.dp
+                                    "large" -> 220.dp
+                                    else -> 160.dp
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(bhHeight),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    GlowingBlackHoleWidgetView(
+                                        accentHex = blackHoleAccentColor
+                                    )
+                                }
+                            }
                         }
 
                         // Edit Mode Controls for Relocating, Resizing & Removing Widgets
@@ -2248,19 +2308,8 @@ fun HomeScreenView(
             }
         }
 
-        // 2. MIDDLE EMPTY SPACE: LARGE HIGH-PRECISION 3D INTERACTIVE GLOBE (NO TEXT OR EXTRA SHAPES)
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-            RetroFuturisticGlobeView(
-                globeTheme = globeTheme,
-                globeWireframeColor = globeWireframeColor,
-                onTick = onWaveTick
-            )
-        }
+        // 2. FLEXIBLE OLED SPACER (Keeps Pinned Apps anchored at the bottom while widgets are modular at the top/middle)
+        Spacer(modifier = Modifier.weight(1f))
 
         // 3. PINNED HOME APPS + 1:1 MATCHED RIGHT-SIDE DOTS WAVE SCROLLER (Anchored at Bottom)
         Box(
@@ -2392,31 +2441,50 @@ fun HomeScreenView(
                                     val down = awaitFirstDown(requireUnconsumed = false)
                                     down.consume()
                                     val h0 = size.height.toFloat().coerceAtLeast(1f)
-                                    var latestWaveIdx = (down.position.y.coerceIn(0f, h0) / h0) * pinnedApps.size
+                                    var latestWaveIdx: Float? = (down.position.y.coerceIn(0f, h0) / h0) * pinnedApps.size
                                     waveFloatIndex = latestWaveIdx
-                                    var wasCancelled = false
+                                    var isFingerOutsideDots = false
+                                    val cancelMarginX = 36.dp.toPx()
+                                    val cancelMarginY = 28.dp.toPx()
+
                                     do {
                                         val event = awaitPointerEvent()
                                         val change = event.changes.firstOrNull()
                                         if (change != null) {
+                                            val w = size.width.toFloat().coerceAtLeast(1f)
+                                            val h = size.height.toFloat().coerceAtLeast(1f)
+                                            val pos = change.position
+                                            val outsideNow = pos.x < -cancelMarginX ||
+                                                pos.x > w + cancelMarginX ||
+                                                pos.y < -cancelMarginY ||
+                                                pos.y > h + cancelMarginY
+
                                             if (change.pressed) {
                                                 change.consume()
-                                                val h = size.height.toFloat().coerceAtLeast(1f)
-                                                latestWaveIdx = (change.position.y.coerceIn(0f, h) / h) * pinnedApps.size
-                                                waveFloatIndex = latestWaveIdx
-                                            } else if (change.isConsumed) {
-                                                wasCancelled = true
+                                                isFingerOutsideDots = outsideNow
+                                                if (outsideNow) {
+                                                    // Finger moved away from the dots strip -> collapse wave & cancel app launch!
+                                                    latestWaveIdx = null
+                                                    waveFloatIndex = null
+                                                    lastHoveredIndex = null
+                                                } else {
+                                                    val idx = (pos.y.coerceIn(0f, h) / h) * pinnedApps.size
+                                                    latestWaveIdx = idx
+                                                    waveFloatIndex = idx
+                                                }
+                                            } else {
+                                                isFingerOutsideDots = outsideNow || change.isConsumed
                                             }
                                         }
                                     } while (event.changes.any { it.pressed })
 
-                                    val finalAppIdx = latestWaveIdx.toInt().coerceIn(0, pinnedApps.lastIndex)
+                                    val targetIdx = latestWaveIdx?.toInt()?.coerceIn(0, pinnedApps.lastIndex)
                                     waveFloatIndex = null
                                     lastHoveredIndex = null
 
-                                    if (!wasCancelled && pinnedApps.isNotEmpty()) {
+                                    if (!isFingerOutsideDots && targetIdx != null && pinnedApps.isNotEmpty()) {
                                         onWaveTick()
-                                        onLaunchApp(pinnedApps[finalAppIdx].packageName)
+                                        onLaunchApp(pinnedApps[targetIdx].packageName)
                                     }
                                 }
                             },
@@ -3392,6 +3460,321 @@ fun RetroFuturisticGlobeView(
 }
 
 // ============================================================================
+// GARGANTUA ASTROPHYSICAL BLACK HOLE WIDGET (INTERSTELLAR RELATIVISTIC RENDERER)
+// Redesigned from scratch to replicate the Kip Thorne / Double Negative gravitational
+// lensing appearance of Gargantua in Interstellar:
+// - Volumetric atmospheric bloom & gravitational light-bending corona
+// - Warped upper & lower relativistic lensing domes (back of the accretion disk bent
+//   90 degrees over the north and south poles of the black hole shadow)
+// - Pure OLED black event horizon shadow surrounded by an incandescent white Einstein photon ring
+// - Continuous multi-layered, optically thick equatorial accretion disk with relativistic
+//   Doppler beaming (blindingly hot white on the approaching left side, custom glowing
+//   corona color on the outer/receding side) and slow continuous relativistic shear rotation.
+// - Non-interactive (passes all touches through to Home Screen) & Resizable (Compact/Standard/Large).
+// ============================================================================
+@Composable
+fun GlowingBlackHoleWidgetView(
+    accentHex: String
+) {
+    var spinPhase by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(Unit) {
+        var lastNanos = 0L
+        while (true) {
+            withFrameNanos { nanos ->
+                val dt = if (lastNanos == 0L) 0.016f else ((nanos - lastNanos) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
+                lastNanos = nanos
+                spinPhase = (spinPhase + dt * 0.52f) % (2f * PI.toFloat())
+            }
+        }
+    }
+
+    val coronaColor = remember(accentHex) {
+        when (accentHex.uppercase(Locale.US)) {
+            "#FFFFFF" -> Color(0xFFD8E6FF) // Pure Starlight Silver-White
+            "#00E5FF" -> Color(0xFF00E5FF) // Quasar Cyan
+            "#A855F7" -> Color(0xFFA855F7) // Nebula Violet
+            "#00FF66" -> Color(0xFF00FF66) // Emerald Plasma
+            "#FFB000" -> Color(0xFFFFAA22) // Interstellar Gargantua Warm Gold
+            "#D71921" -> Color(0xFFFF2A2A) // Crimson Redshift
+            else -> Color(0xFFFF5511)      // CMF / Gargantua Relativistic Amber-Orange
+        }
+    }
+
+    // Pure non-interactive Canvas so Home Screen swipes pass right through
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val w = size.width
+        val h = size.height
+        val cx = w / 2f
+        val cy = h / 2f
+        // Event horizon shadow radius scaled cleanly to widget container
+        val rShadow = (min(w * 0.42f, h * 0.56f) * 0.44f).coerceAtLeast(16f)
+        val diskRx = rShadow * 2.85f
+        val diskRy = rShadow * 0.28f
+        val tiltDeg = -9.5f
+        val tiltRad = (tiltDeg * PI / 180.0).toFloat()
+        val cosT = cos(tiltRad)
+        val sinT = sin(tiltRad)
+
+        fun rot(x: Float, y: Float): Offset {
+            return Offset(
+                cx + x * cosT - y * sinT,
+                cy + x * sinT + y * cosT
+            )
+        }
+
+        // 1. DEEP SPACE GRAVITATIONAL BLOOM (Multi-stage radial atmospheric glow)
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.26f),
+                    coronaColor.copy(alpha = 0.18f),
+                    coronaColor.copy(alpha = 0.06f),
+                    Color.Transparent
+                ),
+                center = Offset(cx, cy),
+                radius = rShadow * 2.95f
+            ),
+            radius = rShadow * 2.95f,
+            center = Offset(cx, cy)
+        )
+
+        // Asymmetric Doppler Beaming Bloom on the approaching (left) wing of the disk
+        val dopplerCenter = rot(-rShadow * 1.15f, 0f)
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.28f),
+                    coronaColor.copy(alpha = 0.14f),
+                    Color.Transparent
+                ),
+                center = dopplerCenter,
+                radius = rShadow * 1.75f
+            ),
+            radius = rShadow * 1.75f,
+            center = dopplerCenter
+        )
+
+        // 2. GRAVITATIONALLY LENSED UPPER & LOWER DOMES (Light from the back of the accretion disk
+        // bent over the top and under the bottom of the black hole shadow, merging into the equatorial plane)
+        // We draw concentric lensed light sheets from outer corona inward to the white-hot core.
+        val domeLayers = 14
+        for (layer in domeLayers downTo 0) {
+            val t = layer.toFloat() / domeLayers.toFloat() // 1.0 = outer soft corona, 0.0 = inner incandescent white
+            val spread = t * rShadow * 0.34f
+            val strokeW = (1.5f + t * 11.5f).dp.toPx()
+            val layerColor = if (t < 0.38f) {
+                Color.White
+            } else {
+                // Smooth blend from White to coronaColor
+                val blend = ((t - 0.38f) / 0.62f).coerceIn(0f, 1f)
+                Color(
+                    red = 1f * (1f - blend) + coronaColor.red * blend,
+                    green = 1f * (1f - blend) + coronaColor.green * blend,
+                    blue = 1f * (1f - blend) + coronaColor.blue * blend,
+                    alpha = 1f
+                )
+            }
+            val baseAlpha = if (t < 0.25f) 0.55f else (1f - t * 0.72f) * 0.14f
+
+            // Upper Lensed Arch (bends over the North pole of the shadow and flares into the disk wings)
+            val upperPath = Path()
+            val steps = 40
+            for (i in 0..steps) {
+                val u = (i.toFloat() / steps) * PI.toFloat() // 0 (right wing) to PI (left wing)
+                val cosU = cos(u)
+                val sinU = sin(u)
+                // Flattened near the equator, arching to rShadow * 1.04 + spread over the pole
+                val flareX = (rShadow * 1.06f + spread * 1.35f) * cosU * (1f + 0.32f * (1f - sinU))
+                val archY = -(rShadow * 1.01f + spread * 0.92f) * (sinU * 0.92f + 0.08f)
+                val pt = rot(flareX, archY)
+                if (i == 0) upperPath.moveTo(pt.x, pt.y) else upperPath.lineTo(pt.x, pt.y)
+            }
+            drawPath(
+                path = upperPath,
+                color = layerColor.copy(alpha = (baseAlpha * 1.15f).coerceIn(0f, 0.95f)),
+                style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+
+            // Lower Lensed Under-Arch (Secondary image bent under the South pole of the shadow)
+            val lowerPath = Path()
+            for (i in 0..steps) {
+                val u = (i.toFloat() / steps) * PI.toFloat()
+                val cosU = cos(u)
+                val sinU = sin(u)
+                val flareX = (rShadow * 1.04f + spread * 1.15f) * cosU * (1f + 0.24f * (1f - sinU))
+                val archY = (rShadow * 0.99f + spread * 0.74f) * (sinU * 0.90f + 0.10f)
+                val pt = rot(flareX, archY)
+                if (i == 0) lowerPath.moveTo(pt.x, pt.y) else lowerPath.lineTo(pt.x, pt.y)
+            }
+            drawPath(
+                path = lowerPath,
+                color = layerColor.copy(alpha = (baseAlpha * 0.82f).coerceIn(0f, 0.85f)),
+                style = Stroke(width = strokeW * 0.88f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+        }
+
+        // Subtle animated relativistic plasma caustics flowing along the upper & lower lensed arches
+        for (cIdx in 0 until 8) {
+            val phaseU = ((spinPhase * 0.65f + cIdx * (PI.toFloat() / 4f)) % PI.toFloat())
+            val sweepU = 0.42f
+            val uStart = (phaseU - sweepU * 0.5f).coerceIn(0.08f, PI.toFloat() - 0.08f)
+            val uEnd = (phaseU + sweepU * 0.5f).coerceIn(0.08f, PI.toFloat() - 0.08f)
+            if (uEnd > uStart) {
+                val archCaustic = Path()
+                val cSteps = 12
+                val radialOff = rShadow * (1.03f + (cIdx % 3) * 0.065f)
+                for (k in 0..cSteps) {
+                    val u = uStart + (k.toFloat() / cSteps) * (uEnd - uStart)
+                    val pt = rot(radialOff * 1.12f * cos(u), -radialOff * sin(u))
+                    if (k == 0) archCaustic.moveTo(pt.x, pt.y) else archCaustic.lineTo(pt.x, pt.y)
+                }
+                val dopplerBoost = (0.55f - 0.45f * cos(phaseU)).coerceIn(0.2f, 1f)
+                drawPath(
+                    path = archCaustic,
+                    color = Color.White.copy(alpha = 0.32f * dopplerBoost),
+                    style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
+                )
+            }
+        }
+
+        // 3. BACK HALF OF EQUATORIAL ACCRETION DISK (Behind the Black Hole Shadow)
+        val diskBands = 22
+        for (b in diskBands downTo 0) {
+            val f = b.toFloat() / diskBands.toFloat() // 0 = innermost photon edge, 1 = outer disk edge
+            val rx = rShadow * 1.05f + f * (diskRx - rShadow * 1.05f)
+            val ry = rShadow * 0.09f + f * (diskRy - rShadow * 0.09f)
+            val backPath = Path()
+            val bSteps = 32
+            for (k in 0..bSteps) {
+                // Back half: angle from PI to 2*PI
+                val a = PI.toFloat() + (k.toFloat() / bSteps) * PI.toFloat()
+                // Warp the back disk slightly upward near the shadow due to gravitational lensing
+                val rNorm = (rx * cos(a)) / diskRx
+                val lensLift = -rShadow * 0.18f * exp(-rNorm * rNorm * 3.5f) * (1f - f * 0.5f)
+                val pt = rot(rx * cos(a), ry * sin(a) + lensLift)
+                if (k == 0) backPath.moveTo(pt.x, pt.y) else backPath.lineTo(pt.x, pt.y)
+            }
+            val col = if (f < 0.35f) {
+                Color.White
+            } else {
+                val blend = ((f - 0.35f) / 0.65f).coerceIn(0f, 1f)
+                Color(
+                    red = 1f * (1f - blend) + coronaColor.red * blend,
+                    green = 1f * (1f - blend) + coronaColor.green * blend,
+                    blue = 1f * (1f - blend) + coronaColor.blue * blend,
+                    alpha = 1f
+                )
+            }
+            val alpha = ((1f - f * 0.78f) * 0.24f).coerceIn(0.03f, 0.35f)
+            drawPath(
+                path = backPath,
+                color = col.copy(alpha = alpha),
+                style = Stroke(width = (2.2f + (1f - f) * 3.5f).dp.toPx(), cap = StrokeCap.Round)
+            )
+        }
+
+        // 4. EVENT HORIZON SHADOW & EINSTEIN PHOTON RING (Pure #000000 Void + Blinding White Inner Ring)
+        drawCircle(
+            color = Color.Black,
+            radius = rShadow * 0.99f,
+            center = Offset(cx, cy)
+        )
+        // Outer soft photon halo
+        drawCircle(
+            color = coronaColor.copy(alpha = 0.48f),
+            radius = rShadow * 1.02f,
+            center = Offset(cx, cy),
+            style = Stroke(width = 4.5.dp.toPx())
+        )
+        // Inner incandescent white photon ring (with slight left-side Doppler brightening)
+        drawCircle(
+            color = Color.White.copy(alpha = 0.95f),
+            radius = rShadow * 0.995f,
+            center = Offset(cx, cy),
+            style = Stroke(width = 1.6.dp.toPx())
+        )
+
+        // 5. FRONT EQUATORIAL ACCRETION DISK SHEET (Passing directly in front of the Black Hole Shadow)
+        // First draw a soft volumetric glow across the entire front equatorial plane
+        val leftWing = rot(-diskRx * 1.04f, 0f)
+        val rightWing = rot(diskRx * 1.04f, 0f)
+        drawLine(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    coronaColor.copy(alpha = 0.35f),
+                    Color.White.copy(alpha = 0.75f),
+                    Color.White.copy(alpha = 0.65f),
+                    coronaColor.copy(alpha = 0.28f),
+                    Color.Transparent
+                ),
+                start = leftWing,
+                end = rightWing
+            ),
+            start = leftWing,
+            end = rightWing,
+            strokeWidth = (rShadow * 0.42f).coerceAtLeast(8f),
+            cap = StrokeCap.Round
+        )
+
+        // Draw continuous high-density concentric gas bands across the front half (angle 0 to PI)
+        for (b in diskBands downTo 0) {
+            val f = b.toFloat() / diskBands.toFloat()
+            val rx = rShadow * 1.02f + f * (diskRx - rShadow * 1.02f)
+            val ry = rShadow * 0.07f + f * (diskRy - rShadow * 0.07f)
+            val fSteps = 36
+            var prevPt: Offset? = null
+            for (k in 0..fSteps) {
+                val a = (k.toFloat() / fSteps) * PI.toFloat() // 0 (right) to PI (left)
+                val cosA = cos(a)
+                val sinA = sin(a)
+                val pt = rot(rx * cosA, ry * sinA)
+                if (prevPt != null) {
+                    // Relativistic Doppler beaming: left side (cosA < 0, approaching observer) is intensely bright white;
+                    // right side (cosA > 0, receding) is warmer/dimmer with stronger coronaColor tint.
+                    val doppler = (1.0f - 0.36f * cosA).coerceIn(0.55f, 1.38f)
+                    // Subtle spiral shear wave rotating slowly with spinPhase
+                    val spiralWave = 0.84f + 0.16f * sin(a * 3f - spinPhase * (2.2f - f * 1.1f) + b * 0.45f)
+                    val radialFalloff = (1f - f).let { it * it * 0.65f + it * 0.35f }
+                    val segAlpha = (radialFalloff * doppler * spiralWave * 0.58f).coerceIn(0.04f, 0.98f)
+
+                    val whiteWeight = ((1f - f * 0.78f) * (if (cosA < 0f) 1.15f else 0.82f)).coerceIn(0f, 1f)
+                    val segColor = Color(
+                        red = 1f * whiteWeight + coronaColor.red * (1f - whiteWeight),
+                        green = 1f * whiteWeight + coronaColor.green * (1f - whiteWeight),
+                        blue = 1f * whiteWeight + coronaColor.blue * (1f - whiteWeight),
+                        alpha = segAlpha
+                    )
+                    drawLine(
+                        color = segColor,
+                        start = prevPt,
+                        end = pt,
+                        strokeWidth = (1.4f + (1f - f) * 2.8f).dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+                prevPt = pt
+            }
+        }
+
+        // Razor-sharp incandescent white inner equatorial core line crossing the black hole shadow
+        val corePath = Path()
+        val coreSteps = 32
+        for (k in 0..coreSteps) {
+            val a = (k.toFloat() / coreSteps) * PI.toFloat()
+            val pt = rot((rShadow * 1.55f + (diskRx - rShadow * 1.55f) * 0.25f) * cos(a), (rShadow * 0.11f) * sin(a))
+            if (k == 0) corePath.moveTo(pt.x, pt.y) else corePath.lineTo(pt.x, pt.y)
+        }
+        drawPath(
+            path = corePath,
+            color = Color.White.copy(alpha = 0.94f),
+            style = Stroke(width = 2.0.dp.toPx(), cap = StrokeCap.Round)
+        )
+    }
+}
+
+// ============================================================================
 // ULTRA-LIGHT TEXT APP DRAWER (120Hz Pure Fluid Scroll + Top-Aligned A-Z Scrubber)
 // Zero row highlighting, zero hover animations on drawer apps, zero recomposition!
 // ============================================================================
@@ -3895,6 +4278,12 @@ fun WidgetsManagerView(
     widgetSizes: Map<String, String>,
     accentColor: Color,
     lomoFontFamily: FontFamily,
+    globeTheme: String,
+    globeWireframeColor: String,
+    blackHoleAccentColor: String,
+    onChangeGlobeTheme: (String) -> Unit,
+    onChangeGlobeWireframeColor: (String) -> Unit,
+    onChangeBlackHoleColor: (String) -> Unit,
     onUpdateWidgets: (List<String>) -> Unit,
     onCycleWidgetSize: (String) -> Unit,
     onMoveWidget: (String, Int) -> Unit,
@@ -3903,6 +4292,8 @@ fun WidgetsManagerView(
     val allWidgets = listOf(
         "clock" to "Dot-Matrix Clock, Date, Alarm & Battery Bar",
         "weather" to "Minimal Weather & AQI Pill",
+        "globe" to "3D Interactive Spinning Globe (Resizable & Removable)",
+        "blackhole" to "Glowing Relativistic Black Hole (Non-Interactive · Resizable)",
         "torch" to "CMF Flashlight / Glyph Torch Quick Toggle",
         "pedometer" to "Minimal Steps & Daily Pedometer Goal",
         "storage" to "OLED RAM & Storage Telemetry Bar",
@@ -4041,6 +4432,59 @@ fun WidgetsManagerView(
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
+                        if (id == "globe") {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf("retro_holo" to "80s HOLOGRAM", "wireframe" to "WIREFRAME").forEach { (tId, tLabel) ->
+                                    val isSel = globeTheme == tId
+                                    Text(
+                                        text = tLabel,
+                                        color = if (isSel) Color.Black else Color.White,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .background(if (isSel) Color.White else Color(0xFF191919), RoundedCornerShape(4.dp))
+                                            .clickable { onChangeGlobeTheme(tId) }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                        if (id == "blackhole") {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "ACCRETION RING ACCENT (MAIN BODY: WHITE)",
+                                color = Color(0xFF8A8A8A),
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(
+                                    "#FFFFFF" to "WHT",
+                                    "#FF3B00" to "CMF",
+                                    "#00E5FF" to "CYN",
+                                    "#A855F7" to "PRP",
+                                    "#00FF66" to "GRN",
+                                    "#FFB000" to "GLD",
+                                    "#D71921" to "RED"
+                                ).forEach { (hex, label) ->
+                                    val isSel = blackHoleAccentColor.equals(hex, ignoreCase = true)
+                                    Text(
+                                        text = label,
+                                        color = if (isSel) Color.Black else Color.White,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .background(if (isSel) Color.White else Color(0xFF191919), RoundedCornerShape(4.dp))
+                                            .clickable { onChangeBlackHoleColor(hex) }
+                                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -4066,8 +4510,10 @@ fun LauncherSettingsView(
     doubleTapSleep: Boolean,
     globeTheme: String,
     globeWireframeColor: String,
+    blackHoleAccentColor: String,
     onChangeGlobeTheme: (String) -> Unit,
     onChangeGlobeWireframeColor: (String) -> Unit,
+    onChangeBlackHoleColor: (String) -> Unit,
     onChangeFont: (String) -> Unit,
     onChangeAlign: (String) -> Unit,
     onChangeAccent: (String) -> Unit,
@@ -4255,6 +4701,75 @@ fun LauncherSettingsView(
                                     fontFamily = FontFamily.Monospace
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3C. Glowing Black Hole Widget Part Color Customizer
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(10.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("Black Hole Widget Ring Color", color = Color.White, fontSize = 13.sp, fontFamily = lomoFontFamily)
+                Text(
+                    text = "Main photon core is glowing white · Customize accretion streams & halo color",
+                    color = Color(0xFF737373),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        "#FFFFFF" to "WHT",
+                        "#FF3B00" to "CMF",
+                        "#00E5FF" to "CYN",
+                        "#A855F7" to "PRP",
+                        "#00FF66" to "GRN",
+                        "#FFB000" to "GLD",
+                        "#D71921" to "RED"
+                    ).forEach { (hex, name) ->
+                        val selected = blackHoleAccentColor.equals(hex, ignoreCase = true)
+                        val swatchColor = when (hex) {
+                            "#FFFFFF" -> Color(0xFFFFFFFF)
+                            "#00E5FF" -> Color(0xFF00E5FF)
+                            "#A855F7" -> Color(0xFFA855F7)
+                            "#00FF66" -> Color(0xFF00FF66)
+                            "#FFB000" -> Color(0xFFFFB000)
+                            "#D71921" -> Color(0xFFD71921)
+                            else -> Color(0xFFFF3B00)
+                        }
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .border(
+                                    width = if (selected) 1.5.dp else 1.dp,
+                                    color = if (selected) Color.White else Color(0xFF262626),
+                                    shape = RoundedCornerShape(6.dp)
+                                )
+                                .background(Color(0xFF111111), RoundedCornerShape(6.dp))
+                                .clickable { onChangeBlackHoleColor(hex) }
+                                .padding(horizontal = 7.dp, vertical = 5.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(12.dp)
+                                    .background(swatchColor, CircleShape)
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = name,
+                                color = if (selected) Color.White else Color(0xFF737373),
+                                fontSize = 8.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
                         }
                     }
                 }
