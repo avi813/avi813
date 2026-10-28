@@ -60,8 +60,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import android.view.inputmethod.InputMethodManager
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
@@ -273,6 +277,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var prefs: SharedPreferences
     private var hideDefaultAndroidStatusBar by mutableStateOf(true)
     private var packageRefreshTrigger by mutableStateOf(0)
+    private var homeIntentTrigger by mutableStateOf(0)
 
     private val packageBroadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -302,12 +307,15 @@ class MainActivity : ComponentActivity() {
         // Configure edge-to-edge WindowInsets for Android 14 System Navigation
         WindowCompat.setDecorFitsSystemWindows(window, false)
         applySystemStatusBarVisibility(hideDefaultAndroidStatusBar)
+        dismissKeyboardHard()
 
         setContent {
             NTextLauncherApp(
                 activity = this,
                 prefs = prefs,
                 packageRefreshTrigger = packageRefreshTrigger,
+                homeIntentTrigger = homeIntentTrigger,
+                onDismissKeyboardHard = { dismissKeyboardHard() },
                 onToggleAndroidStatusBar = { hide ->
                     hideDefaultAndroidStatusBar = hide
                     prefs.edit().putBoolean("hide_android_bar", hide).apply()
@@ -321,10 +329,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // Swiping up from the Android 14 navigation bar or pressing Home dispatches ACTION_MAIN / CATEGORY_HOME
+        homeIntentTrigger++
+        dismissKeyboardHard()
+    }
+
     override fun onResume() {
         super.onResume()
         applySystemStatusBarVisibility(hideDefaultAndroidStatusBar)
+        // Prevent the Android 14 IME from popping up when returning from Recents or closing an app
+        dismissKeyboardHard()
         packageRefreshTrigger++
+    }
+
+    private fun dismissKeyboardHard() {
+        try {
+            currentFocus?.clearFocus()
+            window.decorView.clearFocus()
+            WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.ime())
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.hideSoftInputFromWindow(window.decorView.windowToken, 0)
+        } catch (_: Exception) {
+        }
     }
 
     override fun onDestroy() {
@@ -460,6 +489,8 @@ fun NTextLauncherApp(
     activity: ComponentActivity,
     prefs: SharedPreferences,
     packageRefreshTrigger: Int,
+    homeIntentTrigger: Int,
+    onDismissKeyboardHard: () -> Unit,
     onToggleAndroidStatusBar: (Boolean) -> Unit,
     onExpandNotifications: () -> Unit,
     onRequestDefaultHomeRole: () -> Unit,
@@ -468,6 +499,8 @@ fun NTextLauncherApp(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val lomoFontFamily = remember { getLomoPixelFontFamily(context) }
 
     // Navigation & Edit Mode State
@@ -702,8 +735,25 @@ fun NTextLauncherApp(
         }
     }
 
+    var drawerSearchResetToken by remember { mutableStateOf(0) }
+
+    fun clearAllFocusAndKeyboard() {
+        focusDrawerSearchOnOpen = false
+        try {
+            focusManager.clearFocus(force = true)
+            keyboardController?.hide()
+        } catch (_: Exception) {
+        }
+        onDismissKeyboardHard()
+    }
+
     fun animateDrawerTo(target: Float, initialVelocity: Float = 0f, focusSearch: Boolean = false) {
-        focusDrawerSearchOnOpen = focusSearch && target > 0.5f
+        if (target <= 0.5f) {
+            clearAllFocusAndKeyboard()
+            drawerSearchResetToken++
+        } else {
+            focusDrawerSearchOnOpen = focusSearch
+        }
         scope.launch {
             drawerProgress.animateTo(
                 targetValue = target,
@@ -715,12 +765,41 @@ fun NTextLauncherApp(
                 )
             )
             drawerProgress.snapTo(target)
+            if (target <= 0.05f) {
+                clearAllFocusAndKeyboard()
+            }
         }
     }
 
     fun launchApp(pkg: String) {
+        clearAllFocusAndKeyboard()
+        drawerSearchResetToken++
         context.packageManager.getLaunchIntentForPackage(pkg)?.let {
             context.startActivity(it)
+        }
+    }
+
+    // Whenever the user swipes up from the Android 14 navigation bar or returns from Recents,
+    // immediately return from Settings / Widgets / Modals / Drawer to the clean Home Screen
+    // and ensure the keyboard stays closed!
+    LaunchedEffect(homeIntentTrigger) {
+        if (homeIntentTrigger > 0) {
+            clearAllFocusAndKeyboard()
+            oledSleepActive = false
+            contextMenuTarget = null
+            showHomeQuickMenu = false
+            editMode = false
+            currentView = LauncherView.HOME_AND_DRAWER
+            drawerSearchResetToken++
+            if (drawerProgress.value > 0f) {
+                drawerProgress.snapTo(0f)
+            }
+        }
+    }
+
+    LaunchedEffect(packageRefreshTrigger, currentView) {
+        if (currentView != LauncherView.HOME_AND_DRAWER || drawerProgress.value < 0.5f) {
+            clearAllFocusAndKeyboard()
         }
     }
 
@@ -983,8 +1062,9 @@ fun NTextLauncherApp(
                                 niagaraWaveMode = niagaraWaveMode,
                                 screenHeightPx = screenHeightPx,
                                 getDrawerProgress = { drawerProgress.value },
-                                    focusSearchOnOpen = focusDrawerSearchOnOpen,
-                                    onConsumedSearchFocus = { focusDrawerSearchOnOpen = false },
+                                searchResetToken = drawerSearchResetToken,
+                                focusSearchOnOpen = focusDrawerSearchOnOpen,
+                                onConsumedSearchFocus = { focusDrawerSearchOnOpen = false },
                                     onDragDrawerDelta = { dy ->
                                         val delta = -dy / (screenHeightPx * 0.52f)
                                         val next = (drawerProgress.value + delta).coerceIn(0f, 1f)
@@ -1139,16 +1219,7 @@ fun NTextLauncherApp(
                                 fontFamily = FontFamily.Monospace
                             )
                         }
-                        Text(
-                            text = "ESC",
-                            color = Color(0xFF8A8A8A),
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier
-                                .border(1.dp, Color(0xFF262626), RoundedCornerShape(6.dp))
-                                .clickable { showHomeQuickMenu = false }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
+
                     }
 
                     Box(
@@ -1286,16 +1357,7 @@ fun NTextLauncherApp(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                        Text(
-                            text = "ESC",
-                            color = Color(0xFF8A8A8A),
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier
-                                .border(1.dp, Color(0xFF262626), RoundedCornerShape(6.dp))
-                                .clickable { contextMenuTarget = null }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
+
                     }
 
                     Box(
@@ -2325,23 +2387,37 @@ fun HomeScreenView(
                         modifier = Modifier
                             .width(34.dp)
                             .fillMaxHeight()
-                            .pointerInput(pinnedApps.size) {
+                            .pointerInput(pinnedApps) {
                                 awaitEachGesture {
                                     val down = awaitFirstDown(requireUnconsumed = false)
                                     down.consume()
                                     val h0 = size.height.toFloat().coerceAtLeast(1f)
-                                    waveFloatIndex = (down.position.y.coerceIn(0f, h0) / h0) * pinnedApps.size
+                                    var latestWaveIdx = (down.position.y.coerceIn(0f, h0) / h0) * pinnedApps.size
+                                    waveFloatIndex = latestWaveIdx
+                                    var wasCancelled = false
                                     do {
                                         val event = awaitPointerEvent()
                                         val change = event.changes.firstOrNull()
-                                        if (change != null && change.pressed) {
-                                            change.consume()
-                                            val h = size.height.toFloat().coerceAtLeast(1f)
-                                            waveFloatIndex = (change.position.y.coerceIn(0f, h) / h) * pinnedApps.size
+                                        if (change != null) {
+                                            if (change.pressed) {
+                                                change.consume()
+                                                val h = size.height.toFloat().coerceAtLeast(1f)
+                                                latestWaveIdx = (change.position.y.coerceIn(0f, h) / h) * pinnedApps.size
+                                                waveFloatIndex = latestWaveIdx
+                                            } else if (change.isConsumed) {
+                                                wasCancelled = true
+                                            }
                                         }
                                     } while (event.changes.any { it.pressed })
+
+                                    val finalAppIdx = latestWaveIdx.toInt().coerceIn(0, pinnedApps.lastIndex)
                                     waveFloatIndex = null
                                     lastHoveredIndex = null
+
+                                    if (!wasCancelled && pinnedApps.isNotEmpty()) {
+                                        onWaveTick()
+                                        onLaunchApp(pinnedApps[finalAppIdx].packageName)
+                                    }
                                 }
                             },
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -3330,6 +3406,7 @@ fun AppDrawerView(
     niagaraWaveMode: String,
     screenHeightPx: Float,
     getDrawerProgress: () -> Float,
+    searchResetToken: Int,
     focusSearchOnOpen: Boolean,
     onConsumedSearchFocus: () -> Unit,
     onDragDrawerDelta: (Float) -> Unit,
@@ -3341,19 +3418,53 @@ fun AppDrawerView(
 ) {
     var query by remember { mutableStateOf("") }
     val searchFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(focusSearchOnOpen) {
-        if (focusSearchOnOpen) {
-            delay(180)
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    val isDrawerOpenNow by remember { derivedStateOf { getDrawerProgress() > 0.5f } }
+
+    // Automatically clear search text, reset scroll position, and dismiss keyboard
+    // whenever an app is opened or the app drawer is closed!
+    LaunchedEffect(isDrawerOpenNow, searchResetToken) {
+        if (!isDrawerOpenNow || searchResetToken > 0) {
+            if (!isDrawerOpenNow) {
+                if (query.isNotEmpty()) query = ""
+                try {
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
+                } catch (_: Exception) {
+                }
+                if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) {
+                    listState.scrollToItem(0, 0)
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(searchResetToken) {
+        if (searchResetToken > 0) {
+            if (query.isNotEmpty()) query = ""
+            try {
+                focusManager.clearFocus(force = true)
+                keyboardController?.hide()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    LaunchedEffect(focusSearchOnOpen, isDrawerOpenNow) {
+        if (focusSearchOnOpen && isDrawerOpenNow) {
+            delay(160)
             try {
                 searchFocusRequester.requestFocus()
+                keyboardController?.show()
             } catch (_: Exception) {
             }
             onConsumedSearchFocus()
         }
     }
-
-    val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
 
     val filteredApps = remember(apps, query) {
         apps
@@ -3482,8 +3593,10 @@ fun AppDrawerView(
                         fontFamily = FontFamily.Monospace
                     ),
                     cursorBrush = SolidColor(accentColor),
+                    enabled = isDrawerOpenNow,
                     modifier = Modifier
                         .weight(1f)
+                        .focusProperties { canFocus = isDrawerOpenNow }
                         .focusRequester(searchFocusRequester),
                     decorationBox = { inner ->
                         if (query.isEmpty()) {
@@ -3497,29 +3610,34 @@ fun AppDrawerView(
                         inner()
                     }
                 )
-                Text(
-                    text = "ESC",
-                    color = Color(0xFF737373),
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.clickable {
-                        if (query.isNotEmpty()) query = "" else onClose()
-                    }
-                )
+                if (query.isNotEmpty()) {
+                    Text(
+                        text = "×",
+                        color = Color(0xFF8A8A8A),
+                        fontSize = 15.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier
+                            .clickable {
+                                query = ""
+                                focusManager.clearFocus()
+                                keyboardController?.hide()
+                            }
+                            .padding(horizontal = 4.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 // Ultra-clean 120Hz LazyColumn:
-                // Apps listed at the top as before, zero hover/highlight animations on rows,
-                // and 520.dp bottom runway so every alphabet group (even T, W, Z) scrolls to the top!
+                // Tight 20.dp bottom padding so scrolling stops cleanly right at the bottommost app with no wide gap!
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight(),
-                    contentPadding = PaddingValues(top = 4.dp, bottom = 520.dp)
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 20.dp)
                 ) {
                     itemsIndexed(
                         items = filteredApps,
@@ -3565,7 +3683,12 @@ fun AppDrawerView(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .combinedClickable(
-                                        onClick = { onLaunchApp(app.packageName) },
+                                        onClick = {
+                                            query = ""
+                                            focusManager.clearFocus(force = true)
+                                            keyboardController?.hide()
+                                            onLaunchApp(app.packageName)
+                                        },
                                         onLongClick = { onLongPressApp(app) }
                                     )
                                     .padding(vertical = 10.dp, horizontal = 4.dp),
@@ -3792,6 +3915,16 @@ fun WidgetsManagerView(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .pointerInput(Unit) {
+                var totalDy = 0f
+                detectVerticalDragGestures(
+                    onDragStart = { totalDy = 0f },
+                    onVerticalDrag = { _, dragAmount -> totalDy += dragAmount },
+                    onDragEnd = {
+                        if (totalDy < -85f) onBack()
+                    }
+                )
+            }
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
