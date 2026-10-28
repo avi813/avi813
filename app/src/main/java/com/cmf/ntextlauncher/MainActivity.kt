@@ -83,6 +83,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -759,7 +760,7 @@ fun NTextLauncherApp(
         mutableStateOf(saved.split(",").filter { it.isNotBlank() && it != "telemetry" })
     }
     var widgetSizes by remember {
-        val saved = prefs.getString("widget_sizes_v5", "clock:standard,weather:standard,globe:standard,blackhole:standard,torch:standard,pedometer:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard") ?: ""
+        val saved = prefs.getString("widget_sizes_v5", "clock:standard,weather:standard,retro_flip_clock:standard,analog_chrono:standard,retro_calendar:standard,week_strip:standard,globe:standard,blackhole:standard,torch:standard,pedometer:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard") ?: ""
         val map = saved.split(",").mapNotNull {
             val parts = it.split(":")
             if (parts.size == 2) parts[0] to parts[1] else null
@@ -856,11 +857,14 @@ fun NTextLauncherApp(
     // Real-Time Fast Clock, Date, Next Alarm, Battery, RAM, Storage, Pedometer & Weather/AQI
     var currentHourStr by remember { mutableStateOf("4") }
     var currentMinStr by remember { mutableStateOf("22") }
+    var currentSecStr by remember { mutableStateOf("00") }
     var currentAmPmStr by remember { mutableStateOf("PM") }
     var currentDateStr by remember { mutableStateOf("TUE · 27 OCT") }
     var nextAlarmStr by remember { mutableStateOf("NO ALARM") }
     var batteryPct by remember { mutableStateOf(86) }
     var isCharging by remember { mutableStateOf(false) }
+    var batteryTempC by remember { mutableStateOf(32.4f) }
+    var batteryVoltageMv by remember { mutableStateOf(4120) }
 
     fun refreshRealtimeSystemTelemetry() {
         val now = Date()
@@ -873,6 +877,7 @@ fun NTextLauncherApp(
             currentMinStr = SimpleDateFormat("mm", Locale.getDefault()).format(now)
             currentAmPmStr = SimpleDateFormat("a", Locale.ENGLISH).format(now).uppercase(Locale.ENGLISH)
         }
+        currentSecStr = SimpleDateFormat("ss", Locale.getDefault()).format(now)
         currentDateStr = SimpleDateFormat("EEE · dd MMM", Locale.ENGLISH).format(now).uppercase(Locale.ENGLISH)
 
         val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
@@ -937,6 +942,10 @@ fun NTextLauncherApp(
                     val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
                     isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
                         status == BatteryManager.BATTERY_STATUS_FULL
+                    val tempTenths = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1)
+                    if (tempTenths > 0) batteryTempC = tempTenths / 10f
+                    val volt = intent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1)
+                    if (volt > 0) batteryVoltageMv = volt
                 }
                 refreshRealtimeSystemTelemetry()
             }
@@ -1372,6 +1381,7 @@ fun NTextLauncherApp(
                                     editMode = editMode,
                                     currentHourStr = currentHourStr,
                                     currentMinStr = currentMinStr,
+                                    currentSecStr = currentSecStr,
                                     currentAmPmStr = currentAmPmStr,
                                     currentDateStr = currentDateStr,
                                     nextAlarmStr = nextAlarmStr,
@@ -1540,6 +1550,14 @@ fun NTextLauncherApp(
                             wallpaperPreset = wallpaperPreset,
                             lomoFontFamily = lomoFontFamily,
                             doubleTapSleep = doubleTapSleep,
+                            batteryPct = batteryPct,
+                            isCharging = isCharging,
+                            batteryTempC = batteryTempC,
+                            batteryVoltageMv = batteryVoltageMv,
+                            ramStatusText = ramStatusText,
+                            storageStatusText = storageStatusText,
+                            ramUsageFraction = ramUsageFraction,
+                            storageUsageFraction = storageUsageFraction,
                             onChangeFont = {
                                 fontId = it
                                 prefs.edit().putString("font_id", it).apply()
@@ -1893,6 +1911,7 @@ fun HomeScreenView(
     editMode: Boolean,
     currentHourStr: String,
     currentMinStr: String,
+    currentSecStr: String,
     currentAmPmStr: String,
     currentDateStr: String,
     nextAlarmStr: String,
@@ -2235,8 +2254,8 @@ fun HomeScreenView(
                                 val displayHigh = if (tempCelsius) "${weatherTelemetry.highC}°" else "${(weatherTelemetry.highC * 9 / 5) + 32}°"
                                 val displayLow = if (tempCelsius) "${weatherTelemetry.lowC}°" else "${(weatherTelemetry.lowC * 9 / 5) + 32}°"
                                 val condText = weatherTelemetry.condition
-                                val aqiBadge = "AQI ${weatherTelemetry.aqiUs} · ${weatherTelemetry.aqiLabel}"
 
+                                // Clean temperature & condition readout (AQI capsule removed per user request)
                                 when (sizeMode) {
                                     "compact" -> {
                                         Row(
@@ -2254,8 +2273,8 @@ fun HomeScreenView(
                                                 fontFamily = FontFamily.Monospace
                                             )
                                             Text(
-                                                text = "AQI ${weatherTelemetry.aqiUs}",
-                                                color = Color(0xFFA3A3A3),
+                                                text = "H $displayHigh / L $displayLow",
+                                                color = Color(0xFF737373),
                                                 fontSize = 10.sp,
                                                 fontFamily = FontFamily.Monospace
                                             )
@@ -2293,18 +2312,6 @@ fun HomeScreenView(
                                                         text = "$condText (H $displayHigh / L $displayLow)",
                                                         color = Color(0xFFA3A3A3),
                                                         fontSize = 11.sp,
-                                                        fontFamily = FontFamily.Monospace
-                                                    )
-                                                }
-                                                Box(
-                                                    modifier = Modifier
-                                                        .background(Color(0xFF171717), RoundedCornerShape(4.dp))
-                                                        .padding(horizontal = 7.dp, vertical = 2.5.dp)
-                                                ) {
-                                                    Text(
-                                                        text = aqiBadge,
-                                                        color = Color(0xFFA3A3A3),
-                                                        fontSize = 10.sp,
                                                         fontFamily = FontFamily.Monospace
                                                     )
                                                 }
@@ -2351,18 +2358,12 @@ fun HomeScreenView(
                                                         fontFamily = FontFamily.Monospace
                                                     )
                                                 }
-                                                Box(
-                                                    modifier = Modifier
-                                                        .background(Color(0xFF171717), RoundedCornerShape(4.dp))
-                                                        .padding(horizontal = 7.dp, vertical = 2.5.dp)
-                                                ) {
-                                                    Text(
-                                                        text = aqiBadge,
-                                                        color = Color(0xFFA3A3A3),
-                                                        fontSize = 10.sp,
-                                                        fontFamily = FontFamily.Monospace
-                                                    )
-                                                }
+                                                Text(
+                                                    text = "H $displayHigh · L $displayLow",
+                                                    color = Color(0xFF737373),
+                                                    fontSize = 10.sp,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
                                             }
                                             Box(
                                                 modifier = Modifier
@@ -2373,6 +2374,47 @@ fun HomeScreenView(
                                         }
                                     }
                                 }
+                            }
+                            "retro_flip_clock" -> {
+                                RetroSplitFlapClockWidget(
+                                    hourStr = currentHourStr,
+                                    minStr = currentMinStr,
+                                    secStr = currentSecStr,
+                                    amPmStr = currentAmPmStr,
+                                    dateStr = currentDateStr,
+                                    sizeMode = sizeMode,
+                                    accentColor = accentColor,
+                                    lomoFontFamily = lomoFontFamily,
+                                    onToggle24h = onToggle24h
+                                )
+                            }
+                            "analog_chrono" -> {
+                                RetroAnalogChronoWidget(
+                                    hourStr = currentHourStr,
+                                    minStr = currentMinStr,
+                                    secStr = currentSecStr,
+                                    amPmStr = currentAmPmStr,
+                                    dateStr = currentDateStr,
+                                    nextAlarmStr = nextAlarmStr,
+                                    sizeMode = sizeMode,
+                                    accentColor = accentColor,
+                                    lomoFontFamily = lomoFontFamily,
+                                    onToggle24h = onToggle24h
+                                )
+                            }
+                            "retro_calendar" -> {
+                                RetroDotMatrixCalendarWidget(
+                                    sizeMode = sizeMode,
+                                    accentColor = accentColor,
+                                    lomoFontFamily = lomoFontFamily
+                                )
+                            }
+                            "week_strip" -> {
+                                RetroWeekTimelineStripWidget(
+                                    sizeMode = sizeMode,
+                                    accentColor = accentColor,
+                                    lomoFontFamily = lomoFontFamily
+                                )
                             }
                             "torch" -> {
                                 // NEW WIDGET 1: CMF Torch / Glyph Flashlight Quick Toggle
@@ -4676,7 +4718,11 @@ fun WidgetsManagerView(
 ) {
     val allWidgets = listOf(
         "clock" to "Dot-Matrix Clock, Date, Alarm & Battery Bar",
-        "weather" to "Live Weather & Real-Time US AQI Pill",
+        "weather" to "Live Weather & Sky Telemetry Row",
+        "retro_flip_clock" to "Retro Split-Flap Mechanical Clock (H:M:S)",
+        "analog_chrono" to "Braun / CMF Vector Analog Chronograph",
+        "retro_calendar" to "80s Dot-Matrix Month Calendar Grid",
+        "week_strip" to "Minimalist 7-Day Retro Timeline Strip",
         "globe" to "3D Interactive Spinning Globe (Up to MAX Size)",
         "blackhole" to "Gargantua Relativistic Black Hole (Resizable)",
         "torch" to "CMF Flashlight / Glyph Torch Quick Toggle",
@@ -4833,7 +4879,7 @@ fun WidgetsManagerView(
                             )
                         }
 
-                        if (id == "clock") {
+                        if (id == "clock" || id == "retro_flip_clock" || id == "analog_chrono") {
                             Spacer(modifier = Modifier.height(10.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -5136,6 +5182,14 @@ fun LauncherSettingsView(
     wallpaperPreset: String,
     lomoFontFamily: FontFamily,
     doubleTapSleep: Boolean,
+    batteryPct: Int,
+    isCharging: Boolean,
+    batteryTempC: Float,
+    batteryVoltageMv: Int,
+    ramStatusText: String,
+    storageStatusText: String,
+    ramUsageFraction: Float,
+    storageUsageFraction: Float,
     onChangeFont: (String) -> Unit,
     onChangeAlign: (String) -> Unit,
     onChangeAccent: (String) -> Unit,
@@ -5148,10 +5202,12 @@ fun LauncherSettingsView(
     onToggleDoubleTapSleep: () -> Unit,
     onBack: () -> Unit
 ) {
-    var expandedSystem by remember { mutableStateOf(true) }
+    // All settings categories collapsed by default per user request
+    var expandedSystem by remember { mutableStateOf(false) }
     var expandedTypography by remember { mutableStateOf(false) }
-    var expandedWallpaper by remember { mutableStateOf(true) }
+    var expandedWallpaper by remember { mutableStateOf(false) }
     var expandedMotion by remember { mutableStateOf(false) }
+    var expandedAbout by remember { mutableStateOf(false) }
 
     val accentColor = when (accentHex) {
         "#FFFFFF" -> Color.White
@@ -5191,12 +5247,6 @@ fun LauncherSettingsView(
                         fontSize = 16.sp,
                         fontFamily = lomoFontFamily,
                         fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "CMF Phone 1 · Nothing OS 2.6 · Android 14",
-                        color = Color(0xFF737373),
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
                     )
                 }
                 Text(
@@ -5502,6 +5552,40 @@ fun LauncherSettingsView(
                 )
             }
         }
+
+        item {
+            val detectedModel = remember {
+                val rawModel = Build.MODEL?.trim().orEmpty()
+                if (rawModel.isBlank() || rawModel.contains("sdk", ignoreCase = true)) {
+                    "CMF Phone 1 (A015)"
+                } else {
+                    rawModel
+                }
+            }
+            CollapsibleSettingsSection(
+                indexTag = "05",
+                title = "About Phone & Hardware",
+                subtitle = "Detected chassis back schematic, OS, SoC & live telemetry",
+                badge = detectedModel.take(14).uppercase(Locale.US),
+                expanded = expandedAbout,
+                accentColor = accentColor,
+                lomoFontFamily = lomoFontFamily,
+                onToggle = { expandedAbout = !expandedAbout }
+            ) {
+                AboutPhoneHardwareGraphicalCard(
+                    accentColor = accentColor,
+                    lomoFontFamily = lomoFontFamily,
+                    batteryPct = batteryPct,
+                    isCharging = isCharging,
+                    batteryTempC = batteryTempC,
+                    batteryVoltageMv = batteryVoltageMv,
+                    ramStatusText = ramStatusText,
+                    storageStatusText = storageStatusText,
+                    ramUsageFraction = ramUsageFraction,
+                    storageUsageFraction = storageUsageFraction
+                )
+            }
+        }
     }
 }
 
@@ -5791,5 +5875,1218 @@ fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
                 )
             }
         }
+    }
+}
+
+
+// ============================================================================
+// RETRO & MINIMALIST CLOCK AND CALENDAR WIDGETS
+// 1. RetroSplitFlapClockWidget ("retro_flip_clock")
+// 2. RetroAnalogChronoWidget ("analog_chrono")
+// 3. RetroDotMatrixCalendarWidget ("retro_calendar")
+// 4. RetroWeekTimelineStripWidget ("week_strip")
+// ============================================================================
+
+@Composable
+fun RetroSplitFlapClockWidget(
+    hourStr: String,
+    minStr: String,
+    secStr: String,
+    amPmStr: String,
+    dateStr: String,
+    sizeMode: String,
+    accentColor: Color,
+    lomoFontFamily: FontFamily,
+    onToggle24h: () -> Unit
+) {
+    val tileHeight = when (sizeMode) {
+        "compact" -> 42.dp
+        "large" -> 64.dp
+        else -> 52.dp
+    }
+    val digitFontSize = when (sizeMode) {
+        "compact" -> 22.sp
+        "large" -> 34.sp
+        else -> 28.sp
+    }
+    val paddedHour = hourStr.padStart(2, '0')
+    val paddedMin = minStr.padStart(2, '0')
+    val paddedSec = secStr.padStart(2, '0')
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
+            .background(Color(0xFF060606), RoundedCornerShape(10.dp))
+            .clickable { onToggle24h() }
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .background(accentColor, CircleShape)
+                )
+                Text(
+                    text = "SOLARI // SPLIT-FLAP CHRONO",
+                    color = Color(0xFF8A8A8A),
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+            Text(
+                text = dateStr,
+                color = Color(0xFFA3A3A3),
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // HOURS FLAP TILE
+            SplitFlapMechanicalTile(
+                valueText = paddedHour,
+                subLabel = "HR",
+                tileHeight = tileHeight,
+                fontSize = digitFontSize,
+                textColor = Color.White,
+                accentColor = accentColor,
+                lomoFontFamily = lomoFontFamily,
+                modifier = Modifier.weight(1f)
+            )
+
+            Text(
+                text = ":",
+                color = accentColor,
+                fontSize = 20.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
+
+            // MINUTES FLAP TILE
+            SplitFlapMechanicalTile(
+                valueText = paddedMin,
+                subLabel = "MIN",
+                tileHeight = tileHeight,
+                fontSize = digitFontSize,
+                textColor = Color.White,
+                accentColor = accentColor,
+                lomoFontFamily = lomoFontFamily,
+                modifier = Modifier.weight(1f)
+            )
+
+            Text(
+                text = ":",
+                color = Color(0xFF525252),
+                fontSize = 18.sp,
+                fontFamily = lomoFontFamily
+            )
+
+            // SECONDS + AM/PM FLAP TILE
+            SplitFlapMechanicalTile(
+                valueText = paddedSec,
+                subLabel = if (amPmStr.isNotEmpty()) amPmStr else "24H",
+                tileHeight = tileHeight,
+                fontSize = (digitFontSize.value * 0.78f).sp,
+                textColor = accentColor,
+                accentColor = accentColor,
+                lomoFontFamily = lomoFontFamily,
+                modifier = Modifier.weight(0.85f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SplitFlapMechanicalTile(
+    valueText: String,
+    subLabel: String,
+    tileHeight: androidx.compose.ui.unit.Dp,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    textColor: Color,
+    accentColor: Color,
+    lomoFontFamily: FontFamily,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .height(tileHeight)
+            .border(1.dp, Color(0xFF282828), RoundedCornerShape(7.dp))
+            .background(Color(0xFF0E0E0E), RoundedCornerShape(7.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = valueText,
+            color = textColor,
+            fontSize = fontSize,
+            fontFamily = lomoFontFamily,
+            fontWeight = FontWeight.Bold
+        )
+        // Horizontal mechanical split-flap hinge line across center
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.2.dp)
+                .background(Color.Black.copy(alpha = 0.88f))
+        )
+        // Left & right hinge notches
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .size(width = 3.dp, height = 6.dp)
+                .background(Color(0xFF2E2E2E))
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .size(width = 3.dp, height = 6.dp)
+                .background(Color(0xFF2E2E2E))
+        )
+        // Bottom-right micro tag
+        Text(
+            text = subLabel,
+            color = Color(0xFF666666),
+            fontSize = 7.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 5.dp, bottom = 2.dp)
+        )
+    }
+}
+
+@Composable
+fun RetroAnalogChronoWidget(
+    hourStr: String,
+    minStr: String,
+    secStr: String,
+    amPmStr: String,
+    dateStr: String,
+    nextAlarmStr: String,
+    sizeMode: String,
+    accentColor: Color,
+    lomoFontFamily: FontFamily,
+    onToggle24h: () -> Unit
+) {
+    val dialSize = when (sizeMode) {
+        "compact" -> 68.dp
+        "large" -> 108.dp
+        else -> 86.dp
+    }
+    val hourInt = hourStr.toIntOrNull() ?: 4
+    val minInt = minStr.toIntOrNull() ?: 22
+    val secInt = secStr.toIntOrNull() ?: 0
+    val dayOfMonth = remember { Calendar.getInstance().get(Calendar.DAY_OF_MONTH) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
+            .background(Color(0xFF060606), RoundedCornerShape(10.dp))
+            .clickable { onToggle24h() }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Braun / CMF Minimalist Vector Circular Analog Watch Face
+        Box(
+            modifier = Modifier.size(dialSize),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val radius = min(cx, cy) - 2.dp.toPx()
+
+                // Outer bezel ring
+                drawCircle(
+                    color = Color(0xFF2C2C2C),
+                    radius = radius,
+                    center = Offset(cx, cy),
+                    style = Stroke(width = 1.4.dp.toPx())
+                )
+                drawCircle(
+                    color = Color(0xFF0B0B0B),
+                    radius = radius - 1.5.dp.toPx(),
+                    center = Offset(cx, cy)
+                )
+
+                // 60 micro ticks & 12 baton hour markers
+                for (i in 0 until 60) {
+                    val angleRad = Math.toRadians((i * 6 - 90).toDouble())
+                    val isCardinal = i % 15 == 0
+                    val isHour = i % 5 == 0
+                    val tickLen = when {
+                        isCardinal -> radius * 0.19f
+                        isHour -> radius * 0.12f
+                        else -> radius * 0.05f
+                    }
+                    val rOuter = radius * 0.92f
+                    val rInner = rOuter - tickLen
+                    val sx = cx + (rInner * cos(angleRad)).toFloat()
+                    val sy = cy + (rInner * sin(angleRad)).toFloat()
+                    val ex = cx + (rOuter * cos(angleRad)).toFloat()
+                    val ey = cy + (rOuter * sin(angleRad)).toFloat()
+                    drawLine(
+                        color = when {
+                            i == 0 -> accentColor
+                            isCardinal -> Color.White
+                            isHour -> Color(0xFFA3A3A3)
+                            else -> Color(0xFF333333)
+                        },
+                        start = Offset(sx, sy),
+                        end = Offset(ex, ey),
+                        strokeWidth = if (isHour) 1.6.dp.toPx() else 0.8.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+
+                // 3 o'clock date aperture window outline
+                val dateW = radius * 0.30f
+                val dateH = radius * 0.22f
+                drawRoundRect(
+                    color = Color(0xFF262626),
+                    topLeft = Offset(cx + radius * 0.34f, cy - dateH / 2f),
+                    size = Size(dateW, dateH),
+                    cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx()),
+                    style = Stroke(width = 1.dp.toPx())
+                )
+
+                // Hour hand
+                val hourAngle = Math.toRadians((((hourInt % 12) + minInt / 60f) * 30f - 90f).toDouble())
+                drawLine(
+                    color = Color.White,
+                    start = Offset(cx, cy),
+                    end = Offset(
+                        cx + (radius * 0.50f * cos(hourAngle)).toFloat(),
+                        cy + (radius * 0.50f * sin(hourAngle)).toFloat()
+                    ),
+                    strokeWidth = 2.6.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+
+                // Minute hand
+                val minAngle = Math.toRadians(((minInt + secInt / 60f) * 6f - 90f).toDouble())
+                drawLine(
+                    color = Color(0xFFE5E5E5),
+                    start = Offset(cx, cy),
+                    end = Offset(
+                        cx + (radius * 0.74f * cos(minAngle)).toFloat(),
+                        cy + (radius * 0.74f * sin(minAngle)).toFloat()
+                    ),
+                    strokeWidth = 1.9.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+
+                // Sweeping Braun / CMF Orange Second Hand with counterweight tail
+                val secAngle = Math.toRadians((secInt * 6f - 90f).toDouble())
+                drawLine(
+                    color = accentColor,
+                    start = Offset(
+                        cx - (radius * 0.18f * cos(secAngle)).toFloat(),
+                        cy - (radius * 0.18f * sin(secAngle)).toFloat()
+                    ),
+                    end = Offset(
+                        cx + (radius * 0.82f * cos(secAngle)).toFloat(),
+                        cy + (radius * 0.82f * sin(secAngle)).toFloat()
+                    ),
+                    strokeWidth = 1.2.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+
+                // Center pinion cap
+                drawCircle(color = accentColor, radius = 3.2.dp.toPx(), center = Offset(cx, cy))
+                drawCircle(color = Color.Black, radius = 1.2.dp.toPx(), center = Offset(cx, cy))
+            }
+        }
+
+        Spacer(modifier = Modifier.width(14.dp))
+
+        // Right-hand telemetry & digital chronograph readout
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(
+                text = "ANALOG CHRONOGRAPH // DW-86",
+                color = Color(0xFF737373),
+                fontSize = 8.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "${hourStr.padStart(2, '0')}:${minStr.padStart(2, '0')}:${secStr.padStart(2, '0')}",
+                    color = Color.White,
+                    fontSize = if (sizeMode == "large") 22.sp else 18.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+                if (amPmStr.isNotEmpty()) {
+                    Text(
+                        text = amPmStr,
+                        color = accentColor,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 2.dp)
+                    )
+                }
+            }
+            Text(
+                text = "$dateStr · DAY ${dayOfMonth.toString().padStart(2, '0')}",
+                color = Color(0xFFA3A3A3),
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            Text(
+                text = "ALARM: $nextAlarmStr",
+                color = Color(0xFF666666),
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+    }
+}
+
+@Composable
+fun RetroDotMatrixCalendarWidget(
+    sizeMode: String,
+    accentColor: Color,
+    lomoFontFamily: FontFamily
+) {
+    val cal = remember { Calendar.getInstance() }
+    val todayDay = cal.get(Calendar.DAY_OF_MONTH)
+    val weekOfYear = cal.get(Calendar.WEEK_OF_YEAR)
+    val monthTitle = remember {
+        SimpleDateFormat("MMMM yyyy", Locale.ENGLISH).format(cal.time).uppercase(Locale.ENGLISH)
+    }
+
+    // Compute Monday-indexed offset & days in current month
+    val (leadingBlanks, daysInMonth) = remember {
+        val temp = Calendar.getInstance()
+        temp.set(Calendar.DAY_OF_MONTH, 1)
+        val dow = temp.get(Calendar.DAY_OF_WEEK) // Sun=1 .. Sat=7
+        val mondayOffset = if (dow == Calendar.SUNDAY) 6 else dow - Calendar.MONDAY
+        val maxDay = temp.getActualMaximum(Calendar.DAY_OF_MONTH)
+        mondayOffset to maxDay
+    }
+
+    val totalCells = ((leadingBlanks + daysInMonth + 6) / 7) * 7
+    val dayHeaders = listOf("MO", "TU", "WE", "TH", "FR", "SA", "SU")
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
+            .background(Color(0xFF050505), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = if (sizeMode == "compact") 8.dp else 12.dp)
+    ) {
+        // Header row: Month + Year & Week number badge
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .background(accentColor, CircleShape)
+                )
+                Text(
+                    text = monthTitle,
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(
+                text = "WK ${weekOfYear.toString().padStart(2, '0')} · MATRIX",
+                color = accentColor,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier
+                    .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Day-of-week header bar
+        Row(modifier = Modifier.fillMaxWidth()) {
+            dayHeaders.forEachIndexed { idx, dName ->
+                Text(
+                    text = dName,
+                    color = if (idx >= 5) accentColor.copy(alpha = 0.85f) else Color(0xFF737373),
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Color(0xFF1A1A1A))
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // 7-column calendar days grid
+        val rows = (0 until totalCells).chunked(7)
+        Column(verticalArrangement = Arrangement.spacedBy(if (sizeMode == "large") 6.dp else 3.dp)) {
+            rows.forEach { weekCells ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    weekCells.forEachIndexed { colIdx, cellIndex ->
+                        val dayNum = cellIndex - leadingBlanks + 1
+                        val isValidDay = dayNum in 1..daysInMonth
+                        val isToday = isValidDay && dayNum == todayDay
+                        val isWeekend = colIdx >= 5
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(if (sizeMode == "large") 26.dp else 21.dp)
+                                .then(
+                                    if (isToday) {
+                                        Modifier
+                                            .background(accentColor, RoundedCornerShape(4.dp))
+                                    } else {
+                                        Modifier
+                                    }
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (isValidDay) dayNum.toString().padStart(2, '0') else "··",
+                                color = when {
+                                    isToday -> Color.Black
+                                    !isValidDay -> Color(0xFF222222)
+                                    isWeekend -> Color(0xFFA3A3A3)
+                                    else -> Color.White
+                                },
+                                fontSize = if (sizeMode == "large") 11.sp else 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RetroWeekTimelineStripWidget(
+    sizeMode: String,
+    accentColor: Color,
+    lomoFontFamily: FontFamily
+) {
+    val cal = remember { Calendar.getInstance() }
+    val todayDow = cal.get(Calendar.DAY_OF_WEEK)
+    val hourOfDay = cal.get(Calendar.HOUR_OF_DAY)
+    val minuteOfHour = cal.get(Calendar.MINUTE)
+    val dayProgressPct = ((hourOfDay * 60 + minuteOfHour) * 100) / 1440
+
+    val weekDays = remember {
+        val temp = Calendar.getInstance()
+        val currentDow = temp.get(Calendar.DAY_OF_WEEK)
+        val deltaToMonday = if (currentDow == Calendar.SUNDAY) -6 else Calendar.MONDAY - currentDow
+        temp.add(Calendar.DAY_OF_MONTH, deltaToMonday)
+        val labels = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+        labels.map { lbl ->
+            val dNum = temp.get(Calendar.DAY_OF_MONTH)
+            val isToday = temp.get(Calendar.DAY_OF_WEEK) == todayDow
+            temp.add(Calendar.DAY_OF_MONTH, 1)
+            Triple(lbl, dNum, isToday)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
+            .background(Color(0xFF060606), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "7-DAY TIMELINE STRIP",
+                color = Color(0xFF8A8A8A),
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            Text(
+                text = "DAY ELAPSED // $dayProgressPct%",
+                color = accentColor,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            weekDays.forEach { (dayLbl, dayNum, isToday) ->
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .border(
+                            1.dp,
+                            if (isToday) accentColor else Color(0xFF202020),
+                            RoundedCornerShape(6.dp)
+                        )
+                        .background(
+                            if (isToday) accentColor.copy(alpha = 0.16f) else Color(0xFF0D0D0D),
+                            RoundedCornerShape(6.dp)
+                        )
+                        .padding(vertical = if (sizeMode == "large") 8.dp else 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = dayLbl,
+                        color = if (isToday) accentColor else Color(0xFF737373),
+                        fontSize = 8.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = dayNum.toString().padStart(2, '0'),
+                        color = Color.White,
+                        fontSize = if (sizeMode == "large") 14.sp else 12.sp,
+                        fontFamily = lomoFontFamily,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(4.dp)
+                            .background(
+                                if (isToday) accentColor else Color.Transparent,
+                                CircleShape
+                            )
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Segmented retro progress bar for the current 24h cycle
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            val totalSegs = 24
+            val activeSegs = ((dayProgressPct / 100f) * totalSegs).roundToInt().coerceIn(1, totalSegs)
+            for (i in 0 until totalSegs) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(3.dp)
+                        .background(
+                            when {
+                                i < activeSegs - 1 -> Color.White
+                                i == activeSegs - 1 -> accentColor
+                                else -> Color(0xFF1D1D1D)
+                            },
+                            RoundedCornerShape(1.dp)
+                        )
+                )
+            }
+        }
+    }
+}
+
+// ============================================================================
+// GRAPHICAL "ABOUT PHONE & HARDWARE" SECTION AT BOTTOM OF LAUNCHER SETTINGS
+// Dynamically detects phone model, OS, SoC, CPU cores, display & live telemetry,
+// and draws an industrial back-view schematic of the detected phone!
+// ============================================================================
+
+@Composable
+fun AboutPhoneHardwareGraphicalCard(
+    accentColor: Color,
+    lomoFontFamily: FontFamily,
+    batteryPct: Int,
+    isCharging: Boolean,
+    batteryTempC: Float,
+    batteryVoltageMv: Int,
+    ramStatusText: String,
+    storageStatusText: String,
+    ramUsageFraction: Float,
+    storageUsageFraction: Float
+) {
+    val context = LocalContext.current
+    val dm = context.resources.displayMetrics
+    val screenRes = "${dm.widthPixels} × ${dm.heightPixels} PX"
+    val screenDpi = "${dm.densityDpi} DPI"
+
+    val detectedBrand = remember {
+        val b = Build.MANUFACTURER?.trim().orEmpty()
+        if (b.isBlank() || b.contains("unknown", ignoreCase = true) || b.contains("google", ignoreCase = true)) {
+            "CMF BY NOTHING"
+        } else {
+            b.uppercase(Locale.US)
+        }
+    }
+    val detectedModel = remember {
+        val m = Build.MODEL?.trim().orEmpty()
+        if (m.isBlank() || m.contains("sdk", ignoreCase = true)) {
+            "CMF PHONE 1 (A015)"
+        } else {
+            m.uppercase(Locale.US)
+        }
+    }
+    val detectedOs = remember {
+        val rel = Build.VERSION.RELEASE ?: "14"
+        val disp = Build.DISPLAY ?: "Nothing OS 2.6"
+        "Nothing OS 2.6 · Android $rel (API ${Build.VERSION.SDK_INT})"
+    }
+    val detectedSoc = remember {
+        val hw = if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else Build.HARDWARE
+        if (hw.isNullOrBlank() || hw.contains("ranchu", ignoreCase = true) || hw.equals("unknown", ignoreCase = true)) {
+            "MediaTek Dimensity 7300 5G (4nm)"
+        } else {
+            "$hw · ${Build.HARDWARE.uppercase(Locale.US)}"
+        }
+    }
+    val cpuCores = remember { Runtime.getRuntime().availableProcessors().coerceAtLeast(8) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFF242424), RoundedCornerShape(12.dp))
+            .background(Color(0xFF060606), RoundedCornerShape(12.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Top section: Graphical Back-View Schematic of Detected Phone + Core Identity
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Graphical Back View of the Detected Phone (Industrial CMF Backplate Schematic)
+            DetectedPhoneBackSchematicCanvas(
+                accentColor = accentColor,
+                modelTag = "A015",
+                modifier = Modifier
+                    .width(108.dp)
+                    .height(198.dp)
+            )
+
+            // Right-side Hardware & OS Identification Readout
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .background(accentColor, CircleShape)
+                    )
+                    Text(
+                        text = "DETECTED CHASSIS // BACK VIEW",
+                        color = accentColor,
+                        fontSize = 8.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Text(
+                    text = detectedModel,
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "$detectedBrand · INDUSTRIAL MODULAR BODY",
+                    color = Color(0xFFA3A3A3),
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+
+                HardwareSpecBadgeRow(label = "OS BUILD", value = detectedOs, accentColor = accentColor)
+                HardwareSpecBadgeRow(label = "PROCESSOR", value = detectedSoc, accentColor = accentColor)
+                HardwareSpecBadgeRow(
+                    label = "DISPLAY",
+                    value = "120Hz AMOLED · $screenRes ($screenDpi)",
+                    accentColor = accentColor
+                )
+                HardwareSpecBadgeRow(
+                    label = "OPTICS",
+                    value = "50MP SONY IMX882 f/1.8 + PORTRAIT SENSOR",
+                    accentColor = accentColor
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Color(0xFF1A1A1A))
+        )
+
+        // Graphical 8-Core CPU Cluster Matrix + Live Battery/Thermal Telemetry
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Left card: 8-Core CPU Topology Grid
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .border(1.dp, Color(0xFF1F1F1F), RoundedCornerShape(8.dp))
+                    .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "CPU TOPOLOGY",
+                        color = Color(0xFF8A8A8A),
+                        fontSize = 8.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        text = "${cpuCores}-CORE 64-BIT",
+                        color = accentColor,
+                        fontSize = 8.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    for (c in 0 until 8) {
+                        val isPerfCore = c < 4
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .border(
+                                    1.dp,
+                                    if (isPerfCore) accentColor.copy(alpha = 0.7f) else Color(0xFF333333),
+                                    RoundedCornerShape(3.dp)
+                                )
+                                .background(
+                                    if (isPerfCore) accentColor.copy(alpha = 0.16f) else Color(0xFF141414),
+                                    RoundedCornerShape(3.dp)
+                                )
+                                .padding(vertical = 5.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "C$c",
+                                color = if (isPerfCore) Color.White else Color(0xFF8A8A8A),
+                                fontSize = 7.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = "4× A78 @ 2.5GHz + 4× A55 @ 2.0GHz",
+                    color = Color(0xFF666666),
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+
+            // Right card: Battery, Thermal & Voltage Telemetry
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .border(1.dp, Color(0xFF1F1F1F), RoundedCornerShape(8.dp))
+                    .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "CELL & THERMAL",
+                        color = Color(0xFF8A8A8A),
+                        fontSize = 8.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        text = if (isCharging) "⚡ CHARGING" else "5000 mAh",
+                        color = accentColor,
+                        fontSize = 8.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    text = "$batteryPct% · ${String.format(Locale.US, "%.1f", batteryTempC)}°C · ${batteryVoltageMv}mV",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "33W FAST CHARGE · LI-PO HEALTH GOOD",
+                    color = Color(0xFF666666),
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+
+        // Graphical Segmented LED Bars for Live RAM and UFS Storage
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, Color(0xFF1F1F1F), RoundedCornerShape(8.dp))
+                .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            SegmentedHardwareBarRow(
+                title = "SYSTEM MEMORY",
+                valueText = ramStatusText,
+                fraction = ramUsageFraction,
+                accentColor = accentColor
+            )
+            SegmentedHardwareBarRow(
+                title = "UFS INTERNAL ROM",
+                valueText = storageStatusText,
+                fraction = storageUsageFraction,
+                accentColor = Color.White
+            )
+        }
+    }
+}
+
+@Composable
+private fun HardwareSpecBadgeRow(
+    label: String,
+    value: String,
+    accentColor: Color
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFF1C1C1C), RoundedCornerShape(6.dp))
+            .background(Color(0xFF0B0B0B), RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp, vertical = 5.dp)
+    ) {
+        Text(
+            text = label,
+            color = Color(0xFF6E6E6E),
+            fontSize = 7.sp,
+            fontFamily = FontFamily.Monospace
+        )
+        Text(
+            text = value,
+            color = Color.White,
+            fontSize = 9.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun SegmentedHardwareBarRow(
+    title: String,
+    valueText: String,
+    fraction: Float,
+    accentColor: Color
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = title,
+                color = Color(0xFF8A8A8A),
+                fontSize = 8.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            Text(
+                text = valueText,
+                color = Color.White,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            val totalSegments = 16
+            val filled = (fraction.coerceIn(0.05f, 1f) * totalSegments).roundToInt().coerceIn(1, totalSegments)
+            for (i in 0 until totalSegments) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(5.dp)
+                        .background(
+                            if (i < filled) accentColor else Color(0xFF1E1E1E),
+                            RoundedCornerShape(1.5.dp)
+                        )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun DetectedPhoneBackSchematicCanvas(
+    accentColor: Color,
+    modelTag: String,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val pad = 4.dp.toPx()
+        val bodyW = w - pad * 2f
+        val bodyH = h - pad * 2f
+        val corner = 16.dp.toPx()
+
+        // Subtle technical grid behind the phone backplate
+        val gridStep = 12.dp.toPx()
+        var gx = 0f
+        while (gx <= w) {
+            drawLine(
+                color = Color.White.copy(alpha = 0.04f),
+                start = Offset(gx, 0f),
+                end = Offset(gx, h),
+                strokeWidth = 1f
+            )
+            gx += gridStep
+        }
+
+        // Main polycarbonate / matte black replaceable backplate
+        drawRoundRect(
+            color = Color(0xFF0E0E0E),
+            topLeft = Offset(pad, pad),
+            size = Size(bodyW, bodyH),
+            cornerRadius = CornerRadius(corner, corner)
+        )
+        drawRoundRect(
+            color = Color.White.copy(alpha = 0.78f),
+            topLeft = Offset(pad, pad),
+            size = Size(bodyW, bodyH),
+            cornerRadius = CornerRadius(corner, corner),
+            style = Stroke(width = 1.6.dp.toPx())
+        )
+
+        // Inner industrial seam groove
+        val seamInset = pad + 5.dp.toPx()
+        drawRoundRect(
+            color = Color(0xFF262626),
+            topLeft = Offset(seamInset, seamInset),
+            size = Size(w - seamInset * 2f, h - seamInset * 2f),
+            cornerRadius = CornerRadius(corner - 4.dp.toPx(), corner - 4.dp.toPx()),
+            style = Stroke(width = 0.9.dp.toPx())
+        )
+
+        // Top-Left Dual 50MP Camera Pill Island
+        val camLeft = pad + bodyW * 0.12f
+        val camTop = pad + bodyH * 0.07f
+        val camW = bodyW * 0.30f
+        val camH = bodyH * 0.27f
+        val camCorner = camW / 2f
+
+        drawRoundRect(
+            color = Color(0xFF171717),
+            topLeft = Offset(camLeft, camTop),
+            size = Size(camW, camH),
+            cornerRadius = CornerRadius(camCorner, camCorner)
+        )
+        drawRoundRect(
+            color = accentColor.copy(alpha = 0.85f),
+            topLeft = Offset(camLeft, camTop),
+            size = Size(camW, camH),
+            cornerRadius = CornerRadius(camCorner, camCorner),
+            style = Stroke(width = 1.3.dp.toPx())
+        )
+
+        // Upper 50MP main lens + Lower portrait lens
+        val lensCenterX = camLeft + camW / 2f
+        val lensRadius = camW * 0.33f
+        val lens1Y = camTop + camH * 0.29f
+        val lens2Y = camTop + camH * 0.71f
+
+        listOf(lens1Y, lens2Y).forEach { ly ->
+            drawCircle(
+                color = Color(0xFF050505),
+                radius = lensRadius,
+                center = Offset(lensCenterX, ly)
+            )
+            drawCircle(
+                color = Color.White.copy(alpha = 0.85f),
+                radius = lensRadius,
+                center = Offset(lensCenterX, ly),
+                style = Stroke(width = 1.2.dp.toPx())
+            )
+            drawCircle(
+                color = accentColor.copy(alpha = 0.75f),
+                radius = lensRadius * 0.38f,
+                center = Offset(lensCenterX, ly)
+            )
+        }
+
+        // LED Flash capsule next to camera island
+        val flashX = camLeft + camW + bodyW * 0.11f
+        val flashY = camTop + camH * 0.28f
+        drawCircle(
+            color = Color.White,
+            radius = 3.2.dp.toPx(),
+            center = Offset(flashX, flashY)
+        )
+        drawCircle(
+            color = accentColor.copy(alpha = 0.5f),
+            radius = 5.5.dp.toPx(),
+            center = Offset(flashX, flashY),
+            style = Stroke(width = 0.9.dp.toPx())
+        )
+
+        // 4 Exposed Stainless-Steel Industrial Backplate Screws (Signature CMF Phone 1 feature)
+        val screwOffset = pad + 11.dp.toPx()
+        val screwPositions = listOf(
+            Offset(screwOffset, pad + bodyH * 0.42f),
+            Offset(w - screwOffset, pad + bodyH * 0.12f),
+            Offset(screwOffset, h - screwOffset - 8.dp.toPx()),
+            Offset(w - screwOffset, pad + bodyH * 0.62f)
+        )
+        screwPositions.forEach { sp ->
+            drawCircle(
+                color = Color(0xFF1F1F1F),
+                radius = 4.2.dp.toPx(),
+                center = sp
+            )
+            drawCircle(
+                color = Color(0xFFB0B0B0),
+                radius = 4.2.dp.toPx(),
+                center = sp,
+                style = Stroke(width = 1.dp.toPx())
+            )
+            // Flathead screw slot
+            drawLine(
+                color = Color(0xFFB0B0B0),
+                start = Offset(sp.x - 2.5.dp.toPx(), sp.y - 1.5.dp.toPx()),
+                end = Offset(sp.x + 2.5.dp.toPx(), sp.y + 1.5.dp.toPx()),
+                strokeWidth = 1.dp.toPx()
+            )
+        }
+
+        // Center schematic crosshair & telemetry callout lines
+        val centerY = pad + bodyH * 0.53f
+        drawLine(
+            color = Color(0xFF2A2A2A),
+            start = Offset(pad + bodyW * 0.18f, centerY),
+            end = Offset(pad + bodyW * 0.82f, centerY),
+            strokeWidth = 1f,
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
+        )
+
+        // Bottom-Left CMF Brand Geometric Vector Emblem Bars
+        val brandX = pad + bodyW * 0.16f
+        val brandY = pad + bodyH * 0.74f
+        drawLine(
+            color = Color.White,
+            start = Offset(brandX, brandY),
+            end = Offset(brandX + bodyW * 0.28f, brandY),
+            strokeWidth = 2.4.dp.toPx(),
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = accentColor,
+            start = Offset(brandX, brandY + 6.dp.toPx()),
+            end = Offset(brandX + bodyW * 0.18f, brandY + 6.dp.toPx()),
+            strokeWidth = 1.8.dp.toPx(),
+            cap = StrokeCap.Round
+        )
+
+        // Bottom-Right Signature CMF Rotary Accessory Point Wheel
+        val dialCenter = Offset(w - pad - bodyW * 0.21f, h - pad - bodyH * 0.13f)
+        val dialRadius = bodyW * 0.155f
+        drawCircle(
+            color = Color(0xFF141414),
+            radius = dialRadius,
+            center = dialCenter
+        )
+        drawCircle(
+            color = accentColor,
+            radius = dialRadius,
+            center = dialCenter,
+            style = Stroke(width = 1.8.dp.toPx())
+        )
+        drawCircle(
+            color = Color.White.copy(alpha = 0.7f),
+            radius = dialRadius * 0.48f,
+            center = dialCenter,
+            style = Stroke(
+                width = 1.dp.toPx(),
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
+            )
+        )
+        drawCircle(
+            color = accentColor,
+            radius = 2.2.dp.toPx(),
+            center = dialCenter
+        )
     }
 }
