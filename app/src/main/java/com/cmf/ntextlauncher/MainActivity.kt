@@ -17,10 +17,26 @@ import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.hardware.camera2.CameraManager
+import android.location.Geocoder
+import android.location.LocationManager
 import android.app.ActivityManager
 import android.os.StatFs
 import android.os.Environment
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import android.provider.Settings
 import android.util.Base64
 import android.widget.Toast
@@ -247,6 +263,206 @@ data class AppEntry(
 
 enum class LauncherView {
     HOME_AND_DRAWER, WIDGETS, SETTINGS
+}
+
+data class LiveWeatherTelemetry(
+    val tempC: Int,
+    val highC: Int,
+    val lowC: Int,
+    val condition: String,
+    val humidity: Int,
+    val uvIndex: Int,
+    val aqiUs: Int,
+    val aqiLabel: String,
+    val city: String,
+    val updatedTime: String
+)
+
+private fun mapWmoWeatherCode(code: Int): String = when (code) {
+    0 -> "CLEAR SKY"
+    1 -> "MAINLY CLEAR"
+    2 -> "PARTLY CLOUDY"
+    3 -> "OVERCAST"
+    45, 48 -> "MIST / FOG"
+    51, 53, 55, 56, 57 -> "LIGHT DRIZZLE"
+    61, 63, 65, 66, 67 -> "RAIN"
+    71, 73, 75, 77 -> "SNOW"
+    80, 81, 82 -> "RAIN SHOWERS"
+    85, 86 -> "SNOW SHOWERS"
+    95, 96, 99 -> "THUNDERSTORM"
+    else -> "CLEAR SKY"
+}
+
+private fun mapAqiCategory(aqi: Int): String = when {
+    aqi <= 50 -> "GOOD"
+    aqi <= 100 -> "MODERATE"
+    aqi <= 150 -> "SENSITIVE"
+    aqi <= 200 -> "UNHEALTHY"
+    else -> "HAZARDOUS"
+}
+
+private fun httpGetString(urlStr: String, timeoutMs: Int = 4500): String? {
+    var conn: HttpURLConnection? = null
+    return try {
+        val url = URL(urlStr)
+        conn = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = timeoutMs
+            readTimeout = timeoutMs
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("User-Agent", "CMF-NText-Launcher/2.4")
+        }
+        if (conn.responseCode in 200..299) {
+            conn.inputStream.bufferedReader().use { it.readText() }
+        } else null
+    } catch (_: Exception) {
+        null
+    } finally {
+        try {
+            conn?.disconnect()
+        } catch (_: Exception) {
+        }
+    }
+}
+
+@SuppressLint("MissingPermission")
+suspend fun fetchLiveWeatherAndAqi(
+    context: Context,
+    prefs: SharedPreferences
+): LiveWeatherTelemetry = withContext(Dispatchers.IO) {
+    var lat = prefs.getFloat("wx_lat", 21.8974f).toDouble()
+    var lon = prefs.getFloat("wx_lon", 83.3950f).toDouble()
+    var city = prefs.getString("wx_city", "RAIGARH") ?: "RAIGARH"
+    var gotDeviceLoc = false
+
+    try {
+        val hasCoarse = context.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasFine = context.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (hasCoarse || hasFine) {
+            val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+            val providers = listOf(LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER, LocationManager.GPS_PROVIDER)
+            for (p in providers) {
+                val loc = try { lm?.getLastKnownLocation(p) } catch (_: Exception) { null }
+                if (loc != null) {
+                    lat = loc.latitude
+                    lon = loc.longitude
+                    gotDeviceLoc = true
+                    try {
+                        @Suppress("DEPRECATION")
+                        val addresses = Geocoder(context, Locale.ENGLISH).getFromLocation(lat, lon, 1)
+                        val locName = addresses?.firstOrNull()?.let { it.locality ?: it.subAdminArea ?: it.adminArea }
+                        if (!locName.isNullOrBlank()) {
+                            city = locName.uppercase(Locale.ENGLISH)
+                        }
+                    } catch (_: Exception) {
+                    }
+                    break
+                }
+            }
+        }
+    } catch (_: Exception) {
+    }
+
+    if (!gotDeviceLoc) {
+        val ipJsonStr = httpGetString("https://ipwho.is/", timeoutMs = 3500)
+        if (!ipJsonStr.isNullOrBlank()) {
+            try {
+                val ipJson = JSONObject(ipJsonStr)
+                if (ipJson.optBoolean("success", true)) {
+                    val ipLat = ipJson.optDouble("latitude", Double.NaN)
+                    val ipLon = ipJson.optDouble("longitude", Double.NaN)
+                    val ipCity = ipJson.optString("city", "")
+                    if (!ipLat.isNaN() && !ipLon.isNaN()) {
+                        lat = ipLat
+                        lon = ipLon
+                    }
+                    if (ipCity.isNotBlank()) {
+                        city = ipCity.uppercase(Locale.ENGLISH)
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    var tempC = prefs.getInt("wx_temp_c", 28)
+    var highC = prefs.getInt("wx_high_c", 31)
+    var lowC = prefs.getInt("wx_low_c", 22)
+    var cond = prefs.getString("wx_cond", "CLEAR SKY") ?: "CLEAR SKY"
+    var humidity = prefs.getInt("wx_hum", 48)
+    var uvIndex = prefs.getInt("wx_uv", 2)
+    var aqiUs = prefs.getInt("wx_aqi", 42)
+
+    val wxUrl = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,relative_humidity_2m,weather_code,uv_index&daily=temperature_2m_max,temperature_2m_min&timezone=auto"
+    val wxResp = httpGetString(wxUrl, timeoutMs = 4500)
+    if (!wxResp.isNullOrBlank()) {
+        try {
+            val root = JSONObject(wxResp)
+            val current = root.optJSONObject("current")
+            if (current != null) {
+                tempC = current.optDouble("temperature_2m", tempC.toDouble()).roundToInt()
+                humidity = current.optInt("relative_humidity_2m", humidity)
+                val wCode = current.optInt("weather_code", 0)
+                cond = mapWmoWeatherCode(wCode)
+                uvIndex = current.optDouble("uv_index", uvIndex.toDouble()).roundToInt()
+            }
+            val daily = root.optJSONObject("daily")
+            if (daily != null) {
+                val maxArr = daily.optJSONArray("temperature_2m_max")
+                val minArr = daily.optJSONArray("temperature_2m_min")
+                if (maxArr != null && maxArr.length() > 0) {
+                    highC = maxArr.optDouble(0, highC.toDouble()).roundToInt()
+                }
+                if (minArr != null && minArr.length() > 0) {
+                    lowC = minArr.optDouble(0, lowC.toDouble()).roundToInt()
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    val aqiUrl = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=$lat&longitude=$lon&current=us_aqi"
+    val aqiResp = httpGetString(aqiUrl, timeoutMs = 4500)
+    if (!aqiResp.isNullOrBlank()) {
+        try {
+            val root = JSONObject(aqiResp)
+            val current = root.optJSONObject("current")
+            if (current != null && !current.isNull("us_aqi")) {
+                aqiUs = current.optInt("us_aqi", aqiUs).coerceAtLeast(1)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    val updatedStamp = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+    val aqiLabel = mapAqiCategory(aqiUs)
+
+    prefs.edit()
+        .putFloat("wx_lat", lat.toFloat())
+        .putFloat("wx_lon", lon.toFloat())
+        .putString("wx_city", city)
+        .putInt("wx_temp_c", tempC)
+        .putInt("wx_high_c", highC)
+        .putInt("wx_low_c", lowC)
+        .putString("wx_cond", cond)
+        .putInt("wx_hum", humidity)
+        .putInt("wx_uv", uvIndex)
+        .putInt("wx_aqi", aqiUs)
+        .putString("wx_updated", updatedStamp)
+        .apply()
+
+    LiveWeatherTelemetry(
+        tempC = tempC,
+        highC = highC,
+        lowC = lowC,
+        condition = cond,
+        humidity = humidity,
+        uvIndex = uvIndex,
+        aqiUs = aqiUs,
+        aqiLabel = aqiLabel,
+        city = city,
+        updatedTime = updatedStamp
+    )
 }
 
 enum class PrebuiltFont(val id: String, val displayName: String, val uppercaseHome: Boolean) {
@@ -528,7 +744,7 @@ fun NTextLauncherApp(
     var use24Hour by remember { mutableStateOf(prefs.getBoolean("use_24h_v4", false)) }
     var tempCelsius by remember { mutableStateOf(prefs.getBoolean("temp_c", true)) }
     var hideAndroidBar by remember { mutableStateOf(prefs.getBoolean("hide_android_bar", true)) }
-    var niagaraWaveMode by remember { mutableStateOf(prefs.getString("wave_mode", "full") ?: "full") }
+    var waveScrubMode by remember { mutableStateOf(prefs.getString("wave_mode", "full") ?: "full") }
     var wallpaperPreset by remember { mutableStateOf(prefs.getString("wallpaper", "oled") ?: "oled") }
     var wallpaperDimPercent by remember { mutableStateOf(prefs.getInt("wp_dim", 50)) }
     var doubleTapSleep by remember { mutableStateOf(prefs.getBoolean("dbl_tap_sleep", true)) }
@@ -551,10 +767,36 @@ fun NTextLauncherApp(
         mutableStateOf(map)
     }
     var torchEnabled by remember { mutableStateOf(false) }
-    var pedometerSteps by remember { mutableStateOf(6420) }
+    var pedometerSteps by remember { mutableStateOf(prefs.getInt("daily_steps_v2", 6420)) }
     var zenActive by remember { mutableStateOf(false) }
     var zenSeconds by remember { mutableStateOf(1500) }
     var quickNote by remember { mutableStateOf(prefs.getString("quick_note", "CMF Minimal Focus") ?: "CMF Minimal Focus") }
+
+    // Live Hardware RAM & Storage Telemetry State
+    var ramStatusText by remember { mutableStateOf("RAM --/-- GB") }
+    var storageStatusText by remember { mutableStateOf("STORAGE --/-- GB") }
+    var ramUsageFraction by remember { mutableStateOf(0.35f) }
+    var storageUsageFraction by remember { mutableStateOf(0.50f) }
+
+    // Live Real-Time Weather & US AQI State (Open-Meteo Live API)
+    var weatherTelemetry by remember {
+        val initAqi = prefs.getInt("wx_aqi", 42)
+        mutableStateOf(
+            LiveWeatherTelemetry(
+                tempC = prefs.getInt("wx_temp_c", 28),
+                highC = prefs.getInt("wx_high_c", 31),
+                lowC = prefs.getInt("wx_low_c", 22),
+                condition = prefs.getString("wx_cond", "CLEAR SKY") ?: "CLEAR SKY",
+                humidity = prefs.getInt("wx_hum", 48),
+                uvIndex = prefs.getInt("wx_uv", 2),
+                aqiUs = initAqi,
+                aqiLabel = mapAqiCategory(initAqi),
+                city = prefs.getString("wx_city", "RAIGARH") ?: "RAIGARH",
+                updatedTime = prefs.getString("wx_updated", "LIVE") ?: "LIVE"
+            )
+        )
+    }
+    var weatherRefreshTrigger by remember { mutableStateOf(0) }
 
     // Pinned & Hidden Package Names
     var pinnedPackages by remember {
@@ -611,45 +853,166 @@ fun NTextLauncherApp(
         installedApps = loaded
     }
 
-    // Live Clock, Date, Next Alarm & Battery Receiver (Matching image_169fbb.png)
+    // Real-Time Fast Clock, Date, Next Alarm, Battery, RAM, Storage, Pedometer & Weather/AQI
     var currentHourStr by remember { mutableStateOf("4") }
     var currentMinStr by remember { mutableStateOf("22") }
     var currentAmPmStr by remember { mutableStateOf("PM") }
     var currentDateStr by remember { mutableStateOf("TUE · 27 OCT") }
-    var nextAlarmStr by remember { mutableStateOf("ALARM 07:00") }
+    var nextAlarmStr by remember { mutableStateOf("NO ALARM") }
     var batteryPct by remember { mutableStateOf(86) }
     var isCharging by remember { mutableStateOf(false) }
 
-    LaunchedEffect(use24Hour) {
+    fun refreshRealtimeSystemTelemetry() {
+        val now = Date()
+        if (use24Hour) {
+            currentHourStr = SimpleDateFormat("HH", Locale.getDefault()).format(now)
+            currentMinStr = SimpleDateFormat("mm", Locale.getDefault()).format(now)
+            currentAmPmStr = ""
+        } else {
+            currentHourStr = SimpleDateFormat("h", Locale.getDefault()).format(now)
+            currentMinStr = SimpleDateFormat("mm", Locale.getDefault()).format(now)
+            currentAmPmStr = SimpleDateFormat("a", Locale.ENGLISH).format(now).uppercase(Locale.ENGLISH)
+        }
+        currentDateStr = SimpleDateFormat("EEE · dd MMM", Locale.ENGLISH).format(now).uppercase(Locale.ENGLISH)
+
+        val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+        val nextAlarm = am?.nextAlarmClock
+        nextAlarmStr = if (nextAlarm != null) {
+            val fmt = if (use24Hour) "HH:mm" else "h:mm a"
+            val alarmTime = SimpleDateFormat(fmt, Locale.ENGLISH).format(Date(nextAlarm.triggerTime)).uppercase(Locale.ENGLISH)
+            "ALARM $alarmTime"
+        } else {
+            "NO ALARM"
+        }
+
+        val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+        if (bm != null) {
+            val cap = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            if (cap in 1..100) batteryPct = cap
+            isCharging = bm.isCharging
+        }
+
+        try {
+            val actMgr = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            if (actMgr != null) {
+                val memInfo = ActivityManager.MemoryInfo()
+                actMgr.getMemoryInfo(memInfo)
+                val totalGb = memInfo.totalMem.toDouble() / (1024.0 * 1024.0 * 1024.0)
+                val usedGb = (memInfo.totalMem - memInfo.availMem).toDouble() / (1024.0 * 1024.0 * 1024.0)
+                ramStatusText = String.format(Locale.US, "RAM %.1f/%.0f GB", usedGb, totalGb)
+                ramUsageFraction = (usedGb / totalGb.coerceAtLeast(1.0)).toFloat().coerceIn(0.05f, 1f)
+            }
+        } catch (_: Exception) {
+        }
+
+        try {
+            val stat = StatFs(Environment.getDataDirectory().path)
+            val totalBytes = stat.totalBytes.toDouble()
+            val availBytes = stat.availableBytes.toDouble()
+            val usedBytes = (totalBytes - availBytes).coerceAtLeast(0.0)
+            val totalGb = totalBytes / (1000.0 * 1000.0 * 1000.0)
+            val usedGb = usedBytes / (1000.0 * 1000.0 * 1000.0)
+            storageStatusText = String.format(Locale.US, "ROM %.0f/%.0f GB", usedGb, totalGb)
+            storageUsageFraction = (usedBytes / totalBytes.coerceAtLeast(1.0)).toFloat().coerceIn(0.05f, 1f)
+        } catch (_: Exception) {
+        }
+    }
+
+    LaunchedEffect(use24Hour, packageRefreshTrigger) {
         while (true) {
-            val now = Date()
-            if (use24Hour) {
-                currentHourStr = SimpleDateFormat("HH", Locale.getDefault()).format(now)
-                currentMinStr = SimpleDateFormat("mm", Locale.getDefault()).format(now)
-                currentAmPmStr = ""
-            } else {
-                currentHourStr = SimpleDateFormat("h", Locale.getDefault()).format(now)
-                currentMinStr = SimpleDateFormat("mm", Locale.getDefault()).format(now)
-                currentAmPmStr = SimpleDateFormat("a", Locale.ENGLISH).format(now).uppercase(Locale.ENGLISH)
-            }
-            currentDateStr = SimpleDateFormat("EEE · dd MMM", Locale.ENGLISH).format(now).uppercase(Locale.ENGLISH)
+            refreshRealtimeSystemTelemetry()
+            delay(1_000L)
+        }
+    }
 
-            // Check system AlarmManager for next scheduled alarm, or show ALARM 07:00
-            val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
-            val nextAlarm = am?.nextAlarmClock
-            nextAlarmStr = if (nextAlarm != null) {
-                val alarmTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(nextAlarm.triggerTime))
-                "ALARM $alarmTime"
-            } else {
-                "ALARM 07:00"
+    DisposableEffect(context, use24Hour) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                if (intent?.action == Intent.ACTION_BATTERY_CHANGED) {
+                    val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                    val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+                    if (level >= 0 && scale > 0) {
+                        batteryPct = ((level * 100f) / scale).roundToInt().coerceIn(1, 100)
+                    }
+                    val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+                    isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                        status == BatteryManager.BATTERY_STATUS_FULL
+                }
+                refreshRealtimeSystemTelemetry()
             }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_BATTERY_CHANGED)
+            addAction(Intent.ACTION_POWER_CONNECTED)
+            addAction(Intent.ACTION_POWER_DISCONNECTED)
+            addAction(Intent.ACTION_TIME_TICK)
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+            addAction(AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+        } else {
+            context.registerReceiver(receiver, filter)
+        }
+        onDispose {
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (_: Exception) {
+            }
+        }
+    }
 
-            val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
-            if (bm != null) {
-                batteryPct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).coerceIn(1, 100)
-                isCharging = bm.isCharging
+    DisposableEffect(context) {
+        val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+        val stepCounterSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
+        val stepDetectorSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
+        val listener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent?) {
+                if (event == null) return
+                val todayKey = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                if (event.sensor.type == Sensor.TYPE_STEP_COUNTER) {
+                    val totalSinceBoot = event.values.firstOrNull()?.roundToInt() ?: return
+                    val savedDay = prefs.getString("step_day", "") ?: ""
+                    var baseSteps = prefs.getInt("step_base", -1)
+                    if (savedDay != todayKey || baseSteps < 0 || totalSinceBoot < baseSteps) {
+                        baseSteps = totalSinceBoot
+                        prefs.edit()
+                            .putString("step_day", todayKey)
+                            .putInt("step_base", baseSteps)
+                            .apply()
+                    }
+                    val todaySteps = (totalSinceBoot - baseSteps).coerceAtLeast(0)
+                    pedometerSteps = todaySteps
+                    prefs.edit().putInt("daily_steps_v2", todaySteps).apply()
+                } else if (event.sensor.type == Sensor.TYPE_STEP_DETECTOR) {
+                    val next = pedometerSteps + 1
+                    pedometerSteps = next
+                    prefs.edit().putInt("daily_steps_v2", next).apply()
+                }
             }
-            delay(10_000)
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+        }
+        try {
+            if (stepCounterSensor != null) {
+                sensorManager.registerListener(listener, stepCounterSensor, SensorManager.SENSOR_DELAY_UI)
+            } else if (stepDetectorSensor != null) {
+                sensorManager.registerListener(listener, stepDetectorSensor, SensorManager.SENSOR_DELAY_UI)
+            }
+        } catch (_: Exception) {
+        }
+        onDispose {
+            try {
+                sensorManager?.unregisterListener(listener)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    LaunchedEffect(weatherRefreshTrigger, packageRefreshTrigger) {
+        while (true) {
+            weatherTelemetry = fetchLiveWeatherAndAqi(context, prefs)
+            delay(180_000L)
         }
     }
 
@@ -706,10 +1069,27 @@ fun NTextLauncherApp(
 
     fun cycleWidgetSize(widgetId: String) {
         val current = widgetSizes[widgetId] ?: "standard"
-        val next = when (current) {
-            "compact" -> "standard"
-            "standard" -> "large"
-            else -> "compact"
+        val next = if (widgetId == "globe") {
+            when (current) {
+                "compact" -> "standard"
+                "standard" -> "large"
+                "large" -> "xlarge"
+                "xlarge" -> "max"
+                else -> "compact"
+            }
+        } else if (widgetId == "blackhole") {
+            when (current) {
+                "compact" -> "standard"
+                "standard" -> "large"
+                "large" -> "xlarge"
+                else -> "compact"
+            }
+        } else {
+            when (current) {
+                "compact" -> "standard"
+                "standard" -> "large"
+                else -> "compact"
+            }
         }
         saveWidgetSize(widgetId, next)
     }
@@ -998,6 +1378,11 @@ fun NTextLauncherApp(
                                     batteryPct = batteryPct,
                                     isCharging = isCharging,
                                     tempCelsius = tempCelsius,
+                                    weatherTelemetry = weatherTelemetry,
+                                    ramStatusText = ramStatusText,
+                                    storageStatusText = storageStatusText,
+                                    ramUsageFraction = ramUsageFraction,
+                                    storageUsageFraction = storageUsageFraction,
                                     torchEnabled = torchEnabled,
                                     pedometerSteps = pedometerSteps,
                                     zenActive = zenActive,
@@ -1009,7 +1394,7 @@ fun NTextLauncherApp(
                                     uppercaseHome = prebuiltFont.uppercaseHome,
                                     textAlign = textAlign,
                                     textSizeSp = textSizeSp,
-                                    niagaraWaveMode = niagaraWaveMode,
+                                    waveScrubMode = waveScrubMode,
                                     globeTheme = globeTheme,
                                     globeWireframeColor = globeWireframeColor,
                                     blackHoleAccentColor = blackHoleAccentColor,
@@ -1021,6 +1406,7 @@ fun NTextLauncherApp(
                                     onToggleTempUnit = {
                                         tempCelsius = !tempCelsius
                                         prefs.edit().putBoolean("temp_c", tempCelsius).apply()
+                                        weatherRefreshTrigger++
                                     },
                                     onToggleTorch = { toggleTorchState() },
                                     onToggleZen = {
@@ -1062,34 +1448,34 @@ fun NTextLauncherApp(
                                 selectedFont = selectedFont,
                                 uppercaseHome = prebuiltFont.uppercaseHome,
                                 accentColor = accentColor,
-                                niagaraWaveMode = niagaraWaveMode,
+                                waveScrubMode = waveScrubMode,
                                 screenHeightPx = screenHeightPx,
                                 getDrawerProgress = { drawerProgress.value },
                                 searchResetToken = drawerSearchResetToken,
                                 focusSearchOnOpen = focusDrawerSearchOnOpen,
                                 onConsumedSearchFocus = { focusDrawerSearchOnOpen = false },
-                                    onDragDrawerDelta = { dy ->
-                                        val delta = -dy / (screenHeightPx * 0.52f)
-                                        val next = (drawerProgress.value + delta).coerceIn(0f, 1f)
-                                        scope.launch { drawerProgress.snapTo(next) }
-                                    },
-                                    onSettleDrawer = { totalDy ->
-                                        if (drawerProgress.value < 0.82f || totalDy > 95f) {
-                                            animateDrawerTo(0f)
-                                        } else {
-                                            animateDrawerTo(1f)
-                                        }
-                                    },
-                                    onLaunchApp = { pkg ->
-                                        launchApp(pkg)
+                                onDragDrawerDelta = { dy ->
+                                    val delta = -dy / (screenHeightPx * 0.52f)
+                                    val next = (drawerProgress.value + delta).coerceIn(0f, 1f)
+                                    scope.launch { drawerProgress.snapTo(next) }
+                                },
+                                onSettleDrawer = { totalDy ->
+                                    if (drawerProgress.value < 0.82f || totalDy > 95f) {
                                         animateDrawerTo(0f)
-                                    },
-                                    onLongPressApp = { app ->
-                                        tickHaptic(heavy = true)
-                                        contextMenuTarget = app to false
-                                    },
-                                    onClose = { animateDrawerTo(0f) },
-                                    onWaveTick = { tickHaptic(heavy = false) }
+                                    } else {
+                                        animateDrawerTo(1f)
+                                    }
+                                },
+                                onLaunchApp = { pkg ->
+                                    launchApp(pkg)
+                                    animateDrawerTo(0f)
+                                },
+                                onLongPressApp = { app ->
+                                    tickHaptic(heavy = true)
+                                    contextMenuTarget = app to false
+                                },
+                                onClose = { animateDrawerTo(0f) },
+                                onWaveTick = { tickHaptic(heavy = false) }
                             )
                         }
                     }
@@ -1100,9 +1486,29 @@ fun NTextLauncherApp(
                             widgetSizes = widgetSizes,
                             accentColor = accentColor,
                             lomoFontFamily = lomoFontFamily,
+                            use24Hour = use24Hour,
+                            tempCelsius = tempCelsius,
+                            weatherTelemetry = weatherTelemetry,
+                            quickNote = quickNote,
                             globeTheme = globeTheme,
                             globeWireframeColor = globeWireframeColor,
                             blackHoleAccentColor = blackHoleAccentColor,
+                            onToggle24h = {
+                                use24Hour = !use24Hour
+                                prefs.edit().putBoolean("use_24h_v4", use24Hour).apply()
+                            },
+                            onToggleTempUnit = {
+                                tempCelsius = !tempCelsius
+                                prefs.edit().putBoolean("temp_c", tempCelsius).apply()
+                            },
+                            onRefreshWeather = {
+                                weatherRefreshTrigger++
+                                Toast.makeText(context, "Syncing live weather & AQI...", Toast.LENGTH_SHORT).show()
+                            },
+                            onChangeQuickNote = {
+                                quickNote = it
+                                prefs.edit().putString("quick_note", it).apply()
+                            },
                             onChangeGlobeTheme = {
                                 globeTheme = it
                                 prefs.edit().putString("globe_theme", it).apply()
@@ -1117,6 +1523,7 @@ fun NTextLauncherApp(
                             },
                             onUpdateWidgets = { saveWidgetList(it) },
                             onCycleWidgetSize = { cycleWidgetSize(it) },
+                            onSetWidgetSize = { id, sz -> saveWidgetSize(id, sz) },
                             onMoveWidget = { id, dir -> moveWidget(id, dir) },
                             onBack = { currentView = LauncherView.HOME_AND_DRAWER }
                         )
@@ -1128,27 +1535,11 @@ fun NTextLauncherApp(
                             textAlignMode = textAlignMode,
                             accentHex = accentHex,
                             textSizeSp = textSizeSp,
-                            use24Hour = use24Hour,
                             hideAndroidBar = hideAndroidBar,
-                            niagaraWaveMode = niagaraWaveMode,
+                            waveScrubMode = waveScrubMode,
                             wallpaperPreset = wallpaperPreset,
                             lomoFontFamily = lomoFontFamily,
                             doubleTapSleep = doubleTapSleep,
-                            globeTheme = globeTheme,
-                            globeWireframeColor = globeWireframeColor,
-                            blackHoleAccentColor = blackHoleAccentColor,
-                            onChangeGlobeTheme = {
-                                globeTheme = it
-                                prefs.edit().putString("globe_theme", it).apply()
-                            },
-                            onChangeGlobeWireframeColor = {
-                                globeWireframeColor = it
-                                prefs.edit().putString("globe_wf_color", it).apply()
-                            },
-                            onChangeBlackHoleColor = {
-                                blackHoleAccentColor = it
-                                prefs.edit().putString("bh_accent_color", it).apply()
-                            },
                             onChangeFont = {
                                 fontId = it
                                 prefs.edit().putString("font_id", it).apply()
@@ -1165,17 +1556,13 @@ fun NTextLauncherApp(
                                 textSizeSp = it
                                 prefs.edit().putInt("text_size", it).apply()
                             },
-                            onToggle24h = {
-                                use24Hour = !use24Hour
-                                prefs.edit().putBoolean("use_24h_v4", use24Hour).apply()
-                            },
                             onToggleAndroidBar = {
                                 val next = !hideAndroidBar
                                 hideAndroidBar = next
                                 onToggleAndroidStatusBar(next)
                             },
                             onChangeWaveMode = {
-                                niagaraWaveMode = it
+                                waveScrubMode = it
                                 prefs.edit().putString("wave_mode", it).apply()
                             },
                             onChangeWallpaperPreset = {
@@ -1184,7 +1571,6 @@ fun NTextLauncherApp(
                             },
                             onOpenSystemWallpaperPicker = onOpenSystemWallpaperPicker,
                             onRequestDefaultHomeRole = onRequestDefaultHomeRole,
-                            onOpenWidgets = { currentView = LauncherView.WIDGETS },
                             onToggleDoubleTapSleep = {
                                 doubleTapSleep = !doubleTapSleep
                                 prefs.edit().putBoolean("dbl_tap_sleep", doubleTapSleep).apply()
@@ -1197,7 +1583,7 @@ fun NTextLauncherApp(
         }
 
         // ====================================================================
-        // LONG-TAP HOME SCREEN QUICK ACTIONS MENU (Replaces Bottom Dock Text)
+        // LONG-TAP HOME SCREEN "ACTIONS" MENU (4 Streamlined Options)
         // ====================================================================
         if (showHomeQuickMenu) {
             Box(
@@ -1228,21 +1614,13 @@ fun NTextLauncherApp(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            Text(
-                                text = "N-TEXT // HOME MENU",
-                                color = Color.White,
-                                fontSize = 15.sp,
-                                fontFamily = lomoFontFamily
-                            )
-                            Text(
-                                text = "Long-tap on Home Screen",
-                                color = Color(0xFF737373),
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-
+                        Text(
+                            text = "Actions",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontFamily = lomoFontFamily,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
 
                     Box(
@@ -1252,33 +1630,9 @@ fun NTextLauncherApp(
                             .background(Color(0xFF1F1F1F))
                     )
 
-                    // 1. Search Apps
+                    // 1. Widget Manager
                     QuickMenuButton(
-                        label = "/ Search Apps",
-                        badge = "SEARCH",
-                        accentColor = accentColor,
-                        lomoFontFamily = lomoFontFamily,
-                        onClick = {
-                            showHomeQuickMenu = false
-                            animateDrawerTo(1f, focusSearch = true)
-                        }
-                    )
-
-                    // 2. All Apps Drawer
-                    QuickMenuButton(
-                        label = "↑ Open All Apps (${installedApps.count { !it.isHidden }})",
-                        badge = "DRAWER",
-                        accentColor = accentColor,
-                        lomoFontFamily = lomoFontFamily,
-                        onClick = {
-                            showHomeQuickMenu = false
-                            animateDrawerTo(1f, focusSearch = false)
-                        }
-                    )
-
-                    // 3. Manage Widgets
-                    QuickMenuButton(
-                        label = "+ Widgets Manager",
+                        label = "Widget Manager",
                         badge = "WIDGETS",
                         accentColor = accentColor,
                         lomoFontFamily = lomoFontFamily,
@@ -1288,9 +1642,9 @@ fun NTextLauncherApp(
                         }
                     )
 
-                    // 4. Toggle Inline Edit Mode
+                    // 2. Edit Mode
                     QuickMenuButton(
-                        label = if (editMode) "✓ Exit Widget Edit Mode" else "✎ Edit Home Widgets",
+                        label = if (editMode) "Exit Edit Mode" else "Edit Mode",
                         badge = "EDIT",
                         accentColor = accentColor,
                         lomoFontFamily = lomoFontFamily,
@@ -1300,29 +1654,30 @@ fun NTextLauncherApp(
                         }
                     )
 
-                    // 5. Switch 3D Globe Theme (Retro Hologram vs Customizable Wireframe)
+                    // 3. Launcher Settings
                     QuickMenuButton(
-                        label = if (globeTheme == "retro_holo") "🌐 Globe: 80s Hologram (Green/Blue)" else "🌐 Globe: Wireframe ($globeWireframeColor)",
-                        badge = "GLOBE",
-                        accentColor = accentColor,
-                        lomoFontFamily = lomoFontFamily,
-                        onClick = {
-                            val next = if (globeTheme == "retro_holo") "wireframe" else "retro_holo"
-                            globeTheme = next
-                            prefs.edit().putString("globe_theme", next).apply()
-                            tickHaptic(heavy = false)
-                        }
-                    )
-
-                    // 6. Launcher Settings
-                    QuickMenuButton(
-                        label = "⚙ Launcher Settings",
-                        badge = "CFG",
+                        label = "Launcher Settings",
+                        badge = "LAUNCHER",
                         accentColor = accentColor,
                         lomoFontFamily = lomoFontFamily,
                         onClick = {
                             showHomeQuickMenu = false
                             currentView = LauncherView.SETTINGS
+                        }
+                    )
+
+                    // 4. Phone Settings
+                    QuickMenuButton(
+                        label = "Phone Settings",
+                        badge = "SYSTEM",
+                        accentColor = accentColor,
+                        lomoFontFamily = lomoFontFamily,
+                        onClick = {
+                            showHomeQuickMenu = false
+                            try {
+                                context.startActivity(Intent(Settings.ACTION_SETTINGS))
+                            } catch (_: Exception) {
+                            }
                         }
                     )
                 }
@@ -1544,6 +1899,11 @@ fun HomeScreenView(
     batteryPct: Int,
     isCharging: Boolean,
     tempCelsius: Boolean,
+    weatherTelemetry: LiveWeatherTelemetry,
+    ramStatusText: String,
+    storageStatusText: String,
+    ramUsageFraction: Float,
+    storageUsageFraction: Float,
     torchEnabled: Boolean,
     pedometerSteps: Int,
     zenActive: Boolean,
@@ -1555,7 +1915,7 @@ fun HomeScreenView(
     uppercaseHome: Boolean,
     textAlign: TextAlign,
     textSizeSp: Int,
-    niagaraWaveMode: String,
+    waveScrubMode: String,
     globeTheme: String,
     globeWireframeColor: String,
     blackHoleAccentColor: String,
@@ -1745,12 +2105,15 @@ fun HomeScreenView(
                                                             .background(accentColor, RoundedCornerShape(999.dp))
                                                     )
                                                 }
-                                                Text(
-                                                    text = if (isCharging) "CHG 33W" else "OLED SAVING",
-                                                    color = if (isCharging) accentColor else Color(0xFF737373),
-                                                    fontSize = 10.sp,
-                                                    fontFamily = FontFamily.Monospace
-                                                )
+                                                if (isCharging) {
+                                                    Text(
+                                                        text = "CHG",
+                                                        color = accentColor,
+                                                        fontSize = 10.sp,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
                                             }
                                         }
                                         else -> {
@@ -1849,19 +2212,31 @@ fun HomeScreenView(
                                                             .background(accentColor, RoundedCornerShape(999.dp))
                                                     )
                                                 }
-                                                Text(
-                                                    text = if (isCharging) "CHG" else "OLED",
-                                                    color = if (isCharging) accentColor else Color(0xFF737373),
-                                                    fontSize = 9.sp,
-                                                    fontFamily = FontFamily.Monospace
-                                                )
+                                                if (isCharging) {
+                                                    Text(
+                                                        text = "CHG",
+                                                        color = accentColor,
+                                                        fontSize = 9.sp,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
                             "weather" -> {
-                                val temp = if (tempCelsius) "28°C" else "82°F"
+                                val displayTemp = if (tempCelsius) {
+                                    "${weatherTelemetry.tempC}°C"
+                                } else {
+                                    "${(weatherTelemetry.tempC * 9 / 5) + 32}°F"
+                                }
+                                val displayHigh = if (tempCelsius) "${weatherTelemetry.highC}°" else "${(weatherTelemetry.highC * 9 / 5) + 32}°"
+                                val displayLow = if (tempCelsius) "${weatherTelemetry.lowC}°" else "${(weatherTelemetry.lowC * 9 / 5) + 32}°"
+                                val condText = weatherTelemetry.condition
+                                val aqiBadge = "AQI ${weatherTelemetry.aqiUs} · ${weatherTelemetry.aqiLabel}"
+
                                 when (sizeMode) {
                                     "compact" -> {
                                         Row(
@@ -1873,13 +2248,13 @@ fun HomeScreenView(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
-                                                text = "● $temp CLEAR SKY",
+                                                text = "● $displayTemp $condText",
                                                 color = Color.White,
                                                 fontSize = 11.sp,
                                                 fontFamily = FontFamily.Monospace
                                             )
                                             Text(
-                                                text = "AQI 42",
+                                                text = "AQI ${weatherTelemetry.aqiUs}",
                                                 color = Color(0xFFA3A3A3),
                                                 fontSize = 10.sp,
                                                 fontFamily = FontFamily.Monospace
@@ -1908,14 +2283,14 @@ fun HomeScreenView(
                                                             .background(accentColor, CircleShape)
                                                     )
                                                     Text(
-                                                        text = temp,
+                                                        text = displayTemp,
                                                         color = Color.White,
                                                         fontSize = 14.sp,
                                                         fontFamily = FontFamily.Monospace,
                                                         fontWeight = FontWeight.Bold
                                                     )
                                                     Text(
-                                                        text = "CLEAR SKY (H 31° / L 22°)",
+                                                        text = "$condText (H $displayHigh / L $displayLow)",
                                                         color = Color(0xFFA3A3A3),
                                                         fontSize = 11.sp,
                                                         fontFamily = FontFamily.Monospace
@@ -1927,7 +2302,7 @@ fun HomeScreenView(
                                                         .padding(horizontal = 7.dp, vertical = 2.5.dp)
                                                 ) {
                                                     Text(
-                                                        text = "AQI 42 · GOOD",
+                                                        text = aqiBadge,
                                                         color = Color(0xFFA3A3A3),
                                                         fontSize = 10.sp,
                                                         fontFamily = FontFamily.Monospace
@@ -1936,7 +2311,7 @@ fun HomeScreenView(
                                             }
                                             Spacer(modifier = Modifier.height(4.dp))
                                             Text(
-                                                text = "HUMIDITY 48% · UV INDEX 2 LOW · BHOPAL",
+                                                text = "HUMIDITY ${weatherTelemetry.humidity}% · UV ${weatherTelemetry.uvIndex} · ${weatherTelemetry.city} · LIVE ${weatherTelemetry.updatedTime}",
                                                 color = Color(0xFF737373),
                                                 fontSize = 9.sp,
                                                 fontFamily = FontFamily.Monospace
@@ -1944,7 +2319,6 @@ fun HomeScreenView(
                                         }
                                     }
                                     else -> {
-                                        // Standard
                                         Column(modifier = Modifier.fillMaxWidth()) {
                                             Row(
                                                 modifier = Modifier
@@ -1964,14 +2338,14 @@ fun HomeScreenView(
                                                             .background(accentColor, CircleShape)
                                                     )
                                                     Text(
-                                                        text = temp,
+                                                        text = displayTemp,
                                                         color = Color.White,
                                                         fontSize = 11.sp,
                                                         fontFamily = FontFamily.Monospace,
                                                         fontWeight = FontWeight.Medium
                                                     )
                                                     Text(
-                                                        text = "CLEAR SKY",
+                                                        text = condText,
                                                         color = Color(0xFFA3A3A3),
                                                         fontSize = 11.sp,
                                                         fontFamily = FontFamily.Monospace
@@ -1983,7 +2357,7 @@ fun HomeScreenView(
                                                         .padding(horizontal = 7.dp, vertical = 2.5.dp)
                                                 ) {
                                                     Text(
-                                                        text = "AQI 42 · GOOD",
+                                                        text = aqiBadge,
                                                         color = Color(0xFFA3A3A3),
                                                         fontSize = 10.sp,
                                                         fontFamily = FontFamily.Monospace
@@ -2085,7 +2459,6 @@ fun HomeScreenView(
                                 }
                             }
                             "storage" -> {
-                                // NEW WIDGET 3: OLED RAM & Storage Telemetry Bar
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -2098,13 +2471,13 @@ fun HomeScreenView(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "RAM 2.4/8 GB",
+                                            text = ramStatusText,
                                             color = Color.White,
                                             fontSize = 10.sp,
                                             fontFamily = FontFamily.Monospace
                                         )
                                         Text(
-                                            text = "STORAGE 64/128 GB",
+                                            text = storageStatusText,
                                             color = Color(0xFFA3A3A3),
                                             fontSize = 10.sp,
                                             fontFamily = FontFamily.Monospace
@@ -2125,7 +2498,7 @@ fun HomeScreenView(
                                                 Box(
                                                     modifier = Modifier
                                                         .fillMaxHeight()
-                                                        .fillMaxWidth(0.30f)
+                                                        .fillMaxWidth(ramUsageFraction.coerceIn(0.05f, 1f))
                                                         .background(accentColor, RoundedCornerShape(999.dp))
                                                 )
                                             }
@@ -2138,7 +2511,7 @@ fun HomeScreenView(
                                                 Box(
                                                     modifier = Modifier
                                                         .fillMaxHeight()
-                                                        .fillMaxWidth(0.50f)
+                                                        .fillMaxWidth(storageUsageFraction.coerceIn(0.05f, 1f))
                                                         .background(Color(0xFF555555), RoundedCornerShape(999.dp))
                                                 )
                                             }
@@ -2147,7 +2520,6 @@ fun HomeScreenView(
                                 }
                             }
                             "quote" -> {
-                                // NEW WIDGET 4: Minimalist Thought / Design Ethos Quote
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -2209,9 +2581,11 @@ fun HomeScreenView(
                             }
                             "globe" -> {
                                 val globeHeight = when (sizeMode) {
-                                    "compact" -> 130.dp
-                                    "large" -> 250.dp
-                                    else -> 185.dp
+                                    "compact" -> 135.dp
+                                    "large" -> 265.dp
+                                    "xlarge" -> 330.dp
+                                    "max" -> 395.dp
+                                    else -> 195.dp
                                 }
                                 Box(
                                     modifier = Modifier
@@ -2229,8 +2603,9 @@ fun HomeScreenView(
                             "blackhole" -> {
                                 val bhHeight = when (sizeMode) {
                                     "compact" -> 115.dp
-                                    "large" -> 220.dp
-                                    else -> 160.dp
+                                    "large" -> 225.dp
+                                    "xlarge" -> 285.dp
+                                    else -> 165.dp
                                 }
                                 Box(
                                     modifier = Modifier
@@ -2319,14 +2694,14 @@ fun HomeScreenView(
             contentAlignment = Alignment.BottomStart
         ) {
             val waveRadiusRows = 2.25f
-            val maxWaveShiftPx = with(density) { (if (niagaraWaveMode == "full") 32.dp else 16.dp).toPx() }
+            val maxWaveShiftPx = with(density) { (if (waveScrubMode == "full") 32.dp else 16.dp).toPx() }
             val verticalSpreadPx = with(density) { 4.dp.toPx() }
             val pressHoverShiftPx = with(density) { 14.dp.toPx() }
             val maxDotWaveShiftPx = with(density) { 14.dp.toPx() }
 
             val activeFocusedIndex = remember(waveFloatIndex, pinnedApps.size) {
                 val w = waveFloatIndex
-                if (w == null || pinnedApps.isEmpty() || niagaraWaveMode == "off") {
+                if (w == null || pinnedApps.isEmpty() || waveScrubMode == "off") {
                     null
                 } else {
                     w.toInt().coerceIn(0, pinnedApps.lastIndex)
@@ -2355,7 +2730,7 @@ fun HomeScreenView(
                         val interactionSource = remember { MutableInteractionSource() }
                         val isPressed by interactionSource.collectIsPressedAsState()
 
-                        val targetWaveFactor = if (waveFloatIndex != null && niagaraWaveMode != "off") {
+                        val targetWaveFactor = if (waveFloatIndex != null && waveScrubMode != "off") {
                             val distRows = abs(waveFloatIndex!! - (index + 0.5f))
                             if (distRows < waveRadiusRows) {
                                 val c = cos((distRows / waveRadiusRows) * (PI / 2)).toFloat().coerceIn(0f, 1f)
@@ -2431,7 +2806,7 @@ fun HomeScreenView(
                 }
 
                 // Right-Side Dots Scroller: Exact same count as pinnedApps.size, aligned 1-to-1 with each app row!
-                if (niagaraWaveMode != "off" && pinnedApps.isNotEmpty()) {
+                if (waveScrubMode != "off" && pinnedApps.isNotEmpty()) {
                     Column(
                         modifier = Modifier
                             .width(34.dp)
@@ -3182,8 +3557,8 @@ fun RetroFuturisticGlobeView(
             val h = size.height
             val cx = w / 2f
             val cy = h / 2f
-            // Larger globe radius (0.47f of available middle space) with zero text/shape clutter
-            val radius = (min(w, h) * 0.47f).coerceAtLeast(36f)
+            // Maximum globe radius (0.492f of container) with zero text/shape clutter
+            val radius = (min(w, h) * 0.492f).coerceAtLeast(36f)
 
             val cosY = cos(yaw)
             val sinY = sin(yaw)
@@ -3786,7 +4161,7 @@ fun AppDrawerView(
     selectedFont: FontFamily,
     uppercaseHome: Boolean,
     accentColor: Color,
-    niagaraWaveMode: String,
+    waveScrubMode: String,
     screenHeightPx: Float,
     getDrawerProgress: () -> Float,
     searchResetToken: Int,
@@ -4126,7 +4501,7 @@ fun AppDrawerView(
                 // Keeps touch scrub state isolated so LazyColumn NEVER recomposes during A-Z scrubbing!
                 AlphabetScrubberRail(
                     accentColor = accentColor,
-                    niagaraWaveMode = niagaraWaveMode,
+                    waveScrubMode = waveScrubMode,
                     lomoFontFamily = lomoFontFamily,
                     onSelectLetter = { chosenLetter ->
                         onWaveTick()
@@ -4152,7 +4527,7 @@ fun AppDrawerView(
 @Composable
 private fun AlphabetScrubberRail(
     accentColor: Color,
-    niagaraWaveMode: String,
+    waveScrubMode: String,
     lomoFontFamily: FontFamily,
     onSelectLetter: (Char) -> Unit
 ) {
@@ -4212,7 +4587,7 @@ private fun AlphabetScrubberRail(
             letters.forEachIndexed { lIdx, ch ->
                 val isCurrent = activeLetter == ch
                 val currentScrub = scrubLocalY
-                val targetLetterFactor = if (currentScrub != null && niagaraWaveMode != "off") {
+                val targetLetterFactor = if (currentScrub != null && waveScrubMode != "off") {
                     val lCenterY = ((lIdx + 0.5f) / letters.size.toFloat()) * railHeightPx
                     val d = abs(currentScrub - lCenterY)
                     if (d < letterWaveRadiusPx) {
@@ -4270,7 +4645,8 @@ private fun AlphabetScrubberRail(
 }
 
 // ============================================================================
-// MODULAR OLED WIDGETS MANAGER (Relocate, Resize, Add/Remove)
+// MODULAR OLED WIDGETS MANAGER (Relocate, Resize, Add/Remove & Full Widget Customization)
+// All widget customization controls shifted here from Launcher Settings!
 // ============================================================================
 @Composable
 fun WidgetsManagerView(
@@ -4278,25 +4654,34 @@ fun WidgetsManagerView(
     widgetSizes: Map<String, String>,
     accentColor: Color,
     lomoFontFamily: FontFamily,
+    use24Hour: Boolean,
+    tempCelsius: Boolean,
+    weatherTelemetry: LiveWeatherTelemetry,
+    quickNote: String,
     globeTheme: String,
     globeWireframeColor: String,
     blackHoleAccentColor: String,
+    onToggle24h: () -> Unit,
+    onToggleTempUnit: () -> Unit,
+    onRefreshWeather: () -> Unit,
+    onChangeQuickNote: (String) -> Unit,
     onChangeGlobeTheme: (String) -> Unit,
     onChangeGlobeWireframeColor: (String) -> Unit,
     onChangeBlackHoleColor: (String) -> Unit,
     onUpdateWidgets: (List<String>) -> Unit,
     onCycleWidgetSize: (String) -> Unit,
+    onSetWidgetSize: (String, String) -> Unit,
     onMoveWidget: (String, Int) -> Unit,
     onBack: () -> Unit
 ) {
     val allWidgets = listOf(
         "clock" to "Dot-Matrix Clock, Date, Alarm & Battery Bar",
-        "weather" to "Minimal Weather & AQI Pill",
-        "globe" to "3D Interactive Spinning Globe (Resizable & Removable)",
-        "blackhole" to "Glowing Relativistic Black Hole (Non-Interactive · Resizable)",
+        "weather" to "Live Weather & Real-Time US AQI Pill",
+        "globe" to "3D Interactive Spinning Globe (Up to MAX Size)",
+        "blackhole" to "Gargantua Relativistic Black Hole (Resizable)",
         "torch" to "CMF Flashlight / Glyph Torch Quick Toggle",
-        "pedometer" to "Minimal Steps & Daily Pedometer Goal",
-        "storage" to "OLED RAM & Storage Telemetry Bar",
+        "pedometer" to "Live Hardware Step Counter & 10K Goal",
+        "storage" to "Live RAM & Internal Storage Telemetry Bar",
         "zen" to "Zen Focus Timer (25m)",
         "quote" to "Minimalist Thought / Design Ethos Quote",
         "scratchpad" to "One-Line Terminal Scratchpad"
@@ -4324,32 +4709,38 @@ fun WidgetsManagerView(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Column {
+                Text(
+                    text = "WIDGET MANAGER",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Add, relocate, resize & customize all home widgets",
+                    color = Color(0xFF737373),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
             Text(
-                text = "MODULAR OLED WIDGETS",
-                color = Color.White,
-                fontSize = 15.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "← BACK",
-                color = accentColor,
+                text = "DONE",
+                color = Color.Black,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
-                modifier = Modifier.clickable { onBack() }
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .background(Color.White, RoundedCornerShape(6.dp))
+                    .clickable { onBack() }
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
             )
         }
 
-        Text(
-            text = "Relocate, resize, or toggle widgets for the pure OLED home screen:",
-            color = Color(0xFF737373),
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace
-        )
-
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(bottom = 20.dp)
         ) {
             items(allWidgets) { (id, title) ->
                 val enabled = activeWidgets.contains(id)
@@ -4359,9 +4750,9 @@ fun WidgetsManagerView(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, if (enabled) Color(0xFF333333) else Color(0xFF1A1A1A), RoundedCornerShape(10.dp))
-                        .background(if (enabled) Color(0xFF0A0A0A) else Color.Transparent, RoundedCornerShape(10.dp))
-                        .padding(12.dp)
+                        .border(1.dp, if (enabled) Color(0xFF333333) else Color(0xFF1A1A1A), RoundedCornerShape(12.dp))
+                        .background(if (enabled) Color(0xFF0A0A0A) else Color(0xFF040404), RoundedCornerShape(12.dp))
+                        .padding(14.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -4373,6 +4764,7 @@ fun WidgetsManagerView(
                             color = if (enabled) Color.White else Color(0xFF737373),
                             fontSize = 12.sp,
                             fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Medium,
                             modifier = Modifier.weight(1f)
                         )
                         Text(
@@ -4381,15 +4773,22 @@ fun WidgetsManagerView(
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.clickable {
-                                val next = if (enabled) activeWidgets - id else activeWidgets + id
-                                onUpdateWidgets(next)
-                            }
+                            modifier = Modifier
+                                .border(
+                                    1.dp,
+                                    if (enabled) accentColor.copy(alpha = 0.5f) else Color(0xFF262626),
+                                    RoundedCornerShape(6.dp)
+                                )
+                                .clickable {
+                                    val next = if (enabled) activeWidgets - id else activeWidgets + id
+                                    onUpdateWidgets(next)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
 
                     if (enabled) {
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -4405,7 +4804,7 @@ fun WidgetsManagerView(
                                         modifier = Modifier
                                             .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
                                             .clickable { onMoveWidget(id, -1) }
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            .padding(horizontal = 7.dp, vertical = 3.dp)
                                     )
                                 }
                                 if (idx < activeWidgets.lastIndex) {
@@ -4417,25 +4816,140 @@ fun WidgetsManagerView(
                                         modifier = Modifier
                                             .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
                                             .clickable { onMoveWidget(id, 1) }
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            .padding(horizontal = 7.dp, vertical = 3.dp)
                                     )
                                 }
                             }
                             Text(
-                                text = "SIZE: ${currentSize.uppercase()}",
+                                text = "SIZE: ${currentSize.uppercase(Locale.US)} ↻",
                                 color = accentColor,
                                 fontSize = 10.sp,
                                 fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
                                 modifier = Modifier
-                                    .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                    .border(1.dp, accentColor.copy(alpha = 0.55f), RoundedCornerShape(4.dp))
                                     .clickable { onCycleWidgetSize(id) }
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    .padding(horizontal = 8.dp, vertical = 3.dp)
                             )
                         }
+
+                        if (id == "clock") {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "CLOCK FORMAT",
+                                    color = Color(0xFF8A8A8A),
+                                    fontSize = 9.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    listOf(false to "12-HOUR (PM)", true to "24-HOUR").forEach { (is24, lbl) ->
+                                        val sel = use24Hour == is24
+                                        Text(
+                                            text = lbl,
+                                            color = if (sel) Color.Black else Color.White,
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier
+                                                .background(if (sel) Color.White else Color(0xFF191919), RoundedCornerShape(4.dp))
+                                                .clickable { if (use24Hour != is24) onToggle24h() }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (id == "weather") {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${weatherTelemetry.city} · AQI ${weatherTelemetry.aqiUs} (${weatherTelemetry.updatedTime})",
+                                    color = Color(0xFF8A8A8A),
+                                    fontSize = 9.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        text = if (tempCelsius) "°C" else "°F",
+                                        color = Color.Black,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .background(Color.White, RoundedCornerShape(4.dp))
+                                            .clickable { onToggleTempUnit() }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                    Text(
+                                        text = "↻ SYNC LIVE",
+                                        color = accentColor,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .border(1.dp, accentColor.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                                            .clickable { onRefreshWeather() }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+
                         if (id == "globe") {
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "GLOBE SIZE (INCREASE EVEN MORE UP TO MAX)",
+                                color = Color(0xFF8A8A8A),
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                listOf(
+                                    "compact" to "S",
+                                    "standard" to "M",
+                                    "large" to "L",
+                                    "xlarge" to "XL",
+                                    "max" to "MAX"
+                                ).forEach { (szId, szLbl) ->
+                                    val isSz = currentSize == szId
+                                    Text(
+                                        text = szLbl,
+                                        color = if (isSz) Color.Black else Color.White,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .background(if (isSz) accentColor else Color(0xFF191919), RoundedCornerShape(4.dp))
+                                            .clickable { onSetWidgetSize("globe", szId) }
+                                            .padding(horizontal = 9.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "3D GLOBE VISUAL THEME",
+                                color = Color(0xFF8A8A8A),
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf("retro_holo" to "80s HOLOGRAM", "wireframe" to "WIREFRAME").forEach { (tId, tLabel) ->
+                                listOf(
+                                    "retro_holo" to "80s HOLOGRAM (GREEN/BLUE)",
+                                    "wireframe" to "3D WIREFRAME"
+                                ).forEach { (tId, tLabel) ->
                                     val isSel = globeTheme == tId
                                     Text(
                                         text = tLabel,
@@ -4446,21 +4960,86 @@ fun WidgetsManagerView(
                                         modifier = Modifier
                                             .background(if (isSel) Color.White else Color(0xFF191919), RoundedCornerShape(4.dp))
                                             .clickable { onChangeGlobeTheme(tId) }
-                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                            .padding(horizontal = 8.dp, vertical = 5.dp)
                                     )
                                 }
                             }
+
+                            if (globeTheme == "wireframe") {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "WIREFRAME COLOR PALETTE",
+                                    color = Color(0xFF8A8A8A),
+                                    fontSize = 9.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    listOf(
+                                        "#FF3B00" to "CMF",
+                                        "#00FF66" to "GRN",
+                                        "#00E5FF" to "CYN",
+                                        "#FFFFFF" to "WHT",
+                                        "#D71921" to "RED",
+                                        "#FFB000" to "AMB",
+                                        "#3B82F6" to "BLU"
+                                    ).forEach { (hex, name) ->
+                                        val selected = globeWireframeColor.equals(hex, ignoreCase = true)
+                                        val swatchColor = when (hex) {
+                                            "#00FF66" -> Color(0xFF00FF66)
+                                            "#00E5FF" -> Color(0xFF00E5FF)
+                                            "#FFFFFF" -> Color(0xFFFFFFFF)
+                                            "#D71921" -> Color(0xFFD71921)
+                                            "#FFB000" -> Color(0xFFFFB000)
+                                            "#3B82F6" -> Color(0xFF3B82F6)
+                                            else -> Color(0xFFFF3B00)
+                                        }
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier
+                                                .border(
+                                                    width = if (selected) 1.5.dp else 1.dp,
+                                                    color = if (selected) Color.White else Color(0xFF262626),
+                                                    shape = RoundedCornerShape(6.dp)
+                                                )
+                                                .background(Color(0xFF111111), RoundedCornerShape(6.dp))
+                                                .clickable { onChangeGlobeWireframeColor(hex) }
+                                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(10.dp)
+                                                    .background(swatchColor, CircleShape)
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = name,
+                                                color = if (selected) Color.White else Color(0xFF737373),
+                                                fontSize = 8.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
+
                         if (id == "blackhole") {
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "ACCRETION RING ACCENT (MAIN BODY: WHITE)",
+                                text = "ACCRETION DISK & CORONA COLOR (CORE: WHITE)",
                                 color = Color(0xFF8A8A8A),
                                 fontSize = 9.sp,
                                 fontFamily = FontFamily.Monospace
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
                                 listOf(
                                     "#FFFFFF" to "WHT",
                                     "#FF3B00" to "CMF",
@@ -4471,19 +5050,69 @@ fun WidgetsManagerView(
                                     "#D71921" to "RED"
                                 ).forEach { (hex, label) ->
                                     val isSel = blackHoleAccentColor.equals(hex, ignoreCase = true)
-                                    Text(
-                                        text = label,
-                                        color = if (isSel) Color.Black else Color.White,
-                                        fontSize = 9.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold,
+                                    val swatchColor = when (hex) {
+                                        "#FFFFFF" -> Color(0xFFFFFFFF)
+                                        "#00E5FF" -> Color(0xFF00E5FF)
+                                        "#A855F7" -> Color(0xFFA855F7)
+                                        "#00FF66" -> Color(0xFF00FF66)
+                                        "#FFB000" -> Color(0xFFFFB000)
+                                        "#D71921" -> Color(0xFFD71921)
+                                        else -> Color(0xFFFF3B00)
+                                    }
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier
-                                            .background(if (isSel) Color.White else Color(0xFF191919), RoundedCornerShape(4.dp))
+                                            .border(
+                                                width = if (isSel) 1.5.dp else 1.dp,
+                                                color = if (isSel) Color.White else Color(0xFF262626),
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .background(Color(0xFF111111), RoundedCornerShape(6.dp))
                                             .clickable { onChangeBlackHoleColor(hex) }
-                                            .padding(horizontal = 6.dp, vertical = 3.dp)
-                                    )
+                                            .padding(horizontal = 6.dp, vertical = 4.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .background(swatchColor, CircleShape)
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = label,
+                                            color = if (isSel) Color.White else Color(0xFF737373),
+                                            fontSize = 8.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
                                 }
                             }
+                        }
+
+                        if (id == "scratchpad") {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "EDIT SCRATCHPAD LINE",
+                                color = Color(0xFF8A8A8A),
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            BasicTextField(
+                                value = quickNote,
+                                onValueChange = { onChangeQuickNote(it) },
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace
+                                ),
+                                cursorBrush = SolidColor(accentColor),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(6.dp))
+                                    .background(Color(0xFF111111), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                            )
                         }
                     }
                 }
@@ -4492,9 +5121,9 @@ fun WidgetsManagerView(
     }
 }
 
-
 // ============================================================================
-// IN-PHONE LAUNCHER SETTINGS SCREEN (100% SELF-CONTAINED IN APK)
+// PREMIUM LAUNCHER SETTINGS WITH COLLAPSIBLE ACCORDION MENUS
+// Zero widget customization clutter (all shifted to Widget Manager) & zero external brand names
 // ============================================================================
 @Composable
 fun LauncherSettingsView(
@@ -4502,38 +5131,52 @@ fun LauncherSettingsView(
     textAlignMode: String,
     accentHex: String,
     textSizeSp: Int,
-    use24Hour: Boolean,
     hideAndroidBar: Boolean,
-    niagaraWaveMode: String,
+    waveScrubMode: String,
     wallpaperPreset: String,
     lomoFontFamily: FontFamily,
     doubleTapSleep: Boolean,
-    globeTheme: String,
-    globeWireframeColor: String,
-    blackHoleAccentColor: String,
-    onChangeGlobeTheme: (String) -> Unit,
-    onChangeGlobeWireframeColor: (String) -> Unit,
-    onChangeBlackHoleColor: (String) -> Unit,
     onChangeFont: (String) -> Unit,
     onChangeAlign: (String) -> Unit,
     onChangeAccent: (String) -> Unit,
     onChangeTextSize: (Int) -> Unit,
-    onToggle24h: () -> Unit,
     onToggleAndroidBar: () -> Unit,
     onChangeWaveMode: (String) -> Unit,
     onChangeWallpaperPreset: (String) -> Unit,
     onOpenSystemWallpaperPicker: () -> Unit,
     onRequestDefaultHomeRole: () -> Unit,
-    onOpenWidgets: () -> Unit,
     onToggleDoubleTapSleep: () -> Unit,
     onBack: () -> Unit
 ) {
+    var expandedSystem by remember { mutableStateOf(true) }
+    var expandedTypography by remember { mutableStateOf(false) }
+    var expandedWallpaper by remember { mutableStateOf(true) }
+    var expandedMotion by remember { mutableStateOf(false) }
+
+    val accentColor = when (accentHex) {
+        "#FFFFFF" -> Color.White
+        "#D71921" -> Color(0xFFD71921)
+        else -> Color(0xFFFF3B00)
+    }
+
+    val wallpaperOptions = listOf(
+        Triple("oled", "PURE OLED", "True #000000"),
+        Triple("dots", "DOT MATRIX", "Nothing Grid"),
+        Triple("blueprint", "CMF GRID", "Tech Schematic"),
+        Triple("mesh", "AMBIENT GLOW", "Corner Aura"),
+        Triple("topo", "ROTARY DIAL", "Concentric Rings"),
+        Triple("starfield", "DEEP COSMOS", "Minimal Stars"),
+        Triple("circuit", "GLYPH TRACES", "PCB Nodes"),
+        Triple("scanlines", "CRT PHOSPHOR", "Fine Scanlines")
+    )
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         item {
             Row(
@@ -4543,7 +5186,7 @@ fun LauncherSettingsView(
             ) {
                 Column {
                     Text(
-                        text = "N-TEXT // SETTINGS",
+                        text = "LAUNCHER SETTINGS",
                         color = Color.White,
                         fontSize = 16.sp,
                         fontFamily = lomoFontFamily,
@@ -4570,361 +5213,400 @@ fun LauncherSettingsView(
             }
         }
 
-        // 1. Choose Default Home Launcher
         item {
-            SettingCard(
-                title = "Default Home Launcher",
-                subtitle = "Set N-TEXT as your default Android 14 Home App",
-                actionLabel = "CHOOSE HOME",
+            CollapsibleSettingsSection(
+                indexTag = "01",
+                title = "System & Home Integration",
+                subtitle = "Default launcher role, status bar & lock gestures",
+                badge = if (hideAndroidBar) "IMMERSIVE" else "STANDARD",
+                expanded = expandedSystem,
+                accentColor = accentColor,
                 lomoFontFamily = lomoFontFamily,
-                onClick = onRequestDefaultHomeRole
-            )
-        }
-
-        // 2. Clock Format (12h PM/AM vs 24h)
-        item {
-            SettingCard(
-                title = "Clock Format (12h PM / 24h)",
-                subtitle = "Tap to switch between 4:22 PM and 16:22",
-                actionLabel = if (use24Hour) "24-HOUR" else "12-HOUR (PM)",
-                lomoFontFamily = lomoFontFamily,
-                onClick = onToggle24h
-            )
-        }
-
-        // 3. Hide Stock Android Notification Bar
-        item {
-            SettingCard(
-                title = "Hide Android Status Bar",
-                subtitle = "Swipe down on Home Screen anytime to view notifications",
-                actionLabel = if (hideAndroidBar) "HIDDEN (ON)" else "SHOWN (OFF)",
-                lomoFontFamily = lomoFontFamily,
-                onClick = onToggleAndroidBar
-            )
-        }
-
-        // 3B. 3D Interactive Globe Theme & Wireframe Color Customizer
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(10.dp))
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                onToggle = { expandedSystem = !expandedSystem }
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("3D Home Globe Theme", color = Color.White, fontSize = 13.sp, fontFamily = lomoFontFamily)
-                        Text(
-                            text = "Switch between 80s Green/Blue Hologram & Custom Wireframe",
-                            color = Color(0xFF737373),
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
-                        "retro_holo" to "80s HOLOGRAM (GREEN/BLUE)",
-                        "wireframe" to "3D WIREFRAME"
-                    ).forEach { (id, label) ->
-                        val active = globeTheme == id
-                        Text(
-                            text = label,
-                            color = if (active) Color.Black else Color.White,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .background(if (active) Color.White else Color(0xFF141414), RoundedCornerShape(6.dp))
-                                .clickable { onChangeGlobeTheme(id) }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        )
-                    }
-                }
-                if (globeTheme == "wireframe") {
-                    Text(
-                        text = "WIREFRAME COLOR PALETTE",
-                        color = Color(0xFFA3A3A3),
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf(
-                            "#FF3B00" to "CMF",
-                            "#00FF66" to "GRN",
-                            "#00E5FF" to "CYN",
-                            "#FFFFFF" to "WHT",
-                            "#D71921" to "RED",
-                            "#FFB000" to "AMB",
-                            "#3B82F6" to "BLU"
-                        ).forEach { (hex, name) ->
-                            val selected = globeWireframeColor.equals(hex, ignoreCase = true)
-                            val swatchColor = when (hex) {
-                                "#00FF66" -> Color(0xFF00FF66)
-                                "#00E5FF" -> Color(0xFF00E5FF)
-                                "#FFFFFF" -> Color(0xFFFFFFFF)
-                                "#D71921" -> Color(0xFFD71921)
-                                "#FFB000" -> Color(0xFFFFB000)
-                                "#3B82F6" -> Color(0xFF3B82F6)
-                                else -> Color(0xFFFF3B00)
-                            }
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .border(
-                                        width = if (selected) 1.5.dp else 1.dp,
-                                        color = if (selected) Color.White else Color(0xFF262626),
-                                        shape = RoundedCornerShape(6.dp)
-                                    )
-                                    .background(Color(0xFF111111), RoundedCornerShape(6.dp))
-                                    .clickable { onChangeGlobeWireframeColor(hex) }
-                                    .padding(horizontal = 7.dp, vertical = 5.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(12.dp)
-                                        .background(swatchColor, CircleShape)
-                                )
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Text(
-                                    text = name,
-                                    color = if (selected) Color.White else Color(0xFF737373),
-                                    fontSize = 8.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
-                        }
-                    }
-                }
+                SettingCard(
+                    title = "Default Home Launcher",
+                    subtitle = "Set N-TEXT as your primary Android 14 Home App",
+                    actionLabel = "CHOOSE HOME",
+                    lomoFontFamily = lomoFontFamily,
+                    onClick = onRequestDefaultHomeRole
+                )
+                SettingCard(
+                    title = "Hide Android Status Bar",
+                    subtitle = "Swipe down on Home Screen anytime to view notifications",
+                    actionLabel = if (hideAndroidBar) "HIDDEN (ON)" else "SHOWN (OFF)",
+                    lomoFontFamily = lomoFontFamily,
+                    onClick = onToggleAndroidBar
+                )
+                SettingCard(
+                    title = "Double-Tap OLED Sleep",
+                    subtitle = "Double-tap empty black space to enter minimal OLED lock",
+                    actionLabel = if (doubleTapSleep) "ENABLED" else "OFF",
+                    lomoFontFamily = lomoFontFamily,
+                    onClick = onToggleDoubleTapSleep
+                )
             }
         }
 
-        // 3C. Glowing Black Hole Widget Part Color Customizer
         item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(10.dp))
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+            val activeFontName = PrebuiltFont.fromId(fontId).displayName.substringBefore(" (")
+            CollapsibleSettingsSection(
+                indexTag = "02",
+                title = "Typography & Layout",
+                subtitle = "Font family, app text scale & home alignment",
+                badge = "${textSizeSp}SP · ${textAlignMode.uppercase(Locale.US)}",
+                expanded = expandedTypography,
+                accentColor = accentColor,
+                lomoFontFamily = lomoFontFamily,
+                onToggle = { expandedTypography = !expandedTypography }
             ) {
-                Text("Black Hole Widget Ring Color", color = Color.White, fontSize = 13.sp, fontFamily = lomoFontFamily)
-                Text(
-                    text = "Main photon core is glowing white · Customize accretion streams & halo color",
-                    color = Color(0xFF737373),
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
+                        .background(Color(0xFF070707), RoundedCornerShape(10.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    listOf(
-                        "#FFFFFF" to "WHT",
-                        "#FF3B00" to "CMF",
-                        "#00E5FF" to "CYN",
-                        "#A855F7" to "PRP",
-                        "#00FF66" to "GRN",
-                        "#FFB000" to "GLD",
-                        "#D71921" to "RED"
-                    ).forEach { (hex, name) ->
-                        val selected = blackHoleAccentColor.equals(hex, ignoreCase = true)
-                        val swatchColor = when (hex) {
-                            "#FFFFFF" -> Color(0xFFFFFFFF)
-                            "#00E5FF" -> Color(0xFF00E5FF)
-                            "#A855F7" -> Color(0xFFA855F7)
-                            "#00FF66" -> Color(0xFF00FF66)
-                            "#FFB000" -> Color(0xFFFFB000)
-                            "#D71921" -> Color(0xFFD71921)
-                            else -> Color(0xFFFF3B00)
-                        }
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
+                    Text(
+                        text = "TYPEFACE ENGINE ($activeFontName)",
+                        color = Color(0xFF8A8A8A),
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    PrebuiltFont.values().forEach { f ->
+                        val selected = fontId == f.id
+                        Row(
                             modifier = Modifier
+                                .fillMaxWidth()
                                 .border(
-                                    width = if (selected) 1.5.dp else 1.dp,
-                                    color = if (selected) Color.White else Color(0xFF262626),
-                                    shape = RoundedCornerShape(6.dp)
+                                    1.dp,
+                                    if (selected) accentColor.copy(alpha = 0.6f) else Color(0xFF171717),
+                                    RoundedCornerShape(8.dp)
                                 )
-                                .background(Color(0xFF111111), RoundedCornerShape(6.dp))
-                                .clickable { onChangeBlackHoleColor(hex) }
-                                .padding(horizontal = 7.dp, vertical = 5.dp)
+                                .background(
+                                    if (selected) Color(0xFF121212) else Color.Transparent,
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .clickable { onChangeFont(f.id) }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(12.dp)
-                                    .background(swatchColor, CircleShape)
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
                             Text(
-                                text = name,
-                                color = if (selected) Color.White else Color(0xFF737373),
-                                fontSize = 8.sp,
+                                text = f.displayName,
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontFamily = f.resolveFontFamily(lomoFontFamily)
+                            )
+                            Text(
+                                text = if (selected) "● ACTIVE" else "○",
+                                color = if (selected) accentColor else Color(0xFF525252),
+                                fontSize = 10.sp,
                                 fontFamily = FontFamily.Monospace
                             )
                         }
                     }
                 }
-            }
-        }
 
-        // 4. Wallpaper Presets + System Wallpaper Picker
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(10.dp))
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
+                        .background(Color(0xFF070707), RoundedCornerShape(10.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("OLED Wallpaper Engine", color = Color.White, fontSize = 13.sp, fontFamily = lomoFontFamily)
                     Text(
-                        text = "SYSTEM GALLERY →",
-                        color = Color(0xFFFF3B00),
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.clickable { onOpenSystemWallpaperPicker() }
+                        text = "HOME APP LIST FONT SIZE",
+                        color = Color(0xFF8A8A8A),
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace
                     )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("oled" to "OLED", "dots" to "Dots", "blueprint" to "CMF", "mesh" to "Glow").forEach { (id, label) ->
-                        val active = wallpaperPreset == id
-                        Text(
-                            text = label,
-                            color = if (active) Color.Black else Color.White,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier
-                                .background(if (active) Color.White else Color(0xFF141414), RoundedCornerShape(6.dp))
-                                .clickable { onChangeWallpaperPreset(id) }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(16, 18, 20, 22, 24).forEach { spVal ->
+                            val sel = textSizeSp == spVal
+                            Text(
+                                text = "${spVal}SP",
+                                color = if (sel) Color.Black else Color.White,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(if (sel) Color.White else Color(0xFF161616), RoundedCornerShape(6.dp))
+                                    .clickable { onChangeTextSize(spVal) }
+                                    .padding(vertical = 6.dp)
+                            )
+                        }
                     }
                 }
+
+                SettingCard(
+                    title = "Home Text Alignment",
+                    subtitle = "Switch between Left, Center, or Right aligned apps",
+                    actionLabel = textAlignMode.uppercase(Locale.US),
+                    lomoFontFamily = lomoFontFamily,
+                    onClick = {
+                        val next = when (textAlignMode) {
+                            "left" -> "center"
+                            "center" -> "right"
+                            else -> "left"
+                        }
+                        onChangeAlign(next)
+                    }
+                )
             }
         }
 
-        // 5. Prebuilt Font Style Selector (Lomo Web Pixel 1px Default, etc.)
         item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(10.dp))
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+            CollapsibleSettingsSection(
+                indexTag = "03",
+                title = "OLED Wallpaper & Accents",
+                subtitle = "8 minimalist procedural OLED backdrops & system gallery",
+                badge = wallpaperPreset.uppercase(Locale.US),
+                expanded = expandedWallpaper,
+                accentColor = accentColor,
+                lomoFontFamily = lomoFontFamily,
+                onToggle = { expandedWallpaper = !expandedWallpaper }
             ) {
-                Text("Prebuilt Font Style", color = Color.White, fontSize = 13.sp, fontFamily = lomoFontFamily)
-                PrebuiltFont.values().forEach { f ->
-                    val selected = fontId == f.id
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
+                        .background(Color(0xFF070707), RoundedCornerShape(10.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onChangeFont(f.id) }
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = f.displayName,
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontFamily = f.resolveFontFamily(lomoFontFamily)
-                        )
-                        Text(
-                            text = if (selected) "● ACTIVE" else "○",
-                            color = if (selected) Color(0xFFFF3B00) else Color(0xFF525252),
-                            fontSize = 10.sp,
+                            text = "DEFAULT OLED WALLPAPER STYLES",
+                            color = Color(0xFF8A8A8A),
+                            fontSize = 9.sp,
                             fontFamily = FontFamily.Monospace
                         )
+                        Text(
+                            text = "SYSTEM GALLERY →",
+                            color = accentColor,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { onOpenSystemWallpaperPicker() }
+                        )
+                    }
+
+                    wallpaperOptions.chunked(2).forEach { rowItems ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowItems.forEach { (id, title, desc) ->
+                                val active = wallpaperPreset == id
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .border(
+                                            1.dp,
+                                            if (active) Color.White else Color(0xFF242424),
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .background(
+                                            if (active) Color(0xFF181818) else Color(0xFF0D0D0D),
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { onChangeWallpaperPreset(id) }
+                                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = title,
+                                            color = if (active) Color.White else Color(0xFFD4D4D4),
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        if (active) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(6.dp)
+                                                    .background(accentColor, CircleShape)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = desc,
+                                        color = Color(0xFF737373),
+                                        fontSize = 8.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
+
+                SettingCard(
+                    title = "Launcher Accent Color",
+                    subtitle = "CMF Orange (#FF3B00), Pure White (#FFFFFF), or Nothing Red (#D71921)",
+                    actionLabel = accentHex,
+                    lomoFontFamily = lomoFontFamily,
+                    onClick = {
+                        val next = when (accentHex) {
+                            "#FF3B00" -> "#FFFFFF"
+                            "#FFFFFF" -> "#D71921"
+                            else -> "#FF3B00"
+                        }
+                        onChangeAccent(next)
+                    }
+                )
             }
         }
 
-        // 6. Niagara Wave Traversal Animation
         item {
-            SettingCard(
-                title = "Niagara Wave List Animation",
-                subtitle = "Curved horizontal wave when scrubbing app lists",
-                actionLabel = niagaraWaveMode.uppercase(Locale.getDefault()),
+            CollapsibleSettingsSection(
+                indexTag = "04",
+                title = "Motion & Gesture Physics",
+                subtitle = "120Hz fluid wave scrubbing & tactile feedback",
+                badge = waveScrubMode.uppercase(Locale.US),
+                expanded = expandedMotion,
+                accentColor = accentColor,
                 lomoFontFamily = lomoFontFamily,
-                onClick = {
-                    val next = when (niagaraWaveMode) {
-                        "full" -> "subtle"
-                        "subtle" -> "off"
-                        else -> "full"
+                onToggle = { expandedMotion = !expandedMotion }
+            ) {
+                SettingCard(
+                    title = "Fluid Wave Scrubbing",
+                    subtitle = "Curved horizontal wave when scrubbing home dots or A–Z rail",
+                    actionLabel = waveScrubMode.uppercase(Locale.US),
+                    lomoFontFamily = lomoFontFamily,
+                    onClick = {
+                        val next = when (waveScrubMode) {
+                            "full" -> "subtle"
+                            "subtle" -> "off"
+                            else -> "full"
+                        }
+                        onChangeWaveMode(next)
                     }
-                    onChangeWaveMode(next)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun CollapsibleSettingsSection(
+    indexTag: String,
+    title: String,
+    subtitle: String,
+    badge: String,
+    expanded: Boolean,
+    accentColor: Color,
+    lomoFontFamily: FontFamily,
+    onToggle: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                width = 1.dp,
+                color = if (expanded) Color(0xFF383838) else Color(0xFF1F1F1F),
+                shape = RoundedCornerShape(14.dp)
+            )
+            .background(Color(0xFF0A0A0A), RoundedCornerShape(14.dp))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onToggle() }
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = indexTag,
+                    color = accentColor,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontFamily = lomoFontFamily,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = subtitle,
+                        color = Color(0xFF737373),
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
                 }
-            )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = badge,
+                    color = Color(0xFFA3A3A3),
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier
+                        .background(Color(0xFF171717), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                )
+                Text(
+                    text = if (expanded) "▾" else "▸",
+                    color = if (expanded) accentColor else Color(0xFF737373),
+                    fontSize = 14.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
         }
 
-        // 7. Text Alignment & Accent Color
-        item {
-            SettingCard(
-                title = "Home Text Alignment",
-                subtitle = "Tap to cycle Left / Center / Right",
-                actionLabel = textAlignMode.uppercase(Locale.getDefault()),
-                lomoFontFamily = lomoFontFamily,
-                onClick = {
-                    val next = when (textAlignMode) {
-                        "left" -> "center"
-                        "center" -> "right"
-                        else -> "left"
-                    }
-                    onChangeAlign(next)
-                }
-            )
-        }
-
-        item {
-            SettingCard(
-                title = "OLED Accent Color",
-                subtitle = "CMF Orange (#FF3B00), Pure B&W (#FFFFFF), or Nothing Red",
-                actionLabel = accentHex,
-                lomoFontFamily = lomoFontFamily,
-                onClick = {
-                    val next = when (accentHex) {
-                        "#FF3B00" -> "#FFFFFF"
-                        "#FFFFFF" -> "#D71921"
-                        else -> "#FF3B00"
-                    }
-                    onChangeAccent(next)
-                }
-            )
-        }
-
-        // 8. Manage Home Screen Widgets
-        item {
-            SettingCard(
-                title = "Removable Home Widgets",
-                subtitle = "Add, reorder, or remove all widgets",
-                actionLabel = "MANAGE →",
-                lomoFontFamily = lomoFontFamily,
-                onClick = onOpenWidgets
-            )
-        }
-
-        // 9. Double-Tap OLED Sleep
-        item {
-            SettingCard(
-                title = "Double-Tap OLED Sleep",
-                subtitle = "Double-tap empty black area to lock screen",
-                actionLabel = if (doubleTapSleep) "ON" else "OFF",
-                lomoFontFamily = lomoFontFamily,
-                onClick = onToggleDoubleTapSleep
-            )
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(Color(0xFF1C1C1C))
+                )
+                content()
+            }
         }
     }
 }
@@ -4940,7 +5622,8 @@ fun SettingCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFF262626), RoundedCornerShape(10.dp))
+            .border(1.dp, Color(0xFF242424), RoundedCornerShape(10.dp))
+            .background(Color(0xFF050505), RoundedCornerShape(10.dp))
             .clickable { onClick() }
             .padding(12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -4964,19 +5647,21 @@ fun SettingCard(
 }
 
 // ============================================================================
-// OLED WALLPAPER ENGINE CANVAS
+// OLED WALLPAPER ENGINE CANVAS (8 Minimalist Nothing / CMF Default Styles)
 // ============================================================================
 @Composable
 fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
     if (preset == "oled") return
     Canvas(modifier = Modifier.fillMaxSize()) {
+        val w = size.width
+        val h = size.height
         when (preset) {
             "dots" -> {
                 val step = 18.dp.toPx()
                 var x = step
-                while (x < size.width) {
+                while (x < w) {
                     var y = step
-                    while (y < size.height) {
+                    while (y < h) {
                         drawCircle(
                             color = Color.White.copy(alpha = 0.14f),
                             radius = 1.3.dp.toPx(),
@@ -4990,21 +5675,21 @@ fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
             "blueprint" -> {
                 val step = 32.dp.toPx()
                 var x = 0f
-                while (x < size.width) {
+                while (x < w) {
                     drawLine(
                         color = accentColor.copy(alpha = 0.08f),
                         start = Offset(x, 0f),
-                        end = Offset(x, size.height),
+                        end = Offset(x, h),
                         strokeWidth = 1f
                     )
                     x += step
                 }
                 var y = 0f
-                while (y < size.height) {
+                while (y < h) {
                     drawLine(
                         color = accentColor.copy(alpha = 0.08f),
                         start = Offset(0f, y),
-                        end = Offset(size.width, y),
+                        end = Offset(w, y),
                         strokeWidth = 1f
                     )
                     y += step
@@ -5014,8 +5699,94 @@ fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
                 drawRect(
                     brush = Brush.radialGradient(
                         colors = listOf(accentColor.copy(alpha = 0.16f), Color.Transparent),
-                        center = Offset(size.width * 0.8f, size.height * 0.8f),
-                        radius = size.width * 0.7f
+                        center = Offset(w * 0.8f, h * 0.8f),
+                        radius = w * 0.7f
+                    )
+                )
+            }
+            "topo" -> {
+                val center = Offset(w * 0.5f, h * 0.44f)
+                val baseR = min(w, h) * 0.14f
+                for (i in 1..7) {
+                    val r = baseR * i
+                    drawCircle(
+                        color = if (i % 3 == 0) accentColor.copy(alpha = 0.11f) else Color.White.copy(alpha = 0.06f),
+                        radius = r,
+                        center = center,
+                        style = Stroke(
+                            width = 1.dp.toPx(),
+                            pathEffect = if (i % 2 == 0) PathEffect.dashPathEffect(floatArrayOf(12f, 12f), 0f) else null
+                        )
+                    )
+                }
+                drawLine(
+                    color = Color.White.copy(alpha = 0.05f),
+                    start = Offset(center.x, 0f),
+                    end = Offset(center.x, h),
+                    strokeWidth = 1f
+                )
+                drawLine(
+                    color = Color.White.copy(alpha = 0.05f),
+                    start = Offset(0f, center.y),
+                    end = Offset(w, center.y),
+                    strokeWidth = 1f
+                )
+            }
+            "starfield" -> {
+                for (i in 1..95) {
+                    val fx = ((i * 73 + 19) % 100) / 100f
+                    val fy = ((i * 137 + 43) % 100) / 100f
+                    val isBright = i % 11 == 0
+                    val starCol = if (i % 23 == 0) accentColor.copy(alpha = 0.38f) else Color.White.copy(alpha = if (isBright) 0.28f else 0.10f)
+                    val rad = if (isBright) 1.7.dp.toPx() else 0.9.dp.toPx()
+                    drawCircle(
+                        color = starCol,
+                        radius = rad,
+                        center = Offset(w * fx, h * fy)
+                    )
+                }
+            }
+            "circuit" -> {
+                val stroke = 1.2.dp.toPx()
+                val traceColor = Color.White.copy(alpha = 0.08f)
+                val nodeColor = accentColor.copy(alpha = 0.22f)
+                val paths = listOf(
+                    listOf(Offset(w * 0.12f, h * 0.15f), Offset(w * 0.32f, h * 0.15f), Offset(w * 0.45f, h * 0.28f), Offset(w * 0.45f, h * 0.52f)),
+                    listOf(Offset(w * 0.88f, h * 0.22f), Offset(w * 0.68f, h * 0.22f), Offset(w * 0.56f, h * 0.34f), Offset(w * 0.56f, h * 0.66f)),
+                    listOf(Offset(w * 0.18f, h * 0.78f), Offset(w * 0.38f, h * 0.78f), Offset(w * 0.52f, h * 0.64f)),
+                    listOf(Offset(w * 0.82f, h * 0.84f), Offset(w * 0.62f, h * 0.84f), Offset(w * 0.48f, h * 0.70f))
+                )
+                for (pts in paths) {
+                    for (k in 0 until pts.lastIndex) {
+                        drawLine(
+                            color = traceColor,
+                            start = pts[k],
+                            end = pts[k + 1],
+                            strokeWidth = stroke,
+                            cap = StrokeCap.Round
+                        )
+                    }
+                    drawCircle(color = nodeColor, radius = 3.dp.toPx(), center = pts.first())
+                    drawCircle(color = traceColor, radius = 2.5.dp.toPx(), center = pts.last())
+                }
+            }
+            "scanlines" -> {
+                val step = 5.dp.toPx().coerceAtLeast(4f)
+                var y = 0f
+                while (y < h) {
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.055f),
+                        start = Offset(0f, y),
+                        end = Offset(w, y),
+                        strokeWidth = 1f
+                    )
+                    y += step
+                }
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(accentColor.copy(alpha = 0.08f), Color.Transparent),
+                        center = Offset(w * 0.5f, h * 0.4f),
+                        radius = min(w, h) * 0.65f
                     )
                 )
             }
