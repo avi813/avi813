@@ -17,13 +17,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
 import android.hardware.camera2.CameraManager
-import android.location.Geocoder
-import android.location.LocationManager
 import android.app.ActivityManager
 import android.os.StatFs
 import android.os.Environment
@@ -32,11 +26,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import android.provider.Settings
 import android.util.Base64
 import android.widget.Toast
@@ -259,211 +248,12 @@ data class AppEntry(
     val packageName: String,
     val firstLetter: Char,
     val isPinned: Boolean = false,
-    val isHidden: Boolean = false
+    val isHidden: Boolean = false,
+    val isSystemApp: Boolean = false
 )
 
 enum class LauncherView {
     HOME_AND_DRAWER, WIDGETS, SETTINGS
-}
-
-data class LiveWeatherTelemetry(
-    val tempC: Int,
-    val highC: Int,
-    val lowC: Int,
-    val condition: String,
-    val humidity: Int,
-    val uvIndex: Int,
-    val aqiUs: Int,
-    val aqiLabel: String,
-    val city: String,
-    val updatedTime: String
-)
-
-private fun mapWmoWeatherCode(code: Int): String = when (code) {
-    0 -> "CLEAR SKY"
-    1 -> "MAINLY CLEAR"
-    2 -> "PARTLY CLOUDY"
-    3 -> "OVERCAST"
-    45, 48 -> "MIST / FOG"
-    51, 53, 55, 56, 57 -> "LIGHT DRIZZLE"
-    61, 63, 65, 66, 67 -> "RAIN"
-    71, 73, 75, 77 -> "SNOW"
-    80, 81, 82 -> "RAIN SHOWERS"
-    85, 86 -> "SNOW SHOWERS"
-    95, 96, 99 -> "THUNDERSTORM"
-    else -> "CLEAR SKY"
-}
-
-private fun mapAqiCategory(aqi: Int): String = when {
-    aqi <= 50 -> "GOOD"
-    aqi <= 100 -> "MODERATE"
-    aqi <= 150 -> "SENSITIVE"
-    aqi <= 200 -> "UNHEALTHY"
-    else -> "HAZARDOUS"
-}
-
-private fun httpGetString(urlStr: String, timeoutMs: Int = 4500): String? {
-    var conn: HttpURLConnection? = null
-    return try {
-        val url = URL(urlStr)
-        conn = (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = timeoutMs
-            readTimeout = timeoutMs
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "CMF-NText-Launcher/2.4")
-        }
-        if (conn.responseCode in 200..299) {
-            conn.inputStream.bufferedReader().use { it.readText() }
-        } else null
-    } catch (_: Exception) {
-        null
-    } finally {
-        try {
-            conn?.disconnect()
-        } catch (_: Exception) {
-        }
-    }
-}
-
-@SuppressLint("MissingPermission")
-suspend fun fetchLiveWeatherAndAqi(
-    context: Context,
-    prefs: SharedPreferences
-): LiveWeatherTelemetry = withContext(Dispatchers.IO) {
-    var lat = prefs.getFloat("wx_lat", 21.8974f).toDouble()
-    var lon = prefs.getFloat("wx_lon", 83.3950f).toDouble()
-    var city = prefs.getString("wx_city", "RAIGARH") ?: "RAIGARH"
-    var gotDeviceLoc = false
-
-    try {
-        val hasCoarse = context.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        val hasFine = context.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (hasCoarse || hasFine) {
-            val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-            val providers = listOf(LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER, LocationManager.GPS_PROVIDER)
-            for (p in providers) {
-                val loc = try { lm?.getLastKnownLocation(p) } catch (_: Exception) { null }
-                if (loc != null) {
-                    lat = loc.latitude
-                    lon = loc.longitude
-                    gotDeviceLoc = true
-                    try {
-                        @Suppress("DEPRECATION")
-                        val addresses = Geocoder(context, Locale.ENGLISH).getFromLocation(lat, lon, 1)
-                        val locName = addresses?.firstOrNull()?.let { it.locality ?: it.subAdminArea ?: it.adminArea }
-                        if (!locName.isNullOrBlank()) {
-                            city = locName.uppercase(Locale.ENGLISH)
-                        }
-                    } catch (_: Exception) {
-                    }
-                    break
-                }
-            }
-        }
-    } catch (_: Exception) {
-    }
-
-    if (!gotDeviceLoc) {
-        val ipJsonStr = httpGetString("https://ipwho.is/", timeoutMs = 3500)
-        if (!ipJsonStr.isNullOrBlank()) {
-            try {
-                val ipJson = JSONObject(ipJsonStr)
-                if (ipJson.optBoolean("success", true)) {
-                    val ipLat = ipJson.optDouble("latitude", Double.NaN)
-                    val ipLon = ipJson.optDouble("longitude", Double.NaN)
-                    val ipCity = ipJson.optString("city", "")
-                    if (!ipLat.isNaN() && !ipLon.isNaN()) {
-                        lat = ipLat
-                        lon = ipLon
-                    }
-                    if (ipCity.isNotBlank()) {
-                        city = ipCity.uppercase(Locale.ENGLISH)
-                    }
-                }
-            } catch (_: Exception) {
-            }
-        }
-    }
-
-    var tempC = prefs.getInt("wx_temp_c", 28)
-    var highC = prefs.getInt("wx_high_c", 31)
-    var lowC = prefs.getInt("wx_low_c", 22)
-    var cond = prefs.getString("wx_cond", "CLEAR SKY") ?: "CLEAR SKY"
-    var humidity = prefs.getInt("wx_hum", 48)
-    var uvIndex = prefs.getInt("wx_uv", 2)
-    var aqiUs = prefs.getInt("wx_aqi", 42)
-
-    val wxUrl = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,relative_humidity_2m,weather_code,uv_index&daily=temperature_2m_max,temperature_2m_min&timezone=auto"
-    val wxResp = httpGetString(wxUrl, timeoutMs = 4500)
-    if (!wxResp.isNullOrBlank()) {
-        try {
-            val root = JSONObject(wxResp)
-            val current = root.optJSONObject("current")
-            if (current != null) {
-                tempC = current.optDouble("temperature_2m", tempC.toDouble()).roundToInt()
-                humidity = current.optInt("relative_humidity_2m", humidity)
-                val wCode = current.optInt("weather_code", 0)
-                cond = mapWmoWeatherCode(wCode)
-                uvIndex = current.optDouble("uv_index", uvIndex.toDouble()).roundToInt()
-            }
-            val daily = root.optJSONObject("daily")
-            if (daily != null) {
-                val maxArr = daily.optJSONArray("temperature_2m_max")
-                val minArr = daily.optJSONArray("temperature_2m_min")
-                if (maxArr != null && maxArr.length() > 0) {
-                    highC = maxArr.optDouble(0, highC.toDouble()).roundToInt()
-                }
-                if (minArr != null && minArr.length() > 0) {
-                    lowC = minArr.optDouble(0, lowC.toDouble()).roundToInt()
-                }
-            }
-        } catch (_: Exception) {
-        }
-    }
-
-    val aqiUrl = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=$lat&longitude=$lon&current=us_aqi"
-    val aqiResp = httpGetString(aqiUrl, timeoutMs = 4500)
-    if (!aqiResp.isNullOrBlank()) {
-        try {
-            val root = JSONObject(aqiResp)
-            val current = root.optJSONObject("current")
-            if (current != null && !current.isNull("us_aqi")) {
-                aqiUs = current.optInt("us_aqi", aqiUs).coerceAtLeast(1)
-            }
-        } catch (_: Exception) {
-        }
-    }
-
-    val updatedStamp = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-    val aqiLabel = mapAqiCategory(aqiUs)
-
-    prefs.edit()
-        .putFloat("wx_lat", lat.toFloat())
-        .putFloat("wx_lon", lon.toFloat())
-        .putString("wx_city", city)
-        .putInt("wx_temp_c", tempC)
-        .putInt("wx_high_c", highC)
-        .putInt("wx_low_c", lowC)
-        .putString("wx_cond", cond)
-        .putInt("wx_hum", humidity)
-        .putInt("wx_uv", uvIndex)
-        .putInt("wx_aqi", aqiUs)
-        .putString("wx_updated", updatedStamp)
-        .apply()
-
-    LiveWeatherTelemetry(
-        tempC = tempC,
-        highC = highC,
-        lowC = lowC,
-        condition = cond,
-        humidity = humidity,
-        uvIndex = uvIndex,
-        aqiUs = aqiUs,
-        aqiLabel = aqiLabel,
-        city = city,
-        updatedTime = updatedStamp
-    )
 }
 
 enum class PrebuiltFont(val id: String, val displayName: String, val uppercaseHome: Boolean) {
@@ -722,13 +512,11 @@ fun NTextLauncherApp(
 
     // Navigation & Edit Mode State
     var currentView by remember { mutableStateOf(LauncherView.HOME_AND_DRAWER) }
-    // Smooth continuous App Drawer progress: 0f = Home Screen, 1f = App Drawer Open
     val drawerProgress = remember { Animatable(0f) }
     val isDrawerOpen by remember { derivedStateOf { drawerProgress.value > 0.5f } }
     var focusDrawerSearchOnOpen by remember { mutableStateOf(false) }
 
     var editMode by remember { mutableStateOf(false) }
-    var oledSleepActive by remember { mutableStateOf(false) }
 
     // Long-tap on Home Screen opens the Home Quick Actions Modal
     var showHomeQuickMenu by remember { mutableStateOf(false) }
@@ -736,29 +524,33 @@ fun NTextLauncherApp(
     // Long-press on an App opens the App Context Menu Modal: Pair(AppEntry, isFromHomeScreen)
     var contextMenuTarget by remember { mutableStateOf<Pair<AppEntry, Boolean>?>(null) }
 
-    // Persisted Preferences (Default font = "dot" -> Lomo Web Pixel 1px thin font)
+    // Persisted Preferences (100% Offline · Zero Internet or Unnecessary Permissions)
     var fontId by remember { mutableStateOf(prefs.getString("font_id", "dot") ?: "dot") }
     var textAlignMode by remember { mutableStateOf(prefs.getString("align", "left") ?: "left") }
     var accentHex by remember { mutableStateOf(prefs.getString("accent", "#FF3B00") ?: "#FF3B00") }
     var textSizeSp by remember { mutableStateOf(prefs.getInt("text_size", 20)) }
-    // Default 12-hour clock ("4:22 PM") matching the user's uploaded prototype image
     var use24Hour by remember { mutableStateOf(prefs.getBoolean("use_24h_v4", false)) }
-    var tempCelsius by remember { mutableStateOf(prefs.getBoolean("temp_c", true)) }
     var hideAndroidBar by remember { mutableStateOf(prefs.getBoolean("hide_android_bar", true)) }
     var waveScrubMode by remember { mutableStateOf(prefs.getString("wave_mode", "full") ?: "full") }
     var wallpaperPreset by remember { mutableStateOf(prefs.getString("wallpaper", "oled") ?: "oled") }
     var wallpaperDimPercent by remember { mutableStateOf(prefs.getInt("wp_dim", 50)) }
-    var doubleTapSleep by remember { mutableStateOf(prefs.getBoolean("dbl_tap_sleep", true)) }
     var globeTheme by remember { mutableStateOf(prefs.getString("globe_theme", "retro_holo") ?: "retro_holo") }
     var globeWireframeColor by remember { mutableStateOf(prefs.getString("globe_wf_color", "#FF3B00") ?: "#FF3B00") }
 
-    // Removable Widgets Order, Visibility & Sizing (All widgets resizable: Compact, Standard, Large, XLarge, Max)
+    // 100% Offline Essential Widgets (Clock, Week Strip, Calendar, Chronograph, Globe, CRT World Map, etc.)
     var activeWidgets by remember {
-        val saved = prefs.getString("widgets_order_v6", "clock,weather,week_strip,globe") ?: "clock,weather,week_strip,globe"
-        mutableStateOf(saved.split(",").filter { it.isNotBlank() && it != "telemetry" && it != "blackhole" })
+        val saved = prefs.getString("widgets_order_v7", "clock,week_strip,globe") ?: "clock,week_strip,globe"
+        mutableStateOf(
+            saved.split(",").filter {
+                it.isNotBlank() && it != "telemetry" && it != "blackhole" && it != "weather" && it != "pedometer"
+            }
+        )
     }
     var widgetSizes by remember {
-        val saved = prefs.getString("widget_sizes_v6", "clock:standard,weather:standard,retro_flip_clock:standard,analog_chrono:standard,precision_chrono:standard,retro_calendar:standard,week_strip:standard,year_matrix:standard,globe:standard,crt_world_map:standard,torch:standard,pedometer:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard") ?: ""
+        val saved = prefs.getString(
+            "widget_sizes_v7",
+            "clock:standard,week_strip:standard,retro_calendar:standard,year_matrix:standard,retro_flip_clock:standard,analog_chrono:standard,precision_chrono:standard,globe:standard,crt_world_map:standard,torch:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard"
+        ) ?: ""
         val map = saved.split(",").mapNotNull {
             val parts = it.split(":")
             if (parts.size == 2) parts[0] to parts[1] else null
@@ -766,36 +558,15 @@ fun NTextLauncherApp(
         mutableStateOf(map)
     }
     var torchEnabled by remember { mutableStateOf(false) }
-    var pedometerSteps by remember { mutableStateOf(prefs.getInt("daily_steps_v2", 6420)) }
     var zenActive by remember { mutableStateOf(false) }
     var zenSeconds by remember { mutableStateOf(1500) }
     var quickNote by remember { mutableStateOf(prefs.getString("quick_note", "CMF Minimal Focus") ?: "CMF Minimal Focus") }
 
-    // Live Hardware RAM & Storage Telemetry State
+    // Offline Hardware RAM & Storage Telemetry State
     var ramStatusText by remember { mutableStateOf("RAM --/-- GB") }
-    var storageStatusText by remember { mutableStateOf("STORAGE --/-- GB") }
+    var storageStatusText by remember { mutableStateOf("ROM --/-- GB") }
     var ramUsageFraction by remember { mutableStateOf(0.35f) }
     var storageUsageFraction by remember { mutableStateOf(0.50f) }
-
-    // Live Real-Time Weather & US AQI State (Open-Meteo Live API)
-    var weatherTelemetry by remember {
-        val initAqi = prefs.getInt("wx_aqi", 42)
-        mutableStateOf(
-            LiveWeatherTelemetry(
-                tempC = prefs.getInt("wx_temp_c", 28),
-                highC = prefs.getInt("wx_high_c", 31),
-                lowC = prefs.getInt("wx_low_c", 22),
-                condition = prefs.getString("wx_cond", "CLEAR SKY") ?: "CLEAR SKY",
-                humidity = prefs.getInt("wx_hum", 48),
-                uvIndex = prefs.getInt("wx_uv", 2),
-                aqiUs = initAqi,
-                aqiLabel = mapAqiCategory(initAqi),
-                city = prefs.getString("wx_city", "RAIGARH") ?: "RAIGARH",
-                updatedTime = prefs.getString("wx_updated", "LIVE") ?: "LIVE"
-            )
-        )
-    }
-    var weatherRefreshTrigger by remember { mutableStateOf(0) }
 
     // Pinned & Hidden Package Names
     var pinnedPackages by remember {
@@ -833,12 +604,15 @@ fun NTextLauncherApp(
                 val firstCh = label.firstOrNull()?.uppercaseChar()?.let {
                     if (it in 'A'..'Z') it else '#'
                 } ?: '#'
+                val appFlags = ri.activityInfo?.applicationInfo?.flags ?: 0
+                val isSysApp = (appFlags and ApplicationInfo.FLAG_SYSTEM) != 0
                 AppEntry(
                     label = label,
                     packageName = pkg,
                     firstLetter = firstCh,
                     isPinned = pinnedPackages.contains(pkg),
-                    isHidden = hiddenPackages.contains(pkg)
+                    isHidden = hiddenPackages.contains(pkg),
+                    isSystemApp = isSysApp
                 )
             }
             .distinctBy { it.packageName }
@@ -852,7 +626,7 @@ fun NTextLauncherApp(
         installedApps = loaded
     }
 
-    // Real-Time Fast Clock, Date, Next Alarm, Battery, RAM, Storage, Pedometer & Weather/AQI
+    // Real-Time Offline Clock, Date, Next Alarm, Battery, RAM & ROM
     var currentTimeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
     var currentHourStr by remember { mutableStateOf("4") }
     var currentMinStr by remember { mutableStateOf("22") }
@@ -967,59 +741,6 @@ fun NTextLauncherApp(
         }
     }
 
-    DisposableEffect(context) {
-        val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
-        val stepCounterSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
-        val stepDetectorSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
-        val listener = object : SensorEventListener {
-            override fun onSensorChanged(event: SensorEvent?) {
-                if (event == null) return
-                val todayKey = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-                if (event.sensor.type == Sensor.TYPE_STEP_COUNTER) {
-                    val totalSinceBoot = event.values.firstOrNull()?.roundToInt() ?: return
-                    val savedDay = prefs.getString("step_day", "") ?: ""
-                    var baseSteps = prefs.getInt("step_base", -1)
-                    if (savedDay != todayKey || baseSteps < 0 || totalSinceBoot < baseSteps) {
-                        baseSteps = totalSinceBoot
-                        prefs.edit()
-                            .putString("step_day", todayKey)
-                            .putInt("step_base", baseSteps)
-                            .apply()
-                    }
-                    val todaySteps = (totalSinceBoot - baseSteps).coerceAtLeast(0)
-                    pedometerSteps = todaySteps
-                    prefs.edit().putInt("daily_steps_v2", todaySteps).apply()
-                } else if (event.sensor.type == Sensor.TYPE_STEP_DETECTOR) {
-                    val next = pedometerSteps + 1
-                    pedometerSteps = next
-                    prefs.edit().putInt("daily_steps_v2", next).apply()
-                }
-            }
-            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-        }
-        try {
-            if (stepCounterSensor != null) {
-                sensorManager.registerListener(listener, stepCounterSensor, SensorManager.SENSOR_DELAY_UI)
-            } else if (stepDetectorSensor != null) {
-                sensorManager.registerListener(listener, stepDetectorSensor, SensorManager.SENSOR_DELAY_UI)
-            }
-        } catch (_: Exception) {
-        }
-        onDispose {
-            try {
-                sensorManager?.unregisterListener(listener)
-            } catch (_: Exception) {
-            }
-        }
-    }
-
-    LaunchedEffect(weatherRefreshTrigger, packageRefreshTrigger) {
-        while (true) {
-            weatherTelemetry = fetchLiveWeatherAndAqi(context, prefs)
-            delay(180_000L)
-        }
-    }
-
     // Zen Focus Countdown
     LaunchedEffect(zenActive) {
         while (zenActive && zenSeconds > 0) {
@@ -1033,7 +754,7 @@ fun NTextLauncherApp(
         when (accentHex) {
             "#FFFFFF" -> Color.White
             "#D71921" -> Color(0xFFD71921)
-            else -> Color(0xFFFF3B00) // CMF International Orange
+            else -> Color(0xFFFF3B00)
         }
     }
     val prebuiltFont = remember(fontId) { PrebuiltFont.fromId(fontId) }
@@ -1059,9 +780,11 @@ fun NTextLauncherApp(
     }
 
     fun saveWidgetList(updated: List<String>) {
-        val cleaned = updated.filter { it != "blackhole" && it != "telemetry" }
+        val cleaned = updated.filter {
+            it != "blackhole" && it != "telemetry" && it != "weather" && it != "pedometer"
+        }
         activeWidgets = cleaned
-        prefs.edit().putString("widgets_order_v6", cleaned.joinToString(",")).apply()
+        prefs.edit().putString("widgets_order_v7", cleaned.joinToString(",")).apply()
     }
 
     fun saveWidgetSize(widgetId: String, size: String) {
@@ -1069,7 +792,7 @@ fun NTextLauncherApp(
         newMap[widgetId] = size
         widgetSizes = newMap.toMap()
         val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
-        prefs.edit().putString("widget_sizes_v6", serialized).apply()
+        prefs.edit().putString("widget_sizes_v7", serialized).apply()
     }
 
     fun cycleWidgetSize(widgetId: String) {
@@ -1166,13 +889,9 @@ fun NTextLauncherApp(
         }
     }
 
-    // Whenever the user swipes up from the Android 14 navigation bar or returns from Recents,
-    // immediately return from Settings / Widgets / Modals / Drawer to the clean Home Screen
-    // and ensure the keyboard stays closed!
     LaunchedEffect(homeIntentTrigger) {
         if (homeIntentTrigger > 0) {
             clearAllFocusAndKeyboard()
-            oledSleepActive = false
             contextMenuTarget = null
             showHomeQuickMenu = false
             editMode = false
@@ -1200,13 +919,11 @@ fun NTextLauncherApp(
         }
     }
 
-    // System Back Button Handling (Android 14 3-Button & Gesture Navigation)
     val backDispatcher = activity.onBackPressedDispatcher
-    DisposableEffect(backDispatcher, currentView, editMode, isDrawerOpen, contextMenuTarget, showHomeQuickMenu, oledSleepActive) {
+    DisposableEffect(backDispatcher, currentView, editMode, isDrawerOpen, contextMenuTarget, showHomeQuickMenu) {
         val callback = object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
-                    oledSleepActive -> oledSleepActive = false
                     contextMenuTarget != null -> contextMenuTarget = null
                     showHomeQuickMenu -> showHomeQuickMenu = false
                     editMode -> editMode = false
@@ -1219,35 +936,6 @@ fun NTextLauncherApp(
         onDispose { callback.remove() }
     }
 
-    // Always-On OLED Sleep Overlay
-    if (oledSleepActive) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .clickable { oledSleepActive = false },
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "$currentHourStr:$currentMinStr",
-                    color = Color(0xFF404040),
-                    fontSize = 42.sp,
-                    fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "CMF OLED LOCK · TAP TO WAKE",
-                    color = Color(0xFF262626),
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-        }
-        return
-    }
-
     // Root Surface with OLED Wallpaper Engine + System Navigation Bar Insets
     BoxWithConstraints(
         modifier = Modifier
@@ -1258,11 +946,9 @@ fun NTextLauncherApp(
         val density = LocalDensity.current
         val screenHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
 
-        // Wallpaper Background Canvas (OLED Black / Nothing Dot-Matrix / CMF Blueprint / Glow)
         OledWallpaperCanvas(preset = wallpaperPreset, accentColor = accentColor, dimPercent = wallpaperDimPercent)
 
         Column(modifier = Modifier.fillMaxSize()) {
-            // EDIT MODE BANNER
             if (editMode && currentView == LauncherView.HOME_AND_DRAWER && drawerProgress.value < 0.2f) {
                 Row(
                     modifier = Modifier
@@ -1294,13 +980,9 @@ fun NTextLauncherApp(
                 }
             }
 
-            // ================================================================
-            // VIEW SWITCHER (SMOOTH SWIPE HOME + DRAWER / WIDGETS / SETTINGS)
-            // ================================================================
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when (currentView) {
                     LauncherView.HOME_AND_DRAWER -> {
-                        // 1. HOME SCREEN LAYER (Reads drawerProgress.value ONLY inside graphicsLayer -> 0 recompositions, 120 FPS!)
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1317,11 +999,8 @@ fun NTextLauncherApp(
                                         scaleY = s
                                     }
                                 }
-                                .pointerInput(doubleTapSleep) {
+                                .pointerInput(Unit) {
                                     detectTapGestures(
-                                        onDoubleTap = {
-                                            if (doubleTapSleep && drawerProgress.value < 0.1f) oledSleepActive = true
-                                        },
                                         onLongPress = {
                                             if (drawerProgress.value < 0.1f) {
                                                 tickHaptic(heavy = true)
@@ -1384,14 +1063,11 @@ fun NTextLauncherApp(
                                     nextAlarmStr = nextAlarmStr,
                                     batteryPct = batteryPct,
                                     isCharging = isCharging,
-                                    tempCelsius = tempCelsius,
-                                    weatherTelemetry = weatherTelemetry,
                                     ramStatusText = ramStatusText,
                                     storageStatusText = storageStatusText,
                                     ramUsageFraction = ramUsageFraction,
                                     storageUsageFraction = storageUsageFraction,
                                     torchEnabled = torchEnabled,
-                                    pedometerSteps = pedometerSteps,
                                     zenActive = zenActive,
                                     zenSeconds = zenSeconds,
                                     quickNote = quickNote,
@@ -1408,11 +1084,6 @@ fun NTextLauncherApp(
                                     onToggle24h = {
                                         use24Hour = !use24Hour
                                         prefs.edit().putBoolean("use_24h_v4", use24Hour).apply()
-                                    },
-                                    onToggleTempUnit = {
-                                        tempCelsius = !tempCelsius
-                                        prefs.edit().putBoolean("temp_c", tempCelsius).apply()
-                                        weatherRefreshTrigger++
                                     },
                                     onToggleTorch = { toggleTorchState() },
                                     onToggleZen = {
@@ -1433,7 +1104,6 @@ fun NTextLauncherApp(
                                 )
                         }
 
-                        // 2. APP DRAWER LAYER (Reads drawerProgress.value ONLY inside graphicsLayer -> locked 120 FPS!)
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1493,22 +1163,12 @@ fun NTextLauncherApp(
                             accentColor = accentColor,
                             lomoFontFamily = lomoFontFamily,
                             use24Hour = use24Hour,
-                            tempCelsius = tempCelsius,
-                            weatherTelemetry = weatherTelemetry,
                             quickNote = quickNote,
                             globeTheme = globeTheme,
                             globeWireframeColor = globeWireframeColor,
                             onToggle24h = {
                                 use24Hour = !use24Hour
                                 prefs.edit().putBoolean("use_24h_v4", use24Hour).apply()
-                            },
-                            onToggleTempUnit = {
-                                tempCelsius = !tempCelsius
-                                prefs.edit().putBoolean("temp_c", tempCelsius).apply()
-                            },
-                            onRefreshWeather = {
-                                weatherRefreshTrigger++
-                                Toast.makeText(context, "Syncing live weather...", Toast.LENGTH_SHORT).show()
                             },
                             onChangeQuickNote = {
                                 quickNote = it
@@ -1540,7 +1200,6 @@ fun NTextLauncherApp(
                             waveScrubMode = waveScrubMode,
                             wallpaperPreset = wallpaperPreset,
                             lomoFontFamily = lomoFontFamily,
-                            doubleTapSleep = doubleTapSleep,
                             onChangeFont = {
                                 fontId = it
                                 prefs.edit().putString("font_id", it).apply()
@@ -1572,10 +1231,6 @@ fun NTextLauncherApp(
                             },
                             onOpenSystemWallpaperPicker = onOpenSystemWallpaperPicker,
                             onRequestDefaultHomeRole = onRequestDefaultHomeRole,
-                            onToggleDoubleTapSleep = {
-                                doubleTapSleep = !doubleTapSleep
-                                prefs.edit().putBoolean("dbl_tap_sleep", doubleTapSleep).apply()
-                            },
                             onBack = { currentView = LauncherView.HOME_AND_DRAWER }
                         )
                     }
@@ -1854,33 +1509,35 @@ fun NTextLauncherApp(
                         )
                     }
 
-                    // Option 3: System-Wide Uninstall App (Android Package Uninstaller)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, Color(0xFF451A1A), RoundedCornerShape(10.dp))
-                            .background(Color(0xFF140707), RoundedCornerShape(10.dp))
-                            .clickable {
-                                val pkg = targetApp.packageName
-                                contextMenuTarget = null
-                                onRequestSystemUninstall(pkg)
-                            }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Uninstall App",
-                            color = Color(0xFFF87171),
-                            fontSize = 14.sp,
-                            fontFamily = lomoFontFamily
-                        )
-                        Text(
-                            text = "DEL ×",
-                            color = Color(0xFFF87171),
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
+                    // Option 3: Uninstall App (Only shown for user-installed apps; hidden for all system apps)
+                    if (!targetApp.isSystemApp) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.dp, Color(0xFF451A1A), RoundedCornerShape(10.dp))
+                                .background(Color(0xFF140707), RoundedCornerShape(10.dp))
+                                .clickable {
+                                    val pkg = targetApp.packageName
+                                    contextMenuTarget = null
+                                    onRequestSystemUninstall(pkg)
+                                }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Uninstall App",
+                                color = Color(0xFFF87171),
+                                fontSize = 14.sp,
+                                fontFamily = lomoFontFamily
+                            )
+                            Text(
+                                text = "DEL ×",
+                                color = Color(0xFFF87171),
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
                     }
                 }
             }
@@ -1939,14 +1596,11 @@ fun HomeScreenView(
     nextAlarmStr: String,
     batteryPct: Int,
     isCharging: Boolean,
-    tempCelsius: Boolean,
-    weatherTelemetry: LiveWeatherTelemetry,
     ramStatusText: String,
     storageStatusText: String,
     ramUsageFraction: Float,
     storageUsageFraction: Float,
     torchEnabled: Boolean,
-    pedometerSteps: Int,
     zenActive: Boolean,
     zenSeconds: Int,
     quickNote: String,
@@ -1961,7 +1615,6 @@ fun HomeScreenView(
     globeWireframeColor: String,
     pinnedApps: List<AppEntry>,
     onToggle24h: () -> Unit,
-    onToggleTempUnit: () -> Unit,
     onToggleTorch: () -> Unit,
     onToggleZen: () -> Unit,
     onCycleWidgetSize: (String) -> Unit,
@@ -2265,141 +1918,6 @@ fun HomeScreenView(
                                     }
                                 }
                             }
-                            "weather" -> {
-                                val displayTemp = if (tempCelsius) {
-                                    "${weatherTelemetry.tempC}°C"
-                                } else {
-                                    "${(weatherTelemetry.tempC * 9 / 5) + 32}°F"
-                                }
-                                val displayHigh = if (tempCelsius) "${weatherTelemetry.highC}°" else "${(weatherTelemetry.highC * 9 / 5) + 32}°"
-                                val displayLow = if (tempCelsius) "${weatherTelemetry.lowC}°" else "${(weatherTelemetry.lowC * 9 / 5) + 32}°"
-                                val condText = weatherTelemetry.condition
-
-                                when (sizeMode) {
-                                    "compact" -> {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable { onToggleTempUnit() }
-                                                .padding(vertical = 4.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = "● $displayTemp $condText",
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontFamily = FontFamily.Monospace
-                                            )
-                                            Text(
-                                                text = "$displayHigh / $displayLow",
-                                                color = Color(0xFF737373),
-                                                fontSize = 10.sp,
-                                                fontFamily = FontFamily.Monospace
-                                            )
-                                        }
-                                    }
-                                    "large" -> {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable { onToggleTempUnit() }
-                                                .padding(vertical = 4.dp)
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(7.dp)
-                                                            .background(accentColor, CircleShape)
-                                                    )
-                                                    Text(
-                                                        text = displayTemp,
-                                                        color = Color.White,
-                                                        fontSize = 14.sp,
-                                                        fontFamily = FontFamily.Monospace,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                    Text(
-                                                        text = condText,
-                                                        color = Color(0xFFA3A3A3),
-                                                        fontSize = 11.sp,
-                                                        fontFamily = FontFamily.Monospace
-                                                    )
-                                                }
-                                                Text(
-                                                    text = "$displayHigh / $displayLow",
-                                                    color = Color(0xFF8A8A8A),
-                                                    fontSize = 10.sp,
-                                                    fontFamily = FontFamily.Monospace
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = "${weatherTelemetry.humidity}% · UV ${weatherTelemetry.uvIndex} · ${weatherTelemetry.city}",
-                                                color = Color(0xFF737373),
-                                                fontSize = 9.sp,
-                                                fontFamily = FontFamily.Monospace
-                                            )
-                                        }
-                                    }
-                                    else -> {
-                                        Column(modifier = Modifier.fillMaxWidth()) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clickable { onToggleTempUnit() }
-                                                    .padding(vertical = 6.dp),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(6.dp)
-                                                            .background(accentColor, CircleShape)
-                                                    )
-                                                    Text(
-                                                        text = displayTemp,
-                                                        color = Color.White,
-                                                        fontSize = 11.sp,
-                                                        fontFamily = FontFamily.Monospace,
-                                                        fontWeight = FontWeight.Medium
-                                                    )
-                                                    Text(
-                                                        text = condText,
-                                                        color = Color(0xFFA3A3A3),
-                                                        fontSize = 11.sp,
-                                                        fontFamily = FontFamily.Monospace
-                                                    )
-                                                }
-                                                Text(
-                                                    text = "$displayHigh / $displayLow",
-                                                    color = Color(0xFF737373),
-                                                    fontSize = 10.sp,
-                                                    fontFamily = FontFamily.Monospace
-                                                )
-                                            }
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(1.dp)
-                                                    .background(Color(0xFF171717))
-                                            )
-                                        }
-                                    }
-                                }
-                            }
                             "retro_flip_clock" -> {
                                 RetroSplitFlapClockWidget(
                                     hourStr = currentHourStr,
@@ -2499,59 +2017,6 @@ fun HomeScreenView(
                                         fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Bold
                                     )
-                                }
-                            }
-                            "pedometer" -> {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF060606), RoundedCornerShape(8.dp))
-                                        .padding(
-                                            horizontal = 12.dp,
-                                            vertical = when (sizeMode) {
-                                                "compact" -> 5.dp
-                                                "large" -> 10.dp
-                                                else -> 7.dp
-                                            }
-                                        )
-                                ) {
-                                    val km = "%.1f".format(Locale.US, pedometerSteps * 0.00075f)
-                                    val pct = (pedometerSteps / 10000f).coerceIn(0f, 1f)
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "$pedometerSteps STEPS",
-                                            color = Color.White,
-                                            fontSize = if (sizeMode == "large") 12.sp else 11.sp,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                        Text(
-                                            text = "$km KM",
-                                            color = Color(0xFFA3A3A3),
-                                            fontSize = 10.sp,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                    }
-                                    if (sizeMode != "compact") {
-                                        Spacer(modifier = Modifier.height(if (sizeMode == "large") 7.dp else 5.dp))
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(if (sizeMode == "large") 6.dp else 4.dp)
-                                                .background(Color(0xFF141414), RoundedCornerShape(999.dp))
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxHeight()
-                                                    .fillMaxWidth(pct)
-                                                    .background(accentColor, RoundedCornerShape(999.dp))
-                                            )
-                                        }
-                                    }
                                 }
                             }
                             "storage" -> {
@@ -4352,6 +3817,8 @@ private fun AlphabetScrubberRail(
 
     val letterWaveRadiusPx = with(density) { 95.dp.toPx() }
     val maxLetterShiftPx = with(density) { 18.dp.toPx() }
+    val voxelBoxSizeDp = 54.dp
+    val voxelBoxSizePx = with(density) { voxelBoxSizeDp.toPx() }
 
     fun updateScrubFromLocalY(localY: Float, currentRailHeight: Float) {
         val validHeight = currentRailHeight.coerceAtLeast(1f)
@@ -4368,7 +3835,24 @@ private fun AlphabetScrubberRail(
         }
     }
 
-    Box(contentAlignment = Alignment.CenterEnd) {
+    // Smooth vertical finger-tracking offset for the Voxel Alphabet Box
+    val targetIndicatorY = remember(scrubLocalY, railHeightPx, voxelBoxSizePx) {
+        val sy = scrubLocalY ?: (railHeightPx * 0.5f)
+        (sy - voxelBoxSizePx * 0.5f).coerceIn(0f, (railHeightPx - voxelBoxSizePx).coerceAtLeast(0f))
+    }
+    val animatedIndicatorY by animateFloatAsState(
+        targetValue = targetIndicatorY,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessHigh
+        ),
+        label = "voxelBubbleY"
+    )
+
+    Box(
+        modifier = Modifier.fillMaxHeight(),
+        contentAlignment = Alignment.TopEnd
+    ) {
         Column(
             modifier = Modifier
                 .width(36.dp)
@@ -4435,21 +3919,123 @@ private fun AlphabetScrubberRail(
             }
         }
 
-        if (activeLetter != null) {
+        // Exact 10x11 Stepped Pixel-Art Block Indicator (matching reference image_c9f7d8.png in our launcher color theme)
+        if (activeLetter != null && scrubLocalY != null) {
             Box(
                 modifier = Modifier
-                    .padding(end = 44.dp)
-                    .size(52.dp)
-                    .border(1.dp, accentColor, RoundedCornerShape(12.dp))
-                    .background(Color.Black, RoundedCornerShape(12.dp)),
+                    .padding(end = 42.dp)
+                    .offset { IntOffset(x = 0, y = animatedIndicatorY.roundToInt()) }
+                    .size(width = 50.dp, height = 55.dp),
                 contentAlignment = Alignment.Center
             ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    // Exact 10x11 pixel-art sprite matrix extracted from the reference image:
+                    // '.' = Transparent
+                    // 'B' = Stepped outer pixel outline & 2-row bottom lip
+                    // 'H' = Top inner highlight bevel
+                    // 'S' = Top-left 3-pixel specular shine (2 pixels on row 2 + 1 pixel on row 3)
+                    // 'M' = Main themed body fill
+                    // 'D' = Bottom inner shadow bevel
+                    val spriteRows = listOf(
+                        "..BBBBBB..",
+                        ".BHHHHHHB.",
+                        "BHHSSMMMMB",
+                        "BMSMMMMMMB",
+                        "BMMMMMMMMB",
+                        "BMMMMMMMMB",
+                        "BDMMMMMMDB",
+                        "BDDDDDDDDB",
+                        "BBDDDDDDBB",
+                        ".BBBBBBBB.",
+                        "..BBBBBB.."
+                    )
+
+                    val isMono = accentColor.red > 0.9f && accentColor.green > 0.9f && accentColor.blue > 0.9f
+                    val colBorder = if (isMono) {
+                        Color(0xFF2B2B2B)
+                    } else {
+                        Color(
+                            red = (accentColor.red * 0.30f + 0.06f).coerceIn(0f, 1f),
+                            green = (accentColor.green * 0.30f + 0.05f).coerceIn(0f, 1f),
+                            blue = (accentColor.blue * 0.30f + 0.05f).coerceIn(0f, 1f),
+                            alpha = 1f
+                        )
+                    }
+                    val colHighlight = if (isMono) {
+                        Color(0xFFB8B8B8)
+                    } else {
+                        Color(
+                            red = (accentColor.red * 0.68f + 0.32f).coerceIn(0f, 1f),
+                            green = (accentColor.green * 0.68f + 0.32f).coerceIn(0f, 1f),
+                            blue = (accentColor.blue * 0.68f + 0.32f).coerceIn(0f, 1f),
+                            alpha = 1f
+                        )
+                    }
+                    val colMid = if (isMono) {
+                        Color(0xFF7D7D7D)
+                    } else {
+                        Color(
+                            red = (accentColor.red * 0.86f + 0.04f).coerceIn(0f, 1f),
+                            green = (accentColor.green * 0.86f + 0.04f).coerceIn(0f, 1f),
+                            blue = (accentColor.blue * 0.86f + 0.04f).coerceIn(0f, 1f),
+                            alpha = 1f
+                        )
+                    }
+                    val colDark = if (isMono) {
+                        Color(0xFF545454)
+                    } else {
+                        Color(
+                            red = (accentColor.red * 0.58f + 0.02f).coerceIn(0f, 1f),
+                            green = (accentColor.green * 0.58f + 0.02f).coerceIn(0f, 1f),
+                            blue = (accentColor.blue * 0.58f + 0.02f).coerceIn(0f, 1f),
+                            alpha = 1f
+                        )
+                    }
+                    val colShine = Color.White
+
+                    val cols = 10
+                    val rows = 11
+                    val cellW = size.width / cols.toFloat()
+                    val cellH = size.height / rows.toFloat()
+
+                    for (r in 0 until rows) {
+                        val rowStr = spriteRows[r]
+                        for (c in 0 until cols) {
+                            val pxCol = when (rowStr[c]) {
+                                'B' -> colBorder
+                                'H' -> colHighlight
+                                'S' -> colShine
+                                'M' -> colMid
+                                'D' -> colDark
+                                else -> null
+                            }
+                            if (pxCol != null) {
+                                drawRect(
+                                    color = pxCol,
+                                    topLeft = Offset(c * cellW, r * cellH),
+                                    size = Size(cellW + 0.6f, cellH + 0.6f)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Subtle 1px pixel shadow + crisp white letter centered on the pixel block
+                Text(
+                    text = activeLetter.toString(),
+                    color = Color.Black.copy(alpha = 0.65f),
+                    fontSize = 22.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.offset(x = 1.dp, y = 0.dp)
+                )
                 Text(
                     text = activeLetter.toString(),
                     color = Color.White,
-                    fontSize = 26.sp,
+                    fontSize = 22.sp,
                     fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.offset(x = 0.dp, y = (-1).dp)
                 )
             }
         }
@@ -4467,14 +4053,10 @@ fun WidgetsManagerView(
     accentColor: Color,
     lomoFontFamily: FontFamily,
     use24Hour: Boolean,
-    tempCelsius: Boolean,
-    weatherTelemetry: LiveWeatherTelemetry,
     quickNote: String,
     globeTheme: String,
     globeWireframeColor: String,
     onToggle24h: () -> Unit,
-    onToggleTempUnit: () -> Unit,
-    onRefreshWeather: () -> Unit,
     onChangeQuickNote: (String) -> Unit,
     onChangeGlobeTheme: (String) -> Unit,
     onChangeGlobeWireframeColor: (String) -> Unit,
@@ -4486,7 +4068,6 @@ fun WidgetsManagerView(
 ) {
     val allWidgets = listOf(
         "clock" to "Dot-Matrix Clock, Date & Battery Bar",
-        "weather" to "Live Weather & Sky Telemetry",
         "week_strip" to "7-Day Strip & Month Days Block Bar",
         "retro_calendar" to "Dot-Matrix Month Calendar Grid",
         "year_matrix" to "365-Day Dot-Matrix Year Progress",
@@ -4496,7 +4077,6 @@ fun WidgetsManagerView(
         "crt_world_map" to "Interactive Flat CRT World Map",
         "globe" to "3D Interactive Spinning Globe",
         "torch" to "CMF Flashlight Quick Toggle",
-        "pedometer" to "Live Hardware Step Counter",
         "storage" to "Live RAM & ROM Telemetry Bar",
         "zen" to "Zen Focus Timer (25m)",
         "quote" to "Minimalist Design Quote",
@@ -4534,7 +4114,7 @@ fun WidgetsManagerView(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Add, relocate, resize & customize home widgets",
+                    text = "100% offline widgets · Relocate, resize & customize",
                     color = Color(0xFF737373),
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace
@@ -4706,46 +4286,6 @@ fun WidgetsManagerView(
                             }
                         }
 
-                        if (id == "weather") {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "${weatherTelemetry.city} · ${weatherTelemetry.updatedTime}",
-                                    color = Color(0xFF8A8A8A),
-                                    fontSize = 9.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(
-                                        text = if (tempCelsius) "°C" else "°F",
-                                        color = Color.Black,
-                                        fontSize = 9.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .background(Color.White, RoundedCornerShape(4.dp))
-                                            .clickable { onToggleTempUnit() }
-                                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                    Text(
-                                        text = "↻ SYNC",
-                                        color = accentColor,
-                                        fontSize = 9.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .border(1.dp, accentColor.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
-                                            .clickable { onRefreshWeather() }
-                                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-
                         if (id == "globe" || id == "crt_world_map") {
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
@@ -4865,7 +4405,7 @@ fun WidgetsManagerView(
 
 // ============================================================================
 // PREMIUM LAUNCHER SETTINGS WITH COLLAPSIBLE ACCORDION MENUS
-// Collapsed by default · No About section · Zero widget clutter
+// Collapsed by default · No About section · No Double-Tap to Sleep option
 // ============================================================================
 @Composable
 fun LauncherSettingsView(
@@ -4877,7 +4417,6 @@ fun LauncherSettingsView(
     waveScrubMode: String,
     wallpaperPreset: String,
     lomoFontFamily: FontFamily,
-    doubleTapSleep: Boolean,
     onChangeFont: (String) -> Unit,
     onChangeAlign: (String) -> Unit,
     onChangeAccent: (String) -> Unit,
@@ -4887,7 +4426,6 @@ fun LauncherSettingsView(
     onChangeWallpaperPreset: (String) -> Unit,
     onOpenSystemWallpaperPicker: () -> Unit,
     onRequestDefaultHomeRole: () -> Unit,
-    onToggleDoubleTapSleep: () -> Unit,
     onBack: () -> Unit
 ) {
     var expandedSystem by remember { mutableStateOf(false) }
@@ -4951,7 +4489,7 @@ fun LauncherSettingsView(
             CollapsibleSettingsSection(
                 indexTag = "01",
                 title = "System & Home Integration",
-                subtitle = "Default launcher role, status bar & lock gestures",
+                subtitle = "Default launcher role & Android status bar",
                 badge = if (hideAndroidBar) "IMMERSIVE" else "STANDARD",
                 expanded = expandedSystem,
                 accentColor = accentColor,
@@ -4971,13 +4509,6 @@ fun LauncherSettingsView(
                     actionLabel = if (hideAndroidBar) "HIDDEN (ON)" else "SHOWN (OFF)",
                     lomoFontFamily = lomoFontFamily,
                     onClick = onToggleAndroidBar
-                )
-                SettingCard(
-                    title = "Double-Tap OLED Sleep",
-                    subtitle = "Double-tap empty black space to enter minimal OLED lock",
-                    actionLabel = if (doubleTapSleep) "ENABLED" else "OFF",
-                    lomoFontFamily = lomoFontFamily,
-                    onClick = onToggleDoubleTapSleep
                 )
             }
         }
