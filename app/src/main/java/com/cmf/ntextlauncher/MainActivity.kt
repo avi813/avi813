@@ -751,16 +751,14 @@ fun NTextLauncherApp(
     var doubleTapSleep by remember { mutableStateOf(prefs.getBoolean("dbl_tap_sleep", true)) }
     var globeTheme by remember { mutableStateOf(prefs.getString("globe_theme", "retro_holo") ?: "retro_holo") }
     var globeWireframeColor by remember { mutableStateOf(prefs.getString("globe_wf_color", "#FF3B00") ?: "#FF3B00") }
-    var blackHoleAccentColor by remember { mutableStateOf(prefs.getString("bh_accent_color", "#FF3B00") ?: "#FF3B00") }
 
-    // Removable Widgets Order, Visibility & Sizing (Compact, Standard, Large)
-    // Uses widgets_order_v5 so existing installs automatically get the resizable "globe" widget and can add/toggle "blackhole"!
+    // Removable Widgets Order, Visibility & Sizing (All widgets resizable: Compact, Standard, Large, XLarge, Max)
     var activeWidgets by remember {
-        val saved = prefs.getString("widgets_order_v5", "clock,weather,globe,blackhole") ?: "clock,weather,globe,blackhole"
-        mutableStateOf(saved.split(",").filter { it.isNotBlank() && it != "telemetry" })
+        val saved = prefs.getString("widgets_order_v6", "clock,weather,week_strip,globe") ?: "clock,weather,week_strip,globe"
+        mutableStateOf(saved.split(",").filter { it.isNotBlank() && it != "telemetry" && it != "blackhole" })
     }
     var widgetSizes by remember {
-        val saved = prefs.getString("widget_sizes_v5", "clock:standard,weather:standard,retro_flip_clock:standard,analog_chrono:standard,retro_calendar:standard,week_strip:standard,globe:standard,blackhole:standard,torch:standard,pedometer:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard") ?: ""
+        val saved = prefs.getString("widget_sizes_v6", "clock:standard,weather:standard,retro_flip_clock:standard,analog_chrono:standard,precision_chrono:standard,retro_calendar:standard,week_strip:standard,year_matrix:standard,globe:standard,crt_world_map:standard,torch:standard,pedometer:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard") ?: ""
         val map = saved.split(",").mapNotNull {
             val parts = it.split(":")
             if (parts.size == 2) parts[0] to parts[1] else null
@@ -855,19 +853,20 @@ fun NTextLauncherApp(
     }
 
     // Real-Time Fast Clock, Date, Next Alarm, Battery, RAM, Storage, Pedometer & Weather/AQI
+    var currentTimeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
     var currentHourStr by remember { mutableStateOf("4") }
     var currentMinStr by remember { mutableStateOf("22") }
     var currentSecStr by remember { mutableStateOf("00") }
     var currentAmPmStr by remember { mutableStateOf("PM") }
-    var currentDateStr by remember { mutableStateOf("TUE · 27 OCT") }
-    var nextAlarmStr by remember { mutableStateOf("NO ALARM") }
+    var currentDateStr by remember { mutableStateOf("THU · 29 OCT") }
+    var nextAlarmStr by remember { mutableStateOf("") }
     var batteryPct by remember { mutableStateOf(86) }
     var isCharging by remember { mutableStateOf(false) }
-    var batteryTempC by remember { mutableStateOf(32.4f) }
-    var batteryVoltageMv by remember { mutableStateOf(4120) }
 
     fun refreshRealtimeSystemTelemetry() {
-        val now = Date()
+        val nowMs = System.currentTimeMillis()
+        currentTimeMillis = nowMs
+        val now = Date(nowMs)
         if (use24Hour) {
             currentHourStr = SimpleDateFormat("HH", Locale.getDefault()).format(now)
             currentMinStr = SimpleDateFormat("mm", Locale.getDefault()).format(now)
@@ -887,7 +886,7 @@ fun NTextLauncherApp(
             val alarmTime = SimpleDateFormat(fmt, Locale.ENGLISH).format(Date(nextAlarm.triggerTime)).uppercase(Locale.ENGLISH)
             "ALARM $alarmTime"
         } else {
-            "NO ALARM"
+            ""
         }
 
         val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
@@ -942,10 +941,6 @@ fun NTextLauncherApp(
                     val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
                     isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
                         status == BatteryManager.BATTERY_STATUS_FULL
-                    val tempTenths = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1)
-                    if (tempTenths > 0) batteryTempC = tempTenths / 10f
-                    val volt = intent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1)
-                    if (volt > 0) batteryVoltageMv = volt
                 }
                 refreshRealtimeSystemTelemetry()
             }
@@ -1064,8 +1059,9 @@ fun NTextLauncherApp(
     }
 
     fun saveWidgetList(updated: List<String>) {
-        activeWidgets = updated
-        prefs.edit().putString("widgets_order_v5", updated.joinToString(",")).apply()
+        val cleaned = updated.filter { it != "blackhole" && it != "telemetry" }
+        activeWidgets = cleaned
+        prefs.edit().putString("widgets_order_v6", cleaned.joinToString(",")).apply()
     }
 
     fun saveWidgetSize(widgetId: String, size: String) {
@@ -1073,12 +1069,12 @@ fun NTextLauncherApp(
         newMap[widgetId] = size
         widgetSizes = newMap.toMap()
         val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
-        prefs.edit().putString("widget_sizes_v5", serialized).apply()
+        prefs.edit().putString("widget_sizes_v6", serialized).apply()
     }
 
     fun cycleWidgetSize(widgetId: String) {
         val current = widgetSizes[widgetId] ?: "standard"
-        val next = if (widgetId == "globe") {
+        val next = if (widgetId == "globe" || widgetId == "crt_world_map") {
             when (current) {
                 "compact" -> "standard"
                 "standard" -> "large"
@@ -1086,7 +1082,7 @@ fun NTextLauncherApp(
                 "xlarge" -> "max"
                 else -> "compact"
             }
-        } else if (widgetId == "blackhole") {
+        } else if (widgetId == "precision_chrono" || widgetId == "analog_chrono" || widgetId == "retro_flip_clock") {
             when (current) {
                 "compact" -> "standard"
                 "standard" -> "large"
@@ -1379,6 +1375,7 @@ fun NTextLauncherApp(
                                     activeWidgets = activeWidgets,
                                     widgetSizes = widgetSizes,
                                     editMode = editMode,
+                                    currentTimeMillis = currentTimeMillis,
                                     currentHourStr = currentHourStr,
                                     currentMinStr = currentMinStr,
                                     currentSecStr = currentSecStr,
@@ -1407,7 +1404,6 @@ fun NTextLauncherApp(
                                     waveScrubMode = waveScrubMode,
                                     globeTheme = globeTheme,
                                     globeWireframeColor = globeWireframeColor,
-                                    blackHoleAccentColor = blackHoleAccentColor,
                                     pinnedApps = installedApps.filter { it.isPinned && !it.isHidden },
                                     onToggle24h = {
                                         use24Hour = !use24Hour
@@ -1502,7 +1498,6 @@ fun NTextLauncherApp(
                             quickNote = quickNote,
                             globeTheme = globeTheme,
                             globeWireframeColor = globeWireframeColor,
-                            blackHoleAccentColor = blackHoleAccentColor,
                             onToggle24h = {
                                 use24Hour = !use24Hour
                                 prefs.edit().putBoolean("use_24h_v4", use24Hour).apply()
@@ -1513,7 +1508,7 @@ fun NTextLauncherApp(
                             },
                             onRefreshWeather = {
                                 weatherRefreshTrigger++
-                                Toast.makeText(context, "Syncing live weather & AQI...", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Syncing live weather...", Toast.LENGTH_SHORT).show()
                             },
                             onChangeQuickNote = {
                                 quickNote = it
@@ -1526,10 +1521,6 @@ fun NTextLauncherApp(
                             onChangeGlobeWireframeColor = {
                                 globeWireframeColor = it
                                 prefs.edit().putString("globe_wf_color", it).apply()
-                            },
-                            onChangeBlackHoleColor = {
-                                blackHoleAccentColor = it
-                                prefs.edit().putString("bh_accent_color", it).apply()
                             },
                             onUpdateWidgets = { saveWidgetList(it) },
                             onCycleWidgetSize = { cycleWidgetSize(it) },
@@ -1550,14 +1541,6 @@ fun NTextLauncherApp(
                             wallpaperPreset = wallpaperPreset,
                             lomoFontFamily = lomoFontFamily,
                             doubleTapSleep = doubleTapSleep,
-                            batteryPct = batteryPct,
-                            isCharging = isCharging,
-                            batteryTempC = batteryTempC,
-                            batteryVoltageMv = batteryVoltageMv,
-                            ramStatusText = ramStatusText,
-                            storageStatusText = storageStatusText,
-                            ramUsageFraction = ramUsageFraction,
-                            storageUsageFraction = storageUsageFraction,
                             onChangeFont = {
                                 fontId = it
                                 prefs.edit().putString("font_id", it).apply()
@@ -1601,13 +1584,22 @@ fun NTextLauncherApp(
         }
 
         // ====================================================================
-        // LONG-TAP HOME SCREEN "ACTIONS" MENU (4 Streamlined Options)
+        // FLUID SPRING-ANIMATED LONG-TAP HOME SCREEN "ACTIONS" MENU
+        // Smooth 120Hz scale + vertical glide + backdrop fade on BOTH open and close
         // ====================================================================
-        if (showHomeQuickMenu) {
+        val quickMenuProgress by animateFloatAsState(
+            targetValue = if (showHomeQuickMenu) 1f else 0f,
+            animationSpec = spring(
+                dampingRatio = 0.82f,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "quickMenuFluidAnim"
+        )
+        if (showHomeQuickMenu || quickMenuProgress > 0.005f) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.84f))
+                    .background(Color.Black.copy(alpha = (0.84f * quickMenuProgress).coerceIn(0f, 0.84f)))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
@@ -1618,6 +1610,14 @@ fun NTextLauncherApp(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .graphicsLayer {
+                            val p = quickMenuProgress.coerceIn(0f, 1f)
+                            alpha = p
+                            val s = 0.86f + 0.14f * p
+                            scaleX = s
+                            scaleY = s
+                            translationY = (1f - p) * 26.dp.toPx()
+                        }
                         .border(1.dp, Color(0xFF2E2E2E), RoundedCornerShape(16.dp))
                         .background(Color(0xFF0A0A0A), RoundedCornerShape(16.dp))
                         .clickable(
@@ -1703,13 +1703,26 @@ fun NTextLauncherApp(
         }
 
         // ====================================================================
-        // LONG-PRESS APP OPTIONS CONTEXT MENU MODAL (HOME & APP DRAWER)
+        // FLUID SPRING-ANIMATED LONG-PRESS APP CONTEXT MENU MODAL
         // ====================================================================
-        contextMenuTarget?.let { (targetApp, isFromHome) ->
+        var lastContextMenuTarget by remember { mutableStateOf<Pair<AppEntry, Boolean>?>(null) }
+        if (contextMenuTarget != null) {
+            lastContextMenuTarget = contextMenuTarget
+        }
+        val appMenuProgress by animateFloatAsState(
+            targetValue = if (contextMenuTarget != null) 1f else 0f,
+            animationSpec = spring(
+                dampingRatio = 0.82f,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "appMenuFluidAnim"
+        )
+        val activeTargetPair = contextMenuTarget ?: if (appMenuProgress > 0.005f) lastContextMenuTarget else null
+        activeTargetPair?.let { (targetApp, isFromHome) ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.82f))
+                    .background(Color.Black.copy(alpha = (0.82f * appMenuProgress).coerceIn(0f, 0.82f)))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
@@ -1720,6 +1733,14 @@ fun NTextLauncherApp(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .graphicsLayer {
+                            val p = appMenuProgress.coerceIn(0f, 1f)
+                            alpha = p
+                            val s = 0.86f + 0.14f * p
+                            scaleX = s
+                            scaleY = s
+                            translationY = (1f - p) * 24.dp.toPx()
+                        }
                         .border(1.dp, Color(0xFF333333), RoundedCornerShape(16.dp))
                         .background(Color(0xFF0A0A0A), RoundedCornerShape(16.dp))
                         .clickable(
@@ -1909,6 +1930,7 @@ fun HomeScreenView(
     activeWidgets: List<String>,
     widgetSizes: Map<String, String>,
     editMode: Boolean,
+    currentTimeMillis: Long,
     currentHourStr: String,
     currentMinStr: String,
     currentSecStr: String,
@@ -1937,7 +1959,6 @@ fun HomeScreenView(
     waveScrubMode: String,
     globeTheme: String,
     globeWireframeColor: String,
-    blackHoleAccentColor: String,
     pinnedApps: List<AppEntry>,
     onToggle24h: () -> Unit,
     onToggleTempUnit: () -> Unit,
@@ -2002,7 +2023,6 @@ fun HomeScreenView(
                                 ) {
                                     when (sizeMode) {
                                         "compact" -> {
-                                            // Compact Size: Single-line minimal clock with battery
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2021,7 +2041,7 @@ fun HomeScreenView(
                                                     fontFamily = FontFamily.Monospace
                                                 )
                                                 Text(
-                                                    text = "$currentDateStr · BAT $batteryPct%",
+                                                    text = "$currentDateStr · $batteryPct%",
                                                     color = Color(0xFFA3A3A3),
                                                     fontSize = 11.sp,
                                                     fontFamily = FontFamily.Monospace
@@ -2029,7 +2049,6 @@ fun HomeScreenView(
                                             }
                                         }
                                         "large" -> {
-                                            // Large Size: Prominent Nothing Dot-Matrix Digital Display
                                             Row(
                                                 verticalAlignment = Alignment.Bottom,
                                                 modifier = Modifier.clickable { onToggle24h() }
@@ -2075,20 +2094,22 @@ fun HomeScreenView(
                                                     fontFamily = FontFamily.Monospace,
                                                     letterSpacing = 1.2.sp
                                                 )
-                                                Text(
-                                                    text = "·",
-                                                    color = accentColor,
-                                                    fontSize = 11.sp,
-                                                    fontFamily = FontFamily.Monospace,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                                Text(
-                                                    text = nextAlarmStr,
-                                                    color = Color(0xFF737373),
-                                                    fontSize = 11.sp,
-                                                    fontFamily = FontFamily.Monospace,
-                                                    letterSpacing = 1.2.sp
-                                                )
+                                                if (nextAlarmStr.isNotBlank()) {
+                                                    Text(
+                                                        text = "·",
+                                                        color = accentColor,
+                                                        fontSize = 11.sp,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text(
+                                                        text = nextAlarmStr,
+                                                        color = Color(0xFF737373),
+                                                        fontSize = 11.sp,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        letterSpacing = 1.2.sp
+                                                    )
+                                                }
                                             }
                                             Spacer(modifier = Modifier.height(10.dp))
                                             Box(
@@ -2104,7 +2125,7 @@ fun HomeScreenView(
                                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                                             ) {
                                                 Text(
-                                                    text = "BAT $batteryPct%",
+                                                    text = "$batteryPct%",
                                                     color = Color(0xFFD4D4D4),
                                                     fontSize = 11.sp,
                                                     fontFamily = FontFamily.Monospace,
@@ -2126,17 +2147,15 @@ fun HomeScreenView(
                                                 }
                                                 if (isCharging) {
                                                     Text(
-                                                        text = "CHG",
+                                                        text = "⚡",
                                                         color = accentColor,
                                                         fontSize = 10.sp,
-                                                        fontFamily = FontFamily.Monospace,
-                                                        fontWeight = FontWeight.Bold
+                                                        fontFamily = FontFamily.Monospace
                                                     )
                                                 }
                                             }
                                         }
                                         else -> {
-                                            // Standard Size (The exact setup the user loves)
                                             Row(
                                                 verticalAlignment = Alignment.Bottom,
                                                 modifier = Modifier.clickable { onToggle24h() }
@@ -2182,20 +2201,22 @@ fun HomeScreenView(
                                                     fontFamily = FontFamily.Monospace,
                                                     letterSpacing = 1.2.sp
                                                 )
-                                                Text(
-                                                    text = "·",
-                                                    color = accentColor,
-                                                    fontSize = 10.sp,
-                                                    fontFamily = FontFamily.Monospace,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                                Text(
-                                                    text = nextAlarmStr,
-                                                    color = Color(0xFF737373),
-                                                    fontSize = 10.sp,
-                                                    fontFamily = FontFamily.Monospace,
-                                                    letterSpacing = 1.2.sp
-                                                )
+                                                if (nextAlarmStr.isNotBlank()) {
+                                                    Text(
+                                                        text = "·",
+                                                        color = accentColor,
+                                                        fontSize = 10.sp,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text(
+                                                        text = nextAlarmStr,
+                                                        color = Color(0xFF737373),
+                                                        fontSize = 10.sp,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        letterSpacing = 1.2.sp
+                                                    )
+                                                }
                                             }
                                             Spacer(modifier = Modifier.height(10.dp))
                                             Box(
@@ -2211,7 +2232,7 @@ fun HomeScreenView(
                                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                                             ) {
                                                 Text(
-                                                    text = "BAT $batteryPct%",
+                                                    text = "$batteryPct%",
                                                     color = Color(0xFFD4D4D4),
                                                     fontSize = 10.sp,
                                                     fontFamily = FontFamily.Monospace,
@@ -2233,11 +2254,10 @@ fun HomeScreenView(
                                                 }
                                                 if (isCharging) {
                                                     Text(
-                                                        text = "CHG",
+                                                        text = "⚡",
                                                         color = accentColor,
                                                         fontSize = 9.sp,
-                                                        fontFamily = FontFamily.Monospace,
-                                                        fontWeight = FontWeight.Bold
+                                                        fontFamily = FontFamily.Monospace
                                                     )
                                                 }
                                             }
@@ -2255,7 +2275,6 @@ fun HomeScreenView(
                                 val displayLow = if (tempCelsius) "${weatherTelemetry.lowC}°" else "${(weatherTelemetry.lowC * 9 / 5) + 32}°"
                                 val condText = weatherTelemetry.condition
 
-                                // Clean temperature & condition readout (AQI capsule removed per user request)
                                 when (sizeMode) {
                                     "compact" -> {
                                         Row(
@@ -2273,7 +2292,7 @@ fun HomeScreenView(
                                                 fontFamily = FontFamily.Monospace
                                             )
                                             Text(
-                                                text = "H $displayHigh / L $displayLow",
+                                                text = "$displayHigh / $displayLow",
                                                 color = Color(0xFF737373),
                                                 fontSize = 10.sp,
                                                 fontFamily = FontFamily.Monospace
@@ -2309,16 +2328,22 @@ fun HomeScreenView(
                                                         fontWeight = FontWeight.Bold
                                                     )
                                                     Text(
-                                                        text = "$condText (H $displayHigh / L $displayLow)",
+                                                        text = condText,
                                                         color = Color(0xFFA3A3A3),
                                                         fontSize = 11.sp,
                                                         fontFamily = FontFamily.Monospace
                                                     )
                                                 }
+                                                Text(
+                                                    text = "$displayHigh / $displayLow",
+                                                    color = Color(0xFF8A8A8A),
+                                                    fontSize = 10.sp,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
                                             }
                                             Spacer(modifier = Modifier.height(4.dp))
                                             Text(
-                                                text = "HUMIDITY ${weatherTelemetry.humidity}% · UV ${weatherTelemetry.uvIndex} · ${weatherTelemetry.city} · LIVE ${weatherTelemetry.updatedTime}",
+                                                text = "${weatherTelemetry.humidity}% · UV ${weatherTelemetry.uvIndex} · ${weatherTelemetry.city}",
                                                 color = Color(0xFF737373),
                                                 fontSize = 9.sp,
                                                 fontFamily = FontFamily.Monospace
@@ -2359,7 +2384,7 @@ fun HomeScreenView(
                                                     )
                                                 }
                                                 Text(
-                                                    text = "H $displayHigh · L $displayLow",
+                                                    text = "$displayHigh / $displayLow",
                                                     color = Color(0xFF737373),
                                                     fontSize = 10.sp,
                                                     fontFamily = FontFamily.Monospace
@@ -2390,20 +2415,29 @@ fun HomeScreenView(
                             }
                             "analog_chrono" -> {
                                 RetroAnalogChronoWidget(
+                                    currentTimeMillis = currentTimeMillis,
                                     hourStr = currentHourStr,
                                     minStr = currentMinStr,
                                     secStr = currentSecStr,
                                     amPmStr = currentAmPmStr,
                                     dateStr = currentDateStr,
-                                    nextAlarmStr = nextAlarmStr,
                                     sizeMode = sizeMode,
                                     accentColor = accentColor,
                                     lomoFontFamily = lomoFontFamily,
                                     onToggle24h = onToggle24h
                                 )
                             }
+                            "precision_chrono" -> {
+                                PrecisionChronographWidget(
+                                    sizeMode = sizeMode,
+                                    accentColor = accentColor,
+                                    lomoFontFamily = lomoFontFamily,
+                                    onTick = onWaveTick
+                                )
+                            }
                             "retro_calendar" -> {
                                 RetroDotMatrixCalendarWidget(
+                                    currentTimeMillis = currentTimeMillis,
                                     sizeMode = sizeMode,
                                     accentColor = accentColor,
                                     lomoFontFamily = lomoFontFamily
@@ -2411,20 +2445,33 @@ fun HomeScreenView(
                             }
                             "week_strip" -> {
                                 RetroWeekTimelineStripWidget(
+                                    currentTimeMillis = currentTimeMillis,
+                                    sizeMode = sizeMode,
+                                    accentColor = accentColor,
+                                    lomoFontFamily = lomoFontFamily
+                                )
+                            }
+                            "year_matrix" -> {
+                                RetroYearDotMatrixWidget(
+                                    currentTimeMillis = currentTimeMillis,
                                     sizeMode = sizeMode,
                                     accentColor = accentColor,
                                     lomoFontFamily = lomoFontFamily
                                 )
                             }
                             "torch" -> {
-                                // NEW WIDGET 1: CMF Torch / Glyph Flashlight Quick Toggle
+                                val padV = when (sizeMode) {
+                                    "compact" -> 5.dp
+                                    "large" -> 11.dp
+                                    else -> 7.dp
+                                }
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable { onToggleTorch() }
-                                        .border(1.dp, if (torchEnabled) accentColor else Color(0xFF262626), RoundedCornerShape(8.dp))
-                                        .background(if (torchEnabled) accentColor.copy(alpha = 0.12f) else Color.Transparent, RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                                        .border(1.dp, if (torchEnabled) accentColor else Color(0xFF242424), RoundedCornerShape(8.dp))
+                                        .background(if (torchEnabled) accentColor.copy(alpha = 0.12f) else Color(0xFF060606), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 12.dp, vertical = padV),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -2435,18 +2482,18 @@ fun HomeScreenView(
                                         Text(
                                             text = if (torchEnabled) "⚡" else "☼",
                                             color = if (torchEnabled) accentColor else Color(0xFFA3A3A3),
-                                            fontSize = 12.sp
+                                            fontSize = if (sizeMode == "large") 14.sp else 12.sp
                                         )
                                         Text(
-                                            text = if (sizeMode == "large") "CMF GLYPH TORCH // FLASHLIGHT" else "CMF TORCH",
+                                            text = "TORCH",
                                             color = Color.White,
-                                            fontSize = 11.sp,
+                                            fontSize = if (sizeMode == "large") 12.sp else 11.sp,
                                             fontFamily = FontFamily.Monospace,
                                             fontWeight = FontWeight.Medium
                                         )
                                     }
                                     Text(
-                                        text = if (torchEnabled) "ACTIVE [ON]" else "READY [OFF]",
+                                        text = if (torchEnabled) "ON" else "OFF",
                                         color = if (torchEnabled) accentColor else Color(0xFF737373),
                                         fontSize = 10.sp,
                                         fontFamily = FontFamily.Monospace,
@@ -2455,12 +2502,19 @@ fun HomeScreenView(
                                 }
                             }
                             "pedometer" -> {
-                                // NEW WIDGET 2: Steps & Activity Counter (10,000 Step Goal)
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                        .padding(
+                                            horizontal = 12.dp,
+                                            vertical = when (sizeMode) {
+                                                "compact" -> 5.dp
+                                                "large" -> 10.dp
+                                                else -> 7.dp
+                                            }
+                                        )
                                 ) {
                                     val km = "%.1f".format(Locale.US, pedometerSteps * 0.00075f)
                                     val pct = (pedometerSteps / 10000f).coerceIn(0f, 1f)
@@ -2470,24 +2524,24 @@ fun HomeScreenView(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "STEPS // $pedometerSteps",
+                                            text = "$pedometerSteps STEPS",
                                             color = Color.White,
-                                            fontSize = 11.sp,
+                                            fontSize = if (sizeMode == "large") 12.sp else 11.sp,
                                             fontFamily = FontFamily.Monospace
                                         )
                                         Text(
-                                            text = "$km KM · 10K GOAL",
+                                            text = "$km KM",
                                             color = Color(0xFFA3A3A3),
                                             fontSize = 10.sp,
                                             fontFamily = FontFamily.Monospace
                                         )
                                     }
                                     if (sizeMode != "compact") {
-                                        Spacer(modifier = Modifier.height(5.dp))
+                                        Spacer(modifier = Modifier.height(if (sizeMode == "large") 7.dp else 5.dp))
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(4.dp)
+                                                .height(if (sizeMode == "large") 6.dp else 4.dp)
                                                 .background(Color(0xFF141414), RoundedCornerShape(999.dp))
                                         ) {
                                             Box(
@@ -2505,7 +2559,15 @@ fun HomeScreenView(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                        .padding(
+                                            horizontal = 12.dp,
+                                            vertical = when (sizeMode) {
+                                                "compact" -> 5.dp
+                                                "large" -> 10.dp
+                                                else -> 7.dp
+                                            }
+                                        )
                                 ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -2515,18 +2577,18 @@ fun HomeScreenView(
                                         Text(
                                             text = ramStatusText,
                                             color = Color.White,
-                                            fontSize = 10.sp,
+                                            fontSize = if (sizeMode == "large") 11.sp else 10.sp,
                                             fontFamily = FontFamily.Monospace
                                         )
                                         Text(
                                             text = storageStatusText,
                                             color = Color(0xFFA3A3A3),
-                                            fontSize = 10.sp,
+                                            fontSize = if (sizeMode == "large") 11.sp else 10.sp,
                                             fontFamily = FontFamily.Monospace
                                         )
                                     }
                                     if (sizeMode != "compact") {
-                                        Spacer(modifier = Modifier.height(5.dp))
+                                        Spacer(modifier = Modifier.height(if (sizeMode == "large") 7.dp else 5.dp))
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -2534,7 +2596,7 @@ fun HomeScreenView(
                                             Box(
                                                 modifier = Modifier
                                                     .weight(1f)
-                                                    .height(4.dp)
+                                                    .height(if (sizeMode == "large") 6.dp else 4.dp)
                                                     .background(Color(0xFF141414), RoundedCornerShape(999.dp))
                                             ) {
                                                 Box(
@@ -2547,7 +2609,7 @@ fun HomeScreenView(
                                             Box(
                                                 modifier = Modifier
                                                     .weight(1f)
-                                                    .height(4.dp)
+                                                    .height(if (sizeMode == "large") 6.dp else 4.dp)
                                                     .background(Color(0xFF141414), RoundedCornerShape(999.dp))
                                             ) {
                                                 Box(
@@ -2566,24 +2628,23 @@ fun HomeScreenView(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .border(1.dp, Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                        .padding(
+                                            horizontal = 12.dp,
+                                            vertical = when (sizeMode) {
+                                                "compact" -> 5.dp
+                                                "large" -> 10.dp
+                                                else -> 7.dp
+                                            }
+                                        )
                                 ) {
                                     Text(
                                         text = "“Simplify, then add lightness.”",
                                         color = Color.White,
-                                        fontSize = 11.sp,
+                                        fontSize = if (sizeMode == "large") 13.sp else 11.sp,
                                         fontFamily = lomoFontFamily,
-                                        lineHeight = 14.sp
+                                        lineHeight = 15.sp
                                     )
-                                    if (sizeMode != "compact") {
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = "— COLIN CHAPMAN · NOTHING ETHOS",
-                                            color = Color(0xFF737373),
-                                            fontSize = 9.sp,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                    }
                                 }
                             }
                             "zen" -> {
@@ -2593,15 +2654,24 @@ fun HomeScreenView(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .border(1.dp, Color(0xFF262626), RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                        .padding(
+                                            horizontal = 12.dp,
+                                            vertical = when (sizeMode) {
+                                                "compact" -> 5.dp
+                                                "large" -> 10.dp
+                                                else -> 7.dp
+                                            }
+                                        ),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = if (sizeMode == "compact") "ZEN $mm:$ss" else "ZEN FOCUS · $mm:$ss",
+                                        text = "$mm:$ss",
                                         color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontFamily = FontFamily.Monospace
+                                        fontSize = if (sizeMode == "large") 15.sp else 12.sp,
+                                        fontFamily = lomoFontFamily,
+                                        fontWeight = FontWeight.Bold
                                     )
                                     Text(
                                         text = if (zenActive) "STOP" else "START",
@@ -2614,12 +2684,27 @@ fun HomeScreenView(
                                 }
                             }
                             "scratchpad" -> {
-                                Text(
-                                    text = "> $quickNote",
-                                    color = Color(0xFFD4D4D4),
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, Color(0xFF1F1F1F), RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                        .padding(
+                                            horizontal = 12.dp,
+                                            vertical = when (sizeMode) {
+                                                "compact" -> 5.dp
+                                                "large" -> 10.dp
+                                                else -> 7.dp
+                                            }
+                                        )
+                                ) {
+                                    Text(
+                                        text = "> $quickNote",
+                                        color = Color(0xFFD4D4D4),
+                                        fontSize = if (sizeMode == "large") 13.sp else 11.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
                             }
                             "globe" -> {
                                 val globeHeight = when (sizeMode) {
@@ -2642,23 +2727,22 @@ fun HomeScreenView(
                                     )
                                 }
                             }
-                            "blackhole" -> {
-                                val bhHeight = when (sizeMode) {
+                            "crt_world_map" -> {
+                                val mapHeight = when (sizeMode) {
                                     "compact" -> 115.dp
-                                    "large" -> 225.dp
-                                    "xlarge" -> 285.dp
+                                    "large" -> 215.dp
+                                    "xlarge" -> 265.dp
+                                    "max" -> 320.dp
                                     else -> 165.dp
                                 }
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(bhHeight),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    GlowingBlackHoleWidgetView(
-                                        accentHex = blackHoleAccentColor
-                                    )
-                                }
+                                RetroCrtFlatWorldMapWidget(
+                                    currentTimeMillis = currentTimeMillis,
+                                    mapHeight = mapHeight,
+                                    globeTheme = globeTheme,
+                                    globeWireframeColor = globeWireframeColor,
+                                    accentColor = accentColor,
+                                    onTick = onWaveTick
+                                )
                             }
                         }
 
@@ -3877,320 +3961,6 @@ fun RetroFuturisticGlobeView(
 }
 
 // ============================================================================
-// GARGANTUA ASTROPHYSICAL BLACK HOLE WIDGET (INTERSTELLAR RELATIVISTIC RENDERER)
-// Redesigned from scratch to replicate the Kip Thorne / Double Negative gravitational
-// lensing appearance of Gargantua in Interstellar:
-// - Volumetric atmospheric bloom & gravitational light-bending corona
-// - Warped upper & lower relativistic lensing domes (back of the accretion disk bent
-//   90 degrees over the north and south poles of the black hole shadow)
-// - Pure OLED black event horizon shadow surrounded by an incandescent white Einstein photon ring
-// - Continuous multi-layered, optically thick equatorial accretion disk with relativistic
-//   Doppler beaming (blindingly hot white on the approaching left side, custom glowing
-//   corona color on the outer/receding side) and slow continuous relativistic shear rotation.
-// - Non-interactive (passes all touches through to Home Screen) & Resizable (Compact/Standard/Large).
-// ============================================================================
-@Composable
-fun GlowingBlackHoleWidgetView(
-    accentHex: String
-) {
-    var spinPhase by remember { mutableStateOf(0f) }
-
-    LaunchedEffect(Unit) {
-        var lastNanos = 0L
-        while (true) {
-            withFrameNanos { nanos ->
-                val dt = if (lastNanos == 0L) 0.016f else ((nanos - lastNanos) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
-                lastNanos = nanos
-                spinPhase = (spinPhase + dt * 0.52f) % (2f * PI.toFloat())
-            }
-        }
-    }
-
-    val coronaColor = remember(accentHex) {
-        when (accentHex.uppercase(Locale.US)) {
-            "#FFFFFF" -> Color(0xFFD8E6FF) // Pure Starlight Silver-White
-            "#00E5FF" -> Color(0xFF00E5FF) // Quasar Cyan
-            "#A855F7" -> Color(0xFFA855F7) // Nebula Violet
-            "#00FF66" -> Color(0xFF00FF66) // Emerald Plasma
-            "#FFB000" -> Color(0xFFFFAA22) // Interstellar Gargantua Warm Gold
-            "#D71921" -> Color(0xFFFF2A2A) // Crimson Redshift
-            else -> Color(0xFFFF5511)      // CMF / Gargantua Relativistic Amber-Orange
-        }
-    }
-
-    // Pure non-interactive Canvas so Home Screen swipes pass right through
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        val w = size.width
-        val h = size.height
-        val cx = w / 2f
-        val cy = h / 2f
-        // Event horizon shadow radius scaled cleanly to widget container
-        val rShadow = (min(w * 0.42f, h * 0.56f) * 0.44f).coerceAtLeast(16f)
-        val diskRx = rShadow * 2.85f
-        val diskRy = rShadow * 0.28f
-        val tiltDeg = -9.5f
-        val tiltRad = (tiltDeg * PI / 180.0).toFloat()
-        val cosT = cos(tiltRad)
-        val sinT = sin(tiltRad)
-
-        fun rot(x: Float, y: Float): Offset {
-            return Offset(
-                cx + x * cosT - y * sinT,
-                cy + x * sinT + y * cosT
-            )
-        }
-
-        // 1. DEEP SPACE GRAVITATIONAL BLOOM (Multi-stage radial atmospheric glow)
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.26f),
-                    coronaColor.copy(alpha = 0.18f),
-                    coronaColor.copy(alpha = 0.06f),
-                    Color.Transparent
-                ),
-                center = Offset(cx, cy),
-                radius = rShadow * 2.95f
-            ),
-            radius = rShadow * 2.95f,
-            center = Offset(cx, cy)
-        )
-
-        // Asymmetric Doppler Beaming Bloom on the approaching (left) wing of the disk
-        val dopplerCenter = rot(-rShadow * 1.15f, 0f)
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.28f),
-                    coronaColor.copy(alpha = 0.14f),
-                    Color.Transparent
-                ),
-                center = dopplerCenter,
-                radius = rShadow * 1.75f
-            ),
-            radius = rShadow * 1.75f,
-            center = dopplerCenter
-        )
-
-        // 2. GRAVITATIONALLY LENSED UPPER & LOWER DOMES (Light from the back of the accretion disk
-        // bent over the top and under the bottom of the black hole shadow, merging into the equatorial plane)
-        // We draw concentric lensed light sheets from outer corona inward to the white-hot core.
-        val domeLayers = 14
-        for (layer in domeLayers downTo 0) {
-            val t = layer.toFloat() / domeLayers.toFloat() // 1.0 = outer soft corona, 0.0 = inner incandescent white
-            val spread = t * rShadow * 0.34f
-            val strokeW = (1.5f + t * 11.5f).dp.toPx()
-            val layerColor = if (t < 0.38f) {
-                Color.White
-            } else {
-                // Smooth blend from White to coronaColor
-                val blend = ((t - 0.38f) / 0.62f).coerceIn(0f, 1f)
-                Color(
-                    red = 1f * (1f - blend) + coronaColor.red * blend,
-                    green = 1f * (1f - blend) + coronaColor.green * blend,
-                    blue = 1f * (1f - blend) + coronaColor.blue * blend,
-                    alpha = 1f
-                )
-            }
-            val baseAlpha = if (t < 0.25f) 0.55f else (1f - t * 0.72f) * 0.14f
-
-            // Upper Lensed Arch (bends over the North pole of the shadow and flares into the disk wings)
-            val upperPath = Path()
-            val steps = 40
-            for (i in 0..steps) {
-                val u = (i.toFloat() / steps) * PI.toFloat() // 0 (right wing) to PI (left wing)
-                val cosU = cos(u)
-                val sinU = sin(u)
-                // Flattened near the equator, arching to rShadow * 1.04 + spread over the pole
-                val flareX = (rShadow * 1.06f + spread * 1.35f) * cosU * (1f + 0.32f * (1f - sinU))
-                val archY = -(rShadow * 1.01f + spread * 0.92f) * (sinU * 0.92f + 0.08f)
-                val pt = rot(flareX, archY)
-                if (i == 0) upperPath.moveTo(pt.x, pt.y) else upperPath.lineTo(pt.x, pt.y)
-            }
-            drawPath(
-                path = upperPath,
-                color = layerColor.copy(alpha = (baseAlpha * 1.15f).coerceIn(0f, 0.95f)),
-                style = Stroke(width = strokeW, cap = StrokeCap.Round, join = StrokeJoin.Round)
-            )
-
-            // Lower Lensed Under-Arch (Secondary image bent under the South pole of the shadow)
-            val lowerPath = Path()
-            for (i in 0..steps) {
-                val u = (i.toFloat() / steps) * PI.toFloat()
-                val cosU = cos(u)
-                val sinU = sin(u)
-                val flareX = (rShadow * 1.04f + spread * 1.15f) * cosU * (1f + 0.24f * (1f - sinU))
-                val archY = (rShadow * 0.99f + spread * 0.74f) * (sinU * 0.90f + 0.10f)
-                val pt = rot(flareX, archY)
-                if (i == 0) lowerPath.moveTo(pt.x, pt.y) else lowerPath.lineTo(pt.x, pt.y)
-            }
-            drawPath(
-                path = lowerPath,
-                color = layerColor.copy(alpha = (baseAlpha * 0.82f).coerceIn(0f, 0.85f)),
-                style = Stroke(width = strokeW * 0.88f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-            )
-        }
-
-        // Subtle animated relativistic plasma caustics flowing along the upper & lower lensed arches
-        for (cIdx in 0 until 8) {
-            val phaseU = ((spinPhase * 0.65f + cIdx * (PI.toFloat() / 4f)) % PI.toFloat())
-            val sweepU = 0.42f
-            val uStart = (phaseU - sweepU * 0.5f).coerceIn(0.08f, PI.toFloat() - 0.08f)
-            val uEnd = (phaseU + sweepU * 0.5f).coerceIn(0.08f, PI.toFloat() - 0.08f)
-            if (uEnd > uStart) {
-                val archCaustic = Path()
-                val cSteps = 12
-                val radialOff = rShadow * (1.03f + (cIdx % 3) * 0.065f)
-                for (k in 0..cSteps) {
-                    val u = uStart + (k.toFloat() / cSteps) * (uEnd - uStart)
-                    val pt = rot(radialOff * 1.12f * cos(u), -radialOff * sin(u))
-                    if (k == 0) archCaustic.moveTo(pt.x, pt.y) else archCaustic.lineTo(pt.x, pt.y)
-                }
-                val dopplerBoost = (0.55f - 0.45f * cos(phaseU)).coerceIn(0.2f, 1f)
-                drawPath(
-                    path = archCaustic,
-                    color = Color.White.copy(alpha = 0.32f * dopplerBoost),
-                    style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
-                )
-            }
-        }
-
-        // 3. BACK HALF OF EQUATORIAL ACCRETION DISK (Behind the Black Hole Shadow)
-        val diskBands = 22
-        for (b in diskBands downTo 0) {
-            val f = b.toFloat() / diskBands.toFloat() // 0 = innermost photon edge, 1 = outer disk edge
-            val rx = rShadow * 1.05f + f * (diskRx - rShadow * 1.05f)
-            val ry = rShadow * 0.09f + f * (diskRy - rShadow * 0.09f)
-            val backPath = Path()
-            val bSteps = 32
-            for (k in 0..bSteps) {
-                // Back half: angle from PI to 2*PI
-                val a = PI.toFloat() + (k.toFloat() / bSteps) * PI.toFloat()
-                // Warp the back disk slightly upward near the shadow due to gravitational lensing
-                val rNorm = (rx * cos(a)) / diskRx
-                val lensLift = -rShadow * 0.18f * exp(-rNorm * rNorm * 3.5f) * (1f - f * 0.5f)
-                val pt = rot(rx * cos(a), ry * sin(a) + lensLift)
-                if (k == 0) backPath.moveTo(pt.x, pt.y) else backPath.lineTo(pt.x, pt.y)
-            }
-            val col = if (f < 0.35f) {
-                Color.White
-            } else {
-                val blend = ((f - 0.35f) / 0.65f).coerceIn(0f, 1f)
-                Color(
-                    red = 1f * (1f - blend) + coronaColor.red * blend,
-                    green = 1f * (1f - blend) + coronaColor.green * blend,
-                    blue = 1f * (1f - blend) + coronaColor.blue * blend,
-                    alpha = 1f
-                )
-            }
-            val alpha = ((1f - f * 0.78f) * 0.24f).coerceIn(0.03f, 0.35f)
-            drawPath(
-                path = backPath,
-                color = col.copy(alpha = alpha),
-                style = Stroke(width = (2.2f + (1f - f) * 3.5f).dp.toPx(), cap = StrokeCap.Round)
-            )
-        }
-
-        // 4. EVENT HORIZON SHADOW & EINSTEIN PHOTON RING (Pure #000000 Void + Blinding White Inner Ring)
-        drawCircle(
-            color = Color.Black,
-            radius = rShadow * 0.99f,
-            center = Offset(cx, cy)
-        )
-        // Outer soft photon halo
-        drawCircle(
-            color = coronaColor.copy(alpha = 0.48f),
-            radius = rShadow * 1.02f,
-            center = Offset(cx, cy),
-            style = Stroke(width = 4.5.dp.toPx())
-        )
-        // Inner incandescent white photon ring (with slight left-side Doppler brightening)
-        drawCircle(
-            color = Color.White.copy(alpha = 0.95f),
-            radius = rShadow * 0.995f,
-            center = Offset(cx, cy),
-            style = Stroke(width = 1.6.dp.toPx())
-        )
-
-        // 5. FRONT EQUATORIAL ACCRETION DISK SHEET (Passing directly in front of the Black Hole Shadow)
-        // First draw a soft volumetric glow across the entire front equatorial plane
-        val leftWing = rot(-diskRx * 1.04f, 0f)
-        val rightWing = rot(diskRx * 1.04f, 0f)
-        drawLine(
-            brush = Brush.linearGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    coronaColor.copy(alpha = 0.35f),
-                    Color.White.copy(alpha = 0.75f),
-                    Color.White.copy(alpha = 0.65f),
-                    coronaColor.copy(alpha = 0.28f),
-                    Color.Transparent
-                ),
-                start = leftWing,
-                end = rightWing
-            ),
-            start = leftWing,
-            end = rightWing,
-            strokeWidth = (rShadow * 0.42f).coerceAtLeast(8f),
-            cap = StrokeCap.Round
-        )
-
-        // Draw continuous high-density concentric gas bands across the front half (angle 0 to PI)
-        for (b in diskBands downTo 0) {
-            val f = b.toFloat() / diskBands.toFloat()
-            val rx = rShadow * 1.02f + f * (diskRx - rShadow * 1.02f)
-            val ry = rShadow * 0.07f + f * (diskRy - rShadow * 0.07f)
-            val fSteps = 36
-            var prevPt: Offset? = null
-            for (k in 0..fSteps) {
-                val a = (k.toFloat() / fSteps) * PI.toFloat() // 0 (right) to PI (left)
-                val cosA = cos(a)
-                val sinA = sin(a)
-                val pt = rot(rx * cosA, ry * sinA)
-                if (prevPt != null) {
-                    // Relativistic Doppler beaming: left side (cosA < 0, approaching observer) is intensely bright white;
-                    // right side (cosA > 0, receding) is warmer/dimmer with stronger coronaColor tint.
-                    val doppler = (1.0f - 0.36f * cosA).coerceIn(0.55f, 1.38f)
-                    // Subtle spiral shear wave rotating slowly with spinPhase
-                    val spiralWave = 0.84f + 0.16f * sin(a * 3f - spinPhase * (2.2f - f * 1.1f) + b * 0.45f)
-                    val radialFalloff = (1f - f).let { it * it * 0.65f + it * 0.35f }
-                    val segAlpha = (radialFalloff * doppler * spiralWave * 0.58f).coerceIn(0.04f, 0.98f)
-
-                    val whiteWeight = ((1f - f * 0.78f) * (if (cosA < 0f) 1.15f else 0.82f)).coerceIn(0f, 1f)
-                    val segColor = Color(
-                        red = 1f * whiteWeight + coronaColor.red * (1f - whiteWeight),
-                        green = 1f * whiteWeight + coronaColor.green * (1f - whiteWeight),
-                        blue = 1f * whiteWeight + coronaColor.blue * (1f - whiteWeight),
-                        alpha = segAlpha
-                    )
-                    drawLine(
-                        color = segColor,
-                        start = prevPt,
-                        end = pt,
-                        strokeWidth = (1.4f + (1f - f) * 2.8f).dp.toPx(),
-                        cap = StrokeCap.Round
-                    )
-                }
-                prevPt = pt
-            }
-        }
-
-        // Razor-sharp incandescent white inner equatorial core line crossing the black hole shadow
-        val corePath = Path()
-        val coreSteps = 32
-        for (k in 0..coreSteps) {
-            val a = (k.toFloat() / coreSteps) * PI.toFloat()
-            val pt = rot((rShadow * 1.55f + (diskRx - rShadow * 1.55f) * 0.25f) * cos(a), (rShadow * 0.11f) * sin(a))
-            if (k == 0) corePath.moveTo(pt.x, pt.y) else corePath.lineTo(pt.x, pt.y)
-        }
-        drawPath(
-            path = corePath,
-            color = Color.White.copy(alpha = 0.94f),
-            style = Stroke(width = 2.0.dp.toPx(), cap = StrokeCap.Round)
-        )
-    }
-}
-
 // ============================================================================
 // ULTRA-LIGHT TEXT APP DRAWER (120Hz Pure Fluid Scroll + Top-Aligned A-Z Scrubber)
 // Zero row highlighting, zero hover animations on drawer apps, zero recomposition!
@@ -4702,14 +4472,12 @@ fun WidgetsManagerView(
     quickNote: String,
     globeTheme: String,
     globeWireframeColor: String,
-    blackHoleAccentColor: String,
     onToggle24h: () -> Unit,
     onToggleTempUnit: () -> Unit,
     onRefreshWeather: () -> Unit,
     onChangeQuickNote: (String) -> Unit,
     onChangeGlobeTheme: (String) -> Unit,
     onChangeGlobeWireframeColor: (String) -> Unit,
-    onChangeBlackHoleColor: (String) -> Unit,
     onUpdateWidgets: (List<String>) -> Unit,
     onCycleWidgetSize: (String) -> Unit,
     onSetWidgetSize: (String, String) -> Unit,
@@ -4717,19 +4485,21 @@ fun WidgetsManagerView(
     onBack: () -> Unit
 ) {
     val allWidgets = listOf(
-        "clock" to "Dot-Matrix Clock, Date, Alarm & Battery Bar",
-        "weather" to "Live Weather & Sky Telemetry Row",
-        "retro_flip_clock" to "Retro Split-Flap Mechanical Clock (H:M:S)",
-        "analog_chrono" to "Braun / CMF Vector Analog Chronograph",
-        "retro_calendar" to "80s Dot-Matrix Month Calendar Grid",
-        "week_strip" to "Minimalist 7-Day Retro Timeline Strip",
-        "globe" to "3D Interactive Spinning Globe (Up to MAX Size)",
-        "blackhole" to "Gargantua Relativistic Black Hole (Resizable)",
-        "torch" to "CMF Flashlight / Glyph Torch Quick Toggle",
-        "pedometer" to "Live Hardware Step Counter & 10K Goal",
-        "storage" to "Live RAM & Internal Storage Telemetry Bar",
+        "clock" to "Dot-Matrix Clock, Date & Battery Bar",
+        "weather" to "Live Weather & Sky Telemetry",
+        "week_strip" to "7-Day Strip & Month Days Block Bar",
+        "retro_calendar" to "Dot-Matrix Month Calendar Grid",
+        "year_matrix" to "365-Day Dot-Matrix Year Progress",
+        "retro_flip_clock" to "Split-Flap Mechanical Clock",
+        "analog_chrono" to "Vector Analog Watch Dial",
+        "precision_chrono" to "Interactive Split-Lap Chronograph",
+        "crt_world_map" to "Interactive Flat CRT World Map",
+        "globe" to "3D Interactive Spinning Globe",
+        "torch" to "CMF Flashlight Quick Toggle",
+        "pedometer" to "Live Hardware Step Counter",
+        "storage" to "Live RAM & ROM Telemetry Bar",
         "zen" to "Zen Focus Timer (25m)",
-        "quote" to "Minimalist Thought / Design Ethos Quote",
+        "quote" to "Minimalist Design Quote",
         "scratchpad" to "One-Line Terminal Scratchpad"
     )
 
@@ -4764,7 +4534,7 @@ fun WidgetsManagerView(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Add, relocate, resize & customize all home widgets",
+                    text = "Add, relocate, resize & customize home widgets",
                     color = Color(0xFF737373),
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace
@@ -4835,6 +4605,26 @@ fun WidgetsManagerView(
 
                     if (enabled) {
                         Spacer(modifier = Modifier.height(10.dp))
+                        val sizeChoices = when (id) {
+                            "globe", "crt_world_map" -> listOf(
+                                "compact" to "S",
+                                "standard" to "M",
+                                "large" to "L",
+                                "xlarge" to "XL",
+                                "max" to "MAX"
+                            )
+                            "precision_chrono", "analog_chrono", "retro_flip_clock" -> listOf(
+                                "compact" to "S",
+                                "standard" to "M",
+                                "large" to "L",
+                                "xlarge" to "XL"
+                            )
+                            else -> listOf(
+                                "compact" to "S",
+                                "standard" to "M",
+                                "large" to "L"
+                            )
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -4866,17 +4656,22 @@ fun WidgetsManagerView(
                                     )
                                 }
                             }
-                            Text(
-                                text = "SIZE: ${currentSize.uppercase(Locale.US)} ↻",
-                                color = accentColor,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier
-                                    .border(1.dp, accentColor.copy(alpha = 0.55f), RoundedCornerShape(4.dp))
-                                    .clickable { onCycleWidgetSize(id) }
-                                    .padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                sizeChoices.forEach { (szId, szLbl) ->
+                                    val isSz = currentSize == szId
+                                    Text(
+                                        text = szLbl,
+                                        color = if (isSz) Color.Black else Color.White,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .background(if (isSz) accentColor else Color(0xFF191919), RoundedCornerShape(4.dp))
+                                            .clickable { onSetWidgetSize(id, szId) }
+                                            .padding(horizontal = 7.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
                         }
 
                         if (id == "clock" || id == "retro_flip_clock" || id == "analog_chrono") {
@@ -4893,7 +4688,7 @@ fun WidgetsManagerView(
                                     fontFamily = FontFamily.Monospace
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    listOf(false to "12-HOUR (PM)", true to "24-HOUR").forEach { (is24, lbl) ->
+                                    listOf(false to "12H", true to "24H").forEach { (is24, lbl) ->
                                         val sel = use24Hour == is24
                                         Text(
                                             text = lbl,
@@ -4919,7 +4714,7 @@ fun WidgetsManagerView(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "${weatherTelemetry.city} · AQI ${weatherTelemetry.aqiUs} (${weatherTelemetry.updatedTime})",
+                                    text = "${weatherTelemetry.city} · ${weatherTelemetry.updatedTime}",
                                     color = Color(0xFF8A8A8A),
                                     fontSize = 9.sp,
                                     fontFamily = FontFamily.Monospace
@@ -4937,7 +4732,7 @@ fun WidgetsManagerView(
                                             .padding(horizontal = 8.dp, vertical = 4.dp)
                                     )
                                     Text(
-                                        text = "↻ SYNC LIVE",
+                                        text = "↻ SYNC",
                                         color = accentColor,
                                         fontSize = 9.sp,
                                         fontFamily = FontFamily.Monospace,
@@ -4951,41 +4746,10 @@ fun WidgetsManagerView(
                             }
                         }
 
-                        if (id == "globe") {
+                        if (id == "globe" || id == "crt_world_map") {
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "GLOBE SIZE (INCREASE EVEN MORE UP TO MAX)",
-                                color = Color(0xFF8A8A8A),
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                listOf(
-                                    "compact" to "S",
-                                    "standard" to "M",
-                                    "large" to "L",
-                                    "xlarge" to "XL",
-                                    "max" to "MAX"
-                                ).forEach { (szId, szLbl) ->
-                                    val isSz = currentSize == szId
-                                    Text(
-                                        text = szLbl,
-                                        color = if (isSz) Color.Black else Color.White,
-                                        fontSize = 9.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .background(if (isSz) accentColor else Color(0xFF191919), RoundedCornerShape(4.dp))
-                                            .clickable { onSetWidgetSize("globe", szId) }
-                                            .padding(horizontal = 9.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Text(
-                                text = "3D GLOBE VISUAL THEME",
+                                text = "VISUAL THEME",
                                 color = Color(0xFF8A8A8A),
                                 fontSize = 9.sp,
                                 fontFamily = FontFamily.Monospace
@@ -4993,8 +4757,8 @@ fun WidgetsManagerView(
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 listOf(
-                                    "retro_holo" to "80s HOLOGRAM (GREEN/BLUE)",
-                                    "wireframe" to "3D WIREFRAME"
+                                    "retro_holo" to "CRT HOLOGRAM (GRN/BLU)",
+                                    "wireframe" to "MONOCHROME VECTOR"
                                 ).forEach { (tId, tLabel) ->
                                     val isSel = globeTheme == tId
                                     Text(
@@ -5014,7 +4778,7 @@ fun WidgetsManagerView(
                             if (globeTheme == "wireframe") {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    text = "WIREFRAME COLOR PALETTE",
+                                    text = "PHOSPHOR / VECTOR COLOR",
                                     color = Color(0xFF8A8A8A),
                                     fontSize = 9.sp,
                                     fontFamily = FontFamily.Monospace
@@ -5073,76 +4837,8 @@ fun WidgetsManagerView(
                             }
                         }
 
-                        if (id == "blackhole") {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Text(
-                                text = "ACCRETION DISK & CORONA COLOR (CORE: WHITE)",
-                                color = Color(0xFF8A8A8A),
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                listOf(
-                                    "#FFFFFF" to "WHT",
-                                    "#FF3B00" to "CMF",
-                                    "#00E5FF" to "CYN",
-                                    "#A855F7" to "PRP",
-                                    "#00FF66" to "GRN",
-                                    "#FFB000" to "GLD",
-                                    "#D71921" to "RED"
-                                ).forEach { (hex, label) ->
-                                    val isSel = blackHoleAccentColor.equals(hex, ignoreCase = true)
-                                    val swatchColor = when (hex) {
-                                        "#FFFFFF" -> Color(0xFFFFFFFF)
-                                        "#00E5FF" -> Color(0xFF00E5FF)
-                                        "#A855F7" -> Color(0xFFA855F7)
-                                        "#00FF66" -> Color(0xFF00FF66)
-                                        "#FFB000" -> Color(0xFFFFB000)
-                                        "#D71921" -> Color(0xFFD71921)
-                                        else -> Color(0xFFFF3B00)
-                                    }
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier
-                                            .border(
-                                                width = if (isSel) 1.5.dp else 1.dp,
-                                                color = if (isSel) Color.White else Color(0xFF262626),
-                                                shape = RoundedCornerShape(6.dp)
-                                            )
-                                            .background(Color(0xFF111111), RoundedCornerShape(6.dp))
-                                            .clickable { onChangeBlackHoleColor(hex) }
-                                            .padding(horizontal = 6.dp, vertical = 4.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(10.dp)
-                                                .background(swatchColor, CircleShape)
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = label,
-                                            color = if (isSel) Color.White else Color(0xFF737373),
-                                            fontSize = 8.sp,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
                         if (id == "scratchpad") {
                             Spacer(modifier = Modifier.height(10.dp))
-                            Text(
-                                text = "EDIT SCRATCHPAD LINE",
-                                color = Color(0xFF8A8A8A),
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
                             BasicTextField(
                                 value = quickNote,
                                 onValueChange = { onChangeQuickNote(it) },
@@ -5169,7 +4865,7 @@ fun WidgetsManagerView(
 
 // ============================================================================
 // PREMIUM LAUNCHER SETTINGS WITH COLLAPSIBLE ACCORDION MENUS
-// Zero widget customization clutter (all shifted to Widget Manager) & zero external brand names
+// Collapsed by default · No About section · Zero widget clutter
 // ============================================================================
 @Composable
 fun LauncherSettingsView(
@@ -5182,14 +4878,6 @@ fun LauncherSettingsView(
     wallpaperPreset: String,
     lomoFontFamily: FontFamily,
     doubleTapSleep: Boolean,
-    batteryPct: Int,
-    isCharging: Boolean,
-    batteryTempC: Float,
-    batteryVoltageMv: Int,
-    ramStatusText: String,
-    storageStatusText: String,
-    ramUsageFraction: Float,
-    storageUsageFraction: Float,
     onChangeFont: (String) -> Unit,
     onChangeAlign: (String) -> Unit,
     onChangeAccent: (String) -> Unit,
@@ -5202,12 +4890,10 @@ fun LauncherSettingsView(
     onToggleDoubleTapSleep: () -> Unit,
     onBack: () -> Unit
 ) {
-    // All settings categories collapsed by default per user request
     var expandedSystem by remember { mutableStateOf(false) }
     var expandedTypography by remember { mutableStateOf(false) }
     var expandedWallpaper by remember { mutableStateOf(false) }
     var expandedMotion by remember { mutableStateOf(false) }
-    var expandedAbout by remember { mutableStateOf(false) }
 
     val accentColor = when (accentHex) {
         "#FFFFFF" -> Color.White
@@ -5240,15 +4926,13 @@ fun LauncherSettingsView(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = "LAUNCHER SETTINGS",
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontFamily = lomoFontFamily,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Text(
+                    text = "LAUNCHER SETTINGS",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
                 Text(
                     text = "DONE",
                     color = Color.Black,
@@ -5319,7 +5003,7 @@ fun LauncherSettingsView(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "TYPEFACE ENGINE ($activeFontName)",
+                        text = "TYPEFACE ($activeFontName)",
                         color = Color(0xFF8A8A8A),
                         fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace
@@ -5350,7 +5034,7 @@ fun LauncherSettingsView(
                                 fontFamily = f.resolveFontFamily(lomoFontFamily)
                             )
                             Text(
-                                text = if (selected) "● ACTIVE" else "○",
+                                text = if (selected) "●" else "○",
                                 color = if (selected) accentColor else Color(0xFF525252),
                                 fontSize = 10.sp,
                                 fontFamily = FontFamily.Monospace
@@ -5368,7 +5052,7 @@ fun LauncherSettingsView(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "HOME APP LIST FONT SIZE",
+                        text = "APP FONT SIZE",
                         color = Color(0xFF8A8A8A),
                         fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace
@@ -5398,7 +5082,7 @@ fun LauncherSettingsView(
 
                 SettingCard(
                     title = "Home Text Alignment",
-                    subtitle = "Switch between Left, Center, or Right aligned apps",
+                    subtitle = "Left, Center, or Right aligned apps",
                     actionLabel = textAlignMode.uppercase(Locale.US),
                     lomoFontFamily = lomoFontFamily,
                     onClick = {
@@ -5438,7 +5122,7 @@ fun LauncherSettingsView(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "DEFAULT OLED WALLPAPER STYLES",
+                            text = "OLED WALLPAPER STYLES",
                             color = Color(0xFF8A8A8A),
                             fontSize = 9.sp,
                             fontFamily = FontFamily.Monospace
@@ -5510,7 +5194,7 @@ fun LauncherSettingsView(
 
                 SettingCard(
                     title = "Launcher Accent Color",
-                    subtitle = "CMF Orange (#FF3B00), Pure White (#FFFFFF), or Nothing Red (#D71921)",
+                    subtitle = "CMF Orange (#FF3B00), Pure White (#FFFFFF), or Red (#D71921)",
                     actionLabel = accentHex,
                     lomoFontFamily = lomoFontFamily,
                     onClick = {
@@ -5549,40 +5233,6 @@ fun LauncherSettingsView(
                         }
                         onChangeWaveMode(next)
                     }
-                )
-            }
-        }
-
-        item {
-            val detectedModel = remember {
-                val rawModel = Build.MODEL?.trim().orEmpty()
-                if (rawModel.isBlank() || rawModel.contains("sdk", ignoreCase = true)) {
-                    "CMF Phone 1 (A015)"
-                } else {
-                    rawModel
-                }
-            }
-            CollapsibleSettingsSection(
-                indexTag = "05",
-                title = "About Phone & Hardware",
-                subtitle = "Detected chassis back schematic, OS, SoC & live telemetry",
-                badge = detectedModel.take(14).uppercase(Locale.US),
-                expanded = expandedAbout,
-                accentColor = accentColor,
-                lomoFontFamily = lomoFontFamily,
-                onToggle = { expandedAbout = !expandedAbout }
-            ) {
-                AboutPhoneHardwareGraphicalCard(
-                    accentColor = accentColor,
-                    lomoFontFamily = lomoFontFamily,
-                    batteryPct = batteryPct,
-                    isCharging = isCharging,
-                    batteryTempC = batteryTempC,
-                    batteryVoltageMv = batteryVoltageMv,
-                    ramStatusText = ramStatusText,
-                    storageStatusText = storageStatusText,
-                    ramUsageFraction = ramUsageFraction,
-                    storageUsageFraction = storageUsageFraction
                 )
             }
         }
@@ -5880,11 +5530,8 @@ fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
 
 
 // ============================================================================
-// RETRO & MINIMALIST CLOCK AND CALENDAR WIDGETS
-// 1. RetroSplitFlapClockWidget ("retro_flip_clock")
-// 2. RetroAnalogChronoWidget ("analog_chrono")
-// 3. RetroDotMatrixCalendarWidget ("retro_calendar")
-// 4. RetroWeekTimelineStripWidget ("week_strip")
+// PREMIUM, ACCURATE, MINIMALIST RETRO CLOCK, CALENDAR & CRT WORLD MAP WIDGETS
+// Zero filler labels · 100% live-accurate · All resizable
 // ============================================================================
 
 @Composable
@@ -5902,11 +5549,13 @@ fun RetroSplitFlapClockWidget(
     val tileHeight = when (sizeMode) {
         "compact" -> 42.dp
         "large" -> 64.dp
+        "xlarge" -> 76.dp
         else -> 52.dp
     }
     val digitFontSize = when (sizeMode) {
         "compact" -> 22.sp
         "large" -> 34.sp
+        "xlarge" -> 40.sp
         else -> 28.sp
     }
     val paddedHour = hourStr.padStart(2, '0')
@@ -5919,52 +5568,19 @@ fun RetroSplitFlapClockWidget(
             .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
             .background(Color(0xFF060606), RoundedCornerShape(10.dp))
             .clickable { onToggle24h() }
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(horizontal = 12.dp, vertical = if (sizeMode == "compact") 8.dp else 10.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .background(accentColor, CircleShape)
-                )
-                Text(
-                    text = "SOLARI // SPLIT-FLAP CHRONO",
-                    color = Color(0xFF8A8A8A),
-                    fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-            Text(
-                text = dateStr,
-                color = Color(0xFFA3A3A3),
-                fontSize = 9.sp,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // HOURS FLAP TILE
             SplitFlapMechanicalTile(
                 valueText = paddedHour,
-                subLabel = "HR",
+                subLabel = "",
                 tileHeight = tileHeight,
                 fontSize = digitFontSize,
                 textColor = Color.White,
-                accentColor = accentColor,
                 lomoFontFamily = lomoFontFamily,
                 modifier = Modifier.weight(1f)
             )
@@ -5977,36 +5593,47 @@ fun RetroSplitFlapClockWidget(
                 fontWeight = FontWeight.Bold
             )
 
-            // MINUTES FLAP TILE
             SplitFlapMechanicalTile(
                 valueText = paddedMin,
-                subLabel = "MIN",
+                subLabel = "",
                 tileHeight = tileHeight,
                 fontSize = digitFontSize,
                 textColor = Color.White,
-                accentColor = accentColor,
                 lomoFontFamily = lomoFontFamily,
                 modifier = Modifier.weight(1f)
             )
 
             Text(
                 text = ":",
-                color = Color(0xFF525252),
+                color = Color(0xFF454545),
                 fontSize = 18.sp,
                 fontFamily = lomoFontFamily
             )
 
-            // SECONDS + AM/PM FLAP TILE
             SplitFlapMechanicalTile(
                 valueText = paddedSec,
-                subLabel = if (amPmStr.isNotEmpty()) amPmStr else "24H",
+                subLabel = amPmStr,
                 tileHeight = tileHeight,
                 fontSize = (digitFontSize.value * 0.78f).sp,
                 textColor = accentColor,
-                accentColor = accentColor,
                 lomoFontFamily = lomoFontFamily,
                 modifier = Modifier.weight(0.85f)
             )
+        }
+
+        if (sizeMode != "compact") {
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Text(
+                    text = dateStr,
+                    color = Color(0xFF8A8A8A),
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
         }
     }
 }
@@ -6018,15 +5645,14 @@ private fun SplitFlapMechanicalTile(
     tileHeight: androidx.compose.ui.unit.Dp,
     fontSize: androidx.compose.ui.unit.TextUnit,
     textColor: Color,
-    accentColor: Color,
     lomoFontFamily: FontFamily,
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
             .height(tileHeight)
-            .border(1.dp, Color(0xFF282828), RoundedCornerShape(7.dp))
-            .background(Color(0xFF0E0E0E), RoundedCornerShape(7.dp)),
+            .border(1.dp, Color(0xFF262626), RoundedCornerShape(7.dp))
+            .background(Color(0xFF0D0D0D), RoundedCornerShape(7.dp)),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -6036,61 +5662,78 @@ private fun SplitFlapMechanicalTile(
             fontFamily = lomoFontFamily,
             fontWeight = FontWeight.Bold
         )
-        // Horizontal mechanical split-flap hinge line across center
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.2.dp)
-                .background(Color.Black.copy(alpha = 0.88f))
+                .background(Color.Black.copy(alpha = 0.9f))
         )
-        // Left & right hinge notches
         Box(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .size(width = 3.dp, height = 6.dp)
-                .background(Color(0xFF2E2E2E))
+                .background(Color(0xFF2C2C2C))
         )
         Box(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .size(width = 3.dp, height = 6.dp)
-                .background(Color(0xFF2E2E2E))
+                .background(Color(0xFF2C2C2C))
         )
-        // Bottom-right micro tag
-        Text(
-            text = subLabel,
-            color = Color(0xFF666666),
-            fontSize = 7.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 5.dp, bottom = 2.dp)
-        )
+        if (subLabel.isNotEmpty()) {
+            Text(
+                text = subLabel,
+                color = Color(0xFF737373),
+                fontSize = 7.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 5.dp, bottom = 2.dp)
+            )
+        }
     }
 }
 
 @Composable
 fun RetroAnalogChronoWidget(
+    currentTimeMillis: Long,
     hourStr: String,
     minStr: String,
     secStr: String,
     amPmStr: String,
     dateStr: String,
-    nextAlarmStr: String,
     sizeMode: String,
     accentColor: Color,
     lomoFontFamily: FontFamily,
     onToggle24h: () -> Unit
 ) {
     val dialSize = when (sizeMode) {
-        "compact" -> 68.dp
-        "large" -> 108.dp
-        else -> 86.dp
+        "compact" -> 64.dp
+        "large" -> 106.dp
+        "xlarge" -> 128.dp
+        else -> 84.dp
     }
-    val hourInt = hourStr.toIntOrNull() ?: 4
-    val minInt = minStr.toIntOrNull() ?: 22
-    val secInt = secStr.toIntOrNull() ?: 0
-    val dayOfMonth = remember { Calendar.getInstance().get(Calendar.DAY_OF_MONTH) }
+
+    // Smooth sub-second live sweep for 100% accurate mechanical/quartz analog hands
+    var liveNowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            withFrameNanos {
+                liveNowMs = System.currentTimeMillis()
+            }
+        }
+    }
+
+    val cal = remember(liveNowMs / 100L) {
+        Calendar.getInstance().apply { timeInMillis = liveNowMs }
+    }
+    val hour12 = cal.get(Calendar.HOUR)
+    val minute = cal.get(Calendar.MINUTE)
+    val second = cal.get(Calendar.SECOND)
+    val millis = cal.get(Calendar.MILLISECOND)
+    val exactSec = second + millis / 1000f
+    val exactMin = minute + exactSec / 60f
+    val exactHour = hour12 + exactMin / 60f
 
     Row(
         modifier = Modifier
@@ -6098,11 +5741,10 @@ fun RetroAnalogChronoWidget(
             .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
             .background(Color(0xFF060606), RoundedCornerShape(10.dp))
             .clickable { onToggle24h() }
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp, vertical = if (sizeMode == "compact") 8.dp else 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Braun / CMF Minimalist Vector Circular Analog Watch Face
         Box(
             modifier = Modifier.size(dialSize),
             contentAlignment = Alignment.Center
@@ -6112,7 +5754,6 @@ fun RetroAnalogChronoWidget(
                 val cy = size.height / 2f
                 val radius = min(cx, cy) - 2.dp.toPx()
 
-                // Outer bezel ring
                 drawCircle(
                     color = Color(0xFF2C2C2C),
                     radius = radius,
@@ -6120,12 +5761,11 @@ fun RetroAnalogChronoWidget(
                     style = Stroke(width = 1.4.dp.toPx())
                 )
                 drawCircle(
-                    color = Color(0xFF0B0B0B),
+                    color = Color(0xFF0A0A0A),
                     radius = radius - 1.5.dp.toPx(),
                     center = Offset(cx, cy)
                 )
 
-                // 60 micro ticks & 12 baton hour markers
                 for (i in 0 until 60) {
                     val angleRad = Math.toRadians((i * 6 - 90).toDouble())
                     val isCardinal = i % 15 == 0
@@ -6137,37 +5777,28 @@ fun RetroAnalogChronoWidget(
                     }
                     val rOuter = radius * 0.92f
                     val rInner = rOuter - tickLen
-                    val sx = cx + (rInner * cos(angleRad)).toFloat()
-                    val sy = cy + (rInner * sin(angleRad)).toFloat()
-                    val ex = cx + (rOuter * cos(angleRad)).toFloat()
-                    val ey = cy + (rOuter * sin(angleRad)).toFloat()
                     drawLine(
                         color = when {
                             i == 0 -> accentColor
                             isCardinal -> Color.White
                             isHour -> Color(0xFFA3A3A3)
-                            else -> Color(0xFF333333)
+                            else -> Color(0xFF303030)
                         },
-                        start = Offset(sx, sy),
-                        end = Offset(ex, ey),
-                        strokeWidth = if (isHour) 1.6.dp.toPx() else 0.8.dp.toPx(),
+                        start = Offset(
+                            cx + (rInner * cos(angleRad)).toFloat(),
+                            cy + (rInner * sin(angleRad)).toFloat()
+                        ),
+                        end = Offset(
+                            cx + (rOuter * cos(angleRad)).toFloat(),
+                            cy + (rOuter * sin(angleRad)).toFloat()
+                        ),
+                        strokeWidth = if (isHour) 1.5.dp.toPx() else 0.8.dp.toPx(),
                         cap = StrokeCap.Round
                     )
                 }
 
-                // 3 o'clock date aperture window outline
-                val dateW = radius * 0.30f
-                val dateH = radius * 0.22f
-                drawRoundRect(
-                    color = Color(0xFF262626),
-                    topLeft = Offset(cx + radius * 0.34f, cy - dateH / 2f),
-                    size = Size(dateW, dateH),
-                    cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx()),
-                    style = Stroke(width = 1.dp.toPx())
-                )
-
                 // Hour hand
-                val hourAngle = Math.toRadians((((hourInt % 12) + minInt / 60f) * 30f - 90f).toDouble())
+                val hourAngle = Math.toRadians((exactHour * 30f - 90f).toDouble())
                 drawLine(
                     color = Color.White,
                     start = Offset(cx, cy),
@@ -6180,7 +5811,7 @@ fun RetroAnalogChronoWidget(
                 )
 
                 // Minute hand
-                val minAngle = Math.toRadians(((minInt + secInt / 60f) * 6f - 90f).toDouble())
+                val minAngle = Math.toRadians((exactMin * 6f - 90f).toDouble())
                 drawLine(
                     color = Color(0xFFE5E5E5),
                     start = Offset(cx, cy),
@@ -6192,8 +5823,8 @@ fun RetroAnalogChronoWidget(
                     cap = StrokeCap.Round
                 )
 
-                // Sweeping Braun / CMF Orange Second Hand with counterweight tail
-                val secAngle = Math.toRadians((secInt * 6f - 90f).toDouble())
+                // Smooth sweeping second hand
+                val secAngle = Math.toRadians((exactSec * 6f - 90f).toDouble())
                 drawLine(
                     color = accentColor,
                     start = Offset(
@@ -6208,33 +5839,31 @@ fun RetroAnalogChronoWidget(
                     cap = StrokeCap.Round
                 )
 
-                // Center pinion cap
-                drawCircle(color = accentColor, radius = 3.2.dp.toPx(), center = Offset(cx, cy))
-                drawCircle(color = Color.Black, radius = 1.2.dp.toPx(), center = Offset(cx, cy))
+                drawCircle(color = accentColor, radius = 3.dp.toPx(), center = Offset(cx, cy))
+                drawCircle(color = Color.Black, radius = 1.1.dp.toPx(), center = Offset(cx, cy))
             }
         }
 
         Spacer(modifier = Modifier.width(14.dp))
 
-        // Right-hand telemetry & digital chronograph readout
         Column(
             modifier = Modifier.weight(1f),
+            horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            Text(
-                text = "ANALOG CHRONOGRAPH // DW-86",
-                color = Color(0xFF737373),
-                fontSize = 8.sp,
-                fontFamily = FontFamily.Monospace
-            )
             Row(
                 verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 Text(
                     text = "${hourStr.padStart(2, '0')}:${minStr.padStart(2, '0')}:${secStr.padStart(2, '0')}",
                     color = Color.White,
-                    fontSize = if (sizeMode == "large") 22.sp else 18.sp,
+                    fontSize = when (sizeMode) {
+                        "xlarge" -> 26.sp
+                        "large" -> 22.sp
+                        "compact" -> 16.sp
+                        else -> 19.sp
+                    },
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold
                 )
@@ -6250,39 +5879,300 @@ fun RetroAnalogChronoWidget(
                 }
             }
             Text(
-                text = "$dateStr · DAY ${dayOfMonth.toString().padStart(2, '0')}",
-                color = Color(0xFFA3A3A3),
+                text = dateStr,
+                color = Color(0xFF8A8A8A),
                 fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace
-            )
-            Text(
-                text = "ALARM: $nextAlarmStr",
-                color = Color(0xFF666666),
-                fontSize = 9.sp,
                 fontFamily = FontFamily.Monospace
             )
         }
     }
 }
 
+// ============================================================================
+// IMPROVED INTERACTIVE PRECISION CHRONOGRAPH WIDGET ("precision_chrono")
+// Dual sub-dial vector chronograph (60s sweep + 30m register + 1/10s dial)
+// with tactile RUN/PAUSE and LAP/RST controls & 120Hz frame-accurate stopwatch
+// ============================================================================
+@Composable
+fun PrecisionChronographWidget(
+    sizeMode: String,
+    accentColor: Color,
+    lomoFontFamily: FontFamily,
+    onTick: () -> Unit
+) {
+    var running by remember { mutableStateOf(false) }
+    var accumulatedMs by remember { mutableStateOf(0L) }
+    var startRealtimeMs by remember { mutableStateOf(0L) }
+    var displayElapsedMs by remember { mutableStateOf(0L) }
+    var lastLapMs by remember { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(running) {
+        if (running) {
+            startRealtimeMs = System.currentTimeMillis()
+            while (running) {
+                withFrameNanos {
+                    displayElapsedMs = accumulatedMs + (System.currentTimeMillis() - startRealtimeMs)
+                }
+            }
+        } else {
+            displayElapsedMs = accumulatedMs
+        }
+    }
+
+    val dialSize = when (sizeMode) {
+        "compact" -> 66.dp
+        "large" -> 112.dp
+        "xlarge" -> 136.dp
+        else -> 88.dp
+    }
+
+    val totalSec = displayElapsedMs / 1000f
+    val mins = ((displayElapsedMs / 60000L) % 60L).toInt()
+    val secs = ((displayElapsedMs / 1000L) % 60L).toInt()
+    val centis = ((displayElapsedMs % 1000L) / 10L).toInt()
+    val formattedChrono = String.format(Locale.US, "%02d:%02d.%02d", mins, secs, centis)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFF242424), RoundedCornerShape(10.dp))
+            .background(Color(0xFF060606), RoundedCornerShape(10.dp))
+            .padding(horizontal = 14.dp, vertical = if (sizeMode == "compact") 8.dp else 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Dual Sub-Dial Precision Vector Chronograph Face
+        Box(
+            modifier = Modifier
+                .size(dialSize)
+                .clickable {
+                    onTick()
+                    if (running) {
+                        accumulatedMs += System.currentTimeMillis() - startRealtimeMs
+                        running = false
+                    } else {
+                        startRealtimeMs = System.currentTimeMillis()
+                        running = true
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val radius = min(cx, cy) - 2.dp.toPx()
+
+                // Outer tachymeter bezel
+                drawCircle(
+                    color = Color(0xFF2E2E2E),
+                    radius = radius,
+                    center = Offset(cx, cy),
+                    style = Stroke(width = 1.4.dp.toPx())
+                )
+                drawCircle(
+                    color = Color(0xFF0A0A0A),
+                    radius = radius - 1.5.dp.toPx(),
+                    center = Offset(cx, cy)
+                )
+
+                // 60 precision ticks
+                for (i in 0 until 60) {
+                    val angleRad = Math.toRadians((i * 6 - 90).toDouble())
+                    val isFive = i % 5 == 0
+                    val tickLen = if (isFive) radius * 0.14f else radius * 0.06f
+                    val rOut = radius * 0.92f
+                    val rIn = rOut - tickLen
+                    drawLine(
+                        color = if (i == 0) accentColor else if (isFive) Color.White else Color(0xFF333333),
+                        start = Offset(
+                            cx + (rIn * cos(angleRad)).toFloat(),
+                            cy + (rIn * sin(angleRad)).toFloat()
+                        ),
+                        end = Offset(
+                            cx + (rOut * cos(angleRad)).toFloat(),
+                            cy + (rOut * sin(angleRad)).toFloat()
+                        ),
+                        strokeWidth = if (isFive) 1.4.dp.toPx() else 0.8.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+
+                // Upper sub-register (30-minute accumulator)
+                val subR = radius * 0.24f
+                val topSubCenter = Offset(cx, cy - radius * 0.36f)
+                drawCircle(
+                    color = Color(0xFF262626),
+                    radius = subR,
+                    center = topSubCenter,
+                    style = Stroke(width = 1.dp.toPx())
+                )
+                val minSubAngle = Math.toRadians((((totalSec / 60f) % 30f) * 12f - 90f).toDouble())
+                drawLine(
+                    color = Color.White,
+                    start = topSubCenter,
+                    end = Offset(
+                        topSubCenter.x + (subR * 0.78f * cos(minSubAngle)).toFloat(),
+                        topSubCenter.y + (subR * 0.78f * sin(minSubAngle)).toFloat()
+                    ),
+                    strokeWidth = 1.3.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+
+                // Lower sub-register (1/10s high-speed sweep)
+                val botSubCenter = Offset(cx, cy + radius * 0.36f)
+                drawCircle(
+                    color = Color(0xFF262626),
+                    radius = subR,
+                    center = botSubCenter,
+                    style = Stroke(width = 1.dp.toPx())
+                )
+                val tenthAngle = Math.toRadians((((displayElapsedMs % 1000L) / 1000f) * 360f - 90f).toDouble())
+                drawLine(
+                    color = accentColor,
+                    start = botSubCenter,
+                    end = Offset(
+                        botSubCenter.x + (subR * 0.78f * cos(tenthAngle)).toFloat(),
+                        botSubCenter.y + (subR * 0.78f * sin(tenthAngle)).toFloat()
+                    ),
+                    strokeWidth = 1.2.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+
+                // Main 60s chronograph sweep hand
+                val mainSecAngle = Math.toRadians(((totalSec % 60f) * 6f - 90f).toDouble())
+                drawLine(
+                    color = accentColor,
+                    start = Offset(
+                        cx - (radius * 0.18f * cos(mainSecAngle)).toFloat(),
+                        cy - (radius * 0.18f * sin(mainSecAngle)).toFloat()
+                    ),
+                    end = Offset(
+                        cx + (radius * 0.82f * cos(mainSecAngle)).toFloat(),
+                        cy + (radius * 0.82f * sin(mainSecAngle)).toFloat()
+                    ),
+                    strokeWidth = 1.5.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+
+                drawCircle(color = Color.White, radius = 2.8.dp.toPx(), center = Offset(cx, cy))
+                drawCircle(color = accentColor, radius = 1.2.dp.toPx(), center = Offset(cx, cy))
+            }
+        }
+
+        Spacer(modifier = Modifier.width(14.dp))
+
+        // Right side: Digital centisecond readout + Tactile RUN/LAP/RST controls
+        Column(
+            modifier = Modifier.weight(1f),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = formattedChrono,
+                color = Color.White,
+                fontSize = when (sizeMode) {
+                    "xlarge" -> 26.sp
+                    "large" -> 22.sp
+                    "compact" -> 16.sp
+                    else -> 19.sp
+                },
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
+
+            if (lastLapMs != null && sizeMode != "compact") {
+                val lm = ((lastLapMs!! / 60000L) % 60L).toInt()
+                val ls = ((lastLapMs!! / 1000L) % 60L).toInt()
+                val lc = ((lastLapMs!! % 1000L) / 10L).toInt()
+                Text(
+                    text = String.format(Locale.US, "LAP %02d:%02d.%02d", lm, ls, lc),
+                    color = Color(0xFF737373),
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = if (running) "PAUSE" else "START",
+                    color = if (running) Color.Black else Color.White,
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .background(
+                            if (running) accentColor else Color(0xFF171717),
+                            RoundedCornerShape(5.dp)
+                        )
+                        .border(
+                            1.dp,
+                            if (running) accentColor else Color(0xFF2E2E2E),
+                            RoundedCornerShape(5.dp)
+                        )
+                        .clickable {
+                            onTick()
+                            if (running) {
+                                accumulatedMs += System.currentTimeMillis() - startRealtimeMs
+                                running = false
+                            } else {
+                                startRealtimeMs = System.currentTimeMillis()
+                                running = true
+                            }
+                        }
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+
+                Text(
+                    text = if (running) "LAP" else "RESET",
+                    color = Color(0xFFA3A3A3),
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .border(1.dp, Color(0xFF282828), RoundedCornerShape(5.dp))
+                        .background(Color(0xFF101010), RoundedCornerShape(5.dp))
+                        .clickable {
+                            onTick()
+                            if (running) {
+                                lastLapMs = displayElapsedMs
+                            } else {
+                                accumulatedMs = 0L
+                                displayElapsedMs = 0L
+                                lastLapMs = null
+                            }
+                        }
+                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                )
+            }
+        }
+    }
+}
+
+// ============================================================================
+// ACCURATE DOT-MATRIX MONTH CALENDAR WIDGET ("retro_calendar")
+// Live Calendar.getInstance() · Minimal header · Resizable
+// ============================================================================
 @Composable
 fun RetroDotMatrixCalendarWidget(
+    currentTimeMillis: Long,
     sizeMode: String,
     accentColor: Color,
     lomoFontFamily: FontFamily
 ) {
-    val cal = remember { Calendar.getInstance() }
+    val cal = remember(currentTimeMillis / 60_000L) {
+        Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
+    }
     val todayDay = cal.get(Calendar.DAY_OF_MONTH)
-    val weekOfYear = cal.get(Calendar.WEEK_OF_YEAR)
-    val monthTitle = remember {
+    val monthTitle = remember(currentTimeMillis / 60_000L) {
         SimpleDateFormat("MMMM yyyy", Locale.ENGLISH).format(cal.time).uppercase(Locale.ENGLISH)
     }
 
-    // Compute Monday-indexed offset & days in current month
-    val (leadingBlanks, daysInMonth) = remember {
-        val temp = Calendar.getInstance()
-        temp.set(Calendar.DAY_OF_MONTH, 1)
-        val dow = temp.get(Calendar.DAY_OF_WEEK) // Sun=1 .. Sat=7
+    val (leadingBlanks, daysInMonth) = remember(currentTimeMillis / 60_000L) {
+        val temp = Calendar.getInstance().apply {
+            timeInMillis = currentTimeMillis
+            set(Calendar.DAY_OF_MONTH, 1)
+        }
+        val dow = temp.get(Calendar.DAY_OF_WEEK)
         val mondayOffset = if (dow == Calendar.SUNDAY) 6 else dow - Calendar.MONDAY
         val maxDay = temp.getActualMaximum(Calendar.DAY_OF_MONTH)
         mondayOffset to maxDay
@@ -6298,43 +6188,29 @@ fun RetroDotMatrixCalendarWidget(
             .background(Color(0xFF050505), RoundedCornerShape(10.dp))
             .padding(horizontal = 12.dp, vertical = if (sizeMode == "compact") 8.dp else 12.dp)
     ) {
-        // Header row: Month + Year & Week number badge
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .background(accentColor, CircleShape)
-                )
-                Text(
-                    text = monthTitle,
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold
-                )
-            }
             Text(
-                text = "WK ${weekOfYear.toString().padStart(2, '0')} · MATRIX",
+                text = monthTitle,
+                color = Color.White,
+                fontSize = if (sizeMode == "large") 13.sp else 11.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "${todayDay.toString().padStart(2, '0')} / $daysInMonth",
                 color = accentColor,
                 fontSize = 9.sp,
                 fontFamily = FontFamily.Monospace,
-                modifier = Modifier
-                    .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                fontWeight = FontWeight.Bold
             )
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Day-of-week header bar
         Row(modifier = Modifier.fillMaxWidth()) {
             dayHeaders.forEachIndexed { idx, dName ->
                 Text(
@@ -6358,7 +6234,6 @@ fun RetroDotMatrixCalendarWidget(
         )
         Spacer(modifier = Modifier.height(6.dp))
 
-        // 7-column calendar days grid
         val rows = (0 until totalCells).chunked(7)
         Column(verticalArrangement = Arrangement.spacedBy(if (sizeMode == "large") 6.dp else 3.dp)) {
             rows.forEach { weekCells ->
@@ -6375,11 +6250,10 @@ fun RetroDotMatrixCalendarWidget(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(if (sizeMode == "large") 26.dp else 21.dp)
+                                .height(if (sizeMode == "large") 26.dp else if (sizeMode == "compact") 18.dp else 21.dp)
                                 .then(
                                     if (isToday) {
-                                        Modifier
-                                            .background(accentColor, RoundedCornerShape(4.dp))
+                                        Modifier.background(accentColor, RoundedCornerShape(4.dp))
                                     } else {
                                         Modifier
                                     }
@@ -6406,27 +6280,39 @@ fun RetroDotMatrixCalendarWidget(
     }
 }
 
+// ============================================================================
+// 7-DAY TIMELINE STRIP + EXACT MONTH DAYS PROGRESS BLOCKS ("week_strip")
+// Renders the 7-day Monday-Sunday strip AND the exact number of days in the
+// current month (28/29, 30, or 31) as thin vertical progress blocks!
+// ============================================================================
 @Composable
 fun RetroWeekTimelineStripWidget(
+    currentTimeMillis: Long,
     sizeMode: String,
     accentColor: Color,
     lomoFontFamily: FontFamily
 ) {
-    val cal = remember { Calendar.getInstance() }
-    val todayDow = cal.get(Calendar.DAY_OF_WEEK)
-    val hourOfDay = cal.get(Calendar.HOUR_OF_DAY)
-    val minuteOfHour = cal.get(Calendar.MINUTE)
-    val dayProgressPct = ((hourOfDay * 60 + minuteOfHour) * 100) / 1440
+    val cal = remember(currentTimeMillis / 60_000L) {
+        Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
+    }
+    val todayDayOfMonth = cal.get(Calendar.DAY_OF_MONTH)
+    val todayYear = cal.get(Calendar.YEAR)
+    val todayDayOfYear = cal.get(Calendar.DAY_OF_YEAR)
+    val daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH) // Exact 28, 29, 30, or 31 days!
+    val shortMonth = remember(currentTimeMillis / 60_000L) {
+        SimpleDateFormat("MMM", Locale.ENGLISH).format(cal.time).uppercase(Locale.ENGLISH)
+    }
 
-    val weekDays = remember {
-        val temp = Calendar.getInstance()
+    val weekDays = remember(currentTimeMillis / 60_000L) {
+        val temp = Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
         val currentDow = temp.get(Calendar.DAY_OF_WEEK)
         val deltaToMonday = if (currentDow == Calendar.SUNDAY) -6 else Calendar.MONDAY - currentDow
         temp.add(Calendar.DAY_OF_MONTH, deltaToMonday)
-        val labels = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+        val labels = listOf("MO", "TU", "WE", "TH", "FR", "SA", "SU")
         labels.map { lbl ->
             val dNum = temp.get(Calendar.DAY_OF_MONTH)
-            val isToday = temp.get(Calendar.DAY_OF_WEEK) == todayDow
+            val isToday = temp.get(Calendar.YEAR) == todayYear &&
+                temp.get(Calendar.DAY_OF_YEAR) == todayDayOfYear
             temp.add(Calendar.DAY_OF_MONTH, 1)
             Triple(lbl, dNum, isToday)
         }
@@ -6437,30 +6323,9 @@ fun RetroWeekTimelineStripWidget(
             .fillMaxWidth()
             .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
             .background(Color(0xFF060606), RoundedCornerShape(10.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(horizontal = 12.dp, vertical = if (sizeMode == "compact") 8.dp else 10.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "7-DAY TIMELINE STRIP",
-                color = Color(0xFF8A8A8A),
-                fontSize = 9.sp,
-                fontFamily = FontFamily.Monospace
-            )
-            Text(
-                text = "DAY ELAPSED // $dayProgressPct%",
-                color = accentColor,
-                fontSize = 9.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
+        // 7-Day Monday-Sunday Strip
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -6471,14 +6336,14 @@ fun RetroWeekTimelineStripWidget(
                         .weight(1f)
                         .border(
                             1.dp,
-                            if (isToday) accentColor else Color(0xFF202020),
+                            if (isToday) accentColor else Color(0xFF1F1F1F),
                             RoundedCornerShape(6.dp)
                         )
                         .background(
-                            if (isToday) accentColor.copy(alpha = 0.16f) else Color(0xFF0D0D0D),
+                            if (isToday) accentColor.copy(alpha = 0.16f) else Color(0xFF0C0C0C),
                             RoundedCornerShape(6.dp)
                         )
-                        .padding(vertical = if (sizeMode == "large") 8.dp else 6.dp),
+                        .padding(vertical = if (sizeMode == "large") 8.dp else if (sizeMode == "compact") 4.dp else 6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
@@ -6496,597 +6361,452 @@ fun RetroWeekTimelineStripWidget(
                         fontFamily = lomoFontFamily,
                         fontWeight = FontWeight.Bold
                     )
-                    Box(
-                        modifier = Modifier
-                            .size(4.dp)
-                            .background(
-                                if (isToday) accentColor else Color.Transparent,
-                                CircleShape
-                            )
-                    )
                 }
             }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Segmented retro progress bar for the current 24h cycle
+        // Exact Month Days Thin Progress Blocks (28/29, 30, or 31 blocks)
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            val totalSegs = 24
-            val activeSegs = ((dayProgressPct / 100f) * totalSegs).roundToInt().coerceIn(1, totalSegs)
-            for (i in 0 until totalSegs) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(3.dp)
-                        .background(
-                            when {
-                                i < activeSegs - 1 -> Color.White
-                                i == activeSegs - 1 -> accentColor
-                                else -> Color(0xFF1D1D1D)
-                            },
-                            RoundedCornerShape(1.dp)
-                        )
-                )
-            }
-        }
-    }
-}
-
-// ============================================================================
-// GRAPHICAL "ABOUT PHONE & HARDWARE" SECTION AT BOTTOM OF LAUNCHER SETTINGS
-// Dynamically detects phone model, OS, SoC, CPU cores, display & live telemetry,
-// and draws an industrial back-view schematic of the detected phone!
-// ============================================================================
-
-@Composable
-fun AboutPhoneHardwareGraphicalCard(
-    accentColor: Color,
-    lomoFontFamily: FontFamily,
-    batteryPct: Int,
-    isCharging: Boolean,
-    batteryTempC: Float,
-    batteryVoltageMv: Int,
-    ramStatusText: String,
-    storageStatusText: String,
-    ramUsageFraction: Float,
-    storageUsageFraction: Float
-) {
-    val context = LocalContext.current
-    val dm = context.resources.displayMetrics
-    val screenRes = "${dm.widthPixels} × ${dm.heightPixels} PX"
-    val screenDpi = "${dm.densityDpi} DPI"
-
-    val detectedBrand = remember {
-        val b = Build.MANUFACTURER?.trim().orEmpty()
-        if (b.isBlank() || b.contains("unknown", ignoreCase = true) || b.contains("google", ignoreCase = true)) {
-            "CMF BY NOTHING"
-        } else {
-            b.uppercase(Locale.US)
-        }
-    }
-    val detectedModel = remember {
-        val m = Build.MODEL?.trim().orEmpty()
-        if (m.isBlank() || m.contains("sdk", ignoreCase = true)) {
-            "CMF PHONE 1 (A015)"
-        } else {
-            m.uppercase(Locale.US)
-        }
-    }
-    val detectedOs = remember {
-        val rel = Build.VERSION.RELEASE ?: "14"
-        val disp = Build.DISPLAY ?: "Nothing OS 2.6"
-        "Nothing OS 2.6 · Android $rel (API ${Build.VERSION.SDK_INT})"
-    }
-    val detectedSoc = remember {
-        val hw = if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else Build.HARDWARE
-        if (hw.isNullOrBlank() || hw.contains("ranchu", ignoreCase = true) || hw.equals("unknown", ignoreCase = true)) {
-            "MediaTek Dimensity 7300 5G (4nm)"
-        } else {
-            "$hw · ${Build.HARDWARE.uppercase(Locale.US)}"
-        }
-    }
-    val cpuCores = remember { Runtime.getRuntime().availableProcessors().coerceAtLeast(8) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, Color(0xFF242424), RoundedCornerShape(12.dp))
-            .background(Color(0xFF060606), RoundedCornerShape(12.dp))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // Top section: Graphical Back-View Schematic of Detected Phone + Core Identity
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Graphical Back View of the Detected Phone (Industrial CMF Backplate Schematic)
-            DetectedPhoneBackSchematicCanvas(
-                accentColor = accentColor,
-                modelTag = "A015",
-                modifier = Modifier
-                    .width(108.dp)
-                    .height(198.dp)
-            )
-
-            // Right-side Hardware & OS Identification Readout
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .background(accentColor, CircleShape)
-                    )
-                    Text(
-                        text = "DETECTED CHASSIS // BACK VIEW",
-                        color = accentColor,
-                        fontSize = 8.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Text(
-                    text = detectedModel,
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "$detectedBrand · INDUSTRIAL MODULAR BODY",
-                    color = Color(0xFFA3A3A3),
-                    fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-
-                HardwareSpecBadgeRow(label = "OS BUILD", value = detectedOs, accentColor = accentColor)
-                HardwareSpecBadgeRow(label = "PROCESSOR", value = detectedSoc, accentColor = accentColor)
-                HardwareSpecBadgeRow(
-                    label = "DISPLAY",
-                    value = "120Hz AMOLED · $screenRes ($screenDpi)",
-                    accentColor = accentColor
-                )
-                HardwareSpecBadgeRow(
-                    label = "OPTICS",
-                    value = "50MP SONY IMX882 f/1.8 + PORTRAIT SENSOR",
-                    accentColor = accentColor
-                )
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(Color(0xFF1A1A1A))
-        )
-
-        // Graphical 8-Core CPU Cluster Matrix + Live Battery/Thermal Telemetry
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            // Left card: 8-Core CPU Topology Grid
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .border(1.dp, Color(0xFF1F1F1F), RoundedCornerShape(8.dp))
-                    .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
-                    .padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "CPU TOPOLOGY",
-                        color = Color(0xFF8A8A8A),
-                        fontSize = 8.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Text(
-                        text = "${cpuCores}-CORE 64-BIT",
-                        color = accentColor,
-                        fontSize = 8.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    for (c in 0 until 8) {
-                        val isPerfCore = c < 4
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .border(
-                                    1.dp,
-                                    if (isPerfCore) accentColor.copy(alpha = 0.7f) else Color(0xFF333333),
-                                    RoundedCornerShape(3.dp)
-                                )
-                                .background(
-                                    if (isPerfCore) accentColor.copy(alpha = 0.16f) else Color(0xFF141414),
-                                    RoundedCornerShape(3.dp)
-                                )
-                                .padding(vertical = 5.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = "C$c",
-                                color = if (isPerfCore) Color.White else Color(0xFF8A8A8A),
-                                fontSize = 7.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-                Text(
-                    text = "4× A78 @ 2.5GHz + 4× A55 @ 2.0GHz",
-                    color = Color(0xFF666666),
-                    fontSize = 8.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-
-            // Right card: Battery, Thermal & Voltage Telemetry
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .border(1.dp, Color(0xFF1F1F1F), RoundedCornerShape(8.dp))
-                    .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
-                    .padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "CELL & THERMAL",
-                        color = Color(0xFF8A8A8A),
-                        fontSize = 8.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Text(
-                        text = if (isCharging) "⚡ CHARGING" else "5000 mAh",
-                        color = accentColor,
-                        fontSize = 8.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Text(
-                    text = "$batteryPct% · ${String.format(Locale.US, "%.1f", batteryTempC)}°C · ${batteryVoltageMv}mV",
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "33W FAST CHARGE · LI-PO HEALTH GOOD",
-                    color = Color(0xFF666666),
-                    fontSize = 8.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-        }
-
-        // Graphical Segmented LED Bars for Live RAM and UFS Storage
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(1.dp, Color(0xFF1F1F1F), RoundedCornerShape(8.dp))
-                .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
-                .padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            SegmentedHardwareBarRow(
-                title = "SYSTEM MEMORY",
-                valueText = ramStatusText,
-                fraction = ramUsageFraction,
-                accentColor = accentColor
-            )
-            SegmentedHardwareBarRow(
-                title = "UFS INTERNAL ROM",
-                valueText = storageStatusText,
-                fraction = storageUsageFraction,
-                accentColor = Color.White
-            )
-        }
-    }
-}
-
-@Composable
-private fun HardwareSpecBadgeRow(
-    label: String,
-    value: String,
-    accentColor: Color
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, Color(0xFF1C1C1C), RoundedCornerShape(6.dp))
-            .background(Color(0xFF0B0B0B), RoundedCornerShape(6.dp))
-            .padding(horizontal = 8.dp, vertical = 5.dp)
-    ) {
-        Text(
-            text = label,
-            color = Color(0xFF6E6E6E),
-            fontSize = 7.sp,
-            fontFamily = FontFamily.Monospace
-        )
-        Text(
-            text = value,
-            color = Color.White,
-            fontSize = 9.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-@Composable
-private fun SegmentedHardwareBarRow(
-    title: String,
-    valueText: String,
-    fraction: Float,
-    accentColor: Color
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = title,
+                text = shortMonth,
                 color = Color(0xFF8A8A8A),
                 fontSize = 8.sp,
-                fontFamily = FontFamily.Monospace
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                for (dayIdx in 1..daysInMonth) {
+                    val isPast = dayIdx < todayDayOfMonth
+                    val isCurrent = dayIdx == todayDayOfMonth
+                    val blockHeight = when {
+                        sizeMode == "large" && isCurrent -> 11.dp
+                        sizeMode == "large" -> 8.dp
+                        isCurrent -> 8.dp
+                        else -> 5.dp
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(blockHeight)
+                            .background(
+                                color = when {
+                                    isCurrent -> accentColor
+                                    isPast -> Color.White.copy(alpha = 0.80f)
+                                    else -> Color(0xFF1D1D1D)
+                                },
+                                shape = RoundedCornerShape(1.dp)
+                            )
+                    )
+                }
+            }
+
+            Text(
+                text = "${todayDayOfMonth.toString().padStart(2, '0')}/$daysInMonth",
+                color = accentColor,
+                fontSize = 8.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+// ============================================================================
+// 365-DAY DOT-MATRIX YEAR PROGRESS WIDGET ("year_matrix")
+// Leap-year accurate (365 or 366 dots) · Minimalist · Resizable
+// ============================================================================
+@Composable
+fun RetroYearDotMatrixWidget(
+    currentTimeMillis: Long,
+    sizeMode: String,
+    accentColor: Color,
+    lomoFontFamily: FontFamily
+) {
+    val cal = remember(currentTimeMillis / 60_000L) {
+        Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
+    }
+    val yearNum = cal.get(Calendar.YEAR)
+    val dayOfYear = cal.get(Calendar.DAY_OF_YEAR)
+    val totalDaysInYear = cal.getActualMaximum(Calendar.DAY_OF_YEAR) // 365 or 366
+
+    val canvasHeight = when (sizeMode) {
+        "compact" -> 44.dp
+        "large" -> 82.dp
+        else -> 62.dp
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
+            .background(Color(0xFF060606), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = if (sizeMode == "compact") 8.dp else 10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = yearNum.toString(),
+                color = Color.White,
+                fontSize = 11.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
             )
             Text(
-                text = valueText,
-                color = Color.White,
+                text = "$dayOfYear / $totalDaysInYear",
+                color = accentColor,
                 fontSize = 9.sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold
             )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(canvasHeight)
         ) {
-            val totalSegments = 16
-            val filled = (fraction.coerceIn(0.05f, 1f) * totalSegments).roundToInt().coerceIn(1, totalSegments)
-            for (i in 0 until totalSegments) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(5.dp)
-                        .background(
-                            if (i < filled) accentColor else Color(0xFF1E1E1E),
-                            RoundedCornerShape(1.5.dp)
-                        )
+            val cols = 37
+            val rows = 10
+            val cellW = size.width / cols.toFloat()
+            val cellH = size.height / rows.toFloat()
+            val dotR = (min(cellW, cellH) * 0.28f).coerceAtLeast(1.4f)
+
+            for (d in 1..totalDaysInYear) {
+                val idx = d - 1
+                val c = idx % cols
+                val r = idx / cols
+                val cx = c * cellW + cellW * 0.5f
+                val cy = r * cellH + cellH * 0.5f
+                val col = when {
+                    d == dayOfYear -> accentColor
+                    d < dayOfYear -> Color.White.copy(alpha = 0.78f)
+                    else -> Color(0xFF222222)
+                }
+                drawCircle(
+                    color = col,
+                    radius = if (d == dayOfYear) dotR * 1.35f else dotR,
+                    center = Offset(cx, cy)
                 )
             }
         }
     }
 }
 
+// ============================================================================
+// INTERACTIVE FLAT CRT WORLD MAP WIDGET ("crt_world_map")
+// Flat 2D equirectangular world map rendered like a vintage 80s-90s CRT screen:
+// - 106 high-precision country borders from WORLD_COUNTRY_BORDERS
+// - Interactive finger drag to pan across longitudes/latitudes + move target reticle (⊕)
+// - Double-tap to cycle CRT zoom (1.0x -> 1.8x -> 2.8x)
+// - Horizontal CRT phosphor scanlines, lat/lon graticule grid & live UTC solar terminator wave
+// ============================================================================
 @Composable
-fun DetectedPhoneBackSchematicCanvas(
+fun RetroCrtFlatWorldMapWidget(
+    currentTimeMillis: Long,
+    mapHeight: androidx.compose.ui.unit.Dp,
+    globeTheme: String,
+    globeWireframeColor: String,
     accentColor: Color,
-    modelTag: String,
-    modifier: Modifier = Modifier
+    onTick: () -> Unit
 ) {
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val pad = 4.dp.toPx()
-        val bodyW = w - pad * 2f
-        val bodyH = h - pad * 2f
-        val corner = 16.dp.toPx()
+    var centerLon by remember { mutableStateOf(20f) }
+    var centerLat by remember { mutableStateOf(15f) }
+    var zoomLevel by remember { mutableStateOf(1.0f) }
+    var reticleLon by remember { mutableStateOf(83.4f) } // Raigarh longitude
+    var reticleLat by remember { mutableStateOf(21.9f) } // Raigarh latitude
 
-        // Subtle technical grid behind the phone backplate
-        val gridStep = 12.dp.toPx()
-        var gx = 0f
-        while (gx <= w) {
-            drawLine(
-                color = Color.White.copy(alpha = 0.04f),
-                start = Offset(gx, 0f),
-                end = Offset(gx, h),
-                strokeWidth = 1f
-            )
-            gx += gridStep
+    val isWireframe = globeTheme == "wireframe"
+    val wfColor = remember(globeWireframeColor) {
+        when (globeWireframeColor.uppercase(Locale.US)) {
+            "#00FF66" -> Color(0xFF00FF66)
+            "#00E5FF" -> Color(0xFF00E5FF)
+            "#FFFFFF" -> Color(0xFFFFFFFF)
+            "#D71921" -> Color(0xFFD71921)
+            "#FFB000" -> Color(0xFFFFB000)
+            "#3B82F6" -> Color(0xFF3B82F6)
+            else -> Color(0xFFFF3B00)
         }
+    }
 
-        // Main polycarbonate / matte black replaceable backplate
-        drawRoundRect(
-            color = Color(0xFF0E0E0E),
-            topLeft = Offset(pad, pad),
-            size = Size(bodyW, bodyH),
-            cornerRadius = CornerRadius(corner, corner)
-        )
-        drawRoundRect(
-            color = Color.White.copy(alpha = 0.78f),
-            topLeft = Offset(pad, pad),
-            size = Size(bodyW, bodyH),
-            cornerRadius = CornerRadius(corner, corner),
-            style = Stroke(width = 1.6.dp.toPx())
-        )
+    val landFillColor = if (isWireframe) {
+        wfColor.copy(alpha = 0.12f)
+    } else {
+        Color(0xFF00E676).copy(alpha = 0.22f)
+    }
+    val landBorderColor = if (isWireframe) {
+        wfColor.copy(alpha = 0.88f)
+    } else {
+        Color(0xFF44FF99).copy(alpha = 0.92f)
+    }
+    val oceanBgColor = if (isWireframe) {
+        Color(0xFF040404)
+    } else {
+        Color(0xFF030B14)
+    }
+    val gridColor = if (isWireframe) {
+        wfColor.copy(alpha = 0.14f)
+    } else {
+        Color(0xFF00B4FF).copy(alpha = 0.16f)
+    }
 
-        // Inner industrial seam groove
-        val seamInset = pad + 5.dp.toPx()
-        drawRoundRect(
-            color = Color(0xFF262626),
-            topLeft = Offset(seamInset, seamInset),
-            size = Size(w - seamInset * 2f, h - seamInset * 2f),
-            cornerRadius = CornerRadius(corner - 4.dp.toPx(), corner - 4.dp.toPx()),
-            style = Stroke(width = 0.9.dp.toPx())
-        )
+    val latHem = if (reticleLat >= 0f) "N" else "S"
+    val lonHem = if (reticleLon >= 0f) "E" else "W"
+    val coordReadout = String.format(
+        Locale.US,
+        "%.1f°%s %.1f°%s",
+        abs(reticleLat),
+        latHem,
+        abs(reticleLon),
+        lonHem
+    )
 
-        // Top-Left Dual 50MP Camera Pill Island
-        val camLeft = pad + bodyW * 0.12f
-        val camTop = pad + bodyH * 0.07f
-        val camW = bodyW * 0.30f
-        val camH = bodyH * 0.27f
-        val camCorner = camW / 2f
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(mapHeight)
+            .border(1.dp, Color(0xFF282828), RoundedCornerShape(10.dp))
+            .background(oceanBgColor, RoundedCornerShape(10.dp))
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        onTick()
+                        zoomLevel = when {
+                            zoomLevel < 1.4f -> 1.8f
+                            zoomLevel < 2.3f -> 2.8f
+                            else -> 1.0f
+                        }
+                        if (zoomLevel == 1.0f) {
+                            centerLat = 10f
+                        }
+                    },
+                    onTap = { tapOffset ->
+                        onTick()
+                        val w = size.width.toFloat().coerceAtLeast(1f)
+                        val h = size.height.toFloat().coerceAtLeast(1f)
+                        val spanLon = 360f / zoomLevel
+                        val spanLat = 165f / zoomLevel
+                        val lon = centerLon + ((tapOffset.x / w) - 0.5f) * spanLon
+                        val lat = centerLat - ((tapOffset.y / h) - 0.5f) * spanLat
+                        reticleLon = (((lon + 180f) % 360f + 360f) % 360f) - 180f
+                        reticleLat = lat.coerceIn(-80f, 80f)
+                    }
+                )
+            }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    var prevPos = down.position
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull()
+                        if (change != null && change.pressed) {
+                            val delta = change.position - prevPos
+                            if (delta.getDistance() > 0.5f) {
+                                change.consume()
+                                val w = size.width.toFloat().coerceAtLeast(1f)
+                                val h = size.height.toFloat().coerceAtLeast(1f)
+                                val spanLon = 360f / zoomLevel
+                                val spanLat = 165f / zoomLevel
+                                centerLon = (((centerLon - (delta.x / w) * spanLon + 180f) % 360f + 360f) % 360f) - 180f
+                                val maxLatPan = (82f - spanLat * 0.42f).coerceAtLeast(12f)
+                                centerLat = (centerLat + (delta.y / h) * spanLat).coerceIn(-maxLatPan, maxLatPan)
+                                reticleLon = centerLon
+                                reticleLat = centerLat
+                                prevPos = change.position
+                            }
+                        }
+                    } while (event.changes.any { it.pressed })
+                }
+            }
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val spanLon = 360f / zoomLevel
+            val spanLat = 165f / zoomLevel
 
-        drawRoundRect(
-            color = Color(0xFF171717),
-            topLeft = Offset(camLeft, camTop),
-            size = Size(camW, camH),
-            cornerRadius = CornerRadius(camCorner, camCorner)
-        )
-        drawRoundRect(
-            color = accentColor.copy(alpha = 0.85f),
-            topLeft = Offset(camLeft, camTop),
-            size = Size(camW, camH),
-            cornerRadius = CornerRadius(camCorner, camCorner),
-            style = Stroke(width = 1.3.dp.toPx())
-        )
+            fun mapToScreen(lat: Float, lon: Float): Offset {
+                var dLon = lon - centerLon
+                while (dLon > 180f) dLon -= 360f
+                while (dLon < -180f) dLon += 360f
+                val x = (0.5f + dLon / spanLon) * w
+                val y = (0.5f - (lat - centerLat) / spanLat) * h
+                return Offset(x, y)
+            }
 
-        // Upper 50MP main lens + Lower portrait lens
-        val lensCenterX = camLeft + camW / 2f
-        val lensRadius = camW * 0.33f
-        val lens1Y = camTop + camH * 0.29f
-        val lens2Y = camTop + camH * 0.71f
+            // 1. CRT Lat/Lon Graticule Grid (every 30 deg)
+            var lonGrid = -180f
+            while (lonGrid <= 150f) {
+                val pt = mapToScreen(0f, lonGrid)
+                if (pt.x in 0f..w) {
+                    val isPrime = abs(lonGrid) < 0.1f
+                    drawLine(
+                        color = if (isPrime) gridColor.copy(alpha = 0.30f) else gridColor,
+                        start = Offset(pt.x, 0f),
+                        end = Offset(pt.x, h),
+                        strokeWidth = 1f,
+                        pathEffect = if (isPrime) PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f) else null
+                    )
+                }
+                lonGrid += 30f
+            }
 
-        listOf(lens1Y, lens2Y).forEach { ly ->
-            drawCircle(
-                color = Color(0xFF050505),
-                radius = lensRadius,
-                center = Offset(lensCenterX, ly)
+            var latGrid = -60f
+            while (latGrid <= 60f) {
+                val pt = mapToScreen(latGrid, centerLon)
+                if (pt.y in 0f..h) {
+                    val isEquator = abs(latGrid) < 0.1f
+                    drawLine(
+                        color = if (isEquator) gridColor.copy(alpha = 0.32f) else gridColor,
+                        start = Offset(0f, pt.y),
+                        end = Offset(w, pt.y),
+                        strokeWidth = 1f,
+                        pathEffect = if (isEquator) PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f) else null
+                    )
+                }
+                latGrid += 30f
+            }
+
+            // 2. Flat 2D Plane Projection of all 106 Country Borders (with horizontal wrap handling)
+            val borderStroke = Stroke(width = 1.15.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            for (poly in WORLD_COUNTRY_BORDERS) {
+                if (poly.size < 3) continue
+                val fillPath = Path()
+                val strokePath = Path()
+                var prevScreen: Offset? = null
+                var hasDiscontinuity = false
+
+                for (i in poly.indices) {
+                    val (lat, lon) = poly[i]
+                    val pt = mapToScreen(lat, lon)
+                    if (prevScreen == null) {
+                        fillPath.moveTo(pt.x, pt.y)
+                        strokePath.moveTo(pt.x, pt.y)
+                    } else {
+                        // Avoid drawing horizontal wrap-around lines across the entire CRT screen
+                        if (abs(pt.x - prevScreen.x) > w * 0.45f) {
+                            hasDiscontinuity = true
+                            strokePath.moveTo(pt.x, pt.y)
+                            fillPath.moveTo(pt.x, pt.y)
+                        } else {
+                            strokePath.lineTo(pt.x, pt.y)
+                            fillPath.lineTo(pt.x, pt.y)
+                        }
+                    }
+                    prevScreen = pt
+                }
+                if (!hasDiscontinuity) {
+                    fillPath.close()
+                    drawPath(path = fillPath, color = landFillColor)
+                }
+                drawPath(path = strokePath, color = landBorderColor, style = borderStroke)
+            }
+
+            // 3. Live UTC Solar Terminator Wave across the flat CRT map
+            val utcCal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+                timeInMillis = currentTimeMillis
+            }
+            val utcHours = utcCal.get(Calendar.HOUR_OF_DAY) + utcCal.get(Calendar.MINUTE) / 60f
+            val subSolarLon = (12f - utcHours) * 15f
+            val terminatorPath = Path()
+            val tSteps = 48
+            for (s in 0..tSteps) {
+                val x = (s.toFloat() / tSteps) * w
+                val lonAtX = centerLon + ((x / w) - 0.5f) * spanLon
+                val hourAngleRad = Math.toRadians((lonAtX - subSolarLon).toDouble())
+                val termLat = (23.4f * cos(hourAngleRad)).toFloat()
+                val pt = mapToScreen(termLat, lonAtX)
+                if (s == 0) terminatorPath.moveTo(x, pt.y.coerceIn(0f, h))
+                else terminatorPath.lineTo(x, pt.y.coerceIn(0f, h))
+            }
+            drawPath(
+                path = terminatorPath,
+                color = accentColor.copy(alpha = 0.50f),
+                style = Stroke(
+                    width = 1.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
+                )
             )
-            drawCircle(
-                color = Color.White.copy(alpha = 0.85f),
-                radius = lensRadius,
-                center = Offset(lensCenterX, ly),
-                style = Stroke(width = 1.2.dp.toPx())
-            )
-            drawCircle(
-                color = accentColor.copy(alpha = 0.75f),
-                radius = lensRadius * 0.38f,
-                center = Offset(lensCenterX, ly)
-            )
-        }
 
-        // LED Flash capsule next to camera island
-        val flashX = camLeft + camW + bodyW * 0.11f
-        val flashY = camTop + camH * 0.28f
-        drawCircle(
-            color = Color.White,
-            radius = 3.2.dp.toPx(),
-            center = Offset(flashX, flashY)
-        )
-        drawCircle(
-            color = accentColor.copy(alpha = 0.5f),
-            radius = 5.5.dp.toPx(),
-            center = Offset(flashX, flashY),
-            style = Stroke(width = 0.9.dp.toPx())
-        )
+            // 4. Interactive CRT Target Crosshair Reticle (⊕)
+            val retPt = mapToScreen(reticleLat, reticleLon)
+            if (retPt.x in 0f..w && retPt.y in 0f..h) {
+                drawLine(
+                    color = accentColor.copy(alpha = 0.35f),
+                    start = Offset(retPt.x, 0f),
+                    end = Offset(retPt.x, h),
+                    strokeWidth = 1f
+                )
+                drawLine(
+                    color = accentColor.copy(alpha = 0.35f),
+                    start = Offset(0f, retPt.y),
+                    end = Offset(w, retPt.y),
+                    strokeWidth = 1f
+                )
+                drawCircle(
+                    color = accentColor,
+                    radius = 5.5.dp.toPx(),
+                    center = retPt,
+                    style = Stroke(width = 1.2.dp.toPx())
+                )
+                drawCircle(
+                    color = Color.White,
+                    radius = 1.8.dp.toPx(),
+                    center = retPt
+                )
+            }
 
-        // 4 Exposed Stainless-Steel Industrial Backplate Screws (Signature CMF Phone 1 feature)
-        val screwOffset = pad + 11.dp.toPx()
-        val screwPositions = listOf(
-            Offset(screwOffset, pad + bodyH * 0.42f),
-            Offset(w - screwOffset, pad + bodyH * 0.12f),
-            Offset(screwOffset, h - screwOffset - 8.dp.toPx()),
-            Offset(w - screwOffset, pad + bodyH * 0.62f)
-        )
-        screwPositions.forEach { sp ->
-            drawCircle(
-                color = Color(0xFF1F1F1F),
-                radius = 4.2.dp.toPx(),
-                center = sp
-            )
-            drawCircle(
-                color = Color(0xFFB0B0B0),
-                radius = 4.2.dp.toPx(),
-                center = sp,
+            // 5. Retro CRT Phosphor Horizontal Scanline Overlay & Corner Bezel Ticks
+            val scanStep = 3.5.dp.toPx().coerceAtLeast(3f)
+            var sy = 0f
+            while (sy < h) {
+                drawLine(
+                    color = Color.Black.copy(alpha = 0.28f),
+                    start = Offset(0f, sy),
+                    end = Offset(w, sy),
+                    strokeWidth = 1f
+                )
+                sy += scanStep
+            }
+
+            // Inner CRT bezel frame
+            val inset = 4.dp.toPx()
+            drawRoundRect(
+                color = landBorderColor.copy(alpha = 0.24f),
+                topLeft = Offset(inset, inset),
+                size = Size(w - inset * 2f, h - inset * 2f),
+                cornerRadius = CornerRadius(7.dp.toPx(), 7.dp.toPx()),
                 style = Stroke(width = 1.dp.toPx())
             )
-            // Flathead screw slot
-            drawLine(
-                color = Color(0xFFB0B0B0),
-                start = Offset(sp.x - 2.5.dp.toPx(), sp.y - 1.5.dp.toPx()),
-                end = Offset(sp.x + 2.5.dp.toPx(), sp.y + 1.5.dp.toPx()),
-                strokeWidth = 1.dp.toPx()
-            )
         }
 
-        // Center schematic crosshair & telemetry callout lines
-        val centerY = pad + bodyH * 0.53f
-        drawLine(
-            color = Color(0xFF2A2A2A),
-            start = Offset(pad + bodyW * 0.18f, centerY),
-            end = Offset(pad + bodyW * 0.82f, centerY),
-            strokeWidth = 1f,
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
-        )
-
-        // Bottom-Left CMF Brand Geometric Vector Emblem Bars
-        val brandX = pad + bodyW * 0.16f
-        val brandY = pad + bodyH * 0.74f
-        drawLine(
-            color = Color.White,
-            start = Offset(brandX, brandY),
-            end = Offset(brandX + bodyW * 0.28f, brandY),
-            strokeWidth = 2.4.dp.toPx(),
-            cap = StrokeCap.Round
-        )
-        drawLine(
-            color = accentColor,
-            start = Offset(brandX, brandY + 6.dp.toPx()),
-            end = Offset(brandX + bodyW * 0.18f, brandY + 6.dp.toPx()),
-            strokeWidth = 1.8.dp.toPx(),
-            cap = StrokeCap.Round
-        )
-
-        // Bottom-Right Signature CMF Rotary Accessory Point Wheel
-        val dialCenter = Offset(w - pad - bodyW * 0.21f, h - pad - bodyH * 0.13f)
-        val dialRadius = bodyW * 0.155f
-        drawCircle(
-            color = Color(0xFF141414),
-            radius = dialRadius,
-            center = dialCenter
-        )
-        drawCircle(
-            color = accentColor,
-            radius = dialRadius,
-            center = dialCenter,
-            style = Stroke(width = 1.8.dp.toPx())
-        )
-        drawCircle(
-            color = Color.White.copy(alpha = 0.7f),
-            radius = dialRadius * 0.48f,
-            center = dialCenter,
-            style = Stroke(
-                width = 1.dp.toPx(),
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
-            )
-        )
-        drawCircle(
-            color = accentColor,
-            radius = 2.2.dp.toPx(),
-            center = dialCenter
+        // Minimal coordinate & zoom pill in bottom-right corner
+        Text(
+            text = if (zoomLevel > 1.05f) "$coordReadout · ${String.format(Locale.US, "%.1f", zoomLevel)}×" else coordReadout,
+            color = Color(0xFFB0B0B0),
+            fontSize = 8.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 8.dp, bottom = 6.dp)
+                .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(4.dp))
+                .padding(horizontal = 5.dp, vertical = 2.dp)
         )
     }
 }
