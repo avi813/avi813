@@ -928,19 +928,19 @@ fun NTextLauncherApp(
 
     fun cycleWidgetSize(widgetId: String) {
         val current = widgetSizes[widgetId] ?: "standard"
-        val next = if (widgetId == "globe" || widgetId == "crt_world_map") {
+        val next = if (
+            widgetId == "clock" ||
+            widgetId == "retro_flip_clock" ||
+            widgetId == "analog_chrono" ||
+            widgetId == "precision_chrono" ||
+            widgetId == "globe" ||
+            widgetId == "crt_world_map"
+        ) {
             when (current) {
                 "compact" -> "standard"
                 "standard" -> "large"
                 "large" -> "xlarge"
                 "xlarge" -> "max"
-                else -> "compact"
-            }
-        } else if (widgetId == "precision_chrono" || widgetId == "analog_chrono" || widgetId == "retro_flip_clock") {
-            when (current) {
-                "compact" -> "standard"
-                "standard" -> "large"
-                "large" -> "xlarge"
                 else -> "compact"
             }
         } else {
@@ -1925,7 +1925,32 @@ fun HomeScreenView(
                                                 )
                                             }
                                         }
-                                        "large" -> {
+                                        "large", "xlarge", "max" -> {
+                                            val digitSp = when (sizeMode) {
+                                                "max" -> 96.sp
+                                                "xlarge" -> 76.sp
+                                                else -> 58.sp
+                                            }
+                                            val amPmSp = when (sizeMode) {
+                                                "max" -> 17.sp
+                                                "xlarge" -> 15.sp
+                                                else -> 13.sp
+                                            }
+                                            val amPmBottomPad = when (sizeMode) {
+                                                "max" -> 12.dp
+                                                "xlarge" -> 9.dp
+                                                else -> 7.dp
+                                            }
+                                            val metaSp = when (sizeMode) {
+                                                "max" -> 13.sp
+                                                "xlarge" -> 12.sp
+                                                else -> 11.sp
+                                            }
+                                            val barHeight = when (sizeMode) {
+                                                "max" -> 10.dp
+                                                "xlarge" -> 9.dp
+                                                else -> 8.dp
+                                            }
                                             Row(
                                                 verticalAlignment = Alignment.Bottom,
                                                 modifier = Modifier.clickable { onToggle24h() }
@@ -1933,19 +1958,19 @@ fun HomeScreenView(
                                                 Text(
                                                     text = currentHourStr,
                                                     color = Color.White,
-                                                    fontSize = 58.sp,
+                                                    fontSize = digitSp,
                                                     fontFamily = lomoFontFamily
                                                 )
                                                 Text(
                                                     text = ":",
                                                     color = accentColor.copy(alpha = colonAlpha),
-                                                    fontSize = 58.sp,
+                                                    fontSize = digitSp,
                                                     fontFamily = lomoFontFamily
                                                 )
                                                 Text(
                                                     text = currentMinStr,
                                                     color = Color.White,
-                                                    fontSize = 58.sp,
+                                                    fontSize = digitSp,
                                                     fontFamily = lomoFontFamily
                                                 )
                                                 if (currentAmPmStr.isNotEmpty()) {
@@ -1953,9 +1978,9 @@ fun HomeScreenView(
                                                     Text(
                                                         text = currentAmPmStr,
                                                         color = Color(0xFF737373),
-                                                        fontSize = 13.sp,
+                                                        fontSize = amPmSp,
                                                         fontFamily = FontFamily.Monospace,
-                                                        modifier = Modifier.padding(bottom = 7.dp)
+                                                        modifier = Modifier.padding(bottom = amPmBottomPad)
                                                     )
                                                 }
                                             }
@@ -1967,7 +1992,7 @@ fun HomeScreenView(
                                                 Text(
                                                     text = currentDateStr,
                                                     color = Color(0xFFA3A3A3),
-                                                    fontSize = 11.sp,
+                                                    fontSize = metaSp,
                                                     fontFamily = FontFamily.Monospace,
                                                     letterSpacing = 1.2.sp
                                                 )
@@ -1975,14 +2000,14 @@ fun HomeScreenView(
                                                     Text(
                                                         text = "·",
                                                         color = accentColor,
-                                                        fontSize = 11.sp,
+                                                        fontSize = metaSp,
                                                         fontFamily = FontFamily.Monospace,
                                                         fontWeight = FontWeight.Bold
                                                     )
                                                     Text(
                                                         text = nextAlarmStr,
                                                         color = Color(0xFF737373),
-                                                        fontSize = 11.sp,
+                                                        fontSize = metaSp,
                                                         fontFamily = FontFamily.Monospace,
                                                         letterSpacing = 1.2.sp
                                                     )
@@ -2004,14 +2029,14 @@ fun HomeScreenView(
                                                 Text(
                                                     text = "$batteryPct%",
                                                     color = Color(0xFFD4D4D4),
-                                                    fontSize = 11.sp,
+                                                    fontSize = metaSp,
                                                     fontFamily = FontFamily.Monospace,
                                                     letterSpacing = 0.8.sp
                                                 )
                                                 Box(
                                                     modifier = Modifier
                                                         .weight(1f)
-                                                        .height(8.dp)
+                                                        .height(barHeight)
                                                         .border(1.dp, Color(0xFF262626), RoundedCornerShape(999.dp))
                                                         .background(Color(0xFF141414), RoundedCornerShape(999.dp))
                                                 ) {
@@ -2026,7 +2051,7 @@ fun HomeScreenView(
                                                     Text(
                                                         text = "⚡",
                                                         color = accentColor,
-                                                        fontSize = 10.sp,
+                                                        fontSize = metaSp,
                                                         fontFamily = FontFamily.Monospace
                                                     )
                                                 }
@@ -3862,14 +3887,12 @@ fun AppDrawerView(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            var activeScrubFloatLetter by remember { mutableStateOf<Float?>(null) }
-            val density = LocalDensity.current
-            val maxRowWaveShiftPx = with(density) { (20.dp * drawerWaveIntensity).toPx() }
             val headerFontSp = (drawerTextSizeSp * 0.68f).coerceIn(10f, 16f).sp
             val starFontSp = (drawerTextSizeSp * 0.65f).coerceIn(9f, 15f).sp
 
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                // Ultra-clean 120Hz LazyColumn with configurable App Name Scale & Curved Horizontal Wave
+                // Ultra-clean 120Hz LazyColumn:
+                // Zero app name highlighting & zero hover animation on app rows!
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
@@ -3892,26 +3915,6 @@ fun AppDrawerView(
                         } else {
                             app.label
                         }
-
-                        // Curved horizontal wave on visible App Drawer rows during A-Z traversal
-                        val currentFloatLetter = activeScrubFloatLetter
-                        val targetRowWave = if (currentFloatLetter != null && waveScrubMode != "off" && drawerWaveIntensity > 0.01f) {
-                            val appLetterIdx = (app.firstLetter.uppercaseChar() - 'A').coerceIn(0, 25).toFloat()
-                            val distLetters = abs(currentFloatLetter - appLetterIdx)
-                            val waveSpanLetters = (2.0f + 1.8f * drawerWaveIntensity).coerceAtLeast(1.0f)
-                            if (distLetters < waveSpanLetters) {
-                                cos((distLetters / waveSpanLetters) * (PI / 2)).toFloat().coerceIn(0f, 1f)
-                            } else 0f
-                        } else 0f
-
-                        val animRowWave by animateFloatAsState(
-                            targetValue = targetRowWave,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessHigh
-                            ),
-                            label = "drawerRowWave"
-                        )
 
                         Column(modifier = Modifier.fillMaxWidth()) {
                             if (isFirstInAlphabetGroup) {
@@ -3940,14 +3943,6 @@ fun AppDrawerView(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .graphicsLayer {
-                                        if (animRowWave > 0.005f) {
-                                            translationX = animRowWave * maxRowWaveShiftPx
-                                            val sc = 1f + animRowWave * (0.05f * drawerWaveIntensity).coerceIn(0f, 0.14f)
-                                            scaleX = sc
-                                            scaleY = sc
-                                        }
-                                    }
                                     .combinedClickable(
                                         onClick = {
                                             query = ""
@@ -3968,7 +3963,7 @@ fun AppDrawerView(
                                 ) {
                                     Text(
                                         text = displayLabel,
-                                        color = if (animRowWave > 0.55f) accentColor else Color(0xFFF5F5F5),
+                                        color = Color(0xFFF5F5F5),
                                         fontSize = drawerTextSizeSp.sp,
                                         fontFamily = selectedFont,
                                         maxLines = 1,
@@ -4005,15 +4000,13 @@ fun AppDrawerView(
                     }
                 }
 
-                // A-Z Scrubber Rail with Adjustable Curved Horizontal Wave Intensity
+                // Isolated A-Z Scrubber Rail Composable:
+                // Only the A-Z rail letters curve horizontally; app rows never highlight or hover-animate!
                 AlphabetScrubberRail(
                     accentColor = accentColor,
                     waveScrubMode = waveScrubMode,
                     drawerWaveIntensity = drawerWaveIntensity,
                     lomoFontFamily = lomoFontFamily,
-                    onScrubFloatProgress = { floatLetter ->
-                        activeScrubFloatLetter = floatLetter
-                    },
                     onSelectLetter = { chosenLetter ->
                         onWaveTick()
                         if (filteredApps.isNotEmpty()) {
@@ -4041,7 +4034,6 @@ private fun AlphabetScrubberRail(
     waveScrubMode: String,
     drawerWaveIntensity: Float,
     lomoFontFamily: FontFamily,
-    onScrubFloatProgress: (Float?) -> Unit,
     onSelectLetter: (Char) -> Unit
 ) {
     val density = LocalDensity.current
@@ -4050,7 +4042,6 @@ private fun AlphabetScrubberRail(
     var scrubLocalY by remember { mutableStateOf<Float?>(null) }
     var activeLetter by remember { mutableStateOf<Char?>(null) }
     val currentOnSelect by rememberUpdatedState(onSelectLetter)
-    val currentOnFloatProgress by rememberUpdatedState(onScrubFloatProgress)
 
     val effectiveWaveMult = if (waveScrubMode == "off") 0f else drawerWaveIntensity.coerceIn(0f, 2.0f)
     val letterWaveRadiusPx = with(density) { (65.dp + 55.dp * effectiveWaveMult).toPx() }
@@ -4065,7 +4056,6 @@ private fun AlphabetScrubberRail(
         scrubLocalY = clampedLocalY
 
         val floatIdx = ((clampedLocalY / validHeight) * letters.size).coerceIn(0f, (letters.size - 1).toFloat())
-        currentOnFloatProgress(floatIdx)
         val idx = floatIdx.toInt().coerceIn(0, letters.lastIndex)
         val chosenLetter = letters[idx]
 
@@ -4115,7 +4105,6 @@ private fun AlphabetScrubberRail(
                         } while (event.changes.any { it.pressed })
                         scrubLocalY = null
                         activeLetter = null
-                        currentOnFloatProgress(null)
                     }
                 },
             verticalArrangement = Arrangement.SpaceEvenly,
@@ -4357,18 +4346,12 @@ fun WidgetsManagerView(
                     if (enabled) {
                         Spacer(modifier = Modifier.height(10.dp))
                         val sizeChoices = when (id) {
-                            "globe", "crt_world_map" -> listOf(
+                            "clock", "retro_flip_clock", "analog_chrono", "precision_chrono", "globe", "crt_world_map" -> listOf(
                                 "compact" to "S",
                                 "standard" to "M",
                                 "large" to "L",
                                 "xlarge" to "XL",
                                 "max" to "MAX"
-                            )
-                            "precision_chrono", "analog_chrono", "retro_flip_clock" -> listOf(
-                                "compact" to "S",
-                                "standard" to "M",
-                                "large" to "L",
-                                "xlarge" to "XL"
                             )
                             else -> listOf(
                                 "compact" to "S",
@@ -6982,13 +6965,15 @@ fun RetroSplitFlapClockWidget(
     val tileHeight = when (sizeMode) {
         "compact" -> 42.dp
         "large" -> 64.dp
-        "xlarge" -> 76.dp
+        "xlarge" -> 78.dp
+        "max" -> 94.dp
         else -> 52.dp
     }
     val digitFontSize = when (sizeMode) {
         "compact" -> 22.sp
         "large" -> 34.sp
-        "xlarge" -> 40.sp
+        "xlarge" -> 42.sp
+        "max" -> 52.sp
         else -> 28.sp
     }
     val paddedHour = hourStr.padStart(2, '0')
@@ -7144,6 +7129,7 @@ fun RetroAnalogChronoWidget(
         "compact" -> 64.dp
         "large" -> 106.dp
         "xlarge" -> 128.dp
+        "max" -> 154.dp
         else -> 84.dp
     }
 
