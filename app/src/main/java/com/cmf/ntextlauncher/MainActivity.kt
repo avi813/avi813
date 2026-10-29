@@ -559,8 +559,24 @@ fun NTextLauncherApp(
     var use24Hour by remember { mutableStateOf(prefs.getBoolean("use_24h_v4", false)) }
     var hideAndroidBar by remember { mutableStateOf(prefs.getBoolean("hide_android_bar", true)) }
     var waveScrubMode by remember { mutableStateOf(prefs.getString("wave_mode", "full") ?: "full") }
-    var wallpaperPreset by remember { mutableStateOf(prefs.getString("wallpaper", "oled") ?: "oled") }
+    var wallpaperPreset by remember {
+        val rawWp = prefs.getString("wallpaper", "oled") ?: "oled"
+        val migratedWp = when (rawWp) {
+            "live_aurora" -> "live_embers"
+            "live_rings" -> "live_kepler"
+            "live_matrix_pulse" -> "live_starlight"
+            "live_ripples" -> "live_quantum"
+            "live_synth_grid" -> "live_lissajous"
+            else -> rawWp
+        }
+        mutableStateOf(migratedWp)
+    }
     var wallpaperDimPercent by remember { mutableStateOf(prefs.getInt("wp_dim", 50)) }
+    // Live Wallpaper Interactive Tuning Variables (Speed, Density, Glow/Opacity, Scale)
+    var wpSpeed by remember { mutableStateOf(prefs.getFloat("wp_speed", 1.0f)) }
+    var wpDensity by remember { mutableStateOf(prefs.getFloat("wp_density", 1.0f)) }
+    var wpOpacity by remember { mutableStateOf(prefs.getFloat("wp_opacity", 1.0f)) }
+    var wpScale by remember { mutableStateOf(prefs.getFloat("wp_scale", 1.0f)) }
     var globeTheme by remember { mutableStateOf(prefs.getString("globe_theme", "retro_holo") ?: "retro_holo") }
     var globeWireframeColor by remember { mutableStateOf(prefs.getString("globe_wf_color", "#FF3B00") ?: "#FF3B00") }
 
@@ -984,7 +1000,15 @@ fun NTextLauncherApp(
         val density = LocalDensity.current
         val screenHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
 
-        OledWallpaperCanvas(preset = wallpaperPreset, accentColor = accentColor, dimPercent = wallpaperDimPercent)
+        OledWallpaperCanvas(
+            preset = wallpaperPreset,
+            accentColor = accentColor,
+            dimPercent = wallpaperDimPercent,
+            wpSpeed = wpSpeed,
+            wpDensity = wpDensity,
+            wpOpacity = wpOpacity,
+            wpScale = wpScale
+        )
 
         Column(modifier = Modifier.fillMaxSize()) {
             if (editMode && currentView == LauncherView.HOME_AND_DRAWER && drawerProgress.value < 0.2f) {
@@ -1263,9 +1287,41 @@ fun NTextLauncherApp(
                                 waveScrubMode = it
                                 prefs.edit().putString("wave_mode", it).apply()
                             },
+                            wpSpeed = wpSpeed,
+                            wpDensity = wpDensity,
+                            wpOpacity = wpOpacity,
+                            wpScale = wpScale,
                             onChangeWallpaperPreset = {
                                 wallpaperPreset = it
                                 prefs.edit().putString("wallpaper", it).apply()
+                            },
+                            onChangeWpSpeed = {
+                                wpSpeed = it
+                                prefs.edit().putFloat("wp_speed", it).apply()
+                            },
+                            onChangeWpDensity = {
+                                wpDensity = it
+                                prefs.edit().putFloat("wp_density", it).apply()
+                            },
+                            onChangeWpOpacity = {
+                                wpOpacity = it
+                                prefs.edit().putFloat("wp_opacity", it).apply()
+                            },
+                            onChangeWpScale = {
+                                wpScale = it
+                                prefs.edit().putFloat("wp_scale", it).apply()
+                            },
+                            onResetWpTuning = {
+                                wpSpeed = 1.0f
+                                wpDensity = 1.0f
+                                wpOpacity = 1.0f
+                                wpScale = 1.0f
+                                prefs.edit()
+                                    .putFloat("wp_speed", 1.0f)
+                                    .putFloat("wp_density", 1.0f)
+                                    .putFloat("wp_opacity", 1.0f)
+                                    .putFloat("wp_scale", 1.0f)
+                                    .apply()
                             },
                             onOpenSystemWallpaperPicker = onOpenSystemWallpaperPicker,
                             onRequestDefaultHomeRole = onRequestDefaultHomeRole,
@@ -3612,35 +3668,7 @@ fun AppDrawerView(
             .padding(horizontal = 20.dp, vertical = 10.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Top Swipe-Down Pull Handle Bar
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp)
-                    .pointerInput(Unit) {
-                        var totalDy = 0f
-                        detectVerticalDragGestures(
-                            onDragStart = { totalDy = 0f },
-                            onVerticalDrag = { change, dragAmount ->
-                                change.consume()
-                                totalDy += dragAmount
-                                onDragDrawerDelta(dragAmount)
-                            },
-                            onDragEnd = { onSettleDrawer(totalDy) },
-                            onDragCancel = { onSettleDrawer(totalDy) }
-                        )
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(40.dp)
-                        .height(4.dp)
-                        .background(Color(0xFF2E2E2E), RoundedCornerShape(2.dp))
-                )
-            }
-
-            // Search Input Bar
+            // Search Input Bar (Top grab handle removed for a cleaner minimal header)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -3957,54 +3985,50 @@ private fun AlphabetScrubberRail(
             }
         }
 
-        // Minimalist Black & White Stepped Pixel Alphabet Indicator (Only the stepped outline is accentColor)
+        // Minimalist Black & White Stepped Alphabet Indicator with Razor-Thin 1.dp Accent Stroke
         if (activeLetter != null && scrubLocalY != null) {
             Box(
                 modifier = Modifier
                     .padding(end = 42.dp)
                     .offset { IntOffset(x = 0, y = animatedIndicatorY.roundToInt()) }
-                    .size(48.dp),
+                    .size(46.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    // Clean, minimal 10x10 stepped pixel block:
-                    // 'B' = Stepped 1px outline in accentColor
-                    // 'F' = Pure #000000 black fill
-                    val minimalRows = listOf(
-                        "..BBBBBB..",
-                        ".BFFFFFFB.",
-                        "BFFFFFFFFB",
-                        "BFFFFFFFFB",
-                        "BFFFFFFFFB",
-                        "BFFFFFFFFB",
-                        "BFFFFFFFFB",
-                        "BFFFFFFFFB",
-                        ".BFFFFFFB.",
-                        "..BBBBBB.."
-                    )
-                    val gridN = 10
-                    val cellW = size.width / gridN.toFloat()
-                    val cellH = size.height / gridN.toFloat()
+                    val w = size.width
+                    val h = size.height
+                    val step = 4.dp.toPx()
+                    val strokePx = 1.dp.toPx()
+                    val half = strokePx * 0.5f
 
-                    for (r in 0 until gridN) {
-                        val rowStr = minimalRows[r]
-                        for (c in 0 until gridN) {
-                            val ch = rowStr[c]
-                            if (ch == 'B' || ch == 'F') {
-                                drawRect(
-                                    color = if (ch == 'B') accentColor else Color.Black,
-                                    topLeft = Offset(c * cellW, r * cellH),
-                                    size = Size(cellW + 0.6f, cellH + 0.6f)
-                                )
-                            }
-                        }
+                    // Stepped-corner minimal box path: pure #000000 black fill + razor-thin 1.dp accentColor stroke
+                    val boxPath = Path().apply {
+                        moveTo(step, half)
+                        lineTo(w - step, half)
+                        lineTo(w - step, step)
+                        lineTo(w - half, step)
+                        lineTo(w - half, h - step)
+                        lineTo(w - step, h - step)
+                        lineTo(w - step, h - half)
+                        lineTo(step, h - half)
+                        lineTo(step, h - step)
+                        lineTo(half, h - step)
+                        lineTo(half, step)
+                        lineTo(step, step)
+                        close()
                     }
+                    drawPath(path = boxPath, color = Color.Black)
+                    drawPath(
+                        path = boxPath,
+                        color = accentColor,
+                        style = Stroke(width = strokePx)
+                    )
                 }
 
                 Text(
                     text = activeLetter.toString(),
                     color = Color.White,
-                    fontSize = 21.sp,
+                    fontSize = 20.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold
                 )
@@ -4387,6 +4411,10 @@ fun LauncherSettingsView(
     hideAndroidBar: Boolean,
     waveScrubMode: String,
     wallpaperPreset: String,
+    wpSpeed: Float,
+    wpDensity: Float,
+    wpOpacity: Float,
+    wpScale: Float,
     lomoFontFamily: FontFamily,
     onChangeFont: (String) -> Unit,
     onChangeAlign: (String) -> Unit,
@@ -4395,6 +4423,11 @@ fun LauncherSettingsView(
     onToggleAndroidBar: () -> Unit,
     onChangeWaveMode: (String) -> Unit,
     onChangeWallpaperPreset: (String) -> Unit,
+    onChangeWpSpeed: (Float) -> Unit,
+    onChangeWpDensity: (Float) -> Unit,
+    onChangeWpOpacity: (Float) -> Unit,
+    onChangeWpScale: (Float) -> Unit,
+    onResetWpTuning: () -> Unit,
     onOpenSystemWallpaperPicker: () -> Unit,
     onRequestDefaultHomeRole: () -> Unit,
     onBack: () -> Unit
@@ -4406,20 +4439,42 @@ fun LauncherSettingsView(
 
     val accentColor = resolveLauncherAccentColor(accentHex)
 
+    // 6 Ultra-Minimal, Non-Distracting AMOLED Live Wallpapers (Keeping ORBITAL NODES + 5 New Concepts)
     val liveWallpaperOptions = listOf(
-        Triple("live_aurora", "HORIZON WAVES", "Slow Breathing Silk"),
         Triple("live_constellation", "ORBITAL NODES", "Slow Drifting Stars"),
-        Triple("live_rings", "GYRO RINGS", "Slow Harmonic Arcs"),
-        Triple("live_matrix_pulse", "DOT PULSE", "Calm Falling Light"),
-        Triple("live_ripples", "ZEN RIPPLES", "Slow Water Rings"),
-        Triple("live_synth_grid", "HORIZON GRID", "Slow Vector Plane")
+        Triple("live_embers", "DEEP EMBERS", "Micro Rising Dust"),
+        Triple("live_starlight", "STARLIGHT BREATH", "Calm Twinkling Field"),
+        Triple("live_kepler", "KEPLER ORBITS", "Fine Planetary Ellipses"),
+        Triple("live_quantum", "MICRO LATTICE", "Breathing Dot Matrix"),
+        Triple("live_lissajous", "PHASE THREAD", "Slow Harmonic Curve")
     )
 
+    // 24 Minimalist Static AMOLED Wallpapers (Original 4 + 20 New Static Backdrops)
     val staticWallpaperOptions = listOf(
         Triple("oled", "PURE AMOLED", "True #000000"),
         Triple("dots", "DOT MATRIX", "Nothing Dot Grid"),
         Triple("blueprint", "CMF GRID", "Tech Schematic"),
-        Triple("circuit", "GLYPH PCB", "Circuit Traces")
+        Triple("circuit", "GLYPH PCB", "Circuit Traces"),
+        Triple("static_crosshair", "RETICLE HUD", "Precision Crosshairs"),
+        Triple("static_topo", "TOPO CONTOUR", "Elevation Isolines"),
+        Triple("static_halftone", "RADIAL HALFTONE", "Dot Gradient Fade"),
+        Triple("static_isometric", "ISO LATTICE", "60° Axonometric Grid"),
+        Triple("static_star_chart", "CELESTIAL MAP", "Declination Star Map"),
+        Triple("static_eclipse", "SOLAR ECLIPSE", "Coronal Rim Ring"),
+        Triple("static_vinyl", "MICRO GROOVES", "Concentric Fine Arcs"),
+        Triple("static_bauhaus", "BAUHAUS GEO", "Minimal Line Balance"),
+        Triple("static_horizon_lines", "SCANLINE FADE", "Graduated Horizon"),
+        Triple("static_glyph_arcs", "GLYPH STRIPS", "Segmented Light Arcs"),
+        Triple("static_polar", "POLAR RADAR", "Azimuth Range Rings"),
+        Triple("static_diagonal_hatch", "CARBON WEAVE", "Fine 45° Micro Hatch"),
+        Triple("static_golden_spiral", "GOLDEN RATIO", "Fibonacci Subdivision"),
+        Triple("static_sine_interference", "MOIRÉ WAVES", "Harmonic Line Phase"),
+        Triple("static_corner_frame", "VIEWFINDER", "Camera Frame & Ticks"),
+        Triple("static_hex_honeycomb", "HEX MATRIX", "Sparse Hexagonal Mesh"),
+        Triple("static_constellation_fixed", "DEEP SKY ATLAS", "Fixed Star Mesh"),
+        Triple("static_vertical_flutes", "MONOLITH RIBS", "Vertical Fine Rules"),
+        Triple("static_zen_enso", "ZEN CIRCLE", "Minimalist Tapered Ring"),
+        Triple("static_micro_plus", "SWISS PLUS GRID", "Precision + Markers")
     )
 
     LazyColumn(
@@ -4604,8 +4659,8 @@ fun LauncherSettingsView(
             CollapsibleSettingsSection(
                 indexTag = "03",
                 title = "AMOLED Live Wallpapers & Accents",
-                subtitle = "6 slow & calm AMOLED live wallpapers, 4 static styles & 10 accents",
-                badge = wallpaperPreset.removePrefix("live_").uppercase(Locale.US),
+                subtitle = "6 minimal live wallpapers + tuning lab, 24 static styles & 10 accents",
+                badge = wallpaperPreset.removePrefix("live_").removePrefix("static_").uppercase(Locale.US),
                 expanded = expandedWallpaper,
                 accentColor = accentColor,
                 lomoFontFamily = lomoFontFamily,
@@ -4697,12 +4752,86 @@ fun LauncherSettingsView(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(2.dp))
+                    // Interactive Live Wallpaper Tuning Variables Lab
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, Color(0xFF242424), RoundedCornerShape(8.dp))
+                            .background(Color(0xFF0B0B0B), RoundedCornerShape(8.dp))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "LIVE WALLPAPER TUNING VARIABLES",
+                                color = accentColor,
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "RESET [1.0x]",
+                                color = Color(0xFFA3A3A3),
+                                fontSize = 8.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .border(1.dp, Color(0xFF2E2E2E), RoundedCornerShape(4.dp))
+                                    .background(Color(0xFF141414), RoundedCornerShape(4.dp))
+                                    .clickable { onResetWpTuning() }
+                                    .padding(horizontal = 6.dp, vertical = 3.dp)
+                            )
+                        }
+
+                        // Variable 1: Motion Speed
+                        WallpaperTuningRow(
+                            label = "MOTION SPEED",
+                            currentValue = wpSpeed,
+                            options = listOf(0.25f to "0.25x", 0.5f to "0.5x", 1.0f to "1.0x", 1.5f to "1.5x", 2.2f to "2.2x"),
+                            accentColor = accentColor,
+                            onSelect = onChangeWpSpeed
+                        )
+
+                        // Variable 2: Element / Node Density
+                        WallpaperTuningRow(
+                            label = "ELEMENT DENSITY",
+                            currentValue = wpDensity,
+                            options = listOf(0.5f to "0.5x", 0.75f to "0.75x", 1.0f to "1.0x", 1.35f to "1.35x", 1.75f to "1.75x"),
+                            accentColor = accentColor,
+                            onSelect = onChangeWpDensity
+                        )
+
+                        // Variable 3: Glow / Opacity
+                        WallpaperTuningRow(
+                            label = "GLOW / OPACITY",
+                            currentValue = wpOpacity,
+                            options = listOf(0.4f to "40%", 0.7f to "70%", 1.0f to "100%", 1.35f to "135%", 1.75f to "175%"),
+                            accentColor = accentColor,
+                            onSelect = onChangeWpOpacity
+                        )
+
+                        // Variable 4: Pattern Scale / Reach
+                        WallpaperTuningRow(
+                            label = "SCALE / REACH",
+                            currentValue = wpScale,
+                            options = listOf(0.65f to "0.65x", 0.85f to "0.85x", 1.0f to "1.0x", 1.25f to "1.25x", 1.5f to "1.5x"),
+                            accentColor = accentColor,
+                            onSelect = onChangeWpScale
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "STATIC AMOLED BACKDROPS",
+                        text = "STATIC AMOLED BACKDROPS (24 MINIMALIST STYLES)",
                         color = Color(0xFF8A8A8A),
                         fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
                     )
 
                     staticWallpaperOptions.chunked(2).forEach { rowItems ->
@@ -5006,15 +5135,90 @@ fun SettingCard(
 }
 
 // ============================================================================
-// AMOLED LIVE & STATIC WALLPAPER ENGINE CANVAS
-// 6 slow, calm, meditative AMOLED live wallpapers + 4 crisp static styles
+// INTERACTIVE WALLPAPER TUNING ROW COMPOSABLE
 // ============================================================================
 @Composable
-fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
+fun WallpaperTuningRow(
+    label: String,
+    currentValue: Float,
+    options: List<Pair<Float, String>>,
+    accentColor: Color,
+    onSelect: (Float) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                color = Color(0xFF9E9E9E),
+                fontSize = 8.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            val activeLabel = options.minByOrNull { abs(it.first - currentValue) }?.second ?: "${currentValue}x"
+            Text(
+                text = activeLabel,
+                color = accentColor,
+                fontSize = 8.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            options.forEach { (value, textLabel) ->
+                val selected = abs(currentValue - value) < 0.04f
+                Text(
+                    text = textLabel,
+                    color = if (selected) Color.Black else Color(0xFFD4D4D4),
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .border(
+                            1.dp,
+                            if (selected) accentColor else Color(0xFF242424),
+                            RoundedCornerShape(5.dp)
+                        )
+                        .background(
+                            if (selected) accentColor else Color(0xFF121212),
+                            RoundedCornerShape(5.dp)
+                        )
+                        .clickable { onSelect(value) }
+                        .padding(vertical = 4.dp)
+                )
+            }
+        }
+    }
+}
+
+// ============================================================================
+// AMOLED LIVE & STATIC WALLPAPER ENGINE CANVAS (v3.0.0-cmf)
+// - 6 minimal, non-distracting AMOLED live wallpapers (ORBITAL NODES kept + 5 new concepts)
+// - Real-time tuning variables: wpSpeed, wpDensity, wpOpacity, wpScale
+// - 24 minimalist static AMOLED backdrops
+// ============================================================================
+@Composable
+fun OledWallpaperCanvas(
+    preset: String,
+    accentColor: Color,
+    dimPercent: Int,
+    wpSpeed: Float = 1.0f,
+    wpDensity: Float = 1.0f,
+    wpOpacity: Float = 1.0f,
+    wpScale: Float = 1.0f
+) {
     if (preset == "oled") return
 
     val isLive = preset.startsWith("live_")
     var liveTimeSec by remember { mutableStateOf(0f) }
+    val currentSpeed by rememberUpdatedState(wpSpeed.coerceIn(0.15f, 3.0f))
 
     if (isLive) {
         LaunchedEffect(preset) {
@@ -5023,257 +5227,283 @@ fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
                 withFrameNanos { nanos ->
                     val dt = if (lastNanos == 0L) 0.016f else ((nanos - lastNanos) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
                     lastNanos = nanos
-                    // Slow, calm, meditative time progression
-                    liveTimeSec = (liveTimeSec + dt * 0.42f) % 3600f
+                    // Smooth, calm time progression scaled by user's wpSpeed variable
+                    liveTimeSec = (liveTimeSec + dt * 0.42f * currentSpeed) % 7200f
                 }
             }
         }
     }
 
+    val densityMult = wpDensity.coerceIn(0.4f, 2.0f)
+    val opacityMult = wpOpacity.coerceIn(0.25f, 2.0f)
+    val scaleMult = wpScale.coerceIn(0.5f, 1.8f)
+
     Canvas(modifier = Modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
+        val minDim = min(w, h)
         val t = liveTimeSec
 
         when (preset) {
-            "live_aurora" -> {
-                // Slow, calm breathing sinusoidal contour waves across pure #000000 AMOLED black
-                val waveCount = 5
-                val steps = 48
-                for (wIdx in 0 until waveCount) {
-                    val f = wIdx.toFloat() / (waveCount - 1).coerceAtLeast(1)
-                    val baseY = h * (0.34f + f * 0.30f)
-                    val amp = h * (0.045f + 0.018f * sin(t * 0.6f + wIdx))
-                    val path = Path()
-                    for (s in 0..steps) {
-                        val xRatio = s.toFloat() / steps
-                        val x = xRatio * w
-                        val angle1 = xRatio * PI.toFloat() * 2.2f + t * (0.75f - f * 0.22f) + wIdx * 0.9f
-                        val angle2 = xRatio * PI.toFloat() * 1.1f - t * 0.42f + wIdx * 1.4f
-                        val y = baseY + sin(angle1) * amp + cos(angle2) * (amp * 0.45f)
-                        if (s == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                    }
-                    val isPrimary = wIdx == 1 || wIdx == 3
-                    val strokeCol = if (isPrimary) {
-                        accentColor.copy(alpha = 0.46f)
-                    } else {
-                        Color.White.copy(alpha = 0.24f)
-                    }
-                    drawPath(
-                        path = path,
-                        color = strokeCol,
-                        style = Stroke(
-                            width = if (isPrimary) 1.8.dp.toPx() else 1.1.dp.toPx(),
-                            cap = StrokeCap.Round
-                        )
-                    )
-                }
-                // Soft ambient breathing aura behind the waves
-                val auraY = h * (0.48f + 0.04f * sin(t * 0.4f))
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(accentColor.copy(alpha = 0.14f), Color.Transparent),
-                        center = Offset(w * 0.5f, auraY),
-                        radius = min(w, h) * 0.62f
-                    ),
-                    radius = min(w, h) * 0.62f,
-                    center = Offset(w * 0.5f, auraY)
-                )
-            }
-
+            // ================================================================
+            // 1. ORBITAL NODES (Kept per user request — enhanced with tuning!)
+            // ================================================================
             "live_constellation" -> {
-                // Slow drifting star nodes with calm proximity constellation lines on pure #000000
-                val nodeCount = 26
+                val nodeCount = (26 * densityMult).roundToInt().coerceIn(10, 52)
                 val pts = ArrayList<Offset>(nodeCount)
+                val driftSpanX = (0.11f * scaleMult).coerceIn(0.04f, 0.22f)
+                val driftSpanY = (0.09f * scaleMult).coerceIn(0.04f, 0.18f)
                 for (i in 0 until nodeCount) {
                     val seedX = ((i * 73 + 17) % 100) / 100f
                     val seedY = ((i * 139 + 31) % 100) / 100f
                     val speedX = 0.18f + (i % 5) * 0.04f
                     val speedY = 0.14f + (i % 7) * 0.03f
-                    val px = ((seedX + sin(t * speedX + i * 1.7f) * 0.12f).coerceIn(0.06f, 0.94f)) * w
-                    val py = ((seedY + cos(t * speedY + i * 2.3f) * 0.10f).coerceIn(0.08f, 0.92f)) * h
+                    val px = ((seedX + sin(t * speedX + i * 1.7f) * driftSpanX).coerceIn(0.05f, 0.95f)) * w
+                    val py = ((seedY + cos(t * speedY + i * 2.3f) * driftSpanY).coerceIn(0.07f, 0.93f)) * h
                     pts.add(Offset(px, py))
                 }
-                val connectRadius = min(w, h) * 0.26f
+                val connectRadius = minDim * (0.25f * scaleMult).coerceIn(0.14f, 0.42f)
                 for (i in 0 until nodeCount) {
                     for (j in i + 1 until nodeCount) {
                         val d = (pts[i] - pts[j]).getDistance()
                         if (d < connectRadius) {
-                            val lineAlpha = ((1f - d / connectRadius) * 0.34f).coerceIn(0f, 0.34f)
+                            val lineAlpha = ((1f - d / connectRadius) * 0.34f * opacityMult).coerceIn(0f, 0.78f)
                             drawLine(
                                 color = if ((i + j) % 3 == 0) accentColor.copy(alpha = lineAlpha) else Color.White.copy(alpha = lineAlpha * 0.8f),
                                 start = pts[i],
                                 end = pts[j],
-                                strokeWidth = 1.dp.toPx()
+                                strokeWidth = 0.9.dp.toPx()
                             )
                         }
                     }
                 }
                 for (i in 0 until nodeCount) {
                     val isAccent = i % 4 == 0
+                    val dotAlpha = ((if (isAccent) 0.76f else 0.50f) * opacityMult).coerceIn(0.08f, 0.98f)
                     drawCircle(
-                        color = if (isAccent) accentColor.copy(alpha = 0.78f) else Color.White.copy(alpha = 0.52f),
-                        radius = if (isAccent) 2.4.dp.toPx() else 1.6.dp.toPx(),
+                        color = if (isAccent) accentColor.copy(alpha = dotAlpha) else Color.White.copy(alpha = dotAlpha),
+                        radius = (if (isAccent) 2.2.dp.toPx() else 1.5.dp.toPx()) * (0.8f + 0.2f * scaleMult),
                         center = pts[i]
                     )
                 }
             }
 
-            "live_rings" -> {
-                // Slow harmonic counter-rotating gyroscopic rings & orbital pips
-                val center = Offset(w * 0.5f, h * 0.45f)
-                val baseR = min(w, h) * 0.11f
-                for (ring in 1..5) {
-                    val r = baseR * ring
-                    val dir = if (ring % 2 == 0) -1f else 1f
-                    val rotDeg = (t * 14f * dir / ring.toFloat()) % 360f
-                    val isAccentRing = ring == 2 || ring == 4
-                    val ringCol = if (isAccentRing) accentColor.copy(alpha = 0.34f) else Color.White.copy(alpha = 0.22f)
+            // ================================================================
+            // 2. DEEP EMBERS (Micro Weightless Dust Rising in Pure #000000 Void)
+            // ================================================================
+            "live_embers" -> {
+                val emberCount = (28 * densityMult).roundToInt().coerceIn(12, 56)
+                val swaySpan = w * 0.035f * scaleMult
+                for (i in 0 until emberCount) {
+                    val baseX = (((i * 61 + 13) % 96) + 2) / 100f * w
+                    val riseRate = 0.035f + (i % 6) * 0.009f
+                    val phaseOffset = (i * 0.41f)
+                    // Normalized vertical progress 0..1 (1 = bottom, 0 = top)
+                    val cyc = ((t * riseRate + phaseOffset) % 1f)
+                    val y = h * (0.94f - cyc * 0.88f)
+                    val x = (baseX + sin(t * (0.35f + (i % 4) * 0.08f) + i * 1.9f) * swaySpan).coerceIn(w * 0.04f, w * 0.96f)
 
-                    drawCircle(
-                        color = ringCol,
-                        radius = r,
-                        center = center,
-                        style = Stroke(
-                            width = if (isAccentRing) 1.4.dp.toPx() else 1.dp.toPx(),
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(18f + ring * 4f, 14f + ring * 3f), rotDeg * 3f)
+                    // Smooth bell-curve fade so particles appear and vanish gently without popping
+                    val envelope = sin(cyc * PI.toFloat()).coerceIn(0f, 1f)
+                    val isAccent = i % 3 == 0
+                    val coreAlpha = (envelope * (if (isAccent) 0.68f else 0.44f) * opacityMult).coerceIn(0f, 0.92f)
+                    val rPx = (1.1f + (i % 3) * 0.45f).dp.toPx() * scaleMult
+
+                    if (isAccent && coreAlpha > 0.12f) {
+                        // Subtle micro halo around accent embers
+                        drawCircle(
+                            color = accentColor.copy(alpha = (coreAlpha * 0.22f).coerceIn(0f, 0.35f)),
+                            radius = rPx * 2.8f,
+                            center = Offset(x, y)
                         )
+                    }
+                    drawCircle(
+                        color = if (isAccent) accentColor.copy(alpha = coreAlpha) else Color.White.copy(alpha = coreAlpha),
+                        radius = rPx,
+                        center = Offset(x, y)
+                    )
+                }
+            }
+
+            // ================================================================
+            // 3. STARLIGHT BREATH (Stationary Pinpoint Starfield Breathing Calmly)
+            // ================================================================
+            "live_starlight" -> {
+                val starCount = (38 * densityMult).roundToInt().coerceIn(16, 75)
+                for (i in 0 until starCount) {
+                    // Golden-ratio quasirandom distribution for balanced, non-clumped spacing
+                    val gx = ((i * 0.6180339887f) % 1f)
+                    val gy = (((i * 0.3819660112f) + (i % 7) * 0.071f) % 1f)
+                    val x = (0.06f + gx * 0.88f) * w
+                    val y = (0.07f + gy * 0.86f) * h
+
+                    val breathSpeed = 0.55f + (i % 7) * 0.16f
+                    val breath = (0.5f + 0.5f * sin(t * breathSpeed + i * 2.17f)).coerceIn(0.05f, 1f)
+                    val isAccent = i % 5 == 0
+                    val alpha = (breath * (if (isAccent) 0.72f else 0.48f) * opacityMult).coerceIn(0.03f, 0.95f)
+                    val rad = (0.9f + (i % 3) * 0.35f).dp.toPx() * scaleMult
+
+                    drawCircle(
+                        color = if (isAccent) accentColor.copy(alpha = alpha) else Color.White.copy(alpha = alpha),
+                        radius = rad,
+                        center = Offset(x, y)
                     )
 
-                    // Calm orbital satellite dot gliding along each ring
-                    val satAngleRad = Math.toRadians((rotDeg * 2.2f + ring * 72f).toDouble())
-                    val satPt = Offset(
-                        center.x + (r * cos(satAngleRad)).toFloat(),
-                        center.y + (r * sin(satAngleRad)).toFloat()
+                    // Occasional ultra-fine 4-point starlight glint on peak breath of primary stars
+                    if (i % 6 == 0 && breath > 0.78f) {
+                        val glintFactor = ((breath - 0.78f) / 0.22f).coerceIn(0f, 1f)
+                        val arm = (4.5f * glintFactor * scaleMult).dp.toPx()
+                        val glintCol = (if (isAccent) accentColor else Color.White).copy(alpha = (alpha * 0.55f * glintFactor).coerceIn(0f, 0.65f))
+                        drawLine(glintCol, Offset(x - arm, y), Offset(x + arm, y), strokeWidth = 0.7.dp.toPx())
+                        drawLine(glintCol, Offset(x, y - arm), Offset(x, y + arm), strokeWidth = 0.7.dp.toPx())
+                    }
+                }
+            }
+
+            // ================================================================
+            // 4. KEPLER ORBITS (Ultra-Thin Elliptical Planetary Tracks & Satellites)
+            // ================================================================
+            "live_kepler" -> {
+                val center = Offset(w * 0.5f, h * 0.46f)
+                val orbitCount = (4 * densityMult).roundToInt().coerceIn(2, 7)
+                // Central tiny focal star
+                drawCircle(
+                    color = accentColor.copy(alpha = (0.65f * opacityMult).coerceIn(0.1f, 0.95f)),
+                    radius = 2.2.dp.toPx() * scaleMult,
+                    center = center
+                )
+                for (k in 1..orbitCount) {
+                    val frac = k.toFloat() / orbitCount.toFloat()
+                    val rx = minDim * (0.12f + frac * 0.30f) * scaleMult
+                    val ry = rx * (0.44f + (k % 3) * 0.08f)
+                    val tiltDeg = -18f + k * 9f
+                    val isAccentOrbit = k % 2 == 1
+                    val trackAlpha = ((0.14f + (1f - frac) * 0.08f) * opacityMult).coerceIn(0.04f, 0.48f)
+
+                    // Draw rotated elliptical path
+                    val steps = 64
+                    val tiltRad = Math.toRadians(tiltDeg.toDouble())
+                    val cosT = cos(tiltRad).toFloat()
+                    val sinT = sin(tiltRad).toFloat()
+                    val orbitPath = Path()
+                    for (s in 0..steps) {
+                        val ang = (s.toFloat() / steps) * (2f * PI.toFloat())
+                        val ex = rx * cos(ang)
+                        val ey = ry * sin(ang)
+                        val px = center.x + (ex * cosT - ey * sinT)
+                        val py = center.y + (ex * sinT + ey * cosT)
+                        if (s == 0) orbitPath.moveTo(px, py) else orbitPath.lineTo(px, py)
+                    }
+                    drawPath(
+                        path = orbitPath,
+                        color = if (isAccentOrbit) accentColor.copy(alpha = trackAlpha) else Color.White.copy(alpha = trackAlpha),
+                        style = Stroke(width = 0.75.dp.toPx())
                     )
+
+                    // Pinpoint satellite gliding smoothly along the Kepler ellipse
+                    val dir = if (k % 2 == 0) -1f else 1f
+                    val satAng = t * (0.38f / sqrt(k.toFloat())) * dir + k * 1.4f
+                    val sx = rx * cos(satAng)
+                    val sy = ry * sin(satAng)
+                    val satPt = Offset(
+                        center.x + (sx * cosT - sy * sinT),
+                        center.y + (sx * sinT + sy * cosT)
+                    )
+                    val satAlpha = ((if (isAccentOrbit) 0.82f else 0.64f) * opacityMult).coerceIn(0.1f, 1f)
                     drawCircle(
-                        color = if (isAccentRing) accentColor.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.70f),
-                        radius = 2.6.dp.toPx(),
+                        color = if (isAccentOrbit) accentColor.copy(alpha = satAlpha) else Color.White.copy(alpha = satAlpha),
+                        radius = (if (isAccentOrbit) 2.2.dp.toPx() else 1.7.dp.toPx()) * (0.85f + 0.15f * scaleMult),
                         center = satPt
                     )
                 }
             }
 
-            "live_matrix_pulse" -> {
-                // Calm falling dot-matrix light pulses along a clean Nothing-style grid
-                val cols = 13
-                val rows = 23
-                val cellW = w / (cols + 1).toFloat()
-                val cellH = h / (rows + 1).toFloat()
-                for (c in 1..cols) {
-                    val colSpeed = 1.4f + (c % 4) * 0.35f
-                    val pulseHead = ((t * colSpeed + c * 3.7f) % (rows + 6).toFloat())
-                    for (r in 1..rows) {
-                        val distBehind = pulseHead - r.toFloat()
-                        val pulseIntensity = if (distBehind in 0f..5.5f) {
-                            (1f - distBehind / 5.5f).coerceIn(0f, 1f)
-                        } else 0f
-                        val isAccentCol = c % 3 == 0
-                        val dotCol = when {
-                            pulseIntensity > 0.75f -> if (isAccentCol) accentColor.copy(alpha = 0.82f) else Color.White.copy(alpha = 0.75f)
-                            pulseIntensity > 0.05f -> if (isAccentCol) accentColor.copy(alpha = 0.16f + pulseIntensity * 0.55f) else Color.White.copy(alpha = 0.14f + pulseIntensity * 0.45f)
-                            else -> Color.White.copy(alpha = 0.11f)
-                        }
-                        val dotRad = if (pulseIntensity > 0.5f) 2.0.dp.toPx() else 1.3.dp.toPx()
+            // ================================================================
+            // 5. MICRO LATTICE (Minimalist Dot Grid with Slow Radial Breathing Wave)
+            // ================================================================
+            "live_quantum" -> {
+                val cols = (9 * densityMult).roundToInt().coerceIn(5, 16)
+                val rows = (17 * densityMult).roundToInt().coerceIn(9, 28)
+                val spacingX = w / (cols + 1).toFloat()
+                val spacingY = h / (rows + 1).toFloat()
+                // Slow drifting focal center of the breathing wave
+                val waveCenter = Offset(
+                    w * (0.5f + 0.18f * sin(t * 0.28f)),
+                    h * (0.48f + 0.16f * cos(t * 0.22f))
+                )
+                val waveLength = minDim * 0.38f * scaleMult
+
+                for (r in 1..rows) {
+                    for (c in 1..cols) {
+                        val pt = Offset(c * spacingX, r * spacingY)
+                        val dist = (pt - waveCenter).getDistance()
+                        val wave = 0.5f + 0.5f * cos((dist / waveLength) * PI.toFloat() * 2f - t * 1.15f)
+                        val smoothWave = (wave * wave * wave).coerceIn(0f, 1f)
+                        val isAccentDot = (r + c) % 4 == 0 && smoothWave > 0.55f
+                        val alpha = ((0.08f + smoothWave * 0.42f) * opacityMult).coerceIn(0.03f, 0.88f)
+                        val radiusPx = (0.9f + smoothWave * 1.15f).dp.toPx() * (0.8f + 0.2f * scaleMult)
+
                         drawCircle(
-                            color = dotCol,
-                            radius = dotRad,
-                            center = Offset(c * cellW, r * cellH)
+                            color = if (isAccentDot) accentColor.copy(alpha = alpha) else Color.White.copy(alpha = alpha * 0.85f),
+                            radius = radiusPx,
+                            center = pt
                         )
                     }
                 }
             }
 
-            "live_ripples" -> {
-                // Slow, meditative concentric ripples expanding outward into the #000000 void
-                val maxR = min(w, h) * 0.62f
-                val centers = listOf(
-                    Offset(w * 0.5f, h * 0.42f),
-                    Offset(w * 0.32f, h * 0.62f)
-                )
-                centers.forEachIndexed { cIdx, cPt ->
-                    for (wIdx in 0 until 4) {
-                        val phase = ((t * 0.22f + wIdx * 0.25f + cIdx * 0.12f) % 1f)
-                        val r = phase * maxR
-                        val alpha = ((1f - phase) * 0.48f).coerceIn(0f, 0.48f)
-                        drawCircle(
-                            color = if ((wIdx + cIdx) % 2 == 0) accentColor.copy(alpha = alpha) else Color.White.copy(alpha = alpha * 0.75f),
-                            radius = r,
-                            center = cPt,
-                            style = Stroke(width = 1.4.dp.toPx())
+            // ================================================================
+            // 6. PHASE THREAD (Single Ultra-Thin Harmonic Lissajous Ribbon)
+            // ================================================================
+            "live_lissajous" -> {
+                val center = Offset(w * 0.5f, h * 0.46f)
+                val ampX = w * 0.30f * scaleMult
+                val ampY = h * 0.20f * scaleMult
+                val segments = (90 * densityMult).roundToInt().coerceIn(45, 150)
+                val tailSpan = 2.6f
+                var prevPt: Offset? = null
+
+                for (s in 0..segments) {
+                    val f = s.toFloat() / segments.toFloat()
+                    val tau = t * 0.45f - (1f - f) * tailSpan
+                    val px = center.x + sin(tau * 1.0f + sin(t * 0.12f)) * ampX * cos(tau * 0.25f)
+                    val py = center.y + sin(tau * 1.5f + PI.toFloat() * 0.25f) * ampY
+                    val curPt = Offset(px, py)
+                    if (prevPt != null) {
+                        val segAlpha = (f * f * 0.46f * opacityMult).coerceIn(0.02f, 0.85f)
+                        drawLine(
+                            color = if (f > 0.65f) accentColor.copy(alpha = segAlpha) else Color.White.copy(alpha = segAlpha * 0.75f),
+                            start = prevPt,
+                            end = curPt,
+                            strokeWidth = (0.7f + f * 0.6f).dp.toPx(),
+                            cap = StrokeCap.Round
                         )
                     }
+                    prevPt = curPt
                 }
-            }
-
-            "live_synth_grid" -> {
-                // Slow, calm retro-futuristic wireframe perspective horizon grid on pure #000000
-                val horizonY = h * 0.56f
-                val sunRadius = min(w, h) * 0.16f
-                val sunCenter = Offset(w * 0.5f, horizonY - sunRadius * 1.15f)
-
-                // Breathing minimal wireframe sun ring above horizon
-                val pulseR = sunRadius * (0.96f + 0.04f * sin(t * 0.8f))
-                drawCircle(
-                    color = accentColor.copy(alpha = 0.42f),
-                    radius = pulseR,
-                    center = sunCenter,
-                    style = Stroke(width = 1.6.dp.toPx())
-                )
-                drawCircle(
-                    color = Color.White.copy(alpha = 0.20f),
-                    radius = pulseR * 0.68f,
-                    center = sunCenter,
-                    style = Stroke(
-                        width = 1.dp.toPx(),
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), t * 12f)
-                    )
-                )
-
-                // Horizon line
-                drawLine(
-                    color = accentColor.copy(alpha = 0.52f),
-                    start = Offset(0f, horizonY),
-                    end = Offset(w, horizonY),
-                    strokeWidth = 1.5.dp.toPx()
-                )
-
-                // Perspective radial lines converging toward horizon center
-                val vanishPt = Offset(w * 0.5f, horizonY)
-                for (i in -6..6) {
-                    val bottomX = w * 0.5f + i * (w * 0.18f)
-                    drawLine(
-                        color = Color.White.copy(alpha = 0.18f),
-                        start = vanishPt,
-                        end = Offset(bottomX, h),
-                        strokeWidth = 1.dp.toPx()
-                    )
-                }
-
-                // Slow-gliding horizontal perspective lines moving forward
-                val gridShift = (t * 0.35f) % 1f
-                for (row in 0..8) {
-                    val norm = ((row + gridShift) / 9f).coerceIn(0.02f, 1f)
-                    val y = horizonY + (norm * norm) * (h - horizonY)
-                    val lineAlpha = (norm * 0.42f).coerceIn(0.08f, 0.42f)
-                    drawLine(
-                        color = if (row % 3 == 0) accentColor.copy(alpha = lineAlpha) else Color.White.copy(alpha = lineAlpha * 0.7f),
-                        start = Offset(0f, y),
-                        end = Offset(w, y),
-                        strokeWidth = 1.1.dp.toPx()
+                // Glowing leading node at the tip of the harmonic thread
+                prevPt?.let { head ->
+                    drawCircle(
+                        color = accentColor.copy(alpha = (0.85f * opacityMult).coerceIn(0.15f, 1f)),
+                        radius = 2.4.dp.toPx() * scaleMult,
+                        center = head
                     )
                 }
             }
 
+            // ================================================================
+            // 24 MINIMALIST STATIC AMOLED WALLPAPERS
+            // ================================================================
             "dots" -> {
-                val step = 18.dp.toPx()
+                val step = (18.dp.toPx() * scaleMult).coerceAtLeast(10.dp.toPx())
+                val dotAlpha = (0.22f * opacityMult).coerceIn(0.05f, 0.75f)
                 var x = step
                 while (x < w) {
                     var y = step
                     while (y < h) {
                         drawCircle(
-                            color = Color.White.copy(alpha = 0.22f),
-                            radius = 1.4.dp.toPx(),
+                            color = Color.White.copy(alpha = dotAlpha),
+                            radius = 1.3.dp.toPx(),
                             center = Offset(x, y)
                         )
                         y += step
@@ -5283,33 +5513,24 @@ fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
             }
 
             "blueprint" -> {
-                val step = 32.dp.toPx()
+                val step = (32.dp.toPx() * scaleMult).coerceAtLeast(16.dp.toPx())
+                val lineAlpha = (0.18f * opacityMult).coerceIn(0.05f, 0.65f)
                 var x = 0f
                 while (x < w) {
-                    drawLine(
-                        color = accentColor.copy(alpha = 0.18f),
-                        start = Offset(x, 0f),
-                        end = Offset(x, h),
-                        strokeWidth = 1f
-                    )
+                    drawLine(accentColor.copy(alpha = lineAlpha), Offset(x, 0f), Offset(x, h), strokeWidth = 1f)
                     x += step
                 }
                 var y = 0f
                 while (y < h) {
-                    drawLine(
-                        color = accentColor.copy(alpha = 0.18f),
-                        start = Offset(0f, y),
-                        end = Offset(w, y),
-                        strokeWidth = 1f
-                    )
+                    drawLine(accentColor.copy(alpha = lineAlpha), Offset(0f, y), Offset(w, y), strokeWidth = 1f)
                     y += step
                 }
             }
 
             "circuit" -> {
-                val stroke = 1.4.dp.toPx()
-                val traceColor = Color.White.copy(alpha = 0.18f)
-                val nodeColor = accentColor.copy(alpha = 0.45f)
+                val stroke = 1.3.dp.toPx()
+                val traceColor = Color.White.copy(alpha = (0.18f * opacityMult).coerceIn(0.05f, 0.65f))
+                val nodeColor = accentColor.copy(alpha = (0.45f * opacityMult).coerceIn(0.10f, 0.85f))
                 val paths = listOf(
                     listOf(Offset(w * 0.12f, h * 0.15f), Offset(w * 0.32f, h * 0.15f), Offset(w * 0.45f, h * 0.28f), Offset(w * 0.45f, h * 0.52f)),
                     listOf(Offset(w * 0.88f, h * 0.22f), Offset(w * 0.68f, h * 0.22f), Offset(w * 0.56f, h * 0.34f), Offset(w * 0.56f, h * 0.66f)),
@@ -5318,16 +5539,462 @@ fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
                 )
                 for (pts in paths) {
                     for (k in 0 until pts.lastIndex) {
-                        drawLine(
-                            color = traceColor,
-                            start = pts[k],
-                            end = pts[k + 1],
-                            strokeWidth = stroke,
-                            cap = StrokeCap.Round
-                        )
+                        drawLine(traceColor, pts[k], pts[k + 1], strokeWidth = stroke, cap = StrokeCap.Round)
                     }
-                    drawCircle(color = nodeColor, radius = 3.2.dp.toPx(), center = pts.first())
-                    drawCircle(color = traceColor, radius = 2.6.dp.toPx(), center = pts.last())
+                    drawCircle(color = nodeColor, radius = 3.0.dp.toPx(), center = pts.first())
+                    drawCircle(color = traceColor, radius = 2.4.dp.toPx(), center = pts.last())
+                }
+            }
+
+            "static_crosshair" -> {
+                // Precision Reticle HUD Crosshairs & Corner Calibration Ticks
+                val c = Offset(w * 0.5f, h * 0.46f)
+                val r1 = minDim * 0.18f * scaleMult
+                val r2 = minDim * 0.34f * scaleMult
+                val aWhite = (0.18f * opacityMult).coerceIn(0.05f, 0.65f)
+                val aAccent = (0.38f * opacityMult).coerceIn(0.08f, 0.80f)
+                drawCircle(Color.White.copy(alpha = aWhite), radius = r1, center = c, style = Stroke(width = 1.dp.toPx()))
+                drawCircle(accentColor.copy(alpha = aAccent), radius = r2, center = c, style = Stroke(width = 0.8.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)))
+                drawLine(Color.White.copy(alpha = aWhite * 0.7f), Offset(c.x - r2 * 1.25f, c.y), Offset(c.x + r2 * 1.25f, c.y), strokeWidth = 0.8.dp.toPx())
+                drawLine(Color.White.copy(alpha = aWhite * 0.7f), Offset(c.x, c.y - r2 * 1.25f), Offset(c.x, c.y + r2 * 1.25f), strokeWidth = 0.8.dp.toPx())
+                drawCircle(accentColor.copy(alpha = aAccent), radius = 2.2.dp.toPx(), center = c)
+            }
+
+            "static_topo" -> {
+                // Minimalist Topographic Elevation Isolines
+                val center = Offset(w * 0.52f, h * 0.45f)
+                val rings = 8
+                for (i in 1..rings) {
+                    val baseR = minDim * (0.07f * i) * scaleMult
+                    val path = Path()
+                    val steps = 72
+                    for (s in 0..steps) {
+                        val ang = (s.toFloat() / steps) * 2f * PI.toFloat()
+                        val warp = 1f + 0.14f * sin(ang * 3f + i * 0.7f) + 0.08f * cos(ang * 5f - i * 1.1f)
+                        val px = center.x + cos(ang) * baseR * warp
+                        val py = center.y + sin(ang) * baseR * warp * 1.25f
+                        if (s == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                    }
+                    val isIndexContour = i % 3 == 0
+                    val alpha = ((if (isIndexContour) 0.30f else 0.15f) * opacityMult).coerceIn(0.04f, 0.75f)
+                    drawPath(
+                        path = path,
+                        color = if (isIndexContour) accentColor.copy(alpha = alpha) else Color.White.copy(alpha = alpha),
+                        style = Stroke(width = if (isIndexContour) 1.1.dp.toPx() else 0.75.dp.toPx())
+                    )
+                }
+            }
+
+            "static_halftone" -> {
+                // Radial Halftone Dot Gradient Fade
+                val step = (20.dp.toPx() * scaleMult).coerceAtLeast(12.dp.toPx())
+                val center = Offset(w * 0.5f, h * 0.45f)
+                val maxDist = minDim * 0.55f * scaleMult
+                var y = step
+                while (y < h) {
+                    var x = step
+                    while (x < w) {
+                        val d = (Offset(x, y) - center).getDistance()
+                        if (d < maxDist) {
+                            val norm = (1f - d / maxDist).coerceIn(0f, 1f)
+                            val r = (0.6f + norm * 2.2f).dp.toPx()
+                            val a = ((0.10f + norm * 0.28f) * opacityMult).coerceIn(0.03f, 0.75f)
+                            drawCircle(
+                                color = if (norm > 0.65f) accentColor.copy(alpha = a) else Color.White.copy(alpha = a),
+                                radius = r,
+                                center = Offset(x, y)
+                            )
+                        }
+                        x += step
+                    }
+                    y += step
+                }
+            }
+
+            "static_isometric" -> {
+                // 60° Axonometric Isometric Lattice
+                val step = (36.dp.toPx() * scaleMult).coerceAtLeast(18.dp.toPx())
+                val a = (0.14f * opacityMult).coerceIn(0.04f, 0.55f)
+                val tan30 = 0.57735f
+                var y = -h * 0.5f
+                while (y < h * 1.5f) {
+                    drawLine(Color.White.copy(alpha = a), Offset(0f, y), Offset(w, y + w * tan30), strokeWidth = 0.8.dp.toPx())
+                    drawLine(Color.White.copy(alpha = a), Offset(0f, y + w * tan30), Offset(w, y), strokeWidth = 0.8.dp.toPx())
+                    y += step
+                }
+                var x = 0f
+                while (x < w) {
+                    drawLine(accentColor.copy(alpha = a * 0.85f), Offset(x, 0f), Offset(x, h), strokeWidth = 0.7.dp.toPx())
+                    x += step * 0.866f
+                }
+            }
+
+            "static_star_chart" -> {
+                // Celestial Declination & Right Ascension Star Map
+                val pole = Offset(w * 0.5f, h * 0.38f)
+                val aLine = (0.15f * opacityMult).coerceIn(0.04f, 0.55f)
+                for (rIdx in 1..5) {
+                    drawCircle(
+                        color = Color.White.copy(alpha = aLine),
+                        radius = minDim * 0.10f * rIdx * scaleMult,
+                        center = pole,
+                        style = Stroke(width = 0.75.dp.toPx())
+                    )
+                }
+                for (angIdx in 0 until 12) {
+                    val rad = Math.toRadians((angIdx * 30).toDouble())
+                    val rInner = minDim * 0.10f * scaleMult
+                    val rOuter = minDim * 0.55f * scaleMult
+                    drawLine(
+                        color = if (angIdx % 3 == 0) accentColor.copy(alpha = aLine * 1.6f) else Color.White.copy(alpha = aLine * 0.8f),
+                        start = Offset(pole.x + cos(rad).toFloat() * rInner, pole.y + sin(rad).toFloat() * rInner),
+                        end = Offset(pole.x + cos(rad).toFloat() * rOuter, pole.y + sin(rad).toFloat() * rOuter),
+                        strokeWidth = 0.75.dp.toPx()
+                    )
+                }
+            }
+
+            "static_eclipse" -> {
+                // Solar Eclipse Coronal Rim Ring on Pure #000000
+                val c = Offset(w * 0.5f, h * 0.44f)
+                val r = minDim * 0.26f * scaleMult
+                val glowAlpha = (0.28f * opacityMult).coerceIn(0.06f, 0.75f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color.Transparent, accentColor.copy(alpha = glowAlpha), Color.Transparent),
+                        center = c,
+                        radius = r * 1.45f
+                    ),
+                    radius = r * 1.45f,
+                    center = c
+                )
+                drawCircle(Color.Black, radius = r, center = c)
+                drawCircle(
+                    color = Color.White.copy(alpha = (0.55f * opacityMult).coerceIn(0.12f, 0.95f)),
+                    radius = r,
+                    center = c,
+                    style = Stroke(width = 1.1.dp.toPx())
+                )
+            }
+
+            "static_vinyl" -> {
+                // Concentric Fine Micro-Grooves
+                val c = Offset(w * 0.5f, h * 0.46f)
+                for (i in 3..18) {
+                    val r = minDim * 0.026f * i * scaleMult
+                    val isAccent = i == 7 || i == 14
+                    val a = ((if (isAccent) 0.34f else 0.13f) * opacityMult).coerceIn(0.03f, 0.75f)
+                    drawCircle(
+                        color = if (isAccent) accentColor.copy(alpha = a) else Color.White.copy(alpha = a),
+                        radius = r,
+                        center = c,
+                        style = Stroke(width = 0.75.dp.toPx())
+                    )
+                }
+            }
+
+            "static_bauhaus" -> {
+                // Minimalist Bauhaus Architectural Line & Circle Balance
+                val aWhite = (0.20f * opacityMult).coerceIn(0.05f, 0.65f)
+                val aAccent = (0.42f * opacityMult).coerceIn(0.08f, 0.85f)
+                val xRule = w * 0.28f
+                val yRule = h * 0.62f
+                drawLine(Color.White.copy(alpha = aWhite), Offset(xRule, h * 0.12f), Offset(xRule, h * 0.88f), strokeWidth = 1.dp.toPx())
+                drawLine(Color.White.copy(alpha = aWhite), Offset(w * 0.10f, yRule), Offset(w * 0.90f, yRule), strokeWidth = 1.dp.toPx())
+                drawCircle(
+                    color = accentColor.copy(alpha = aAccent),
+                    radius = minDim * 0.18f * scaleMult,
+                    center = Offset(xRule, yRule),
+                    style = Stroke(width = 1.3.dp.toPx())
+                )
+                drawRect(
+                    color = Color.White.copy(alpha = aWhite),
+                    topLeft = Offset(xRule - minDim * 0.08f, h * 0.26f),
+                    size = Size(minDim * 0.32f * scaleMult, minDim * 0.22f * scaleMult),
+                    style = Stroke(width = 0.9.dp.toPx())
+                )
+            }
+
+            "static_horizon_lines" -> {
+                // Graduated Horizon Scanline Fade
+                val lines = 22
+                val startY = h * 0.32f
+                val spanY = h * 0.56f
+                for (i in 0 until lines) {
+                    val f = i.toFloat() / (lines - 1).toFloat()
+                    val y = startY + (f * f) * spanY
+                    val a = ((0.06f + f * 0.28f) * opacityMult).coerceIn(0.03f, 0.75f)
+                    drawLine(
+                        color = if (i % 5 == 0) accentColor.copy(alpha = a) else Color.White.copy(alpha = a * 0.8f),
+                        start = Offset(w * (0.08f + (1f - f) * 0.18f), y),
+                        end = Offset(w * (0.92f - (1f - f) * 0.18f), y),
+                        strokeWidth = 0.85.dp.toPx()
+                    )
+                }
+            }
+
+            "static_glyph_arcs" -> {
+                // Nothing-Inspired Segmented Glyph Light Strips & Arcs
+                val c = Offset(w * 0.5f, h * 0.45f)
+                val r = minDim * 0.28f * scaleMult
+                val aAccent = (0.48f * opacityMult).coerceIn(0.10f, 0.90f)
+                val aWhite = (0.28f * opacityMult).coerceIn(0.06f, 0.75f)
+                val stroke = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round)
+                drawArc(accentColor.copy(alpha = aAccent), startAngle = -75f, sweepAngle = 52f, useCenter = false, topLeft = Offset(c.x - r, c.y - r), size = Size(r * 2f, r * 2f), style = stroke)
+                drawArc(Color.White.copy(alpha = aWhite), startAngle = 15f, sweepAngle = 68f, useCenter = false, topLeft = Offset(c.x - r, c.y - r), size = Size(r * 2f, r * 2f), style = stroke)
+                drawArc(Color.White.copy(alpha = aWhite), startAngle = 115f, sweepAngle = 55f, useCenter = false, topLeft = Offset(c.x - r, c.y - r), size = Size(r * 2f, r * 2f), style = stroke)
+                drawArc(accentColor.copy(alpha = aAccent), startAngle = 200f, sweepAngle = 45f, useCenter = false, topLeft = Offset(c.x - r, c.y - r), size = Size(r * 2f, r * 2f), style = stroke)
+                drawLine(Color.White.copy(alpha = aWhite), Offset(c.x, c.y + r * 1.22f), Offset(c.x, c.y + r * 1.75f), strokeWidth = 2.2.dp.toPx(), cap = StrokeCap.Round)
+                drawCircle(accentColor.copy(alpha = aAccent), radius = 3.2.dp.toPx(), center = Offset(c.x + r * 0.75f, c.y - r * 1.15f))
+            }
+
+            "static_polar" -> {
+                // Polar Radar Azimuth Range Rings
+                val c = Offset(w * 0.5f, h * 0.46f)
+                val a = (0.18f * opacityMult).coerceIn(0.04f, 0.65f)
+                for (ring in 1..4) {
+                    val r = minDim * 0.09f * ring * scaleMult
+                    drawCircle(
+                        color = if (ring == 3) accentColor.copy(alpha = a * 1.5f) else Color.White.copy(alpha = a),
+                        radius = r,
+                        center = c,
+                        style = Stroke(width = 0.85.dp.toPx())
+                    )
+                }
+                for (deg in 0 until 360 step 15) {
+                    val rad = Math.toRadians(deg.toDouble())
+                    val innerR = if (deg % 45 == 0) minDim * 0.09f * scaleMult else minDim * 0.33f * scaleMult
+                    val outerR = minDim * 0.36f * scaleMult
+                    drawLine(
+                        color = if (deg % 90 == 0) accentColor.copy(alpha = a * 1.6f) else Color.White.copy(alpha = a),
+                        start = Offset(c.x + cos(rad).toFloat() * innerR, c.y + sin(rad).toFloat() * innerR),
+                        end = Offset(c.x + cos(rad).toFloat() * outerR, c.y + sin(rad).toFloat() * outerR),
+                        strokeWidth = 0.8.dp.toPx()
+                    )
+                }
+            }
+
+            "static_diagonal_hatch" -> {
+                // Fine 45° Architectural Micro Hatch
+                val step = (24.dp.toPx() * scaleMult).coerceAtLeast(12.dp.toPx())
+                val a = (0.14f * opacityMult).coerceIn(0.04f, 0.55f)
+                var offset = -h
+                var idx = 0
+                while (offset < w + h) {
+                    val isAccent = idx % 7 == 0
+                    drawLine(
+                        color = if (isAccent) accentColor.copy(alpha = a * 1.4f) else Color.White.copy(alpha = a),
+                        start = Offset(offset, 0f),
+                        end = Offset(offset + h, h),
+                        strokeWidth = 0.75.dp.toPx()
+                    )
+                    offset += step
+                    idx++
+                }
+            }
+
+            "static_golden_spiral" -> {
+                // Minimalist Golden Ratio Subdivision & Arc
+                val aWhite = (0.18f * opacityMult).coerceIn(0.04f, 0.65f)
+                val aAccent = (0.38f * opacityMult).coerceIn(0.08f, 0.85f)
+                val boxW = minDim * 0.68f * scaleMult
+                val boxH = boxW * 1.618f
+                val left = (w - boxW) * 0.5f
+                val top = (h - boxH) * 0.48f
+                drawRect(Color.White.copy(alpha = aWhite), Offset(left, top), Size(boxW, boxH), style = Stroke(width = 0.9.dp.toPx()))
+                val splitY = top + boxW
+                drawLine(Color.White.copy(alpha = aWhite), Offset(left, splitY), Offset(left + boxW, splitY), strokeWidth = 0.8.dp.toPx())
+                val splitX = left + (boxH - boxW)
+                drawLine(Color.White.copy(alpha = aWhite), Offset(splitX, splitY), Offset(splitX, top + boxH), strokeWidth = 0.8.dp.toPx())
+                drawArc(
+                    color = accentColor.copy(alpha = aAccent),
+                    startAngle = 180f,
+                    sweepAngle = 90f,
+                    useCenter = false,
+                    topLeft = Offset(left, top),
+                    size = Size(boxW * 2f, boxW * 2f),
+                    style = Stroke(width = 1.2.dp.toPx())
+                )
+            }
+
+            "static_sine_interference" -> {
+                // Harmonic Moiré Wave Phase Lines
+                val waves = 11
+                val steps = 64
+                for (wIdx in 0 until waves) {
+                    val f = wIdx.toFloat() / (waves - 1).toFloat()
+                    val baseY = h * (0.28f + f * 0.44f)
+                    val path = Path()
+                    for (s in 0..steps) {
+                        val xr = s.toFloat() / steps.toFloat()
+                        val x = xr * w
+                        val y = baseY + sin(xr * PI.toFloat() * 3f + wIdx * 0.38f) * (minDim * 0.045f * scaleMult)
+                        if (s == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    val isAccent = wIdx == waves / 2
+                    val a = ((if (isAccent) 0.36f else 0.15f) * opacityMult).coerceIn(0.04f, 0.75f)
+                    drawPath(
+                        path = path,
+                        color = if (isAccent) accentColor.copy(alpha = a) else Color.White.copy(alpha = a),
+                        style = Stroke(width = if (isAccent) 1.1.dp.toPx() else 0.75.dp.toPx())
+                    )
+                }
+            }
+
+            "static_corner_frame" -> {
+                // Camera Viewfinder Brackets & Rule-of-Thirds Ticks
+                val padX = w * 0.08f
+                val padY = h * 0.10f
+                val arm = 22.dp.toPx() * scaleMult
+                val aAccent = (0.45f * opacityMult).coerceIn(0.10f, 0.85f)
+                val aWhite = (0.16f * opacityMult).coerceIn(0.04f, 0.60f)
+                val sPx = 1.2.dp.toPx()
+                // Top-left
+                drawLine(accentColor.copy(alpha = aAccent), Offset(padX, padY), Offset(padX + arm, padY), sPx)
+                drawLine(accentColor.copy(alpha = aAccent), Offset(padX, padY), Offset(padX, padY + arm), sPx)
+                // Top-right
+                drawLine(accentColor.copy(alpha = aAccent), Offset(w - padX, padY), Offset(w - padX - arm, padY), sPx)
+                drawLine(accentColor.copy(alpha = aAccent), Offset(w - padX, padY), Offset(w - padX, padY + arm), sPx)
+                // Bottom-left
+                drawLine(accentColor.copy(alpha = aAccent), Offset(padX, h - padY), Offset(padX + arm, h - padY), sPx)
+                drawLine(accentColor.copy(alpha = aAccent), Offset(padX, h - padY), Offset(padX, h - padY - arm), sPx)
+                // Bottom-right
+                drawLine(accentColor.copy(alpha = aAccent), Offset(w - padX, h - padY), Offset(w - padX - arm, h - padY), sPx)
+                drawLine(accentColor.copy(alpha = aAccent), Offset(w - padX, h - padY), Offset(w - padX, h - padY - arm), sPx)
+                // Center micro crosshair
+                val cx = w * 0.5f
+                val cy = h * 0.46f
+                val tick = 7.dp.toPx()
+                drawLine(Color.White.copy(alpha = aWhite), Offset(cx - tick, cy), Offset(cx + tick, cy), 0.9.dp.toPx())
+                drawLine(Color.White.copy(alpha = aWhite), Offset(cx, cy - tick), Offset(cx, cy + tick), 0.9.dp.toPx())
+            }
+
+            "static_hex_honeycomb" -> {
+                // Sparse Geometric Hexagonal Mesh
+                val r = (24.dp.toPx() * scaleMult).coerceAtLeast(14.dp.toPx())
+                val dx = r * 1.5f
+                val dy = r * sqrt(3f)
+                val aWhite = (0.14f * opacityMult).coerceIn(0.04f, 0.55f)
+                val aAccent = (0.30f * opacityMult).coerceIn(0.08f, 0.75f)
+                var col = 0
+                var x = r
+                while (x < w) {
+                    var row = 0
+                    var y = if (col % 2 == 0) r else r + dy * 0.5f
+                    while (y < h) {
+                        if ((col + row) % 3 == 0) {
+                            val hexPath = Path()
+                            for (v in 0..5) {
+                                val ang = Math.toRadians((v * 60).toDouble())
+                                val vx = x + cos(ang).toFloat() * (r * 0.88f)
+                                val vy = y + sin(ang).toFloat() * (r * 0.88f)
+                                if (v == 0) hexPath.moveTo(vx, vy) else hexPath.lineTo(vx, vy)
+                            }
+                            hexPath.close()
+                            val isHighlight = (col * 3 + row) % 11 == 0
+                            drawPath(
+                                path = hexPath,
+                                color = if (isHighlight) accentColor.copy(alpha = aAccent) else Color.White.copy(alpha = aWhite),
+                                style = Stroke(width = 0.8.dp.toPx())
+                            )
+                        }
+                        y += dy
+                        row++
+                    }
+                    x += dx
+                    col++
+                }
+            }
+
+            "static_constellation_fixed" -> {
+                // Fixed Deep-Sky Star Atlas & Geometric Links
+                val coords = listOf(
+                    Offset(0.22f, 0.20f), Offset(0.38f, 0.26f), Offset(0.54f, 0.21f), Offset(0.74f, 0.30f),
+                    Offset(0.30f, 0.44f), Offset(0.48f, 0.40f), Offset(0.66f, 0.48f), Offset(0.80f, 0.62f),
+                    Offset(0.20f, 0.68f), Offset(0.42f, 0.64f), Offset(0.58f, 0.74f), Offset(0.34f, 0.84f)
+                ).map { Offset(it.x * w, it.y * h) }
+                val links = listOf(0 to 1, 1 to 2, 2 to 3, 1 to 5, 4 to 5, 5 to 6, 6 to 7, 4 to 9, 8 to 9, 9 to 10, 9 to 11)
+                val aLine = (0.20f * opacityMult).coerceIn(0.05f, 0.65f)
+                for ((i, j) in links) {
+                    drawLine(Color.White.copy(alpha = aLine), coords[i], coords[j], strokeWidth = 0.85.dp.toPx())
+                }
+                coords.forEachIndexed { idx, pt ->
+                    val isMajor = idx % 3 == 0
+                    drawCircle(
+                        color = if (isMajor) accentColor.copy(alpha = (0.75f * opacityMult).coerceIn(0.15f, 0.95f)) else Color.White.copy(alpha = (0.50f * opacityMult).coerceIn(0.10f, 0.85f)),
+                        radius = (if (isMajor) 2.5.dp.toPx() else 1.6.dp.toPx()) * scaleMult,
+                        center = pt
+                    )
+                }
+            }
+
+            "static_vertical_flutes" -> {
+                // Architectural Monolith Vertical Fine Rules
+                val count = 16
+                val step = w / (count + 1).toFloat()
+                for (i in 1..count) {
+                    val x = i * step
+                    val distCenter = abs(i - (count + 1) * 0.5f) / (count * 0.5f)
+                    val topY = h * (0.12f + distCenter * 0.14f)
+                    val botY = h * (0.88f - distCenter * 0.14f)
+                    val isAccent = i == count / 2 || i == count / 2 + 1
+                    val a = ((if (isAccent) 0.28f else 0.12f) * opacityMult).coerceIn(0.03f, 0.70f)
+                    drawLine(
+                        color = if (isAccent) accentColor.copy(alpha = a) else Color.White.copy(alpha = a),
+                        start = Offset(x, topY),
+                        end = Offset(x, botY),
+                        strokeWidth = 0.85.dp.toPx()
+                    )
+                }
+            }
+
+            "static_zen_enso" -> {
+                // Minimalist Zen Circle (Segmented Tapered Ring)
+                val c = Offset(w * 0.5f, h * 0.45f)
+                val r = minDim * 0.27f * scaleMult
+                val aAccent = (0.42f * opacityMult).coerceIn(0.08f, 0.85f)
+                val aWhite = (0.20f * opacityMult).coerceIn(0.05f, 0.65f)
+                drawArc(
+                    color = accentColor.copy(alpha = aAccent),
+                    startAngle = -40f,
+                    sweepAngle = 295f,
+                    useCenter = false,
+                    topLeft = Offset(c.x - r, c.y - r),
+                    size = Size(r * 2f, r * 2f),
+                    style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
+                )
+                drawArc(
+                    color = Color.White.copy(alpha = aWhite),
+                    startAngle = -25f,
+                    sweepAngle = 250f,
+                    useCenter = false,
+                    topLeft = Offset(c.x - r * 0.92f, c.y - r * 0.92f),
+                    size = Size(r * 1.84f, r * 1.84f),
+                    style = Stroke(width = 0.75.dp.toPx(), cap = StrokeCap.Round)
+                )
+            }
+
+            "static_micro_plus" -> {
+                // Swiss Precision '+' Cross Grid
+                val step = (34.dp.toPx() * scaleMult).coerceAtLeast(20.dp.toPx())
+                val arm = 3.2.dp.toPx()
+                val aWhite = (0.20f * opacityMult).coerceIn(0.05f, 0.65f)
+                val aAccent = (0.45f * opacityMult).coerceIn(0.10f, 0.85f)
+                var row = 0
+                var y = step
+                while (y < h) {
+                    var col = 0
+                    var x = step
+                    while (x < w) {
+                        val isAccent = (row + col) % 5 == 0
+                        val colStroke = if (isAccent) accentColor.copy(alpha = aAccent) else Color.White.copy(alpha = aWhite)
+                        drawLine(colStroke, Offset(x - arm, y), Offset(x + arm, y), strokeWidth = 0.85.dp.toPx())
+                        drawLine(colStroke, Offset(x, y - arm), Offset(x, y + arm), strokeWidth = 0.85.dp.toPx())
+                        x += step
+                        col++
+                    }
+                    y += step
+                    row++
                 }
             }
 
@@ -5335,9 +6002,9 @@ fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
                 // Fallback subtle radial aura
                 drawRect(
                     brush = Brush.radialGradient(
-                        colors = listOf(accentColor.copy(alpha = 0.22f), Color.Transparent),
+                        colors = listOf(accentColor.copy(alpha = (0.18f * opacityMult).coerceIn(0.05f, 0.55f)), Color.Transparent),
                         center = Offset(w * 0.5f, h * 0.45f),
-                        radius = min(w, h) * 0.65f
+                        radius = minDim * 0.60f * scaleMult
                     )
                 )
             }
