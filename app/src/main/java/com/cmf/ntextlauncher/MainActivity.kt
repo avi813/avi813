@@ -1,6 +1,7 @@
 package com.cmf.ntextlauncher
 
 import android.annotation.SuppressLint
+import android.app.ActivityOptions
 import android.app.AlarmManager
 import android.app.role.RoleManager
 import android.content.BroadcastReceiver
@@ -254,6 +255,32 @@ data class AppEntry(
 
 enum class LauncherView {
     HOME_AND_DRAWER, WIDGETS, SETTINGS
+}
+
+private val LAUNCHER_ACCENT_PALETTE: List<Pair<String, String>> = listOf(
+    "#FF3B00" to "CMF",
+    "#FFFFFF" to "WHT",
+    "#D71921" to "RED",
+    "#00FF66" to "GRN",
+    "#00E5FF" to "CYN",
+    "#FFB000" to "AMB",
+    "#A855F7" to "VLT",
+    "#3B82F6" to "BLU",
+    "#FF2A85" to "MAG",
+    "#10B981" to "MNT"
+)
+
+private fun resolveLauncherAccentColor(hex: String): Color = when (hex.uppercase(Locale.US)) {
+    "#FFFFFF" -> Color(0xFFFFFFFF)
+    "#D71921" -> Color(0xFFD71921)
+    "#00FF66" -> Color(0xFF00FF66)
+    "#00E5FF" -> Color(0xFF00E5FF)
+    "#FFB000" -> Color(0xFFFFB000)
+    "#A855F7" -> Color(0xFFA855F7)
+    "#3B82F6" -> Color(0xFF3B82F6)
+    "#FF2A85" -> Color(0xFFFF2A85)
+    "#10B981" -> Color(0xFF10B981)
+    else -> Color(0xFFFF3B00)
 }
 
 enum class PrebuiltFont(val id: String, val displayName: String, val uppercaseHome: Boolean) {
@@ -751,11 +778,7 @@ fun NTextLauncherApp(
     }
 
     val accentColor = remember(accentHex) {
-        when (accentHex) {
-            "#FFFFFF" -> Color.White
-            "#D71921" -> Color(0xFFD71921)
-            else -> Color(0xFFFF3B00)
-        }
+        resolveLauncherAccentColor(accentHex)
     }
     val prebuiltFont = remember(fontId) { PrebuiltFont.fromId(fontId) }
     val selectedFont = remember(prebuiltFont, lomoFontFamily) {
@@ -884,8 +907,23 @@ fun NTextLauncherApp(
     fun launchApp(pkg: String) {
         clearAllFocusAndKeyboard()
         drawerSearchResetToken++
-        context.packageManager.getLaunchIntentForPackage(pkg)?.let {
-            context.startActivity(it)
+        context.packageManager.getLaunchIntentForPackage(pkg)?.let { intent ->
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            try {
+                val dv = activity.window.decorView
+                val w = dv.width.coerceAtLeast(1)
+                val h = dv.height.coerceAtLeast(1)
+                val opts = ActivityOptions.makeScaleUpAnimation(
+                    dv,
+                    w / 2,
+                    h / 2,
+                    w / 6,
+                    h / 6
+                ).toBundle()
+                activity.startActivity(intent, opts)
+            } catch (_: Exception) {
+                context.startActivity(intent)
+            }
         }
     }
 
@@ -3919,99 +3957,42 @@ private fun AlphabetScrubberRail(
             }
         }
 
-        // Exact 10x11 Stepped Pixel-Art Block Indicator (matching reference image_c9f7d8.png in our launcher color theme)
+        // Minimalist Black & White Stepped Pixel Alphabet Indicator (Only the stepped outline is accentColor)
         if (activeLetter != null && scrubLocalY != null) {
             Box(
                 modifier = Modifier
                     .padding(end = 42.dp)
                     .offset { IntOffset(x = 0, y = animatedIndicatorY.roundToInt()) }
-                    .size(width = 50.dp, height = 55.dp),
+                    .size(48.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    // Exact 10x11 pixel-art sprite matrix extracted from the reference image:
-                    // '.' = Transparent
-                    // 'B' = Stepped outer pixel outline & 2-row bottom lip
-                    // 'H' = Top inner highlight bevel
-                    // 'S' = Top-left 3-pixel specular shine (2 pixels on row 2 + 1 pixel on row 3)
-                    // 'M' = Main themed body fill
-                    // 'D' = Bottom inner shadow bevel
-                    val spriteRows = listOf(
+                    // Clean, minimal 10x10 stepped pixel block:
+                    // 'B' = Stepped 1px outline in accentColor
+                    // 'F' = Pure #000000 black fill
+                    val minimalRows = listOf(
                         "..BBBBBB..",
-                        ".BHHHHHHB.",
-                        "BHHSSMMMMB",
-                        "BMSMMMMMMB",
-                        "BMMMMMMMMB",
-                        "BMMMMMMMMB",
-                        "BDMMMMMMDB",
-                        "BDDDDDDDDB",
-                        "BBDDDDDDBB",
-                        ".BBBBBBBB.",
+                        ".BFFFFFFB.",
+                        "BFFFFFFFFB",
+                        "BFFFFFFFFB",
+                        "BFFFFFFFFB",
+                        "BFFFFFFFFB",
+                        "BFFFFFFFFB",
+                        "BFFFFFFFFB",
+                        ".BFFFFFFB.",
                         "..BBBBBB.."
                     )
+                    val gridN = 10
+                    val cellW = size.width / gridN.toFloat()
+                    val cellH = size.height / gridN.toFloat()
 
-                    val isMono = accentColor.red > 0.9f && accentColor.green > 0.9f && accentColor.blue > 0.9f
-                    val colBorder = if (isMono) {
-                        Color(0xFF2B2B2B)
-                    } else {
-                        Color(
-                            red = (accentColor.red * 0.30f + 0.06f).coerceIn(0f, 1f),
-                            green = (accentColor.green * 0.30f + 0.05f).coerceIn(0f, 1f),
-                            blue = (accentColor.blue * 0.30f + 0.05f).coerceIn(0f, 1f),
-                            alpha = 1f
-                        )
-                    }
-                    val colHighlight = if (isMono) {
-                        Color(0xFFB8B8B8)
-                    } else {
-                        Color(
-                            red = (accentColor.red * 0.68f + 0.32f).coerceIn(0f, 1f),
-                            green = (accentColor.green * 0.68f + 0.32f).coerceIn(0f, 1f),
-                            blue = (accentColor.blue * 0.68f + 0.32f).coerceIn(0f, 1f),
-                            alpha = 1f
-                        )
-                    }
-                    val colMid = if (isMono) {
-                        Color(0xFF7D7D7D)
-                    } else {
-                        Color(
-                            red = (accentColor.red * 0.86f + 0.04f).coerceIn(0f, 1f),
-                            green = (accentColor.green * 0.86f + 0.04f).coerceIn(0f, 1f),
-                            blue = (accentColor.blue * 0.86f + 0.04f).coerceIn(0f, 1f),
-                            alpha = 1f
-                        )
-                    }
-                    val colDark = if (isMono) {
-                        Color(0xFF545454)
-                    } else {
-                        Color(
-                            red = (accentColor.red * 0.58f + 0.02f).coerceIn(0f, 1f),
-                            green = (accentColor.green * 0.58f + 0.02f).coerceIn(0f, 1f),
-                            blue = (accentColor.blue * 0.58f + 0.02f).coerceIn(0f, 1f),
-                            alpha = 1f
-                        )
-                    }
-                    val colShine = Color.White
-
-                    val cols = 10
-                    val rows = 11
-                    val cellW = size.width / cols.toFloat()
-                    val cellH = size.height / rows.toFloat()
-
-                    for (r in 0 until rows) {
-                        val rowStr = spriteRows[r]
-                        for (c in 0 until cols) {
-                            val pxCol = when (rowStr[c]) {
-                                'B' -> colBorder
-                                'H' -> colHighlight
-                                'S' -> colShine
-                                'M' -> colMid
-                                'D' -> colDark
-                                else -> null
-                            }
-                            if (pxCol != null) {
+                    for (r in 0 until gridN) {
+                        val rowStr = minimalRows[r]
+                        for (c in 0 until gridN) {
+                            val ch = rowStr[c]
+                            if (ch == 'B' || ch == 'F') {
                                 drawRect(
-                                    color = pxCol,
+                                    color = if (ch == 'B') accentColor else Color.Black,
                                     topLeft = Offset(c * cellW, r * cellH),
                                     size = Size(cellW + 0.6f, cellH + 0.6f)
                                 )
@@ -4020,22 +4001,12 @@ private fun AlphabetScrubberRail(
                     }
                 }
 
-                // Subtle 1px pixel shadow + crisp white letter centered on the pixel block
-                Text(
-                    text = activeLetter.toString(),
-                    color = Color.Black.copy(alpha = 0.65f),
-                    fontSize = 22.sp,
-                    fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.offset(x = 1.dp, y = 0.dp)
-                )
                 Text(
                     text = activeLetter.toString(),
                     color = Color.White,
-                    fontSize = 22.sp,
+                    fontSize = 21.sp,
                     fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.offset(x = 0.dp, y = (-1).dp)
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
@@ -4433,21 +4404,22 @@ fun LauncherSettingsView(
     var expandedWallpaper by remember { mutableStateOf(false) }
     var expandedMotion by remember { mutableStateOf(false) }
 
-    val accentColor = when (accentHex) {
-        "#FFFFFF" -> Color.White
-        "#D71921" -> Color(0xFFD71921)
-        else -> Color(0xFFFF3B00)
-    }
+    val accentColor = resolveLauncherAccentColor(accentHex)
 
-    val wallpaperOptions = listOf(
-        Triple("oled", "PURE OLED", "True #000000"),
-        Triple("dots", "DOT MATRIX", "Nothing Grid"),
+    val liveWallpaperOptions = listOf(
+        Triple("live_aurora", "HORIZON WAVES", "Slow Breathing Silk"),
+        Triple("live_constellation", "ORBITAL NODES", "Slow Drifting Stars"),
+        Triple("live_rings", "GYRO RINGS", "Slow Harmonic Arcs"),
+        Triple("live_matrix_pulse", "DOT PULSE", "Calm Falling Light"),
+        Triple("live_ripples", "ZEN RIPPLES", "Slow Water Rings"),
+        Triple("live_synth_grid", "HORIZON GRID", "Slow Vector Plane")
+    )
+
+    val staticWallpaperOptions = listOf(
+        Triple("oled", "PURE AMOLED", "True #000000"),
+        Triple("dots", "DOT MATRIX", "Nothing Dot Grid"),
         Triple("blueprint", "CMF GRID", "Tech Schematic"),
-        Triple("mesh", "AMBIENT GLOW", "Corner Aura"),
-        Triple("topo", "ROTARY DIAL", "Concentric Rings"),
-        Triple("starfield", "DEEP COSMOS", "Minimal Stars"),
-        Triple("circuit", "GLYPH TRACES", "PCB Nodes"),
-        Triple("scanlines", "CRT PHOSPHOR", "Fine Scanlines")
+        Triple("circuit", "GLYPH PCB", "Circuit Traces")
     )
 
     LazyColumn(
@@ -4631,21 +4603,22 @@ fun LauncherSettingsView(
         item {
             CollapsibleSettingsSection(
                 indexTag = "03",
-                title = "OLED Wallpaper & Accents",
-                subtitle = "8 minimalist procedural OLED backdrops & system gallery",
-                badge = wallpaperPreset.uppercase(Locale.US),
+                title = "AMOLED Live Wallpapers & Accents",
+                subtitle = "6 slow & calm AMOLED live wallpapers, 4 static styles & 10 accents",
+                badge = wallpaperPreset.removePrefix("live_").uppercase(Locale.US),
                 expanded = expandedWallpaper,
                 accentColor = accentColor,
                 lomoFontFamily = lomoFontFamily,
                 onToggle = { expandedWallpaper = !expandedWallpaper }
             ) {
+                // 1. Slow & Calm Built-In AMOLED Live Wallpapers
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
                         .background(Color(0xFF070707), RoundedCornerShape(10.dp))
                         .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -4653,22 +4626,86 @@ fun LauncherSettingsView(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "OLED WALLPAPER STYLES",
-                            color = Color(0xFF8A8A8A),
+                            text = "BUILT-IN SLOW AMOLED LIVE WALLPAPERS",
+                            color = accentColor,
                             fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = "SYSTEM GALLERY →",
-                            color = accentColor,
-                            fontSize = 10.sp,
+                            color = Color.White,
+                            fontSize = 9.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.clickable { onOpenSystemWallpaperPicker() }
                         )
                     }
 
-                    wallpaperOptions.chunked(2).forEach { rowItems ->
+                    liveWallpaperOptions.chunked(2).forEach { rowItems ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowItems.forEach { (id, title, desc) ->
+                                val active = wallpaperPreset == id
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .border(
+                                            1.dp,
+                                            if (active) accentColor else Color(0xFF242424),
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .background(
+                                            if (active) Color(0xFF161616) else Color(0xFF0C0C0C),
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { onChangeWallpaperPreset(id) }
+                                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = title,
+                                            color = if (active) Color.White else Color(0xFFD4D4D4),
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .background(
+                                                    if (active) accentColor else Color(0xFF383838),
+                                                    CircleShape
+                                                )
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = desc,
+                                        color = Color(0xFF737373),
+                                        fontSize = 8.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "STATIC AMOLED BACKDROPS",
+                        color = Color(0xFF8A8A8A),
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+
+                    staticWallpaperOptions.chunked(2).forEach { rowItems ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -4684,7 +4721,7 @@ fun LauncherSettingsView(
                                             RoundedCornerShape(8.dp)
                                         )
                                         .background(
-                                            if (active) Color(0xFF181818) else Color(0xFF0D0D0D),
+                                            if (active) Color(0xFF161616) else Color(0xFF0C0C0C),
                                             RoundedCornerShape(8.dp)
                                         )
                                         .clickable { onChangeWallpaperPreset(id) }
@@ -4723,20 +4760,77 @@ fun LauncherSettingsView(
                     }
                 }
 
-                SettingCard(
-                    title = "Launcher Accent Color",
-                    subtitle = "CMF Orange (#FF3B00), Pure White (#FFFFFF), or Red (#D71921)",
-                    actionLabel = accentHex,
-                    lomoFontFamily = lomoFontFamily,
-                    onClick = {
-                        val next = when (accentHex) {
-                            "#FF3B00" -> "#FFFFFF"
-                            "#FFFFFF" -> "#D71921"
-                            else -> "#FF3B00"
-                        }
-                        onChangeAccent(next)
+                // 2. Expanded 10-Swatch AMOLED Accent Color Picker
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
+                        .background(Color(0xFF070707), RoundedCornerShape(10.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "LAUNCHER ACCENT COLOR (10 PALETTES)",
+                            color = Color(0xFF8A8A8A),
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = accentHex,
+                            color = accentColor,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
-                )
+
+                    LAUNCHER_ACCENT_PALETTE.chunked(5).forEach { paletteRow ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            paletteRow.forEach { (hex, label) ->
+                                val isSel = accentHex.equals(hex, ignoreCase = true)
+                                val swatchCol = resolveLauncherAccentColor(hex)
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .border(
+                                            width = if (isSel) 1.5.dp else 1.dp,
+                                            color = if (isSel) Color.White else Color(0xFF242424),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .background(
+                                            if (isSel) Color(0xFF181818) else Color(0xFF0D0D0D),
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { onChangeAccent(hex) }
+                                        .padding(vertical = 7.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .background(swatchCol, CircleShape)
+                                    )
+                                    Text(
+                                        text = label,
+                                        color = if (isSel) Color.White else Color(0xFF8A8A8A),
+                                        fontSize = 8.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -4912,15 +5006,265 @@ fun SettingCard(
 }
 
 // ============================================================================
-// OLED WALLPAPER ENGINE CANVAS (8 Minimalist Nothing / CMF Default Styles)
+// AMOLED LIVE & STATIC WALLPAPER ENGINE CANVAS
+// 6 slow, calm, meditative AMOLED live wallpapers + 4 crisp static styles
 // ============================================================================
 @Composable
 fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
     if (preset == "oled") return
+
+    val isLive = preset.startsWith("live_")
+    var liveTimeSec by remember { mutableStateOf(0f) }
+
+    if (isLive) {
+        LaunchedEffect(preset) {
+            var lastNanos = 0L
+            while (true) {
+                withFrameNanos { nanos ->
+                    val dt = if (lastNanos == 0L) 0.016f else ((nanos - lastNanos) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
+                    lastNanos = nanos
+                    // Slow, calm, meditative time progression
+                    liveTimeSec = (liveTimeSec + dt * 0.42f) % 3600f
+                }
+            }
+        }
+    }
+
     Canvas(modifier = Modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
+        val t = liveTimeSec
+
         when (preset) {
+            "live_aurora" -> {
+                // Slow, calm breathing sinusoidal contour waves across pure #000000 AMOLED black
+                val waveCount = 5
+                val steps = 48
+                for (wIdx in 0 until waveCount) {
+                    val f = wIdx.toFloat() / (waveCount - 1).coerceAtLeast(1)
+                    val baseY = h * (0.34f + f * 0.30f)
+                    val amp = h * (0.045f + 0.018f * sin(t * 0.6f + wIdx))
+                    val path = Path()
+                    for (s in 0..steps) {
+                        val xRatio = s.toFloat() / steps
+                        val x = xRatio * w
+                        val angle1 = xRatio * PI.toFloat() * 2.2f + t * (0.75f - f * 0.22f) + wIdx * 0.9f
+                        val angle2 = xRatio * PI.toFloat() * 1.1f - t * 0.42f + wIdx * 1.4f
+                        val y = baseY + sin(angle1) * amp + cos(angle2) * (amp * 0.45f)
+                        if (s == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    val isPrimary = wIdx == 1 || wIdx == 3
+                    val strokeCol = if (isPrimary) {
+                        accentColor.copy(alpha = 0.46f)
+                    } else {
+                        Color.White.copy(alpha = 0.24f)
+                    }
+                    drawPath(
+                        path = path,
+                        color = strokeCol,
+                        style = Stroke(
+                            width = if (isPrimary) 1.8.dp.toPx() else 1.1.dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
+                    )
+                }
+                // Soft ambient breathing aura behind the waves
+                val auraY = h * (0.48f + 0.04f * sin(t * 0.4f))
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(accentColor.copy(alpha = 0.14f), Color.Transparent),
+                        center = Offset(w * 0.5f, auraY),
+                        radius = min(w, h) * 0.62f
+                    ),
+                    radius = min(w, h) * 0.62f,
+                    center = Offset(w * 0.5f, auraY)
+                )
+            }
+
+            "live_constellation" -> {
+                // Slow drifting star nodes with calm proximity constellation lines on pure #000000
+                val nodeCount = 26
+                val pts = ArrayList<Offset>(nodeCount)
+                for (i in 0 until nodeCount) {
+                    val seedX = ((i * 73 + 17) % 100) / 100f
+                    val seedY = ((i * 139 + 31) % 100) / 100f
+                    val speedX = 0.18f + (i % 5) * 0.04f
+                    val speedY = 0.14f + (i % 7) * 0.03f
+                    val px = ((seedX + sin(t * speedX + i * 1.7f) * 0.12f).coerceIn(0.06f, 0.94f)) * w
+                    val py = ((seedY + cos(t * speedY + i * 2.3f) * 0.10f).coerceIn(0.08f, 0.92f)) * h
+                    pts.add(Offset(px, py))
+                }
+                val connectRadius = min(w, h) * 0.26f
+                for (i in 0 until nodeCount) {
+                    for (j in i + 1 until nodeCount) {
+                        val d = (pts[i] - pts[j]).getDistance()
+                        if (d < connectRadius) {
+                            val lineAlpha = ((1f - d / connectRadius) * 0.34f).coerceIn(0f, 0.34f)
+                            drawLine(
+                                color = if ((i + j) % 3 == 0) accentColor.copy(alpha = lineAlpha) else Color.White.copy(alpha = lineAlpha * 0.8f),
+                                start = pts[i],
+                                end = pts[j],
+                                strokeWidth = 1.dp.toPx()
+                            )
+                        }
+                    }
+                }
+                for (i in 0 until nodeCount) {
+                    val isAccent = i % 4 == 0
+                    drawCircle(
+                        color = if (isAccent) accentColor.copy(alpha = 0.78f) else Color.White.copy(alpha = 0.52f),
+                        radius = if (isAccent) 2.4.dp.toPx() else 1.6.dp.toPx(),
+                        center = pts[i]
+                    )
+                }
+            }
+
+            "live_rings" -> {
+                // Slow harmonic counter-rotating gyroscopic rings & orbital pips
+                val center = Offset(w * 0.5f, h * 0.45f)
+                val baseR = min(w, h) * 0.11f
+                for (ring in 1..5) {
+                    val r = baseR * ring
+                    val dir = if (ring % 2 == 0) -1f else 1f
+                    val rotDeg = (t * 14f * dir / ring.toFloat()) % 360f
+                    val isAccentRing = ring == 2 || ring == 4
+                    val ringCol = if (isAccentRing) accentColor.copy(alpha = 0.34f) else Color.White.copy(alpha = 0.22f)
+
+                    drawCircle(
+                        color = ringCol,
+                        radius = r,
+                        center = center,
+                        style = Stroke(
+                            width = if (isAccentRing) 1.4.dp.toPx() else 1.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(18f + ring * 4f, 14f + ring * 3f), rotDeg * 3f)
+                        )
+                    )
+
+                    // Calm orbital satellite dot gliding along each ring
+                    val satAngleRad = Math.toRadians((rotDeg * 2.2f + ring * 72f).toDouble())
+                    val satPt = Offset(
+                        center.x + (r * cos(satAngleRad)).toFloat(),
+                        center.y + (r * sin(satAngleRad)).toFloat()
+                    )
+                    drawCircle(
+                        color = if (isAccentRing) accentColor.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.70f),
+                        radius = 2.6.dp.toPx(),
+                        center = satPt
+                    )
+                }
+            }
+
+            "live_matrix_pulse" -> {
+                // Calm falling dot-matrix light pulses along a clean Nothing-style grid
+                val cols = 13
+                val rows = 23
+                val cellW = w / (cols + 1).toFloat()
+                val cellH = h / (rows + 1).toFloat()
+                for (c in 1..cols) {
+                    val colSpeed = 1.4f + (c % 4) * 0.35f
+                    val pulseHead = ((t * colSpeed + c * 3.7f) % (rows + 6).toFloat())
+                    for (r in 1..rows) {
+                        val distBehind = pulseHead - r.toFloat()
+                        val pulseIntensity = if (distBehind in 0f..5.5f) {
+                            (1f - distBehind / 5.5f).coerceIn(0f, 1f)
+                        } else 0f
+                        val isAccentCol = c % 3 == 0
+                        val dotCol = when {
+                            pulseIntensity > 0.75f -> if (isAccentCol) accentColor.copy(alpha = 0.82f) else Color.White.copy(alpha = 0.75f)
+                            pulseIntensity > 0.05f -> if (isAccentCol) accentColor.copy(alpha = 0.16f + pulseIntensity * 0.55f) else Color.White.copy(alpha = 0.14f + pulseIntensity * 0.45f)
+                            else -> Color.White.copy(alpha = 0.11f)
+                        }
+                        val dotRad = if (pulseIntensity > 0.5f) 2.0.dp.toPx() else 1.3.dp.toPx()
+                        drawCircle(
+                            color = dotCol,
+                            radius = dotRad,
+                            center = Offset(c * cellW, r * cellH)
+                        )
+                    }
+                }
+            }
+
+            "live_ripples" -> {
+                // Slow, meditative concentric ripples expanding outward into the #000000 void
+                val maxR = min(w, h) * 0.62f
+                val centers = listOf(
+                    Offset(w * 0.5f, h * 0.42f),
+                    Offset(w * 0.32f, h * 0.62f)
+                )
+                centers.forEachIndexed { cIdx, cPt ->
+                    for (wIdx in 0 until 4) {
+                        val phase = ((t * 0.22f + wIdx * 0.25f + cIdx * 0.12f) % 1f)
+                        val r = phase * maxR
+                        val alpha = ((1f - phase) * 0.48f).coerceIn(0f, 0.48f)
+                        drawCircle(
+                            color = if ((wIdx + cIdx) % 2 == 0) accentColor.copy(alpha = alpha) else Color.White.copy(alpha = alpha * 0.75f),
+                            radius = r,
+                            center = cPt,
+                            style = Stroke(width = 1.4.dp.toPx())
+                        )
+                    }
+                }
+            }
+
+            "live_synth_grid" -> {
+                // Slow, calm retro-futuristic wireframe perspective horizon grid on pure #000000
+                val horizonY = h * 0.56f
+                val sunRadius = min(w, h) * 0.16f
+                val sunCenter = Offset(w * 0.5f, horizonY - sunRadius * 1.15f)
+
+                // Breathing minimal wireframe sun ring above horizon
+                val pulseR = sunRadius * (0.96f + 0.04f * sin(t * 0.8f))
+                drawCircle(
+                    color = accentColor.copy(alpha = 0.42f),
+                    radius = pulseR,
+                    center = sunCenter,
+                    style = Stroke(width = 1.6.dp.toPx())
+                )
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.20f),
+                    radius = pulseR * 0.68f,
+                    center = sunCenter,
+                    style = Stroke(
+                        width = 1.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), t * 12f)
+                    )
+                )
+
+                // Horizon line
+                drawLine(
+                    color = accentColor.copy(alpha = 0.52f),
+                    start = Offset(0f, horizonY),
+                    end = Offset(w, horizonY),
+                    strokeWidth = 1.5.dp.toPx()
+                )
+
+                // Perspective radial lines converging toward horizon center
+                val vanishPt = Offset(w * 0.5f, horizonY)
+                for (i in -6..6) {
+                    val bottomX = w * 0.5f + i * (w * 0.18f)
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.18f),
+                        start = vanishPt,
+                        end = Offset(bottomX, h),
+                        strokeWidth = 1.dp.toPx()
+                    )
+                }
+
+                // Slow-gliding horizontal perspective lines moving forward
+                val gridShift = (t * 0.35f) % 1f
+                for (row in 0..8) {
+                    val norm = ((row + gridShift) / 9f).coerceIn(0.02f, 1f)
+                    val y = horizonY + (norm * norm) * (h - horizonY)
+                    val lineAlpha = (norm * 0.42f).coerceIn(0.08f, 0.42f)
+                    drawLine(
+                        color = if (row % 3 == 0) accentColor.copy(alpha = lineAlpha) else Color.White.copy(alpha = lineAlpha * 0.7f),
+                        start = Offset(0f, y),
+                        end = Offset(w, y),
+                        strokeWidth = 1.1.dp.toPx()
+                    )
+                }
+            }
+
             "dots" -> {
                 val step = 18.dp.toPx()
                 var x = step
@@ -4928,8 +5272,8 @@ fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
                     var y = step
                     while (y < h) {
                         drawCircle(
-                            color = Color.White.copy(alpha = 0.14f),
-                            radius = 1.3.dp.toPx(),
+                            color = Color.White.copy(alpha = 0.22f),
+                            radius = 1.4.dp.toPx(),
                             center = Offset(x, y)
                         )
                         y += step
@@ -4937,12 +5281,13 @@ fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
                     x += step
                 }
             }
+
             "blueprint" -> {
                 val step = 32.dp.toPx()
                 var x = 0f
                 while (x < w) {
                     drawLine(
-                        color = accentColor.copy(alpha = 0.08f),
+                        color = accentColor.copy(alpha = 0.18f),
                         start = Offset(x, 0f),
                         end = Offset(x, h),
                         strokeWidth = 1f
@@ -4952,7 +5297,7 @@ fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
                 var y = 0f
                 while (y < h) {
                     drawLine(
-                        color = accentColor.copy(alpha = 0.08f),
+                        color = accentColor.copy(alpha = 0.18f),
                         start = Offset(0f, y),
                         end = Offset(w, y),
                         strokeWidth = 1f
@@ -4960,61 +5305,11 @@ fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
                     y += step
                 }
             }
-            "mesh" -> {
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(accentColor.copy(alpha = 0.16f), Color.Transparent),
-                        center = Offset(w * 0.8f, h * 0.8f),
-                        radius = w * 0.7f
-                    )
-                )
-            }
-            "topo" -> {
-                val center = Offset(w * 0.5f, h * 0.44f)
-                val baseR = min(w, h) * 0.14f
-                for (i in 1..7) {
-                    val r = baseR * i
-                    drawCircle(
-                        color = if (i % 3 == 0) accentColor.copy(alpha = 0.11f) else Color.White.copy(alpha = 0.06f),
-                        radius = r,
-                        center = center,
-                        style = Stroke(
-                            width = 1.dp.toPx(),
-                            pathEffect = if (i % 2 == 0) PathEffect.dashPathEffect(floatArrayOf(12f, 12f), 0f) else null
-                        )
-                    )
-                }
-                drawLine(
-                    color = Color.White.copy(alpha = 0.05f),
-                    start = Offset(center.x, 0f),
-                    end = Offset(center.x, h),
-                    strokeWidth = 1f
-                )
-                drawLine(
-                    color = Color.White.copy(alpha = 0.05f),
-                    start = Offset(0f, center.y),
-                    end = Offset(w, center.y),
-                    strokeWidth = 1f
-                )
-            }
-            "starfield" -> {
-                for (i in 1..95) {
-                    val fx = ((i * 73 + 19) % 100) / 100f
-                    val fy = ((i * 137 + 43) % 100) / 100f
-                    val isBright = i % 11 == 0
-                    val starCol = if (i % 23 == 0) accentColor.copy(alpha = 0.38f) else Color.White.copy(alpha = if (isBright) 0.28f else 0.10f)
-                    val rad = if (isBright) 1.7.dp.toPx() else 0.9.dp.toPx()
-                    drawCircle(
-                        color = starCol,
-                        radius = rad,
-                        center = Offset(w * fx, h * fy)
-                    )
-                }
-            }
+
             "circuit" -> {
-                val stroke = 1.2.dp.toPx()
-                val traceColor = Color.White.copy(alpha = 0.08f)
-                val nodeColor = accentColor.copy(alpha = 0.22f)
+                val stroke = 1.4.dp.toPx()
+                val traceColor = Color.White.copy(alpha = 0.18f)
+                val nodeColor = accentColor.copy(alpha = 0.45f)
                 val paths = listOf(
                     listOf(Offset(w * 0.12f, h * 0.15f), Offset(w * 0.32f, h * 0.15f), Offset(w * 0.45f, h * 0.28f), Offset(w * 0.45f, h * 0.52f)),
                     listOf(Offset(w * 0.88f, h * 0.22f), Offset(w * 0.68f, h * 0.22f), Offset(w * 0.56f, h * 0.34f), Offset(w * 0.56f, h * 0.66f)),
@@ -5031,26 +5326,17 @@ fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
                             cap = StrokeCap.Round
                         )
                     }
-                    drawCircle(color = nodeColor, radius = 3.dp.toPx(), center = pts.first())
-                    drawCircle(color = traceColor, radius = 2.5.dp.toPx(), center = pts.last())
+                    drawCircle(color = nodeColor, radius = 3.2.dp.toPx(), center = pts.first())
+                    drawCircle(color = traceColor, radius = 2.6.dp.toPx(), center = pts.last())
                 }
             }
-            "scanlines" -> {
-                val step = 5.dp.toPx().coerceAtLeast(4f)
-                var y = 0f
-                while (y < h) {
-                    drawLine(
-                        color = Color.White.copy(alpha = 0.055f),
-                        start = Offset(0f, y),
-                        end = Offset(w, y),
-                        strokeWidth = 1f
-                    )
-                    y += step
-                }
+
+            else -> {
+                // Fallback subtle radial aura
                 drawRect(
                     brush = Brush.radialGradient(
-                        colors = listOf(accentColor.copy(alpha = 0.08f), Color.Transparent),
-                        center = Offset(w * 0.5f, h * 0.4f),
+                        colors = listOf(accentColor.copy(alpha = 0.22f), Color.Transparent),
+                        center = Offset(w * 0.5f, h * 0.45f),
                         radius = min(w, h) * 0.65f
                     )
                 )
@@ -5058,7 +5344,6 @@ fun OledWallpaperCanvas(preset: String, accentColor: Color, dimPercent: Int) {
         }
     }
 }
-
 
 // ============================================================================
 // PREMIUM, ACCURATE, MINIMALIST RETRO CLOCK, CALENDAR & CRT WORLD MAP WIDGETS
