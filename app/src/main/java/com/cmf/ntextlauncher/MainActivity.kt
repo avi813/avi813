@@ -27,6 +27,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import android.provider.AlarmClock
 import android.provider.Settings
 import android.util.Base64
 import android.widget.Toast
@@ -414,7 +415,30 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun applySystemStatusBarVisibility(hideStockBar: Boolean) {
+        try {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.isStatusBarContrastEnforced = false
+                window.isNavigationBarContrastEnforced = false
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                window.attributes = window.attributes.apply {
+                    layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                window.attributes = window.attributes.apply {
+                    layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+            }
+        } catch (_: Exception) {
+        }
+
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -683,14 +707,14 @@ fun NTextLauncherApp(
         val saved = prefs.getString("widgets_order_v8", "clock,week_strip") ?: "clock,week_strip"
         mutableStateOf(
             saved.split(",").filter {
-                it.isNotBlank() && it != "telemetry" && it != "blackhole" && it != "weather" && it != "pedometer"
+                it.isNotBlank() && it != "telemetry" && it != "blackhole" && it != "weather" && it != "pedometer" && it != "crt_world_map"
             }
         )
     }
     var widgetSizes by remember {
         val saved = prefs.getString(
             "widget_sizes_v7",
-            "clock:standard,week_strip:standard,retro_calendar:standard,year_matrix:standard,retro_flip_clock:standard,analog_chrono:standard,precision_chrono:standard,globe:standard,crt_world_map:standard,torch:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard"
+            "clock:standard,week_strip:standard,retro_calendar:standard,year_matrix:standard,retro_flip_clock:standard,analog_chrono:standard,precision_chrono:standard,globe:standard,torch:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard"
         ) ?: ""
         val map = saved.split(",").mapNotNull {
             val parts = it.split(":")
@@ -918,7 +942,7 @@ fun NTextLauncherApp(
 
     fun saveWidgetList(updated: List<String>) {
         val cleaned = updated.filter {
-            it != "blackhole" && it != "telemetry" && it != "weather" && it != "pedometer"
+            it != "blackhole" && it != "telemetry" && it != "weather" && it != "pedometer" && it != "crt_world_map"
         }
         activeWidgets = cleaned
         prefs.edit().putString("widgets_order_v8", cleaned.joinToString(",")).apply()
@@ -939,8 +963,7 @@ fun NTextLauncherApp(
             widgetId == "retro_flip_clock" ||
             widgetId == "analog_chrono" ||
             widgetId == "precision_chrono" ||
-            widgetId == "globe" ||
-            widgetId == "crt_world_map"
+            widgetId == "globe"
         ) {
             when (current) {
                 "compact" -> "standard"
@@ -1041,6 +1064,30 @@ fun NTextLauncherApp(
         }
     }
 
+    fun openClockApp() {
+        tickHaptic(heavy = false)
+        // 1. Check installed launcher apps for the system / Google / Nothing Clock app
+        val clockApp = installedApps.firstOrNull {
+            it.packageName.equals("com.google.android.deskclock", ignoreCase = true) ||
+                it.packageName.equals("com.android.deskclock", ignoreCase = true) ||
+                it.packageName.contains("deskclock", ignoreCase = true) ||
+                it.label.equals("Clock", ignoreCase = true) ||
+                it.packageName.endsWith(".clock", ignoreCase = true)
+        }
+        if (clockApp != null) {
+            launchApp(clockApp.packageName)
+            return
+        }
+        // 2. Fallback to Android's standard AlarmClock intent
+        try {
+            val alarmIntent = Intent(AlarmClock.ACTION_SHOW_ALARMS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            activity.startActivity(alarmIntent)
+        } catch (_: Exception) {
+        }
+    }
+
     LaunchedEffect(homeIntentTrigger) {
         if (homeIntentTrigger > 0) {
             clearAllFocusAndKeyboard()
@@ -1129,6 +1176,13 @@ fun NTextLauncherApp(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .windowInsetsPadding(
+                    if (hideAndroidBar) {
+                        WindowInsets.displayCutout.only(WindowInsetsSides.Top)
+                    } else {
+                        WindowInsets.statusBars
+                    }
+                )
                 .windowInsetsPadding(WindowInsets.navigationBars)
         ) {
             if (editMode && currentView == LauncherView.HOME_AND_DRAWER && drawerProgress.value < 0.2f) {
@@ -1263,10 +1317,7 @@ fun NTextLauncherApp(
                                 globeTheme = globeTheme,
                                 globeWireframeColor = globeWireframeColor,
                                 pinnedApps = installedApps.filter { it.isPinned && !it.isHidden },
-                                onToggle24h = {
-                                    use24Hour = !use24Hour
-                                    prefs.edit().putBoolean("use_24h_v4", use24Hour).apply()
-                                },
+                                onOpenClockApp = { openClockApp() },
                                 onToggleTorch = { toggleTorchState() },
                                 onToggleZen = {
                                     zenActive = !zenActive
@@ -1384,6 +1435,7 @@ fun NTextLauncherApp(
                             accentHex = accentHex,
                             textSizeSp = textSizeSp,
                             drawerTextSizeSp = drawerTextSizeSp,
+                            use24Hour = use24Hour,
                             hideAndroidBar = hideAndroidBar,
                             waveScrubMode = waveScrubMode,
                             drawerWaveIntensity = drawerWaveIntensity,
@@ -1416,6 +1468,10 @@ fun NTextLauncherApp(
                             onChangeDrawerTextSize = {
                                 drawerTextSizeSp = it
                                 prefs.edit().putInt("drawer_text_size", it).apply()
+                            },
+                            onToggle24h = {
+                                use24Hour = !use24Hour
+                                prefs.edit().putBoolean("use_24h_v4", use24Hour).apply()
                             },
                             onToggleAndroidBar = {
                                 val next = !hideAndroidBar
@@ -1871,7 +1927,7 @@ fun HomeScreenView(
     globeTheme: String,
     globeWireframeColor: String,
     pinnedApps: List<AppEntry>,
-    onToggle24h: () -> Unit,
+    onOpenClockApp: () -> Unit,
     onToggleTorch: () -> Unit,
     onToggleZen: () -> Unit,
     onCycleWidgetSize: (String) -> Unit,
@@ -1936,7 +1992,7 @@ fun HomeScreenView(
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                modifier = Modifier.clickable { onToggle24h() }
+                                                modifier = Modifier.clickable { onOpenClockApp() }
                                             ) {
                                                 Text(
                                                     text = "$currentHourStr:$currentMinStr $currentAmPmStr".trim(),
@@ -1986,7 +2042,7 @@ fun HomeScreenView(
                                             }
                                             Row(
                                                 verticalAlignment = Alignment.Bottom,
-                                                modifier = Modifier.clickable { onToggle24h() }
+                                                modifier = Modifier.clickable { onOpenClockApp() }
                                             ) {
                                                 Text(
                                                     text = currentHourStr,
@@ -2093,7 +2149,7 @@ fun HomeScreenView(
                                         else -> {
                                             Row(
                                                 verticalAlignment = Alignment.Bottom,
-                                                modifier = Modifier.clickable { onToggle24h() }
+                                                modifier = Modifier.clickable { onOpenClockApp() }
                                             ) {
                                                 Text(
                                                     text = currentHourStr,
@@ -2210,7 +2266,7 @@ fun HomeScreenView(
                                     sizeMode = sizeMode,
                                     accentColor = accentColor,
                                     lomoFontFamily = lomoFontFamily,
-                                    onToggle24h = onToggle24h
+                                    onOpenClockApp = onOpenClockApp
                                 )
                             }
                             "analog_chrono" -> {
@@ -2224,7 +2280,7 @@ fun HomeScreenView(
                                     sizeMode = sizeMode,
                                     accentColor = accentColor,
                                     lomoFontFamily = lomoFontFamily,
-                                    onToggle24h = onToggle24h
+                                    onOpenClockApp = onOpenClockApp
                                 )
                             }
                             "precision_chrono" -> {
@@ -2473,23 +2529,6 @@ fun HomeScreenView(
                                         onTick = onWaveTick
                                     )
                                 }
-                            }
-                            "crt_world_map" -> {
-                                val mapHeight = when (sizeMode) {
-                                    "compact" -> 115.dp
-                                    "large" -> 215.dp
-                                    "xlarge" -> 265.dp
-                                    "max" -> 320.dp
-                                    else -> 165.dp
-                                }
-                                RetroCrtFlatWorldMapWidget(
-                                    currentTimeMillis = currentTimeMillis,
-                                    mapHeight = mapHeight,
-                                    globeTheme = globeTheme,
-                                    globeWireframeColor = globeWireframeColor,
-                                    accentColor = accentColor,
-                                    onTick = onWaveTick
-                                )
                             }
                         }
 
@@ -4323,7 +4362,6 @@ fun WidgetsManagerView(
         "retro_flip_clock" to "Split-Flap Mechanical Clock",
         "analog_chrono" to "Vector Analog Watch Dial",
         "precision_chrono" to "Interactive Split-Lap Chronograph",
-        "crt_world_map" to "Interactive Flat CRT World Map",
         "globe" to "3D Interactive Spinning Globe",
         "torch" to "CMF Flashlight Quick Toggle",
         "storage" to "Live RAM & ROM Telemetry Bar",
@@ -4435,7 +4473,7 @@ fun WidgetsManagerView(
                     if (enabled) {
                         Spacer(modifier = Modifier.height(10.dp))
                         val sizeChoices = when (id) {
-                            "clock", "retro_flip_clock", "analog_chrono", "precision_chrono", "globe", "crt_world_map" -> listOf(
+                            "clock", "retro_flip_clock", "analog_chrono", "precision_chrono", "globe" -> listOf(
                                 "compact" to "S",
                                 "standard" to "M",
                                 "large" to "L",
@@ -4509,7 +4547,7 @@ fun WidgetsManagerView(
                             }
                         }
 
-                        if (id == "globe" || id == "crt_world_map") {
+                        if (id == "globe") {
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
                                 text = "VISUAL THEME",
@@ -4641,6 +4679,7 @@ fun LauncherSettingsView(
     accentHex: String,
     textSizeSp: Int,
     drawerTextSizeSp: Int,
+    use24Hour: Boolean,
     hideAndroidBar: Boolean,
     waveScrubMode: String,
     drawerWaveIntensity: Float,
@@ -4659,6 +4698,7 @@ fun LauncherSettingsView(
     onChangeAccent: (String) -> Unit,
     onChangeTextSize: (Int) -> Unit,
     onChangeDrawerTextSize: (Int) -> Unit,
+    onToggle24h: () -> Unit,
     onToggleAndroidBar: () -> Unit,
     onChangeWaveMode: (String) -> Unit,
     onChangeDrawerWaveIntensity: (Float) -> Unit,
@@ -4824,8 +4864,8 @@ fun LauncherSettingsView(
             CollapsibleSettingsSection(
                 indexTag = "02",
                 title = "Typography & Layout",
-                subtitle = "Typeface, Home & App Drawer text scale, alignment",
-                badge = "H:${textSizeSp} · D:${drawerTextSizeSp}SP",
+                subtitle = "Typeface, Home app text scale, clock format & alignment",
+                badge = "${textSizeSp}SP · ${textAlignMode.uppercase(Locale.US)}",
                 expanded = expandedTypography,
                 accentColor = accentColor,
                 lomoFontFamily = lomoFontFamily,
@@ -4918,49 +4958,13 @@ fun LauncherSettingsView(
                     }
                 }
 
-                // App Drawer App Name Scale (Slider + Quick Presets)
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
-                        .background(Color(0xFF070707), RoundedCornerShape(10.dp))
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    MinimalistSliderRow(
-                        label = "APP DRAWER APP NAME SCALE",
-                        valueText = "${drawerTextSizeSp} SP",
-                        fraction = ((drawerTextSizeSp - 12f) / 14f).coerceIn(0f, 1f),
-                        accentColor = accentColor,
-                        onFractionChange = { frac ->
-                            val nextSp = (12f + frac * 14f).roundToInt().coerceIn(12, 26)
-                            if (nextSp != drawerTextSizeSp) {
-                                onChangeDrawerTextSize(nextSp)
-                            }
-                        }
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        listOf(12, 14, 16, 18, 20, 22, 24).forEach { spVal ->
-                            val sel = drawerTextSizeSp == spVal
-                            Text(
-                                text = "${spVal}",
-                                color = if (sel) Color.Black else Color.White,
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .background(if (sel) accentColor else Color(0xFF161616), RoundedCornerShape(6.dp))
-                                    .clickable { onChangeDrawerTextSize(spVal) }
-                                    .padding(vertical = 5.dp)
-                            )
-                        }
-                    }
-                }
+                SettingCard(
+                    title = "Clock Time Format",
+                    subtitle = "Switch between 12-Hour (AM/PM) and 24-Hour time (tapping Clock opens Clock app)",
+                    actionLabel = if (use24Hour) "24-HOUR" else "12-HOUR",
+                    lomoFontFamily = lomoFontFamily,
+                    onClick = onToggle24h
+                )
 
                 SettingCard(
                     title = "Home Text Alignment",
@@ -4995,16 +4999,7 @@ fun LauncherSettingsView(
                 lomoFontFamily = lomoFontFamily,
                 onToggle = { expandedWallpaper = !expandedWallpaper }
             ) {
-                // 0A. SETTINGS MENU BACKDROP STYLE (OPAQUE / TRANSPARENT / BLURRY + SLIDER)
-                SettingsBackdropControlCard(
-                    settingsBgMode = settingsBgMode,
-                    settingsBgIntensity = settingsBgIntensity,
-                    accentColor = accentColor,
-                    onChangeMode = onChangeSettingsBgMode,
-                    onChangeIntensity = onChangeSettingsBgIntensity
-                )
-
-                // 0B. UNIVERSAL WALLPAPER DIMMER (Works on Live, Static & User/Third-Party Wallpapers)
+                // 0. UNIVERSAL WALLPAPER DIMMER (Works on Live, Static & User/Third-Party Wallpapers)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -5374,21 +5369,22 @@ fun LauncherSettingsView(
         }
 
         // ====================================================================
-        // SECTION 04: Motion & Gesture Physics
-        // Includes Slider to Increase or Decrease the App Drawer Curved Horizontal Wave
+        // SECTION 04: "App Drawer Settings"
+        // Houses App Drawer App Name Scale + Alphabet Scroller Curved Horizontal Wave Slider
         // ====================================================================
         item {
             val wavePct = (drawerWaveIntensity * 100f).roundToInt()
             CollapsibleSettingsSection(
                 indexTag = "04",
-                title = "Motion & Gesture Physics",
-                subtitle = "App drawer curved horizontal wave slider & tactile feedback",
-                badge = "WAVE ${wavePct}%",
+                title = "App Drawer Settings",
+                subtitle = "App drawer app name scale & alphabet scroller wave",
+                badge = "${drawerTextSizeSp}SP · ${wavePct}%",
                 expanded = expandedMotion,
                 accentColor = accentColor,
                 lomoFontFamily = lomoFontFamily,
                 onToggle = { expandedMotion = !expandedMotion }
             ) {
+                // 1. App Drawer App Name Scale (Shifted here from Typography & Layout)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -5398,7 +5394,51 @@ fun LauncherSettingsView(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     MinimalistSliderRow(
-                        label = "APP DRAWER CURVED HORIZONTAL WAVE",
+                        label = "APP DRAWER APP NAME SCALE",
+                        valueText = "${drawerTextSizeSp} SP",
+                        fraction = ((drawerTextSizeSp - 12f) / 14f).coerceIn(0f, 1f),
+                        accentColor = accentColor,
+                        onFractionChange = { frac ->
+                            val nextSp = (12f + frac * 14f).roundToInt().coerceIn(12, 26)
+                            if (nextSp != drawerTextSizeSp) {
+                                onChangeDrawerTextSize(nextSp)
+                            }
+                        }
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(12, 14, 16, 18, 20, 22, 24).forEach { spVal ->
+                            val sel = drawerTextSizeSp == spVal
+                            Text(
+                                text = "${spVal}",
+                                color = if (sel) Color.Black else Color.White,
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(if (sel) accentColor else Color(0xFF161616), RoundedCornerShape(6.dp))
+                                    .clickable { onChangeDrawerTextSize(spVal) }
+                                    .padding(vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
+
+                // 2. Alphabet Scroller Curved Horizontal Wave Slider
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
+                        .background(Color(0xFF070707), RoundedCornerShape(10.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    MinimalistSliderRow(
+                        label = "ALPHABET SCROLLER CURVED WAVE",
                         valueText = "${wavePct}%",
                         fraction = (drawerWaveIntensity / 2.0f).coerceIn(0f, 1f),
                         accentColor = accentColor,
@@ -5429,26 +5469,6 @@ fun LauncherSettingsView(
                         }
                     }
                 }
-
-                SettingCard(
-                    title = "Fluid Wave Scrubbing Mode",
-                    subtitle = "Toggle preset wave mode for Home dots & A–Z rail",
-                    actionLabel = waveScrubMode.uppercase(Locale.US),
-                    lomoFontFamily = lomoFontFamily,
-                    onClick = {
-                        val next = when (waveScrubMode) {
-                            "full" -> "subtle"
-                            "subtle" -> "off"
-                            else -> "full"
-                        }
-                        onChangeWaveMode(next)
-                        when (next) {
-                            "full" -> onChangeDrawerWaveIntensity(1.0f)
-                            "subtle" -> onChangeDrawerWaveIntensity(0.5f)
-                            "off" -> onChangeDrawerWaveIntensity(0.0f)
-                        }
-                    }
-                )
             }
         }
     }
@@ -7192,7 +7212,7 @@ fun RetroSplitFlapClockWidget(
     sizeMode: String,
     accentColor: Color,
     lomoFontFamily: FontFamily,
-    onToggle24h: () -> Unit
+    onOpenClockApp: () -> Unit
 ) {
     val tileHeight = when (sizeMode) {
         "compact" -> 42.dp
@@ -7217,7 +7237,7 @@ fun RetroSplitFlapClockWidget(
             .fillMaxWidth()
             .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
             .background(Color(0xFF060606), RoundedCornerShape(10.dp))
-            .clickable { onToggle24h() }
+            .clickable { onOpenClockApp() }
             .padding(horizontal = 12.dp, vertical = if (sizeMode == "compact") 8.dp else 10.dp)
     ) {
         Row(
@@ -7355,7 +7375,7 @@ fun RetroAnalogChronoWidget(
     sizeMode: String,
     accentColor: Color,
     lomoFontFamily: FontFamily,
-    onToggle24h: () -> Unit
+    onOpenClockApp: () -> Unit
 ) {
     val dialSize = when (sizeMode) {
         "compact" -> 64.dp
@@ -7391,7 +7411,7 @@ fun RetroAnalogChronoWidget(
             .fillMaxWidth()
             .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
             .background(Color(0xFF060606), RoundedCornerShape(10.dp))
-            .clickable { onToggle24h() }
+            .clickable { onOpenClockApp() }
             .padding(horizontal = 14.dp, vertical = if (sizeMode == "compact") 8.dp else 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -8156,308 +8176,5 @@ fun RetroYearDotMatrixWidget(
                 )
             }
         }
-    }
-}
-
-// ============================================================================
-// INTERACTIVE FLAT CRT WORLD MAP WIDGET ("crt_world_map")
-// Flat 2D equirectangular world map rendered like a vintage 80s-90s CRT screen:
-// - 106 high-precision country borders from WORLD_COUNTRY_BORDERS
-// - Interactive finger drag to pan across longitudes/latitudes + move target reticle (⊕)
-// - Double-tap to cycle CRT zoom (1.0x -> 1.8x -> 2.8x)
-// - Horizontal CRT phosphor scanlines, lat/lon graticule grid & live UTC solar terminator wave
-// ============================================================================
-@Composable
-fun RetroCrtFlatWorldMapWidget(
-    currentTimeMillis: Long,
-    mapHeight: androidx.compose.ui.unit.Dp,
-    globeTheme: String,
-    globeWireframeColor: String,
-    accentColor: Color,
-    onTick: () -> Unit
-) {
-    var centerLon by remember { mutableStateOf(20f) }
-    var centerLat by remember { mutableStateOf(15f) }
-    var zoomLevel by remember { mutableStateOf(1.0f) }
-    var reticleLon by remember { mutableStateOf(83.4f) } // Raigarh longitude
-    var reticleLat by remember { mutableStateOf(21.9f) } // Raigarh latitude
-
-    val isWireframe = globeTheme == "wireframe"
-    val wfColor = remember(globeWireframeColor) {
-        when (globeWireframeColor.uppercase(Locale.US)) {
-            "#00FF66" -> Color(0xFF00FF66)
-            "#00E5FF" -> Color(0xFF00E5FF)
-            "#FFFFFF" -> Color(0xFFFFFFFF)
-            "#D71921" -> Color(0xFFD71921)
-            "#FFB000" -> Color(0xFFFFB000)
-            "#3B82F6" -> Color(0xFF3B82F6)
-            else -> Color(0xFFFF3B00)
-        }
-    }
-
-    val landFillColor = if (isWireframe) {
-        wfColor.copy(alpha = 0.12f)
-    } else {
-        Color(0xFF00E676).copy(alpha = 0.22f)
-    }
-    val landBorderColor = if (isWireframe) {
-        wfColor.copy(alpha = 0.88f)
-    } else {
-        Color(0xFF44FF99).copy(alpha = 0.92f)
-    }
-    val oceanBgColor = if (isWireframe) {
-        Color(0xFF040404)
-    } else {
-        Color(0xFF030B14)
-    }
-    val gridColor = if (isWireframe) {
-        wfColor.copy(alpha = 0.14f)
-    } else {
-        Color(0xFF00B4FF).copy(alpha = 0.16f)
-    }
-
-    val latHem = if (reticleLat >= 0f) "N" else "S"
-    val lonHem = if (reticleLon >= 0f) "E" else "W"
-    val coordReadout = String.format(
-        Locale.US,
-        "%.1f°%s %.1f°%s",
-        abs(reticleLat),
-        latHem,
-        abs(reticleLon),
-        lonHem
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(mapHeight)
-            .border(1.dp, Color(0xFF282828), RoundedCornerShape(10.dp))
-            .background(oceanBgColor, RoundedCornerShape(10.dp))
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onDoubleTap = {
-                        onTick()
-                        zoomLevel = when {
-                            zoomLevel < 1.4f -> 1.8f
-                            zoomLevel < 2.3f -> 2.8f
-                            else -> 1.0f
-                        }
-                        if (zoomLevel == 1.0f) {
-                            centerLat = 10f
-                        }
-                    },
-                    onTap = { tapOffset ->
-                        onTick()
-                        val w = size.width.toFloat().coerceAtLeast(1f)
-                        val h = size.height.toFloat().coerceAtLeast(1f)
-                        val spanLon = 360f / zoomLevel
-                        val spanLat = 165f / zoomLevel
-                        val lon = centerLon + ((tapOffset.x / w) - 0.5f) * spanLon
-                        val lat = centerLat - ((tapOffset.y / h) - 0.5f) * spanLat
-                        reticleLon = (((lon + 180f) % 360f + 360f) % 360f) - 180f
-                        reticleLat = lat.coerceIn(-80f, 80f)
-                    }
-                )
-            }
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    var prevPos = down.position
-                    do {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull()
-                        if (change != null && change.pressed) {
-                            val delta = change.position - prevPos
-                            if (delta.getDistance() > 0.5f) {
-                                change.consume()
-                                val w = size.width.toFloat().coerceAtLeast(1f)
-                                val h = size.height.toFloat().coerceAtLeast(1f)
-                                val spanLon = 360f / zoomLevel
-                                val spanLat = 165f / zoomLevel
-                                centerLon = (((centerLon - (delta.x / w) * spanLon + 180f) % 360f + 360f) % 360f) - 180f
-                                val maxLatPan = (82f - spanLat * 0.42f).coerceAtLeast(12f)
-                                centerLat = (centerLat + (delta.y / h) * spanLat).coerceIn(-maxLatPan, maxLatPan)
-                                reticleLon = centerLon
-                                reticleLat = centerLat
-                                prevPos = change.position
-                            }
-                        }
-                    } while (event.changes.any { it.pressed })
-                }
-            }
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-            val spanLon = 360f / zoomLevel
-            val spanLat = 165f / zoomLevel
-
-            fun mapToScreen(lat: Float, lon: Float): Offset {
-                var dLon = lon - centerLon
-                while (dLon > 180f) dLon -= 360f
-                while (dLon < -180f) dLon += 360f
-                val x = (0.5f + dLon / spanLon) * w
-                val y = (0.5f - (lat - centerLat) / spanLat) * h
-                return Offset(x, y)
-            }
-
-            // 1. CRT Lat/Lon Graticule Grid (every 30 deg)
-            var lonGrid = -180f
-            while (lonGrid <= 150f) {
-                val pt = mapToScreen(0f, lonGrid)
-                if (pt.x in 0f..w) {
-                    val isPrime = abs(lonGrid) < 0.1f
-                    drawLine(
-                        color = if (isPrime) gridColor.copy(alpha = 0.30f) else gridColor,
-                        start = Offset(pt.x, 0f),
-                        end = Offset(pt.x, h),
-                        strokeWidth = 1f,
-                        pathEffect = if (isPrime) PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f) else null
-                    )
-                }
-                lonGrid += 30f
-            }
-
-            var latGrid = -60f
-            while (latGrid <= 60f) {
-                val pt = mapToScreen(latGrid, centerLon)
-                if (pt.y in 0f..h) {
-                    val isEquator = abs(latGrid) < 0.1f
-                    drawLine(
-                        color = if (isEquator) gridColor.copy(alpha = 0.32f) else gridColor,
-                        start = Offset(0f, pt.y),
-                        end = Offset(w, pt.y),
-                        strokeWidth = 1f,
-                        pathEffect = if (isEquator) PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f) else null
-                    )
-                }
-                latGrid += 30f
-            }
-
-            // 2. Flat 2D Plane Projection of all 106 Country Borders (with horizontal wrap handling)
-            val borderStroke = Stroke(width = 1.15.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
-            for (poly in WORLD_COUNTRY_BORDERS) {
-                if (poly.size < 3) continue
-                val fillPath = Path()
-                val strokePath = Path()
-                var prevScreen: Offset? = null
-                var hasDiscontinuity = false
-
-                for (i in poly.indices) {
-                    val (lat, lon) = poly[i]
-                    val pt = mapToScreen(lat, lon)
-                    if (prevScreen == null) {
-                        fillPath.moveTo(pt.x, pt.y)
-                        strokePath.moveTo(pt.x, pt.y)
-                    } else {
-                        // Avoid drawing horizontal wrap-around lines across the entire CRT screen
-                        if (abs(pt.x - prevScreen.x) > w * 0.45f) {
-                            hasDiscontinuity = true
-                            strokePath.moveTo(pt.x, pt.y)
-                            fillPath.moveTo(pt.x, pt.y)
-                        } else {
-                            strokePath.lineTo(pt.x, pt.y)
-                            fillPath.lineTo(pt.x, pt.y)
-                        }
-                    }
-                    prevScreen = pt
-                }
-                if (!hasDiscontinuity) {
-                    fillPath.close()
-                    drawPath(path = fillPath, color = landFillColor)
-                }
-                drawPath(path = strokePath, color = landBorderColor, style = borderStroke)
-            }
-
-            // 3. Live UTC Solar Terminator Wave across the flat CRT map
-            val utcCal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
-                timeInMillis = currentTimeMillis
-            }
-            val utcHours = utcCal.get(Calendar.HOUR_OF_DAY) + utcCal.get(Calendar.MINUTE) / 60f
-            val subSolarLon = (12f - utcHours) * 15f
-            val terminatorPath = Path()
-            val tSteps = 48
-            for (s in 0..tSteps) {
-                val x = (s.toFloat() / tSteps) * w
-                val lonAtX = centerLon + ((x / w) - 0.5f) * spanLon
-                val hourAngleRad = Math.toRadians((lonAtX - subSolarLon).toDouble())
-                val termLat = (23.4f * cos(hourAngleRad)).toFloat()
-                val pt = mapToScreen(termLat, lonAtX)
-                if (s == 0) terminatorPath.moveTo(x, pt.y.coerceIn(0f, h))
-                else terminatorPath.lineTo(x, pt.y.coerceIn(0f, h))
-            }
-            drawPath(
-                path = terminatorPath,
-                color = accentColor.copy(alpha = 0.50f),
-                style = Stroke(
-                    width = 1.dp.toPx(),
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
-                )
-            )
-
-            // 4. Interactive CRT Target Crosshair Reticle (⊕)
-            val retPt = mapToScreen(reticleLat, reticleLon)
-            if (retPt.x in 0f..w && retPt.y in 0f..h) {
-                drawLine(
-                    color = accentColor.copy(alpha = 0.35f),
-                    start = Offset(retPt.x, 0f),
-                    end = Offset(retPt.x, h),
-                    strokeWidth = 1f
-                )
-                drawLine(
-                    color = accentColor.copy(alpha = 0.35f),
-                    start = Offset(0f, retPt.y),
-                    end = Offset(w, retPt.y),
-                    strokeWidth = 1f
-                )
-                drawCircle(
-                    color = accentColor,
-                    radius = 5.5.dp.toPx(),
-                    center = retPt,
-                    style = Stroke(width = 1.2.dp.toPx())
-                )
-                drawCircle(
-                    color = Color.White,
-                    radius = 1.8.dp.toPx(),
-                    center = retPt
-                )
-            }
-
-            // 5. Retro CRT Phosphor Horizontal Scanline Overlay & Corner Bezel Ticks
-            val scanStep = 3.5.dp.toPx().coerceAtLeast(3f)
-            var sy = 0f
-            while (sy < h) {
-                drawLine(
-                    color = Color.Black.copy(alpha = 0.28f),
-                    start = Offset(0f, sy),
-                    end = Offset(w, sy),
-                    strokeWidth = 1f
-                )
-                sy += scanStep
-            }
-
-            // Inner CRT bezel frame
-            val inset = 4.dp.toPx()
-            drawRoundRect(
-                color = landBorderColor.copy(alpha = 0.24f),
-                topLeft = Offset(inset, inset),
-                size = Size(w - inset * 2f, h - inset * 2f),
-                cornerRadius = CornerRadius(7.dp.toPx(), 7.dp.toPx()),
-                style = Stroke(width = 1.dp.toPx())
-            )
-        }
-
-        // Minimal coordinate & zoom pill in bottom-right corner
-        Text(
-            text = if (zoomLevel > 1.05f) "$coordReadout · ${String.format(Locale.US, "%.1f", zoomLevel)}×" else coordReadout,
-            color = Color(0xFFB0B0B0),
-            fontSize = 8.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 8.dp, bottom = 6.dp)
-                .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(4.dp))
-                .padding(horizontal = 5.dp, vertical = 2.dp)
-        )
     }
 }
