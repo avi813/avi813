@@ -609,12 +609,10 @@ fun NTextLauncherApp(
     val keyboardController = LocalSoftwareKeyboardController.current
     val lomoFontFamily = remember { getLomoPixelFontFamily(context) }
 
-    // Navigation, App Drawer (Vertical) & Launcher Settings (Horizontal Right-to-Left) State
+    // Navigation & App Drawer State (Launcher Settings opened via Long-Tap Menu)
     var currentView by remember { mutableStateOf(LauncherView.HOME_AND_DRAWER) }
     val drawerProgress = remember { Animatable(0f) }
     val isDrawerOpen by remember { derivedStateOf { drawerProgress.value > 0.5f } }
-    val settingsProgress = remember { Animatable(0f) }
-    val isSettingsOpen by remember { derivedStateOf { settingsProgress.value > 0.5f } }
     var focusDrawerSearchOnOpen by remember { mutableStateOf(false) }
 
     var editMode by remember { mutableStateOf(false) }
@@ -680,9 +678,9 @@ fun NTextLauncherApp(
     var globeTheme by remember { mutableStateOf(prefs.getString("globe_theme", "retro_holo") ?: "retro_holo") }
     var globeWireframeColor by remember { mutableStateOf(prefs.getString("globe_wf_color", "#FF3B00") ?: "#FF3B00") }
 
-    // 100% Offline Essential Widgets (Clock, Week Strip, Calendar, Chronograph, Globe, CRT World Map, etc.)
+    // 100% Offline Essential Widgets (Default on Home Screen: Clock & Week Strip; Globe can be added from Widget Manager)
     var activeWidgets by remember {
-        val saved = prefs.getString("widgets_order_v7", "clock,week_strip,globe") ?: "clock,week_strip,globe"
+        val saved = prefs.getString("widgets_order_v8", "clock,week_strip") ?: "clock,week_strip"
         mutableStateOf(
             saved.split(",").filter {
                 it.isNotBlank() && it != "telemetry" && it != "blackhole" && it != "weather" && it != "pedometer"
@@ -923,7 +921,7 @@ fun NTextLauncherApp(
             it != "blackhole" && it != "telemetry" && it != "weather" && it != "pedometer"
         }
         activeWidgets = cleaned
-        prefs.edit().putString("widgets_order_v7", cleaned.joinToString(",")).apply()
+        prefs.edit().putString("widgets_order_v8", cleaned.joinToString(",")).apply()
     }
 
     fun saveWidgetSize(widgetId: String, size: String) {
@@ -1020,22 +1018,6 @@ fun NTextLauncherApp(
         }
     }
 
-    fun animateSettingsTo(target: Float, initialVelocity: Float = 0f) {
-        clearAllFocusAndKeyboard()
-        scope.launch {
-            settingsProgress.animateTo(
-                targetValue = target,
-                initialVelocity = initialVelocity,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessLow,
-                    visibilityThreshold = 0.001f
-                )
-            )
-            settingsProgress.snapTo(target)
-        }
-    }
-
     fun launchApp(pkg: String) {
         clearAllFocusAndKeyboard()
         drawerSearchResetToken++
@@ -1070,9 +1052,6 @@ fun NTextLauncherApp(
             if (drawerProgress.value > 0f) {
                 drawerProgress.snapTo(0f)
             }
-            if (settingsProgress.value > 0f) {
-                settingsProgress.snapTo(0f)
-            }
         }
     }
 
@@ -1093,7 +1072,7 @@ fun NTextLauncherApp(
     }
 
     val backDispatcher = activity.onBackPressedDispatcher
-    DisposableEffect(backDispatcher, currentView, editMode, isDrawerOpen, isSettingsOpen, contextMenuTarget, showHomeQuickMenu) {
+    DisposableEffect(backDispatcher, currentView, editMode, isDrawerOpen, contextMenuTarget, showHomeQuickMenu) {
         val callback = object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
@@ -1101,7 +1080,6 @@ fun NTextLauncherApp(
                     showHomeQuickMenu -> showHomeQuickMenu = false
                     editMode -> editMode = false
                     currentView != LauncherView.HOME_AND_DRAWER -> currentView = LauncherView.HOME_AND_DRAWER
-                    settingsProgress.value > 0.05f -> animateSettingsTo(0f)
                     drawerProgress.value > 0.05f -> animateDrawerTo(0f)
                 }
             }
@@ -1118,16 +1096,16 @@ fun NTextLauncherApp(
     ) {
         val density = LocalDensity.current
         val screenHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
-        val screenWidthPx = with(density) { maxWidth.toPx().coerceAtLeast(1f) }
 
-        // Full-Screen Edge-to-Edge Wallpaper Canvas (with real-time Gaussian Blur when Settings is in BLURRY mode!)
+        // Full-Screen Edge-to-Edge Wallpaper Canvas
+        // When Launcher Settings is open, ONLY the currently applied wallpaper is visible in the background
+        // (blurred when settingsBgMode == "blurry", visible when "transparent", or covered when "opaque")!
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    val sp = if (currentView == LauncherView.SETTINGS) 1f else settingsProgress.value.coerceIn(0f, 1f)
-                    if (settingsBgMode == "blurry" && sp > 0.005f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        val blurRadiusPx = (sp * (settingsBgIntensity.coerceIn(4, 100) / 100f) * 38.dp.toPx()).coerceAtLeast(1f)
+                    if (currentView == LauncherView.SETTINGS && settingsBgMode == "blurry" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        val blurRadiusPx = ((settingsBgIntensity.coerceIn(4, 100) / 100f) * 38.dp.toPx()).coerceAtLeast(1f)
                         renderEffect = AndroidRenderEffect.createBlurEffect(
                             blurRadiusPx,
                             blurRadiusPx,
@@ -1153,7 +1131,7 @@ fun NTextLauncherApp(
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.navigationBars)
         ) {
-            if (editMode && currentView == LauncherView.HOME_AND_DRAWER && drawerProgress.value < 0.2f && settingsProgress.value < 0.2f) {
+            if (editMode && currentView == LauncherView.HOME_AND_DRAWER && drawerProgress.value < 0.2f) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1192,85 +1170,24 @@ fun NTextLauncherApp(
                                 .fillMaxSize()
                                 .graphicsLayer {
                                     val p = drawerProgress.value
-                                    val sp = settingsProgress.value
-                                    if (p >= 0.995f || (settingsBgMode == "opaque" && sp >= 0.995f)) {
+                                    if (p >= 0.995f) {
                                         alpha = 0f
                                         translationY = -screenHeightPx * 2f
                                     } else {
-                                        val drawerAlpha = (1f - p * 1.15f).coerceIn(0f, 1f)
-                                        val settingsAlpha = if (settingsBgMode == "opaque") {
-                                            (1f - sp * 1.15f).coerceIn(0f, 1f)
-                                        } else {
-                                            // Keep Home Screen visible behind Transparent / Blurry Settings menu!
-                                            (1f - sp * 0.28f).coerceIn(0.45f, 1f)
-                                        }
-                                        alpha = min(drawerAlpha, settingsAlpha)
+                                        alpha = (1f - p * 1.15f).coerceIn(0f, 1f)
                                         translationY = -p * 110.dp.toPx()
-                                        translationX = if (settingsBgMode == "opaque") {
-                                            -sp * 105.dp.toPx()
-                                        } else {
-                                            -sp * 36.dp.toPx()
-                                        }
-                                        val s = (1f - p * 0.045f) * (1f - sp * 0.035f)
+                                        val s = 1f - p * 0.045f
                                         scaleX = s
                                         scaleY = s
-                                        if (settingsBgMode == "blurry" && sp > 0.005f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                            val blurRadiusPx = (sp * (settingsBgIntensity.coerceIn(4, 100) / 100f) * 34.dp.toPx()).coerceAtLeast(1f)
-                                            renderEffect = AndroidRenderEffect.createBlurEffect(
-                                                blurRadiusPx,
-                                                blurRadiusPx,
-                                                AndroidShader.TileMode.CLAMP
-                                            ).asComposeRenderEffect()
-                                        }
                                     }
                                 }
                                 .pointerInput(Unit) {
                                     detectTapGestures(
                                         onLongPress = {
-                                            if (drawerProgress.value < 0.1f && settingsProgress.value < 0.1f) {
+                                            if (drawerProgress.value < 0.1f) {
                                                 tickHaptic(heavy = true)
                                                 showHomeQuickMenu = true
                                             }
-                                        }
-                                    )
-                                }
-                                .pointerInput(screenWidthPx) {
-                                    var totalDx = 0f
-                                    val velocityTracker = VelocityTracker()
-                                    val dragWidthPx = (screenWidthPx * 0.56f).coerceAtLeast(1f)
-                                    detectHorizontalDragGestures(
-                                        onDragStart = {
-                                            totalDx = 0f
-                                            velocityTracker.resetTracking()
-                                        },
-                                        onHorizontalDrag = { change, dragAmount ->
-                                            if (drawerProgress.value < 0.05f) {
-                                                velocityTracker.addPosition(change.uptimeMillis, change.position)
-                                                change.consume()
-                                                totalDx += dragAmount
-                                                // Right-to-Left drag (dragAmount < 0) opens Launcher Settings seamlessly
-                                                if (totalDx < 0f || settingsProgress.value > 0.005f) {
-                                                    val delta = -dragAmount / dragWidthPx
-                                                    val next = (settingsProgress.value + delta).coerceIn(0f, 1f)
-                                                    scope.launch { settingsProgress.snapTo(next) }
-                                                }
-                                            }
-                                        },
-                                        onDragEnd = {
-                                            if (drawerProgress.value < 0.05f) {
-                                                val vx = velocityTracker.calculateVelocity().x
-                                                val normVel = (-vx / dragWidthPx).coerceIn(-6f, 6f)
-                                                if (settingsProgress.value > 0.14f || totalDx < -65f || vx < -500f) {
-                                                    tickHaptic(heavy = false)
-                                                    animateSettingsTo(1f, initialVelocity = normVel)
-                                                } else if (settingsProgress.value > 0f) {
-                                                    animateSettingsTo(0f, initialVelocity = normVel)
-                                                }
-                                            }
-                                        },
-                                        onDragCancel = {
-                                            if (settingsProgress.value > 0.5f) animateSettingsTo(1f)
-                                            else if (settingsProgress.value > 0f) animateSettingsTo(0f)
                                         }
                                     )
                                 }
@@ -1286,30 +1203,26 @@ fun NTextLauncherApp(
                                             velocityTracker.resetTracking()
                                         },
                                         onVerticalDrag = { change, dragAmount ->
-                                            if (settingsProgress.value < 0.05f) {
-                                                velocityTracker.addPosition(change.uptimeMillis, change.position)
-                                                change.consume()
-                                                totalDy += dragAmount
-                                                if (totalDy < 0f || drawerProgress.value > 0.005f) {
-                                                    val delta = -dragAmount / dragDistancePx
-                                                    val next = (drawerProgress.value + delta).coerceIn(0f, 1f)
-                                                    scope.launch { drawerProgress.snapTo(next) }
-                                                } else if (totalDy > 95f && !notifTriggered && drawerProgress.value < 0.01f) {
-                                                    notifTriggered = true
-                                                    tickHaptic(heavy = false)
-                                                    onExpandNotifications()
-                                                }
+                                            velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                            change.consume()
+                                            totalDy += dragAmount
+                                            if (totalDy < 0f || drawerProgress.value > 0.005f) {
+                                                val delta = -dragAmount / dragDistancePx
+                                                val next = (drawerProgress.value + delta).coerceIn(0f, 1f)
+                                                scope.launch { drawerProgress.snapTo(next) }
+                                            } else if (totalDy > 95f && !notifTriggered && drawerProgress.value < 0.01f) {
+                                                notifTriggered = true
+                                                tickHaptic(heavy = false)
+                                                onExpandNotifications()
                                             }
                                         },
                                         onDragEnd = {
-                                            if (settingsProgress.value < 0.05f) {
-                                                val vy = velocityTracker.calculateVelocity().y
-                                                val normVel = (-vy / dragDistancePx).coerceIn(-6f, 6f)
-                                                if (drawerProgress.value > 0.14f || totalDy < -75f || vy < -550f) {
-                                                    animateDrawerTo(1f, initialVelocity = normVel)
-                                                } else if (drawerProgress.value > 0f) {
-                                                    animateDrawerTo(0f, initialVelocity = normVel)
-                                                }
+                                            val vy = velocityTracker.calculateVelocity().y
+                                            val normVel = (-vy / dragDistancePx).coerceIn(-6f, 6f)
+                                            if (drawerProgress.value > 0.14f || totalDy < -75f || vy < -550f) {
+                                                animateDrawerTo(1f, initialVelocity = normVel)
+                                            } else if (drawerProgress.value > 0f) {
+                                                animateDrawerTo(0f, initialVelocity = normVel)
                                             }
                                         },
                                         onDragCancel = {
@@ -1318,59 +1231,59 @@ fun NTextLauncherApp(
                                         }
                                     )
                                 }
-                            ) {
-                                HomeScreenView(
-                                    activeWidgets = activeWidgets,
-                                    widgetSizes = widgetSizes,
-                                    editMode = editMode,
-                                    currentTimeMillis = currentTimeMillis,
-                                    currentHourStr = currentHourStr,
-                                    currentMinStr = currentMinStr,
-                                    currentSecStr = currentSecStr,
-                                    currentAmPmStr = currentAmPmStr,
-                                    currentDateStr = currentDateStr,
-                                    nextAlarmStr = nextAlarmStr,
-                                    batteryPct = batteryPct,
-                                    isCharging = isCharging,
-                                    ramStatusText = ramStatusText,
-                                    storageStatusText = storageStatusText,
-                                    ramUsageFraction = ramUsageFraction,
-                                    storageUsageFraction = storageUsageFraction,
-                                    torchEnabled = torchEnabled,
-                                    zenActive = zenActive,
-                                    zenSeconds = zenSeconds,
-                                    quickNote = quickNote,
-                                    accentColor = accentColor,
-                                    lomoFontFamily = lomoFontFamily,
-                                    selectedFont = selectedFont,
-                                    uppercaseHome = prebuiltFont.uppercaseHome,
-                                    textAlign = textAlign,
-                                    textSizeSp = textSizeSp,
-                                    waveScrubMode = waveScrubMode,
-                                    globeTheme = globeTheme,
-                                    globeWireframeColor = globeWireframeColor,
-                                    pinnedApps = installedApps.filter { it.isPinned && !it.isHidden },
-                                    onToggle24h = {
-                                        use24Hour = !use24Hour
-                                        prefs.edit().putBoolean("use_24h_v4", use24Hour).apply()
-                                    },
-                                    onToggleTorch = { toggleTorchState() },
-                                    onToggleZen = {
-                                        zenActive = !zenActive
-                                        if (!zenActive) zenSeconds = 1500
-                                    },
-                                    onCycleWidgetSize = { id -> cycleWidgetSize(id) },
-                                    onMoveWidget = { id, dir -> moveWidget(id, dir) },
-                                    onRemoveWidget = { id ->
-                                        saveWidgetList(activeWidgets.filter { it != id })
-                                    },
-                                    onLaunchApp = { pkg -> launchApp(pkg) },
-                                    onLongPressApp = { app ->
-                                        tickHaptic(heavy = true)
-                                        contextMenuTarget = app to true
-                                    },
-                                    onWaveTick = { tickHaptic(heavy = false) }
-                                )
+                        ) {
+                            HomeScreenView(
+                                activeWidgets = activeWidgets,
+                                widgetSizes = widgetSizes,
+                                editMode = editMode,
+                                currentTimeMillis = currentTimeMillis,
+                                currentHourStr = currentHourStr,
+                                currentMinStr = currentMinStr,
+                                currentSecStr = currentSecStr,
+                                currentAmPmStr = currentAmPmStr,
+                                currentDateStr = currentDateStr,
+                                nextAlarmStr = nextAlarmStr,
+                                batteryPct = batteryPct,
+                                isCharging = isCharging,
+                                ramStatusText = ramStatusText,
+                                storageStatusText = storageStatusText,
+                                ramUsageFraction = ramUsageFraction,
+                                storageUsageFraction = storageUsageFraction,
+                                torchEnabled = torchEnabled,
+                                zenActive = zenActive,
+                                zenSeconds = zenSeconds,
+                                quickNote = quickNote,
+                                accentColor = accentColor,
+                                lomoFontFamily = lomoFontFamily,
+                                selectedFont = selectedFont,
+                                uppercaseHome = prebuiltFont.uppercaseHome,
+                                textAlign = textAlign,
+                                textSizeSp = textSizeSp,
+                                waveScrubMode = waveScrubMode,
+                                globeTheme = globeTheme,
+                                globeWireframeColor = globeWireframeColor,
+                                pinnedApps = installedApps.filter { it.isPinned && !it.isHidden },
+                                onToggle24h = {
+                                    use24Hour = !use24Hour
+                                    prefs.edit().putBoolean("use_24h_v4", use24Hour).apply()
+                                },
+                                onToggleTorch = { toggleTorchState() },
+                                onToggleZen = {
+                                    zenActive = !zenActive
+                                    if (!zenActive) zenSeconds = 1500
+                                },
+                                onCycleWidgetSize = { id -> cycleWidgetSize(id) },
+                                onMoveWidget = { id, dir -> moveWidget(id, dir) },
+                                onRemoveWidget = { id ->
+                                    saveWidgetList(activeWidgets.filter { it != id })
+                                },
+                                onLaunchApp = { pkg -> launchApp(pkg) },
+                                onLongPressApp = { app ->
+                                    tickHaptic(heavy = true)
+                                    contextMenuTarget = app to true
+                                },
+                                onWaveTick = { tickHaptic(heavy = false) }
+                            )
                         }
 
                         Box(
@@ -1423,173 +1336,6 @@ fun NTextLauncherApp(
                                 },
                                 onClose = { animateDrawerTo(0f) },
                                 onWaveTick = { tickHaptic(heavy = false) }
-                            )
-                        }
-
-                        // Seamless Right-to-Left Slide-In Launcher Settings Layer
-                        val hasCustomImageFile = remember(userWallpaperRefreshTrigger, wallpaperPreset) {
-                            File(context.filesDir, "user_custom_wallpaper.jpg").exists()
-                        }
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer {
-                                    val sp = settingsProgress.value
-                                    if (sp <= 0.005f) {
-                                        alpha = 0f
-                                        translationX = screenWidthPx * 2f
-                                    } else {
-                                        alpha = (sp * 1.2f).coerceIn(0f, 1f)
-                                        translationX = (1f - sp) * screenWidthPx
-                                    }
-                                }
-                                .pointerInput(screenWidthPx) {
-                                    var totalDx = 0f
-                                    val velocityTracker = VelocityTracker()
-                                    val dragWidthPx = (screenWidthPx * 0.52f).coerceAtLeast(1f)
-                                    detectHorizontalDragGestures(
-                                        onDragStart = {
-                                            totalDx = 0f
-                                            velocityTracker.resetTracking()
-                                        },
-                                        onHorizontalDrag = { change, dragAmount ->
-                                            velocityTracker.addPosition(change.uptimeMillis, change.position)
-                                            change.consume()
-                                            totalDx += dragAmount
-                                            // Left-to-Right swipe (dragAmount > 0) seamlessly closes Launcher Settings
-                                            if (totalDx > 0f || settingsProgress.value < 0.995f) {
-                                                val delta = -dragAmount / dragWidthPx
-                                                val next = (settingsProgress.value + delta).coerceIn(0f, 1f)
-                                                scope.launch { settingsProgress.snapTo(next) }
-                                            }
-                                        },
-                                        onDragEnd = {
-                                            val vx = velocityTracker.calculateVelocity().x
-                                            val normVel = (-vx / dragWidthPx).coerceIn(-6f, 6f)
-                                            if (settingsProgress.value < 0.84f || totalDx > 75f || vx > 500f) {
-                                                animateSettingsTo(0f, initialVelocity = normVel)
-                                            } else {
-                                                animateSettingsTo(1f, initialVelocity = normVel)
-                                            }
-                                        },
-                                        onDragCancel = {
-                                            if (settingsProgress.value < 0.5f) animateSettingsTo(0f)
-                                            else animateSettingsTo(1f)
-                                        }
-                                    )
-                                }
-                        ) {
-                            LauncherSettingsView(
-                                fontId = fontId,
-                                textAlignMode = textAlignMode,
-                                accentHex = accentHex,
-                                textSizeSp = textSizeSp,
-                                drawerTextSizeSp = drawerTextSizeSp,
-                                hideAndroidBar = hideAndroidBar,
-                                waveScrubMode = waveScrubMode,
-                                drawerWaveIntensity = drawerWaveIntensity,
-                                wallpaperPreset = wallpaperPreset,
-                                wallpaperDimPercent = wallpaperDimPercent,
-                                hasCustomUserImage = hasCustomImageFile,
-                                wpSpeed = wpSpeed,
-                                wpDensity = wpDensity,
-                                wpOpacity = wpOpacity,
-                                wpScale = wpScale,
-                                settingsBgMode = settingsBgMode,
-                                settingsBgIntensity = settingsBgIntensity,
-                                lomoFontFamily = lomoFontFamily,
-                                onChangeFont = {
-                                    fontId = it
-                                    prefs.edit().putString("font_id", it).apply()
-                                },
-                                onChangeAlign = {
-                                    textAlignMode = it
-                                    prefs.edit().putString("align", it).apply()
-                                },
-                                onChangeAccent = {
-                                    accentHex = it
-                                    prefs.edit().putString("accent", it).apply()
-                                },
-                                onChangeTextSize = {
-                                    textSizeSp = it
-                                    prefs.edit().putInt("text_size", it).apply()
-                                },
-                                onChangeDrawerTextSize = {
-                                    drawerTextSizeSp = it
-                                    prefs.edit().putInt("drawer_text_size", it).apply()
-                                },
-                                onToggleAndroidBar = {
-                                    val next = !hideAndroidBar
-                                    hideAndroidBar = next
-                                    onToggleAndroidStatusBar(next)
-                                },
-                                onChangeWaveMode = {
-                                    waveScrubMode = it
-                                    prefs.edit().putString("wave_mode", it).apply()
-                                },
-                                onChangeDrawerWaveIntensity = {
-                                    drawerWaveIntensity = it
-                                    prefs.edit().putFloat("drawer_wave_intensity", it).apply()
-                                    if (it <= 0.02f && waveScrubMode != "off") {
-                                        waveScrubMode = "off"
-                                        prefs.edit().putString("wave_mode", "off").apply()
-                                    } else if (it > 0.02f && waveScrubMode == "off") {
-                                        waveScrubMode = "full"
-                                        prefs.edit().putString("wave_mode", "full").apply()
-                                    }
-                                },
-                                onChangeWallpaperPreset = {
-                                    wallpaperPreset = it
-                                    prefs.edit().putString("wallpaper", it).apply()
-                                },
-                                onChangeWallpaperDim = {
-                                    wallpaperDimPercent = it
-                                    prefs.edit().putInt("wp_dim", it).apply()
-                                },
-                                onChangeWpSpeed = {
-                                    wpSpeed = it
-                                    prefs.edit().putFloat("wp_speed", it).apply()
-                                },
-                                onChangeWpDensity = {
-                                    wpDensity = it
-                                    prefs.edit().putFloat("wp_density", it).apply()
-                                },
-                                onChangeWpOpacity = {
-                                    wpOpacity = it
-                                    prefs.edit().putFloat("wp_opacity", it).apply()
-                                },
-                                onChangeWpScale = {
-                                    wpScale = it
-                                    prefs.edit().putFloat("wp_scale", it).apply()
-                                },
-                                onResetWpTuning = {
-                                    wpSpeed = 1.0f
-                                    wpDensity = 1.0f
-                                    wpOpacity = 1.0f
-                                    wpScale = 1.0f
-                                    prefs.edit()
-                                        .putFloat("wp_speed", 1.0f)
-                                        .putFloat("wp_density", 1.0f)
-                                        .putFloat("wp_opacity", 1.0f)
-                                        .putFloat("wp_scale", 1.0f)
-                                        .apply()
-                                },
-                                onChangeSettingsBgMode = {
-                                    settingsBgMode = it
-                                    prefs.edit().putString("settings_bg_mode", it).apply()
-                                },
-                                onChangeSettingsBgIntensity = {
-                                    settingsBgIntensity = it
-                                    prefs.edit().putInt("settings_bg_intensity", it).apply()
-                                },
-                                onOpenSystemWallpaperPicker = {
-                                    wallpaperPreset = "system_wallpaper"
-                                    prefs.edit().putString("wallpaper", "system_wallpaper").apply()
-                                    onOpenSystemWallpaperPicker()
-                                },
-                                onPickCustomWallpaperImage = onPickCustomWallpaperImage,
-                                onRequestDefaultHomeRole = onRequestDefaultHomeRole,
-                                onBack = { animateSettingsTo(0f) }
                             )
                         }
                     }
@@ -1742,10 +1488,7 @@ fun NTextLauncherApp(
                             },
                             onPickCustomWallpaperImage = onPickCustomWallpaperImage,
                             onRequestDefaultHomeRole = onRequestDefaultHomeRole,
-                            onBack = {
-                                currentView = LauncherView.HOME_AND_DRAWER
-                                animateSettingsTo(0f)
-                            }
+                            onBack = { currentView = LauncherView.HOME_AND_DRAWER }
                         )
                     }
                 }
@@ -1841,7 +1584,19 @@ fun NTextLauncherApp(
                         }
                     )
 
-                    // 3. Phone Settings (Launcher Settings removed from long-tap; swipe right-to-left on Home to open Settings)
+                    // 3. Launcher Settings
+                    QuickMenuButton(
+                        label = "Launcher Settings",
+                        badge = "LAUNCHER",
+                        accentColor = accentColor,
+                        lomoFontFamily = lomoFontFamily,
+                        onClick = {
+                            showHomeQuickMenu = false
+                            currentView = LauncherView.SETTINGS
+                        }
+                    )
+
+                    // 4. Phone Settings
                     QuickMenuButton(
                         label = "Phone Settings",
                         badge = "SYSTEM",
@@ -3223,12 +2978,12 @@ private val WORLD_MAP_RAW_POLYGONS: Array<String> = arrayOf(
     "42.40,130.64;42.40,130.64;42.22,130.78;42.28,130.40;41.94,129.97;41.60,129.67;40.88,129.71;40.66,129.19;40.49,129.01;40.19,128.63;40.03,127.97;39.76,127.53;39.32,127.50;39.21,127.39;39.05,127.78;38.61,128.35;38.37,128.21;38.30,127.78;38.26,127.07;37.80,126.68;37.84,126.24;37.75,126.17;37.94,125.69;37.75,125.57;37.67,125.28;37.86,125.24;37.95,124.98;38.11,124.71;38.55,124.99;38.67,125.22;38.85,125.13;39.39,125.39;39.55,125.32;39.66,124.74;39.93,124.27;40.57,125.08;41.11,126.18;41.82,126.87;41.50,127.34;41.47,128.21;41.99,128.05;42.42,129.60;42.99,129.99;42.40,130.64",
     "37.75,126.17;37.84,126.24;37.80,126.68;38.26,127.07;38.30,127.78;38.37,128.21;38.61,128.35;37.43,129.21;36.78,129.46;35.63,129.47;35.08,129.09;34.89,128.19;34.48,127.39;34.39,126.49;34.93,126.37;35.68,126.56;36.73,126.12;36.89,126.86;37.75,126.17",
     "49.30,87.75;49.47,88.81;50.33,90.71;50.80,92.23;50.50,93.10;50.48,94.15;50.01,94.82;49.98,95.81;49.73,97.26;50.42,98.23;51.01,97.83;52.05,98.86;51.63,99.98;51.52,100.89;51.26,102.07;50.51,102.26;50.09,103.68;50.28,104.62;50.41,105.89;50.27,106.89;49.79,107.87;49.28,108.48;49.29,109.40;49.13,110.66;49.38,111.58;49.54,112.90;50.25,114.36;50.14,114.96;49.81,115.49;49.89,116.68;49.13,116.19;48.14,115.49;47.73,115.74;47.85,116.31;47.70,117.30;48.07,118.06;47.75,118.87;47.05,119.77;46.69,119.66;46.81,118.87;46.67,117.42;46.39,116.72;45.73,115.99;45.34,114.46;44.81,113.46;45.01,112.44;45.10,111.87;44.46,111.35;44.07,111.67;43.74,111.83;43.41,111.13;42.87,110.41;42.52,109.24;42.48,107.74;42.13,106.13;41.60,104.96;41.91,104.52;41.91,103.31;42.51,101.83;42.66,100.85;42.52,99.52;42.75,97.45;42.73,96.35;43.32,95.76;44.24,95.31;44.35,94.69;44.98,93.48;45.12,92.13;45.29,90.95;45.72,90.59;46.89,90.97;47.69,90.28;48.07,88.85;48.60,88.01;49.30,87.75",
-    "28.26,97.33;27.88,97.40;27.70,97.05;27.08,97.13;27.26,96.42;26.57,95.12;26.00,95.16;25.16,94.60;24.68,94.55;23.85,94.11;24.08,93.33;23.04,93.29;22.70,93.06;22.28,93.17;22.04,92.67;23.63,92.15;23.62,91.87;22.99,91.71;23.50,91.16;24.07,91.47;24.13,91.92;24.98,92.38;25.15,91.80;25.13,90.87;25.27,89.92;25.97,89.83;26.01,89.36;26.45,88.56;25.77,88.21;25.24,88.93;24.87,88.31;24.50,88.08;24.23,88.70;23.63,88.53;22.88,88.88;22.06,89.03;21.69,88.89;21.70,88.21;21.50,86.98;20.74,87.03;20.15,86.50;19.48,85.06;18.30,83.94;17.67,83.19;17.02,82.19;16.56,82.19;16.31,81.69;15.95,80.79;15.90,80.32;15.14,80.03;13.84,80.23;13.01,80.29;12.06,79.86;10.36,79.86;10.31,79.34;9.55,78.89;9.22,79.19;8.93,78.28;8.25,77.94;7.97,77.54;8.90,76.59;10.30,76.13;11.31,75.75;11.78,75.40;12.74,74.86;13.99,74.62;14.62,74.44;15.99,73.53;17.93,73.12;19.21,72.82;20.42,72.82;21.36,72.63;20.76,71.18;20.88,70.47;22.09,69.16;22.45,69.64;22.84,69.35;23.69,68.18;24.36,68.84;24.36,71.04;25.22,70.84;25.72,70.28;26.49,70.17;26.94,69.51;27.99,70.62;27.91,71.78;28.96,72.82;29.98,73.45;30.98,74.42;31.69,74.41;32.27,75.26;32.76,74.45;33.44,74.10;34.15,73.78;34.68,73.95;35.15,74.08;35.88,73.72;36.32,74.05;36.82,74.52;37.08,74.88;37.02,75.42;36.68,75.88;36.12,76.18;35.68,76.82;35.49,77.84;35.88,78.42;35.98,79.25;35.92,79.88;35.38,80.22;34.62,79.82;34.15,79.28;33.51,78.81;32.99,79.21;32.48,79.18;32.62,78.46;31.52,78.74;30.88,79.72;30.18,81.11;29.73,80.48;28.79,80.09;28.42,81.06;27.93,82.00;27.36,83.30;27.23,84.68;26.73,85.25;26.63,86.02;26.40,87.23;26.41,88.06;26.81,88.17;27.45,88.04;27.88,88.12;28.09,88.73;27.30,88.81;27.10,88.84;26.72,89.74;26.88,90.37;26.81,91.22;26.84,92.03;27.45,92.10;27.77,91.70;27.90,92.50;28.64,93.41;29.28,94.57;29.03,95.40;29.45,96.12;28.83,96.59;28.41,96.25;28.26,97.33",
+    "27.88,97.40;27.70,97.05;27.08,97.13;27.26,96.42;26.57,95.12;26.00,95.16;25.16,94.60;24.68,94.55;23.85,94.11;24.08,93.33;23.04,93.29;22.70,93.06;22.28,93.17;22.04,92.67;23.63,92.15;23.62,91.87;22.99,91.71;23.50,91.16;24.07,91.47;24.13,91.92;24.98,92.38;25.15,91.80;25.13,90.87;25.27,89.92;25.97,89.83;26.01,89.36;26.45,88.56;25.77,88.21;25.24,88.93;24.87,88.31;24.50,88.08;24.23,88.70;23.63,88.53;22.88,88.88;22.06,89.03;21.69,88.89;21.70,88.21;21.50,86.98;20.74,87.03;20.15,86.50;19.48,85.06;18.30,83.94;17.67,83.19;17.02,82.19;16.56,82.19;16.31,81.69;15.95,80.79;15.90,80.32;15.14,80.03;13.84,80.23;13.01,80.29;12.06,79.86;10.36,79.86;10.31,79.34;9.55,78.89;9.22,79.19;8.93,78.28;8.25,77.94;7.97,77.54;8.90,76.59;10.30,76.13;11.31,75.75;11.78,75.40;12.74,74.86;13.99,74.62;14.62,74.44;15.99,73.53;17.93,73.12;19.21,72.82;20.42,72.82;21.36,72.63;20.76,71.18;20.88,70.47;22.09,69.16;22.45,69.64;22.84,69.35;23.69,68.18;24.36,68.84;24.36,71.04;25.22,70.84;25.72,70.28;26.49,70.17;26.94,69.51;27.99,70.62;27.91,71.78;28.96,72.82;29.98,73.45;30.98,74.42;31.69,74.41;31.69,74.41;32.45,73.85;33.25,73.55;34.15,73.35;34.85,73.45;35.35,73.15;35.85,72.75;36.75,72.88;36.88,74.07;37.06,74.58;37.16,75.18;36.70,75.92;35.95,76.22;35.52,77.84;35.95,78.42;36.05,79.25;35.95,79.95;35.35,80.38;34.55,79.90;34.32,78.95;33.51,78.85;32.99,79.25;32.48,79.20;31.51,78.75;30.88,79.72;30.18,81.11;29.73,80.48;28.79,80.09;28.42,81.06;27.93,82.00;27.36,83.30;27.23,84.68;26.73,85.25;26.63,86.02;26.40,87.23;26.41,88.06;26.81,88.17;27.45,88.04;27.88,88.12;28.09,88.73;27.30,88.81;27.10,88.84;26.72,89.74;26.88,90.37;26.81,91.22;26.84,92.03;27.45,92.10;27.77,91.70;27.90,92.50;28.64,93.41;29.28,94.57;29.03,95.40;29.45,96.12;28.83,96.59;28.41,96.25;28.26,97.33;27.88,97.40",
     "22.04,92.67;21.32,92.65;21.48,92.30;20.67,92.37;21.19,92.08;21.70,92.03;22.18,91.83;22.77,91.42;22.81,90.50;22.39,90.59;21.84,90.27;22.04,89.85;21.86,89.70;21.97,89.42;22.06,89.03;22.88,88.88;23.63,88.53;24.23,88.70;24.50,88.08;24.87,88.31;25.24,88.93;25.77,88.21;26.45,88.56;26.01,89.36;25.97,89.83;25.27,89.92;25.13,90.87;25.15,91.80;24.98,92.38;24.13,91.92;24.07,91.47;23.50,91.16;22.99,91.71;23.62,91.87;23.63,92.15;22.04,92.67",
     "27.77,91.70;27.45,92.10;26.84,92.03;26.81,91.22;26.88,90.37;26.72,89.74;27.10,88.84;27.30,88.81;28.04,89.48;28.30,90.02;28.06,90.73;28.04,91.26;27.77,91.70",
     "27.88,88.12;27.45,88.04;26.81,88.17;26.41,88.06;26.40,87.23;26.63,86.02;26.73,85.25;27.23,84.68;27.36,83.30;27.93,82.00;28.42,81.06;28.79,80.09;29.73,80.48;30.18,81.11;30.42,81.53;30.12,82.33;29.46,83.34;29.32,83.90;28.84,84.23;28.64,85.01;28.20,85.82;27.97,86.95;27.88,88.12",
-    "35.49,77.84;34.65,76.87;34.50,75.76;34.75,74.24;34.32,73.75;33.44,74.10;32.76,74.45;32.27,75.26;31.69,74.41;30.98,74.42;29.98,73.45;28.96,72.82;27.91,71.78;27.99,70.62;26.94,69.51;26.49,70.17;25.72,70.28;25.22,70.84;24.36,71.04;24.36,68.84;23.69,68.18;23.94,67.44;24.66,67.15;25.43,66.37;25.24,64.53;25.22,62.91;25.08,61.50;26.24,61.87;26.76,63.32;27.22,63.23;27.38,62.76;28.26,62.73;28.70,61.77;29.30,61.37;29.83,60.87;29.32,62.55;29.47,63.55;29.34,64.15;29.56,64.35;29.47,65.05;29.89,66.35;30.74,66.38;31.30,66.94;31.30,67.68;31.58,67.79;31.71,68.56;31.62,68.93;31.90,69.32;32.50,69.26;33.11,69.69;33.36,70.32;34.02,69.93;33.99,70.88;34.35,71.16;34.73,71.12;35.15,71.61;35.65,71.50;36.07,71.26;36.51,71.85;36.72,72.92;36.84,74.07;37.02,74.58;37.13,75.16;36.67,75.90;35.90,76.19;35.49,77.84",
-    "37.36,66.52;37.36,67.08;37.14,67.83;37.02,68.14;37.34,68.86;37.15,69.20;37.61,69.52;37.59,70.12;37.74,70.27;38.14,70.38;38.49,70.81;38.26,71.35;37.95,71.24;37.91,71.54;37.07,71.45;36.74,71.84;36.95,72.19;37.05,72.64;37.50,73.26;37.42,73.95;37.42,74.98;37.13,75.16;37.02,74.58;36.84,74.07;36.72,72.92;36.51,71.85;36.07,71.26;35.65,71.50;35.15,71.61;34.73,71.12;34.35,71.16;33.99,70.88;34.02,69.93;33.36,70.32;33.11,69.69;32.50,69.26;31.90,69.32;31.62,68.93;31.71,68.56;31.58,67.79;31.30,67.68;31.30,66.94;30.74,66.38;29.89,66.35;29.47,65.05;29.56,64.35;29.34,64.15;29.47,63.55;29.32,62.55;29.83,60.87;30.74,61.78;31.38,61.70;31.55,60.94;32.18,60.86;32.98,60.54;33.53,60.96;33.68,60.53;34.40,60.80;35.65,61.21;35.27,62.23;35.40,62.98;35.86,63.19;36.01,63.98;36.31,64.55;37.11,64.75;37.31,65.59;37.66,65.75;37.39,66.22;37.36,66.52",
+    "23.94,67.44;24.66,67.15;25.43,66.37;25.24,64.53;25.22,62.91;25.08,61.50;26.24,61.87;26.76,63.32;27.22,63.23;27.38,62.76;28.26,62.73;28.70,61.77;29.30,61.37;29.83,60.87;29.32,62.55;29.47,63.55;29.34,64.15;29.56,64.35;29.47,65.05;29.89,66.35;30.74,66.38;31.30,66.94;31.30,67.68;31.58,67.79;31.71,68.56;31.62,68.93;31.90,69.32;32.50,69.26;33.11,69.69;33.36,70.32;34.02,69.93;33.99,70.88;34.35,71.16;34.73,71.12;35.15,71.61;35.65,71.50;36.07,71.26;36.51,71.85;36.71,72.86;35.85,72.74;35.85,72.74;35.85,72.74;35.85,72.74;35.85,72.74;35.85,72.74;35.85,72.74;35.84,72.74;35.84,72.74;35.34,73.14;34.85,73.44;34.15,73.34;34.15,73.34;34.15,73.34;34.15,73.34;34.15,73.34;33.25,73.54;33.25,73.54;32.45,73.84;32.45,73.84;32.44,73.84;32.44,73.84;31.69,74.40;30.98,74.41;29.98,73.44;29.98,73.44;29.98,73.44;28.97,72.82;27.92,71.77;28.00,70.62;28.00,70.62;28.00,70.62;28.00,70.61;28.00,70.61;28.00,70.61;28.00,70.61;28.00,70.61;28.00,70.61;26.95,69.51;26.95,69.51;26.95,69.51;26.95,69.51;26.94,69.51;26.94,69.50;26.94,69.50;26.94,69.50;26.94,69.50;26.94,69.50;26.94,69.50;26.94,69.50;26.94,69.51;26.94,69.51;26.94,69.51;26.93,69.51;26.93,69.51;26.93,69.51;26.93,69.51;26.49,70.16;25.72,70.27;25.72,70.27;25.72,70.27;25.72,70.27;25.72,70.27;25.72,70.27;25.72,70.28;25.71,70.28;25.21,70.84;24.37,71.03;24.37,68.84;24.37,68.84;24.37,68.84;24.37,68.84;24.37,68.84;24.37,68.84;24.37,68.84;24.37,68.84;24.37,68.84;23.70,68.17;23.70,68.17;23.70,68.17;23.70,68.17;23.70,68.17;23.70,68.17;23.94,67.44",
+    "37.36,67.08;37.14,67.83;37.02,68.14;37.34,68.86;37.15,69.20;37.61,69.52;37.59,70.12;37.74,70.27;38.14,70.38;38.49,70.81;38.26,71.35;37.95,71.24;37.91,71.54;37.07,71.45;36.74,71.84;36.95,72.19;37.05,72.64;37.50,73.26;37.42,73.95;37.42,74.98;37.16,75.14;37.07,74.58;37.07,74.58;37.07,74.58;36.89,74.07;36.76,72.88;36.76,72.88;36.76,72.88;36.76,72.88;36.76,72.88;36.76,72.87;36.76,72.87;36.76,72.87;36.76,72.87;36.76,72.87;36.75,72.87;36.75,72.87;36.75,72.87;36.75,72.87;36.71,72.86;36.51,71.85;36.07,71.26;35.65,71.50;35.15,71.61;34.73,71.12;34.35,71.16;33.99,70.88;34.02,69.93;33.36,70.32;33.11,69.69;32.50,69.26;31.90,69.32;31.62,68.93;31.71,68.56;31.58,67.79;31.30,67.68;31.30,66.94;30.74,66.38;29.89,66.35;29.47,65.05;29.56,64.35;29.34,64.15;29.47,63.55;29.32,62.55;29.83,60.87;30.74,61.78;31.38,61.70;31.55,60.94;32.18,60.86;32.98,60.54;33.53,60.96;33.68,60.53;34.40,60.80;35.65,61.21;35.27,62.23;35.40,62.98;35.86,63.19;36.01,63.98;36.31,64.55;37.11,64.75;37.31,65.59;37.66,65.75;37.39,66.22;37.36,66.52;37.36,67.08",
     "37.14,67.83;38.16,68.39;38.90,68.18;39.14,67.44;39.58,67.70;39.53,68.54;40.09,69.01;40.73,69.33;40.96,70.67;40.50,70.46;40.22,70.60;40.24,71.01;39.94,70.65;40.10,69.56;39.53,69.46;39.60,70.55;39.28,71.78;39.43,73.68;38.51,73.93;38.61,74.26;38.38,74.86;37.99,74.83;37.42,74.98;37.42,73.95;37.50,73.26;37.05,72.64;36.95,72.19;36.74,71.84;37.07,71.45;37.91,71.54;37.95,71.24;38.26,71.35;38.49,70.81;38.14,70.38;37.74,70.27;37.59,70.12;37.61,69.52;37.15,69.20;37.34,68.86;37.02,68.14;37.14,67.83",
     "42.27,70.96;42.70,71.19;42.85,71.84;42.50,73.49;43.09,73.65;43.30,74.21;42.88,75.64;42.99,76.00;42.96,77.66;42.86,79.14;42.50,79.64;42.35,80.26;42.12,80.12;41.58,78.54;41.19,78.19;41.07,76.90;40.43,76.53;40.56,75.47;40.37,74.78;39.89,73.82;39.66,73.96;39.43,73.68;39.28,71.78;39.60,70.55;39.53,69.46;40.10,69.56;39.94,70.65;40.24,71.01;40.15,71.77;40.87,73.06;41.39,71.87;41.14,71.16;41.52,70.42;42.17,71.26;42.27,70.96",
     "41.78,52.50;42.12,52.94;42.32,54.08;42.04,54.76;41.26,55.46;41.31,55.97;41.32,57.10;41.83,56.93;42.17,57.79;42.75,58.63;42.22,59.98;41.43,60.08;41.22,60.47;41.27,61.55;41.08,61.88;40.05,62.37;39.36,63.52;38.89,64.17;38.40,65.22;37.97,66.55;37.36,66.52;37.39,66.22;37.66,65.75;37.31,65.59;37.11,64.75;36.31,64.55;36.01,63.98;35.86,63.19;35.40,62.98;35.27,62.23;35.65,61.21;36.49,61.12;36.53,60.38;37.41,59.23;37.52,58.44;38.03,57.33;38.12,56.62;37.94,56.18;37.96,55.51;37.39,54.80;37.20,53.92;37.91,53.74;38.95,53.88;39.29,53.10;39.98,53.36;40.03,52.69;40.88,52.92;40.63,53.86;40.95,54.74;41.55,54.01;42.12,53.72;41.87,52.92;41.14,52.81;41.78,52.50",
@@ -3272,8 +3027,8 @@ private val WORLD_MAP_RAW_POLYGONS: Array<String> = arrayOf(
     "-40.81,147.69;-40.88,148.29;-42.06,148.36;-42.41,148.02;-43.21,147.91;-42.94,147.56;-43.63,146.87;-43.58,146.66;-43.55,146.05;-42.69,145.43;-42.03,145.30;-41.16,144.72;-40.70,144.74;-40.79,145.40;-41.14,146.36;-41.00,146.91;-40.81,147.69",
     "-32.22,126.15;-32.73,125.09;-32.96,124.22;-33.48,124.03;-33.89,123.66;-33.91,122.81;-34.00,122.18;-33.82,121.30;-33.93,120.58;-33.98,119.89;-34.51,119.30;-34.46,119.01;-34.75,118.51;-35.06,118.02;-35.03,117.30;-35.03,116.63;-34.39,115.56;-34.20,115.03;-33.62,115.05;-33.49,115.55;-33.26,115.71;-32.90,115.68;-32.21,115.80;-31.61,115.69;-30.60,115.16;-30.03,115.00;-29.46,115.04;-28.81,114.64;-28.52,114.62;-28.12,114.17;-27.33,114.05;-26.54,113.48;-26.12,113.34;-26.55,113.78;-25.62,113.44;-25.91,113.94;-26.30,114.23;-25.79,114.22;-25.00,113.72;-24.68,113.63;-24.38,113.39;-23.81,113.50;-23.56,113.71;-23.06,113.84;-22.48,113.74;-21.76,114.15;-22.52,114.23;-21.83,114.65;-21.50,115.46;-21.07,115.95;-20.70,116.71;-20.62,117.17;-20.75,117.44;-20.37,118.23;-20.26,118.84;-20.04,118.99;-19.95,119.25;-19.98,119.81;-19.68,120.86;-19.24,121.40;-18.71,121.66;-18.20,122.24;-17.80,122.29;-17.25,122.31;-16.41,123.01;-17.27,123.43;-17.07,123.86;-16.60,123.50;-16.11,123.82;-16.33,124.26;-15.57,124.38;-15.08,124.93;-14.68,125.17;-14.51,125.67;-14.23,125.69;-14.35,126.13;-14.10,126.14;-13.95,126.58;-13.82,127.07;-14.28,127.80;-14.87,128.36;-14.88,128.99;-14.97,129.62;-14.42,129.41;-13.62,129.89;-13.36,130.34;-13.11,130.18;-12.54,130.62;-12.18,131.22;-12.30,131.74;-12.11,132.58;-11.60,132.56;-11.27,131.82;-11.13,132.36;-11.38,133.02;-11.79,133.55;-12.04,134.39;-11.94,134.68;-12.25,135.30;-11.96,135.88;-12.05,136.26;-11.86,136.49;-12.35,136.95;-12.89,136.69;-13.29,136.31;-13.32,135.96;-13.72,136.08;-14.22,135.78;-14.72,135.43;-15.00,135.50;-15.55,136.30;-15.87,137.07;-16.22,137.58;-16.81,138.30;-16.81,138.59;-17.06,139.11;-17.37,139.26;-17.71,140.22;-17.37,140.88;-16.83,141.07;-16.39,141.27;-15.84,141.40;-15.04,141.70;-14.56,141.56;-14.27,141.64;-13.70,141.52;-12.94,141.65;-12.74,141.84;-12.41,141.69;-11.88,141.93;-11.33,142.12;-11.04,142.14;-10.67,142.52;-11.16,142.80;-11.78,142.87;-11.91,143.12;-12.33,143.16;-12.83,143.52;-13.40,143.60;-13.76,143.56;-14.55,143.92;-14.17,144.56;-14.59,144.89;-14.98,145.37;-15.43,145.27;-16.29,145.49;-16.78,145.64;-16.91,145.89;-17.76,146.16;-18.28,146.06;-18.96,146.39;-19.48,147.47;-19.96,148.18;-20.39,148.85;-20.63,148.72;-21.26,149.29;-22.34,149.68;-22.12,150.08;-22.56,150.48;-22.40,150.73;-23.46,150.90;-24.08,151.61;-24.46,152.07;-25.27,152.86;-26.07,153.14;-26.64,153.16;-27.26,153.09;-28.11,153.57;-29.00,153.51;-29.46,153.34;-30.35,153.07;-30.92,153.09;-31.64,152.89;-32.55,152.45;-33.04,151.71;-33.82,151.34;-34.31,151.01;-35.17,150.71;-35.67,150.33;-36.42,150.08;-37.11,149.95;-37.43,150.00;-37.77,149.42;-37.81,148.30;-38.22,147.38;-38.61,146.92;-39.04,146.32;-38.59,145.49;-38.42,144.88;-37.90,145.03;-38.09,144.49;-38.81,143.61;-38.54,142.75;-38.38,142.18;-38.31,141.61;-38.02,140.64;-37.40,139.99;-36.64,139.81;-36.14,139.57;-35.73,139.08;-35.61,138.12;-35.13,138.45;-34.38,138.21;-35.08,137.72;-35.26,136.83;-34.71,137.35;-34.13,137.50;-33.64,137.89;-32.90,137.81;-33.75,137.00;-34.09,136.37;-34.89,135.99;-34.48,135.21;-33.95,135.24;-33.22,134.61;-32.85,134.09;-32.62,134.27;-32.01,132.99;-31.98,132.29;-31.50,131.33;-31.59,129.54;-31.95,128.24;-32.28,127.10;-32.22,126.15",
     "7.52,81.79;6.48,81.64;6.20,81.22;5.97,80.35;6.76,79.87;8.20,79.70;9.82,80.15;9.27,80.84;8.56,81.30;7.52,81.79",
-    "18.20,109.48;18.51,108.66;19.37,108.63;19.82,109.12;20.10,110.21;20.08,110.79;19.70,111.01;19.26,110.57;18.68,110.34;18.20,109.48",
-    "42.35,80.26;42.92,80.18;43.18,80.87;44.92,79.97;45.32,81.95;45.54,82.46;47.33,83.18;47.00,85.16;47.45,85.72;48.46,85.77;48.55,86.60;49.21,87.36;49.30,87.75;48.60,88.01;48.07,88.85;47.69,90.28;46.89,90.97;45.72,90.59;45.29,90.95;45.12,92.13;44.98,93.48;44.35,94.69;44.24,95.31;43.32,95.76;42.73,96.35;42.75,97.45;42.52,99.52;42.66,100.85;42.51,101.83;41.91,103.31;41.91,104.52;41.60,104.96;42.13,106.13;42.48,107.74;42.52,109.24;42.87,110.41;43.41,111.13;43.74,111.83;44.07,111.67;44.46,111.35;45.10,111.87;45.01,112.44;44.81,113.46;45.34,114.46;45.73,115.99;46.39,116.72;46.67,117.42;46.81,118.87;46.69,119.66;47.05,119.77;47.75,118.87;48.07,118.06;47.70,117.30;47.85,116.31;47.73,115.74;48.14,115.49;49.13,116.19;49.89,116.68;49.51,117.88;50.14,119.29;50.58,119.28;51.64,120.18;51.96,120.74;52.52,120.73;52.75,120.18;53.25,121.00;53.43,122.25;53.46,123.57;53.16,125.07;52.79,125.95;51.78,126.56;51.35,126.94;50.74,127.29;49.76,127.66;49.44,129.40;48.73,130.58;47.79,130.99;47.79,132.51;48.18,133.37;48.48,135.03;47.58,134.50;47.21,134.11;46.12,133.77;45.14,133.10;45.32,131.88;44.97,131.03;44.11,131.29;42.93,131.14;42.90,130.63;42.40,130.64;42.99,129.99;42.42,129.60;41.99,128.05;41.47,128.21;41.50,127.34;41.82,126.87;41.11,126.18;40.57,125.08;39.93,124.27;39.64,122.87;39.17,122.13;38.90,121.05;39.36,121.59;39.75,121.38;40.42,122.17;40.95,121.64;40.59,120.77;39.90,119.64;39.25,119.02;39.20,118.04;38.74,117.53;38.06,118.06;37.90,118.88;37.45,118.91;37.16,119.70;37.87,120.82;37.48,121.71;37.45,122.36;36.93,122.52;36.65,121.10;36.11,120.64;35.61,119.66;34.91,119.15;34.36,120.23;33.38,120.62;32.46,121.23;31.69,121.91;30.95,121.89;30.68,121.26;30.14,121.50;29.83,122.09;29.02,121.94;28.23,121.68;28.14,121.13;27.05,120.40;25.74,119.59;24.55,118.66;23.62,117.28;22.78,115.89;22.67,114.76;22.22,114.15;22.55,113.81;22.05,113.24;21.55,111.84;21.40,110.79;20.34,110.44;20.28,109.89;21.01,109.63;21.40,109.86;21.72,108.52;21.55,108.05;21.81,107.04;22.22,106.57;22.79,106.73;22.98,105.81;23.35,105.33;22.82,104.48;22.70,103.50;22.71,102.71;22.46,102.17;22.32,101.65;21.17,101.80;21.20,101.27;21.44,101.18;21.85,101.15;21.56,100.42;21.74,99.98;22.12,99.24;22.95,99.53;23.14,98.90;24.06,98.66;23.90,97.60;25.08,97.72;25.92,98.67;26.74,98.71;27.51,98.68;27.75,98.25;28.34,97.91;28.26,97.33;28.41,96.25;28.83,96.59;29.45,96.12;29.03,95.40;29.28,94.57;28.64,93.41;27.90,92.50;27.77,91.70;28.04,91.26;28.06,90.73;28.30,90.02;28.04,89.48;27.30,88.81;28.09,88.73;27.88,88.12;27.97,86.95;28.20,85.82;28.64,85.01;28.84,84.23;29.32,83.90;29.46,83.34;30.12,82.33;30.42,81.53;30.18,81.11;30.88,79.72;31.52,78.74;32.62,78.46;32.48,79.18;32.99,79.21;33.51,78.81;34.32,78.91;35.49,77.84;35.90,76.19;36.67,75.90;37.13,75.16;37.42,74.98;37.99,74.83;38.38,74.86;38.61,74.26;38.51,73.93;39.43,73.68;39.66,73.96;39.89,73.82;40.37,74.78;40.56,75.47;40.43,76.53;41.07,76.90;41.19,78.19;41.58,78.54;42.12,80.12;42.35,80.26",
+    "42.92,80.18;43.18,80.87;44.92,79.97;45.32,81.95;45.54,82.46;47.33,83.18;47.00,85.16;47.45,85.72;48.46,85.77;48.55,86.60;49.21,87.36;49.30,87.75;48.60,88.01;48.07,88.85;47.69,90.28;46.89,90.97;45.72,90.59;45.29,90.95;45.12,92.13;44.98,93.48;44.35,94.69;44.24,95.31;43.32,95.76;42.73,96.35;42.75,97.45;42.52,99.52;42.66,100.85;42.51,101.83;41.91,103.31;41.91,104.52;41.60,104.96;42.13,106.13;42.48,107.74;42.52,109.24;42.87,110.41;43.41,111.13;43.74,111.83;44.07,111.67;44.46,111.35;45.10,111.87;45.01,112.44;44.81,113.46;45.34,114.46;45.73,115.99;46.39,116.72;46.67,117.42;46.81,118.87;46.69,119.66;47.05,119.77;47.75,118.87;48.07,118.06;47.70,117.30;47.85,116.31;47.73,115.74;48.14,115.49;49.13,116.19;49.89,116.68;49.51,117.88;50.14,119.29;50.58,119.28;51.64,120.18;51.96,120.74;52.52,120.73;52.75,120.18;53.25,121.00;53.43,122.25;53.46,123.57;53.16,125.07;52.79,125.95;51.78,126.56;51.35,126.94;50.74,127.29;49.76,127.66;49.44,129.40;48.73,130.58;47.79,130.99;47.79,132.51;48.18,133.37;48.48,135.03;47.58,134.50;47.21,134.11;46.12,133.77;45.14,133.10;45.32,131.88;44.97,131.03;44.11,131.29;42.93,131.14;42.90,130.63;42.40,130.64;42.99,129.99;42.42,129.60;41.99,128.05;41.47,128.21;41.50,127.34;41.82,126.87;41.11,126.18;40.57,125.08;39.93,124.27;39.64,122.87;39.17,122.13;38.90,121.05;39.36,121.59;39.75,121.38;40.42,122.17;40.95,121.64;40.59,120.77;39.90,119.64;39.25,119.02;39.20,118.04;38.74,117.53;38.06,118.06;37.90,118.88;37.45,118.91;37.16,119.70;37.87,120.82;37.48,121.71;37.45,122.36;36.93,122.52;36.65,121.10;36.11,120.64;35.61,119.66;34.91,119.15;34.36,120.23;33.38,120.62;32.46,121.23;31.69,121.91;30.95,121.89;30.68,121.26;30.14,121.50;29.83,122.09;29.02,121.94;28.23,121.68;28.14,121.13;27.05,120.40;25.74,119.59;24.55,118.66;23.62,117.28;22.78,115.89;22.67,114.76;22.22,114.15;22.55,113.81;22.05,113.24;21.55,111.84;21.40,110.79;20.34,110.44;20.28,109.89;21.01,109.63;21.40,109.86;21.72,108.52;21.55,108.05;21.81,107.04;22.22,106.57;22.79,106.73;22.98,105.81;23.35,105.33;22.82,104.48;22.70,103.50;22.71,102.71;22.46,102.17;22.32,101.65;21.17,101.80;21.20,101.27;21.44,101.18;21.85,101.15;21.56,100.42;21.74,99.98;22.12,99.24;22.95,99.53;23.14,98.90;24.06,98.66;23.90,97.60;25.08,97.72;25.92,98.67;26.74,98.71;27.51,98.68;27.75,98.25;28.34,97.91;28.26,97.34;28.26,97.34;28.26,97.34;28.27,97.34;28.27,97.34;28.27,97.34;28.27,97.33;28.27,97.33;28.27,97.33;28.27,97.33;28.27,97.33;28.27,97.33;28.27,97.33;28.27,97.33;28.27,97.33;28.42,96.27;28.82,96.59;28.83,96.59;28.83,96.60;28.83,96.60;28.83,96.60;28.83,96.60;28.83,96.60;28.83,96.60;28.83,96.60;28.83,96.60;28.83,96.60;28.84,96.60;28.84,96.60;28.84,96.59;29.46,96.13;29.46,96.13;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.11;29.46,96.11;29.46,96.11;29.04,95.40;29.29,94.57;29.29,94.57;29.29,94.57;29.29,94.57;29.29,94.56;29.29,94.56;29.29,94.56;29.29,94.56;29.29,94.56;28.65,93.41;28.65,93.41;28.65,93.41;27.91,92.50;27.78,91.70;27.78,91.69;27.78,91.69;27.78,91.69;27.78,91.69;27.78,91.69;27.78,91.69;27.78,91.69;27.78,91.69;27.78,91.69;28.04,91.26;28.06,90.73;28.30,90.02;28.04,89.48;27.31,88.82;28.09,88.74;28.09,88.74;28.09,88.74;28.09,88.74;28.09,88.74;28.09,88.74;28.09,88.74;28.09,88.74;28.09,88.74;28.10,88.74;28.10,88.73;28.10,88.73;28.10,88.73;28.10,88.73;28.10,88.73;28.10,88.73;28.10,88.73;28.10,88.73;28.10,88.73;27.89,88.12;27.89,88.12;27.89,88.12;27.88,88.11;27.88,88.11;27.88,88.11;27.88,88.11;27.88,88.11;27.88,88.11;27.88,88.11;27.88,88.11;27.88,88.11;27.88,88.11;27.97,86.95;28.20,85.82;28.64,85.01;28.84,84.23;29.32,83.90;29.46,83.34;30.12,82.33;30.42,81.53;30.19,81.12;30.19,81.12;30.19,81.12;30.19,81.12;30.19,81.12;30.19,81.12;30.19,81.12;30.89,79.73;31.51,78.77;32.48,79.21;32.48,79.21;32.48,79.21;32.48,79.21;32.99,79.26;32.99,79.26;32.99,79.26;32.99,79.26;32.99,79.26;32.99,79.26;32.99,79.26;33.00,79.26;33.00,79.26;33.51,78.86;34.31,78.96;34.54,79.90;34.54,79.90;34.54,79.90;34.54,79.91;34.54,79.91;34.54,79.91;34.54,79.91;34.54,79.91;34.54,79.91;35.34,80.39;35.35,80.39;35.35,80.39;35.35,80.39;35.35,80.39;35.35,80.39;35.35,80.39;35.35,80.39;35.35,80.39;35.35,80.39;35.35,80.39;35.36,80.39;35.36,80.39;35.96,79.96;35.96,79.96;35.96,79.96;35.96,79.96;35.96,79.96;35.96,79.95;35.96,79.95;35.96,79.95;35.96,79.95;36.06,79.25;36.06,79.25;36.06,79.25;36.06,79.25;35.96,78.42;35.96,78.42;35.96,78.42;35.96,78.42;35.96,78.41;35.96,78.41;35.53,77.84;35.96,76.23;36.70,75.93;36.70,75.93;36.71,75.93;36.71,75.93;36.71,75.93;36.71,75.93;36.71,75.93;37.17,75.19;37.17,75.18;37.17,75.18;37.17,75.18;37.17,75.18;37.17,75.18;37.17,75.18;37.17,75.18;37.16,75.14;37.42,74.98;37.99,74.83;38.38,74.86;38.61,74.26;38.51,73.93;39.43,73.68;39.66,73.96;39.89,73.82;40.37,74.78;40.56,75.47;40.43,76.53;41.07,76.90;41.19,78.19;41.58,78.54;42.12,80.12;42.35,80.26;42.92,80.18",
+    "18.51,108.66;19.37,108.63;19.82,109.12;20.10,110.21;20.08,110.79;19.70,111.01;19.26,110.57;18.68,110.34;18.20,109.48;18.51,108.66",
     "24.39,121.78;22.79,121.18;21.97,120.75;22.81,120.22;23.56,120.11;24.54,120.69;25.30,121.50;25.00,121.95;24.39,121.78",
     "46.89,10.44;46.75,11.05;46.94,11.16;47.12,12.15;46.77,12.38;46.51,13.81;46.02,13.70;45.59,13.94;45.74,13.14;45.38,12.33;44.89,12.38;44.60,12.26;44.09,12.59;43.59,13.53;42.76,14.03;41.96,15.14;41.96,15.93;41.74,16.17;41.54,15.89;41.18,16.79;40.88,17.52;40.36,18.38;40.17,18.48;39.81,18.29;40.28,17.74;40.44,16.87;39.80,16.45;39.42,17.17;38.90,17.05;38.84,16.64;37.99,16.10;37.91,15.68;38.21,15.69;38.75,15.89;38.96,16.11;39.54,15.72;40.05,15.41;40.17,15.00;40.60,14.70;40.79,14.06;41.19,13.63;41.25,12.89;41.70,12.11;42.36,11.19;42.93,10.51;43.92,10.20;44.04,9.70;44.37,8.89;44.23,8.43;43.77,7.85;43.69,7.44;44.13,7.55;44.25,7.01;45.03,6.75;45.33,7.10;45.71,6.80;45.99,6.84;45.78,7.27;45.82,7.76;46.16,8.32;46.01,8.49;46.04,8.97;46.44,9.18;46.31,9.92;46.48,10.36;46.89,10.44",
     "38.14,14.76;38.23,15.52;37.44,15.16;37.13,15.31;36.62,15.10;37.00,14.34;37.10,13.83;37.61,12.43;38.13,12.57;38.03,13.74;38.14,14.76",
