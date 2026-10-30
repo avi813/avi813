@@ -722,6 +722,18 @@ fun NTextLauncherApp(
         }.toMap()
         mutableStateOf(map)
     }
+    // Per-Widget Independent Font Style (changeable per widget in Edit Mode)
+    var widgetFonts by remember {
+        val saved = prefs.getString(
+            "widget_fonts_v1",
+            "clock:dot,week_strip:dot,retro_calendar:dot,year_matrix:dot,retro_flip_clock:dot,analog_chrono:dot,precision_chrono:dot,torch:dot,storage:dot,quote:dot,scratchpad:dot,zen:dot"
+        ) ?: ""
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
+        }.toMap()
+        mutableStateOf(map)
+    }
     var torchEnabled by remember { mutableStateOf(false) }
     var zenActive by remember { mutableStateOf(false) }
     var zenSeconds by remember { mutableStateOf(1500) }
@@ -956,6 +968,14 @@ fun NTextLauncherApp(
         prefs.edit().putString("widget_sizes_v7", serialized).apply()
     }
 
+    fun saveWidgetFont(widgetId: String, wFontId: String) {
+        val newMap = widgetFonts.toMutableMap()
+        newMap[widgetId] = wFontId
+        widgetFonts = newMap.toMap()
+        val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
+        prefs.edit().putString("widget_fonts_v1", serialized).apply()
+    }
+
     fun cycleWidgetSize(widgetId: String) {
         val current = widgetSizes[widgetId] ?: "standard"
         val next = if (
@@ -1174,21 +1194,14 @@ fun NTextLauncherApp(
         }
 
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(
-                    if (hideAndroidBar) {
-                        WindowInsets.displayCutout.only(WindowInsetsSides.Top)
-                    } else {
-                        WindowInsets.statusBars
-                    }
-                )
-                .windowInsetsPadding(WindowInsets.navigationBars)
+            modifier = Modifier.fillMaxSize()
         ) {
             if (editMode && currentView == LauncherView.HOME_AND_DRAWER && drawerProgress.value < 0.2f) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
                         .padding(horizontal = 20.dp, vertical = 8.dp)
                         .border(1.dp, Color(0xFF404040), RoundedCornerShape(8.dp))
                         .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
@@ -1197,16 +1210,16 @@ fun NTextLauncherApp(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "EDIT MODE: TAP [×] TO REMOVE WIDGETS",
+                        text = "EDIT MODE: CUSTOMIZE SIZE, FONT & ORDER",
                         color = accentColor,
                         fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = selectedFont
                     )
                     Text(
                         text = "DONE",
                         color = Color.Black,
                         fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = selectedFont,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier
                             .background(Color.White, RoundedCornerShape(4.dp))
@@ -1289,6 +1302,7 @@ fun NTextLauncherApp(
                             HomeScreenView(
                                 activeWidgets = activeWidgets,
                                 widgetSizes = widgetSizes,
+                                widgetFonts = widgetFonts,
                                 editMode = editMode,
                                 currentTimeMillis = currentTimeMillis,
                                 currentHourStr = currentHourStr,
@@ -1324,6 +1338,8 @@ fun NTextLauncherApp(
                                     if (!zenActive) zenSeconds = 1500
                                 },
                                 onCycleWidgetSize = { id -> cycleWidgetSize(id) },
+                                onSetWidgetSize = { id, sz -> saveWidgetSize(id, sz) },
+                                onSetWidgetFont = { id, fId -> saveWidgetFont(id, fId) },
                                 onMoveWidget = { id, dir -> moveWidget(id, dir) },
                                 onRemoveWidget = { id ->
                                     saveWidgetList(activeWidgets.filter { it != id })
@@ -1353,7 +1369,7 @@ fun NTextLauncherApp(
                         ) {
                             AppDrawerView(
                                 apps = installedApps,
-                                lomoFontFamily = lomoFontFamily,
+                                lomoFontFamily = selectedFont,
                                 selectedFont = selectedFont,
                                 uppercaseHome = prebuiltFont.uppercaseHome,
                                 drawerTextSizeSp = drawerTextSizeSp,
@@ -1396,7 +1412,7 @@ fun NTextLauncherApp(
                             activeWidgets = activeWidgets,
                             widgetSizes = widgetSizes,
                             accentColor = accentColor,
-                            lomoFontFamily = lomoFontFamily,
+                            lomoFontFamily = selectedFont,
                             use24Hour = use24Hour,
                             quickNote = quickNote,
                             globeTheme = globeTheme,
@@ -1449,6 +1465,7 @@ fun NTextLauncherApp(
                             settingsBgMode = settingsBgMode,
                             settingsBgIntensity = settingsBgIntensity,
                             lomoFontFamily = lomoFontFamily,
+                            launcherFont = selectedFont,
                             onChangeFont = {
                                 fontId = it
                                 prefs.edit().putString("font_id", it).apply()
@@ -1604,8 +1621,19 @@ fun NTextLauncherApp(
                             text = "Actions",
                             color = Color.White,
                             fontSize = 16.sp,
-                            fontFamily = lomoFontFamily,
+                            fontFamily = selectedFont,
                             fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "DONE",
+                            color = Color.Black,
+                            fontSize = 10.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .background(Color.White, RoundedCornerShape(6.dp))
+                                .clickable { showHomeQuickMenu = false }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
 
@@ -1621,7 +1649,7 @@ fun NTextLauncherApp(
                         label = "Widget Manager",
                         badge = "WIDGETS",
                         accentColor = accentColor,
-                        lomoFontFamily = lomoFontFamily,
+                        lomoFontFamily = selectedFont,
                         onClick = {
                             showHomeQuickMenu = false
                             currentView = LauncherView.WIDGETS
@@ -1633,7 +1661,7 @@ fun NTextLauncherApp(
                         label = if (editMode) "Exit Edit Mode" else "Edit Mode",
                         badge = "EDIT",
                         accentColor = accentColor,
-                        lomoFontFamily = lomoFontFamily,
+                        lomoFontFamily = selectedFont,
                         onClick = {
                             showHomeQuickMenu = false
                             editMode = !editMode
@@ -1645,7 +1673,7 @@ fun NTextLauncherApp(
                         label = "Launcher Settings",
                         badge = "LAUNCHER",
                         accentColor = accentColor,
-                        lomoFontFamily = lomoFontFamily,
+                        lomoFontFamily = selectedFont,
                         onClick = {
                             showHomeQuickMenu = false
                             currentView = LauncherView.SETTINGS
@@ -1657,7 +1685,7 @@ fun NTextLauncherApp(
                         label = "Phone Settings",
                         badge = "SYSTEM",
                         accentColor = accentColor,
-                        lomoFontFamily = lomoFontFamily,
+                        lomoFontFamily = selectedFont,
                         onClick = {
                             showHomeQuickMenu = false
                             try {
@@ -1723,12 +1751,12 @@ fun NTextLauncherApp(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                             Text(
                                 text = targetApp.label,
                                 color = Color.White,
                                 fontSize = 18.sp,
-                                fontFamily = lomoFontFamily,
+                                fontFamily = selectedFont,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -1737,12 +1765,22 @@ fun NTextLauncherApp(
                                 text = targetApp.packageName,
                                 color = Color(0xFF737373),
                                 fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = selectedFont,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-
+                        Text(
+                            text = "DONE",
+                            color = Color.Black,
+                            fontSize = 10.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .background(Color.White, RoundedCornerShape(6.dp))
+                                .clickable { contextMenuTarget = null }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
                     }
 
                     Box(
@@ -1783,13 +1821,13 @@ fun NTextLauncherApp(
                             text = pinActionLabel,
                             color = Color.White,
                             fontSize = 14.sp,
-                            fontFamily = lomoFontFamily
+                            fontFamily = selectedFont
                         )
                         Text(
                             text = pinActionSymbol,
                             color = accentColor,
                             fontSize = 16.sp,
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = selectedFont
                         )
                     }
 
@@ -1812,13 +1850,13 @@ fun NTextLauncherApp(
                             text = "App Info",
                             color = Color.White,
                             fontSize = 14.sp,
-                            fontFamily = lomoFontFamily
+                            fontFamily = selectedFont
                         )
                         Text(
                             text = "INFO ↗",
                             color = Color(0xFF8A8A8A),
                             fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = selectedFont
                         )
                     }
 
@@ -1842,13 +1880,13 @@ fun NTextLauncherApp(
                                 text = "Uninstall App",
                                 color = Color(0xFFF87171),
                                 fontSize = 14.sp,
-                                fontFamily = lomoFontFamily
+                                fontFamily = selectedFont
                             )
                             Text(
                                 text = "DEL ×",
                                 color = Color(0xFFF87171),
                                 fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace
+                                fontFamily = selectedFont
                             )
                         }
                     }
@@ -1886,7 +1924,7 @@ fun QuickMenuButton(
             text = badge,
             color = accentColor,
             fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace
+            fontFamily = lomoFontFamily
         )
     }
 }
@@ -1899,6 +1937,7 @@ fun QuickMenuButton(
 fun HomeScreenView(
     activeWidgets: List<String>,
     widgetSizes: Map<String, String>,
+    widgetFonts: Map<String, String>,
     editMode: Boolean,
     currentTimeMillis: Long,
     currentHourStr: String,
@@ -1931,6 +1970,8 @@ fun HomeScreenView(
     onToggleTorch: () -> Unit,
     onToggleZen: () -> Unit,
     onCycleWidgetSize: (String) -> Unit,
+    onSetWidgetSize: (String, String) -> Unit,
+    onSetWidgetFont: (String, String) -> Unit,
     onMoveWidget: (String, Int) -> Unit,
     onRemoveWidget: (String) -> Unit,
     onLaunchApp: (String) -> Unit,
@@ -1956,13 +1997,20 @@ fun HomeScreenView(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+            .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(horizontal = 24.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // 1. MODULAR OLED WIDGETS STACK (Relocatable, Resizable: Compact/Standard/Large, Removable)
+        // 1. MODULAR OLED WIDGETS STACK (Each widget has its own independent Size & Font Style in Edit Mode!)
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             activeWidgets.forEach { widgetId ->
                 val sizeMode = widgetSizes[widgetId] ?: "standard"
+                val wFontId = widgetFonts[widgetId] ?: "dot"
+                val wFontFamily = remember(wFontId, lomoFontFamily) {
+                    PrebuiltFont.fromId(wFontId).resolveFontFamily(lomoFontFamily)
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1998,19 +2046,19 @@ fun HomeScreenView(
                                                     text = "$currentHourStr:$currentMinStr $currentAmPmStr".trim(),
                                                     color = Color.White,
                                                     fontSize = 24.sp,
-                                                    fontFamily = lomoFontFamily
+                                                    fontFamily = wFontFamily
                                                 )
                                                 Text(
                                                     text = "·",
                                                     color = accentColor,
                                                     fontSize = 12.sp,
-                                                    fontFamily = FontFamily.Monospace
+                                                    fontFamily = wFontFamily
                                                 )
                                                 Text(
                                                     text = "$currentDateStr · $batteryPct%",
                                                     color = Color(0xFFA3A3A3),
                                                     fontSize = 11.sp,
-                                                    fontFamily = FontFamily.Monospace
+                                                    fontFamily = wFontFamily
                                                 )
                                             }
                                         }
@@ -2048,19 +2096,19 @@ fun HomeScreenView(
                                                     text = currentHourStr,
                                                     color = Color.White,
                                                     fontSize = digitSp,
-                                                    fontFamily = lomoFontFamily
+                                                    fontFamily = wFontFamily
                                                 )
                                                 Text(
                                                     text = ":",
                                                     color = accentColor.copy(alpha = colonAlpha),
                                                     fontSize = digitSp,
-                                                    fontFamily = lomoFontFamily
+                                                    fontFamily = wFontFamily
                                                 )
                                                 Text(
                                                     text = currentMinStr,
                                                     color = Color.White,
                                                     fontSize = digitSp,
-                                                    fontFamily = lomoFontFamily
+                                                    fontFamily = wFontFamily
                                                 )
                                                 if (currentAmPmStr.isNotEmpty()) {
                                                     Spacer(modifier = Modifier.width(6.dp))
@@ -2068,7 +2116,7 @@ fun HomeScreenView(
                                                         text = currentAmPmStr,
                                                         color = Color(0xFF737373),
                                                         fontSize = amPmSp,
-                                                        fontFamily = FontFamily.Monospace,
+                                                        fontFamily = wFontFamily,
                                                         modifier = Modifier.padding(bottom = amPmBottomPad)
                                                     )
                                                 }
@@ -2082,7 +2130,7 @@ fun HomeScreenView(
                                                     text = currentDateStr,
                                                     color = Color(0xFFA3A3A3),
                                                     fontSize = metaSp,
-                                                    fontFamily = FontFamily.Monospace,
+                                                    fontFamily = wFontFamily,
                                                     letterSpacing = 1.2.sp
                                                 )
                                                 if (nextAlarmStr.isNotBlank()) {
@@ -2090,14 +2138,14 @@ fun HomeScreenView(
                                                         text = "·",
                                                         color = accentColor,
                                                         fontSize = metaSp,
-                                                        fontFamily = FontFamily.Monospace,
+                                                        fontFamily = wFontFamily,
                                                         fontWeight = FontWeight.Bold
                                                     )
                                                     Text(
                                                         text = nextAlarmStr,
                                                         color = Color(0xFF737373),
                                                         fontSize = metaSp,
-                                                        fontFamily = FontFamily.Monospace,
+                                                        fontFamily = wFontFamily,
                                                         letterSpacing = 1.2.sp
                                                     )
                                                 }
@@ -2119,7 +2167,7 @@ fun HomeScreenView(
                                                     text = "$batteryPct%",
                                                     color = Color(0xFFD4D4D4),
                                                     fontSize = metaSp,
-                                                    fontFamily = FontFamily.Monospace,
+                                                    fontFamily = wFontFamily,
                                                     letterSpacing = 0.8.sp
                                                 )
                                                 Box(
@@ -2141,7 +2189,7 @@ fun HomeScreenView(
                                                         text = "⚡",
                                                         color = accentColor,
                                                         fontSize = metaSp,
-                                                        fontFamily = FontFamily.Monospace
+                                                        fontFamily = wFontFamily
                                                     )
                                                 }
                                             }
@@ -2155,19 +2203,19 @@ fun HomeScreenView(
                                                     text = currentHourStr,
                                                     color = Color.White,
                                                     fontSize = 42.sp,
-                                                    fontFamily = lomoFontFamily
+                                                    fontFamily = wFontFamily
                                                 )
                                                 Text(
                                                     text = ":",
                                                     color = accentColor.copy(alpha = colonAlpha),
                                                     fontSize = 42.sp,
-                                                    fontFamily = lomoFontFamily
+                                                    fontFamily = wFontFamily
                                                 )
                                                 Text(
                                                     text = currentMinStr,
                                                     color = Color.White,
                                                     fontSize = 42.sp,
-                                                    fontFamily = lomoFontFamily
+                                                    fontFamily = wFontFamily
                                                 )
                                                 if (currentAmPmStr.isNotEmpty()) {
                                                     Spacer(modifier = Modifier.width(6.dp))
@@ -2175,7 +2223,7 @@ fun HomeScreenView(
                                                         text = currentAmPmStr,
                                                         color = Color(0xFF737373),
                                                         fontSize = 11.sp,
-                                                        fontFamily = FontFamily.Monospace,
+                                                        fontFamily = wFontFamily,
                                                         modifier = Modifier.padding(bottom = 5.dp)
                                                     )
                                                 }
@@ -2189,7 +2237,7 @@ fun HomeScreenView(
                                                     text = currentDateStr,
                                                     color = Color(0xFFA3A3A3),
                                                     fontSize = 10.sp,
-                                                    fontFamily = FontFamily.Monospace,
+                                                    fontFamily = wFontFamily,
                                                     letterSpacing = 1.2.sp
                                                 )
                                                 if (nextAlarmStr.isNotBlank()) {
@@ -2197,14 +2245,14 @@ fun HomeScreenView(
                                                         text = "·",
                                                         color = accentColor,
                                                         fontSize = 10.sp,
-                                                        fontFamily = FontFamily.Monospace,
+                                                        fontFamily = wFontFamily,
                                                         fontWeight = FontWeight.Bold
                                                     )
                                                     Text(
                                                         text = nextAlarmStr,
                                                         color = Color(0xFF737373),
                                                         fontSize = 10.sp,
-                                                        fontFamily = FontFamily.Monospace,
+                                                        fontFamily = wFontFamily,
                                                         letterSpacing = 1.2.sp
                                                     )
                                                 }
@@ -2226,7 +2274,7 @@ fun HomeScreenView(
                                                     text = "$batteryPct%",
                                                     color = Color(0xFFD4D4D4),
                                                     fontSize = 10.sp,
-                                                    fontFamily = FontFamily.Monospace,
+                                                    fontFamily = wFontFamily,
                                                     letterSpacing = 0.8.sp
                                                 )
                                                 Box(
@@ -2248,7 +2296,7 @@ fun HomeScreenView(
                                                         text = "⚡",
                                                         color = accentColor,
                                                         fontSize = 9.sp,
-                                                        fontFamily = FontFamily.Monospace
+                                                        fontFamily = wFontFamily
                                                     )
                                                 }
                                             }
@@ -2265,7 +2313,7 @@ fun HomeScreenView(
                                     dateStr = currentDateStr,
                                     sizeMode = sizeMode,
                                     accentColor = accentColor,
-                                    lomoFontFamily = lomoFontFamily,
+                                    lomoFontFamily = wFontFamily,
                                     onOpenClockApp = onOpenClockApp
                                 )
                             }
@@ -2279,7 +2327,7 @@ fun HomeScreenView(
                                     dateStr = currentDateStr,
                                     sizeMode = sizeMode,
                                     accentColor = accentColor,
-                                    lomoFontFamily = lomoFontFamily,
+                                    lomoFontFamily = wFontFamily,
                                     onOpenClockApp = onOpenClockApp
                                 )
                             }
@@ -2287,7 +2335,7 @@ fun HomeScreenView(
                                 PrecisionChronographWidget(
                                     sizeMode = sizeMode,
                                     accentColor = accentColor,
-                                    lomoFontFamily = lomoFontFamily,
+                                    lomoFontFamily = wFontFamily,
                                     onTick = onWaveTick
                                 )
                             }
@@ -2296,7 +2344,7 @@ fun HomeScreenView(
                                     currentTimeMillis = currentTimeMillis,
                                     sizeMode = sizeMode,
                                     accentColor = accentColor,
-                                    lomoFontFamily = lomoFontFamily
+                                    lomoFontFamily = wFontFamily
                                 )
                             }
                             "week_strip" -> {
@@ -2304,7 +2352,7 @@ fun HomeScreenView(
                                     currentTimeMillis = currentTimeMillis,
                                     sizeMode = sizeMode,
                                     accentColor = accentColor,
-                                    lomoFontFamily = lomoFontFamily
+                                    lomoFontFamily = wFontFamily
                                 )
                             }
                             "year_matrix" -> {
@@ -2312,7 +2360,7 @@ fun HomeScreenView(
                                     currentTimeMillis = currentTimeMillis,
                                     sizeMode = sizeMode,
                                     accentColor = accentColor,
-                                    lomoFontFamily = lomoFontFamily
+                                    lomoFontFamily = wFontFamily
                                 )
                             }
                             "torch" -> {
@@ -2344,7 +2392,7 @@ fun HomeScreenView(
                                             text = "TORCH",
                                             color = Color.White,
                                             fontSize = if (sizeMode == "large") 12.sp else 11.sp,
-                                            fontFamily = FontFamily.Monospace,
+                                            fontFamily = wFontFamily,
                                             fontWeight = FontWeight.Medium
                                         )
                                     }
@@ -2352,7 +2400,7 @@ fun HomeScreenView(
                                         text = if (torchEnabled) "ON" else "OFF",
                                         color = if (torchEnabled) accentColor else Color(0xFF737373),
                                         fontSize = 10.sp,
-                                        fontFamily = FontFamily.Monospace,
+                                        fontFamily = wFontFamily,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -2381,13 +2429,13 @@ fun HomeScreenView(
                                             text = ramStatusText,
                                             color = Color.White,
                                             fontSize = if (sizeMode == "large") 11.sp else 10.sp,
-                                            fontFamily = FontFamily.Monospace
+                                            fontFamily = wFontFamily
                                         )
                                         Text(
                                             text = storageStatusText,
                                             color = Color(0xFFA3A3A3),
                                             fontSize = if (sizeMode == "large") 11.sp else 10.sp,
-                                            fontFamily = FontFamily.Monospace
+                                            fontFamily = wFontFamily
                                         )
                                     }
                                     if (sizeMode != "compact") {
@@ -2445,7 +2493,7 @@ fun HomeScreenView(
                                         text = "“Simplify, then add lightness.”",
                                         color = Color.White,
                                         fontSize = if (sizeMode == "large") 13.sp else 11.sp,
-                                        fontFamily = lomoFontFamily,
+                                        fontFamily = wFontFamily,
                                         lineHeight = 15.sp
                                     )
                                 }
@@ -2473,14 +2521,14 @@ fun HomeScreenView(
                                         text = "$mm:$ss",
                                         color = Color.White,
                                         fontSize = if (sizeMode == "large") 15.sp else 12.sp,
-                                        fontFamily = lomoFontFamily,
+                                        fontFamily = wFontFamily,
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
                                         text = if (zenActive) "STOP" else "START",
                                         color = accentColor,
                                         fontSize = 10.sp,
-                                        fontFamily = FontFamily.Monospace,
+                                        fontFamily = wFontFamily,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.clickable { onToggleZen() }
                                     )
@@ -2505,7 +2553,7 @@ fun HomeScreenView(
                                         text = "> $quickNote",
                                         color = Color(0xFFD4D4D4),
                                         fontSize = if (sizeMode == "large") 13.sp else 11.sp,
-                                        fontFamily = FontFamily.Monospace
+                                        fontFamily = wFontFamily
                                     )
                                 }
                             }
@@ -2532,62 +2580,156 @@ fun HomeScreenView(
                             }
                         }
 
-                        // Edit Mode Controls for Relocating, Resizing & Removing Widgets
+                        // Edit Mode Controls: Direct S/M/L/XL/MAX Size Selection + Per-Widget Font Style Selector + Order/Remove
                         if (editMode) {
-                            Row(
+                            val sizeChoices = when (widgetId) {
+                                "clock", "retro_flip_clock", "analog_chrono", "precision_chrono", "globe" -> listOf(
+                                    "compact" to "S",
+                                    "standard" to "M",
+                                    "large" to "L",
+                                    "xlarge" to "XL",
+                                    "max" to "MAX"
+                                )
+                                else -> listOf(
+                                    "compact" to "S",
+                                    "standard" to "M",
+                                    "large" to "L"
+                                )
+                            }
+                            val widgetFontChoices = listOf(
+                                "dot" to "PIXEL",
+                                "ndot" to "CAPS",
+                                "mono" to "MONO",
+                                "spacemono" to "TECH",
+                                "sans" to "SANS",
+                                "editorial" to "SERIF"
+                            )
+
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 6.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                    .padding(top = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    val idx = activeWidgets.indexOf(widgetId)
-                                    if (idx > 0) {
-                                        Text(
-                                            text = "↑ UP",
-                                            color = Color(0xFFA3A3A3),
-                                            fontSize = 10.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            modifier = Modifier
-                                                .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
-                                                .clickable { onMoveWidget(widgetId, -1) }
-                                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
+                                // Row 1: Reorder (↑ / ↓) + Direct Size Pills (S, M, L, XL, MAX) + Remove (×)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        val idx = activeWidgets.indexOf(widgetId)
+                                        if (idx > 0) {
+                                            Text(
+                                                text = "↑",
+                                                color = Color(0xFFD4D4D4),
+                                                fontSize = 10.sp,
+                                                fontFamily = selectedFont,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier
+                                                    .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
+                                                    .background(Color(0xFF141414), RoundedCornerShape(4.dp))
+                                                    .clickable { onMoveWidget(widgetId, -1) }
+                                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                        if (idx < activeWidgets.lastIndex) {
+                                            Text(
+                                                text = "↓",
+                                                color = Color(0xFFD4D4D4),
+                                                fontSize = 10.sp,
+                                                fontFamily = selectedFont,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier
+                                                    .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
+                                                    .background(Color(0xFF141414), RoundedCornerShape(4.dp))
+                                                    .clickable { onMoveWidget(widgetId, 1) }
+                                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                        // Direct S, M, L, XL, MAX Size Selector Pills
+                                        sizeChoices.forEach { (szId, szLbl) ->
+                                            val isSz = sizeMode == szId
+                                            Text(
+                                                text = szLbl,
+                                                color = if (isSz) Color.Black else Color.White,
+                                                fontSize = 9.sp,
+                                                fontFamily = selectedFont,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier
+                                                    .border(
+                                                        1.dp,
+                                                        if (isSz) accentColor else Color(0xFF2E2E2E),
+                                                        RoundedCornerShape(4.dp)
+                                                    )
+                                                    .background(
+                                                        if (isSz) accentColor else Color(0xFF151515),
+                                                        RoundedCornerShape(4.dp)
+                                                    )
+                                                    .clickable { onSetWidgetSize(widgetId, szId) }
+                                                    .padding(horizontal = 6.dp, vertical = 3.dp)
+                                            )
+                                        }
                                     }
-                                    if (idx < activeWidgets.lastIndex) {
-                                        Text(
-                                            text = "↓ DOWN",
-                                            color = Color(0xFFA3A3A3),
-                                            fontSize = 10.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            modifier = Modifier
-                                                .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
-                                                .clickable { onMoveWidget(widgetId, 1) }
-                                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
+
                                     Text(
-                                        text = "SIZE: ${sizeMode.uppercase()}",
-                                        color = accentColor,
-                                        fontSize = 10.sp,
-                                        fontFamily = FontFamily.Monospace,
+                                        text = "×",
+                                        color = Color(0xFFEF4444),
+                                        fontSize = 11.sp,
+                                        fontFamily = selectedFont,
+                                        fontWeight = FontWeight.Bold,
                                         modifier = Modifier
-                                            .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                                            .clickable { onCycleWidgetSize(widgetId) }
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                            .background(Color(0xFF1A0808), RoundedCornerShape(4.dp))
+                                            .clickable { onRemoveWidget(widgetId) }
+                                            .padding(horizontal = 7.dp, vertical = 2.dp)
                                     )
                                 }
-                                Text(
-                                    text = "× REMOVE",
-                                    color = Color(0xFFEF4444),
-                                    fontSize = 10.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    modifier = Modifier
-                                        .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                                        .clickable { onRemoveWidget(widgetId) }
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
+
+                                // Row 2: Per-Widget Font Style Selector (for all widgets with text)
+                                if (widgetId != "globe") {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "FONT",
+                                            color = Color(0xFF8A8A8A),
+                                            fontSize = 8.sp,
+                                            fontFamily = selectedFont,
+                                            modifier = Modifier.padding(end = 2.dp)
+                                        )
+                                        widgetFontChoices.forEach { (fId, fLbl) ->
+                                            val isF = wFontId == fId
+                                            val previewFamily = PrebuiltFont.fromId(fId).resolveFontFamily(lomoFontFamily)
+                                            Text(
+                                                text = fLbl,
+                                                color = if (isF) Color.Black else Color(0xFFD4D4D4),
+                                                fontSize = 8.sp,
+                                                fontFamily = previewFamily,
+                                                fontWeight = if (isF) FontWeight.Bold else FontWeight.Normal,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .border(
+                                                        1.dp,
+                                                        if (isF) Color.White else Color(0xFF282828),
+                                                        RoundedCornerShape(4.dp)
+                                                    )
+                                                    .background(
+                                                        if (isF) Color.White else Color(0xFF121212),
+                                                        RoundedCornerShape(4.dp)
+                                                    )
+                                                    .clickable { onSetWidgetFont(widgetId, fId) }
+                                                    .padding(vertical = 3.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -3948,7 +4090,10 @@ fun AppDrawerView(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.97f))
+            .background(Color.Black.copy(alpha = 0.98f))
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+            .windowInsetsPadding(WindowInsets.navigationBars)
             .nestedScroll(drawerNestedScroll)
             .padding(horizontal = 20.dp, vertical = 10.dp)
     ) {
@@ -3966,7 +4111,7 @@ fun AppDrawerView(
                     text = "/ ",
                     color = accentColor,
                     fontSize = 13.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold
                 )
                 BasicTextField(
@@ -3976,7 +4121,7 @@ fun AppDrawerView(
                     textStyle = TextStyle(
                         color = Color.White,
                         fontSize = 13.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = lomoFontFamily
                     ),
                     cursorBrush = SolidColor(accentColor),
                     enabled = isDrawerOpenNow,
@@ -3990,7 +4135,7 @@ fun AppDrawerView(
                                 text = "Search apps...",
                                 color = Color(0xFF525252),
                                 fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace
+                                fontFamily = lomoFontFamily
                             )
                         }
                         inner()
@@ -4001,7 +4146,7 @@ fun AppDrawerView(
                         text = "×",
                         color = Color(0xFF8A8A8A),
                         fontSize = 15.sp,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = lomoFontFamily,
                         modifier = Modifier
                             .clickable {
                                 query = ""
@@ -4055,7 +4200,7 @@ fun AppDrawerView(
                                         text = app.firstLetter.toString(),
                                         color = accentColor,
                                         fontSize = headerFontSp,
-                                        fontFamily = FontFamily.Monospace,
+                                        fontFamily = lomoFontFamily,
                                         fontWeight = FontWeight.SemiBold
                                     )
                                     Spacer(modifier = Modifier.height(3.dp))
@@ -4102,7 +4247,7 @@ fun AppDrawerView(
                                             text = "★",
                                             color = accentColor,
                                             fontSize = starFontSp,
-                                            fontFamily = FontFamily.Monospace
+                                            fontFamily = lomoFontFamily
                                         )
                                     }
                                 }
@@ -4262,7 +4407,7 @@ private fun AlphabetScrubberRail(
                     text = ch.toString(),
                     color = if (isCurrent) accentColor else if (animLetterFactor > 0.4f) Color.White else Color(0xFF555555),
                     fontSize = if (isCurrent) 12.sp else 9.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = lomoFontFamily,
                     fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
                     modifier = Modifier
                         .graphicsLayer {
@@ -4374,6 +4519,9 @@ fun WidgetsManagerView(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+            .windowInsetsPadding(WindowInsets.navigationBars)
             .pointerInput(Unit) {
                 var totalDy = 0f
                 detectVerticalDragGestures(
@@ -4401,17 +4549,17 @@ fun WidgetsManagerView(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "100% offline widgets · Resize & customize (reorder in Edit Mode)",
+                    text = "100% offline widgets · Add/remove & configure (resize, font & order in Edit Mode)",
                     color = Color(0xFF737373),
                     fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = lomoFontFamily
                 )
             }
             Text(
                 text = "DONE",
                 color = Color.Black,
                 fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .background(Color.White, RoundedCornerShape(6.dp))
@@ -4446,7 +4594,7 @@ fun WidgetsManagerView(
                             text = title,
                             color = if (enabled) Color.White else Color(0xFF737373),
                             fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = lomoFontFamily,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.weight(1f)
                         )
@@ -4454,7 +4602,7 @@ fun WidgetsManagerView(
                             text = if (enabled) "ACTIVE [×]" else "+ ADD",
                             color = if (enabled) accentColor else Color(0xFF8A8A8A),
                             fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = lomoFontFamily,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier
                                 .border(
@@ -4471,49 +4619,6 @@ fun WidgetsManagerView(
                     }
 
                     if (enabled) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        val sizeChoices = when (id) {
-                            "clock", "retro_flip_clock", "analog_chrono", "precision_chrono", "globe" -> listOf(
-                                "compact" to "S",
-                                "standard" to "M",
-                                "large" to "L",
-                                "xlarge" to "XL",
-                                "max" to "MAX"
-                            )
-                            else -> listOf(
-                                "compact" to "S",
-                                "standard" to "M",
-                                "large" to "L"
-                            )
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "WIDGET SCALE",
-                                color = Color(0xFF8A8A8A),
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                sizeChoices.forEach { (szId, szLbl) ->
-                                    val isSz = currentSize == szId
-                                    Text(
-                                        text = szLbl,
-                                        color = if (isSz) Color.Black else Color.White,
-                                        fontSize = 9.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .background(if (isSz) accentColor else Color(0xFF191919), RoundedCornerShape(4.dp))
-                                            .clickable { onSetWidgetSize(id, szId) }
-                                            .padding(horizontal = 7.dp, vertical = 3.dp)
-                                    )
-                                }
-                            }
-                        }
 
                         if (id == "clock" || id == "retro_flip_clock" || id == "analog_chrono") {
                             Spacer(modifier = Modifier.height(10.dp))
@@ -4526,7 +4631,7 @@ fun WidgetsManagerView(
                                     text = "CLOCK FORMAT",
                                     color = Color(0xFF8A8A8A),
                                     fontSize = 9.sp,
-                                    fontFamily = FontFamily.Monospace
+                                    fontFamily = lomoFontFamily
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     listOf(false to "12H", true to "24H").forEach { (is24, lbl) ->
@@ -4535,7 +4640,7 @@ fun WidgetsManagerView(
                                             text = lbl,
                                             color = if (sel) Color.Black else Color.White,
                                             fontSize = 9.sp,
-                                            fontFamily = FontFamily.Monospace,
+                                            fontFamily = lomoFontFamily,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier
                                                 .background(if (sel) Color.White else Color(0xFF191919), RoundedCornerShape(4.dp))
@@ -4553,7 +4658,7 @@ fun WidgetsManagerView(
                                 text = "VISUAL THEME",
                                 color = Color(0xFF8A8A8A),
                                 fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace
+                                fontFamily = lomoFontFamily
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -4566,7 +4671,7 @@ fun WidgetsManagerView(
                                         text = tLabel,
                                         color = if (isSel) Color.Black else Color.White,
                                         fontSize = 9.sp,
-                                        fontFamily = FontFamily.Monospace,
+                                        fontFamily = lomoFontFamily,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier
                                             .background(if (isSel) Color.White else Color(0xFF191919), RoundedCornerShape(4.dp))
@@ -4582,7 +4687,7 @@ fun WidgetsManagerView(
                                     text = "PHOSPHOR / VECTOR COLOR",
                                     color = Color(0xFF8A8A8A),
                                     fontSize = 9.sp,
-                                    fontFamily = FontFamily.Monospace
+                                    fontFamily = lomoFontFamily
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Row(
@@ -4630,7 +4735,7 @@ fun WidgetsManagerView(
                                                 text = name,
                                                 color = if (selected) Color.White else Color(0xFF737373),
                                                 fontSize = 8.sp,
-                                                fontFamily = FontFamily.Monospace
+                                                fontFamily = lomoFontFamily
                                             )
                                         }
                                     }
@@ -4647,7 +4752,7 @@ fun WidgetsManagerView(
                                 textStyle = TextStyle(
                                     color = Color.White,
                                     fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace
+                                    fontFamily = lomoFontFamily
                                 ),
                                 cursorBrush = SolidColor(accentColor),
                                 modifier = Modifier
@@ -4693,6 +4798,7 @@ fun LauncherSettingsView(
     settingsBgMode: String,
     settingsBgIntensity: Int,
     lomoFontFamily: FontFamily,
+    launcherFont: FontFamily,
     onChangeFont: (String) -> Unit,
     onChangeAlign: (String) -> Unit,
     onChangeAccent: (String) -> Unit,
@@ -4791,6 +4897,9 @@ fun LauncherSettingsView(
         modifier = Modifier
             .fillMaxSize()
             .background(settingsRootBgColor)
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+            .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
@@ -4805,14 +4914,14 @@ fun LauncherSettingsView(
                     text = "LAUNCHER SETTINGS",
                     color = Color.White,
                     fontSize = 16.sp,
-                    fontFamily = lomoFontFamily,
+                    fontFamily = launcherFont,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = "DONE",
                     color = Color.Black,
                     fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = launcherFont,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
                         .background(Color.White, RoundedCornerShape(6.dp))
@@ -4830,21 +4939,21 @@ fun LauncherSettingsView(
                 badge = if (hideAndroidBar) "IMMERSIVE" else "STANDARD",
                 expanded = expandedSystem,
                 accentColor = accentColor,
-                lomoFontFamily = lomoFontFamily,
+                lomoFontFamily = launcherFont,
                 onToggle = { expandedSystem = !expandedSystem }
             ) {
                 SettingCard(
                     title = "Default Home Launcher",
                     subtitle = "Set N-TEXT as your primary Android 14 Home App",
                     actionLabel = "CHOOSE HOME",
-                    lomoFontFamily = lomoFontFamily,
+                    lomoFontFamily = launcherFont,
                     onClick = onRequestDefaultHomeRole
                 )
                 SettingCard(
                     title = "Hide Android Status Bar",
                     subtitle = "Swipe down on Home Screen anytime to view notifications",
                     actionLabel = if (hideAndroidBar) "HIDDEN (ON)" else "SHOWN (OFF)",
-                    lomoFontFamily = lomoFontFamily,
+                    lomoFontFamily = launcherFont,
                     onClick = onToggleAndroidBar
                 )
 
@@ -4853,6 +4962,7 @@ fun LauncherSettingsView(
                     settingsBgMode = settingsBgMode,
                     settingsBgIntensity = settingsBgIntensity,
                     accentColor = accentColor,
+                    lomoFontFamily = launcherFont,
                     onChangeMode = onChangeSettingsBgMode,
                     onChangeIntensity = onChangeSettingsBgIntensity
                 )
@@ -4868,7 +4978,7 @@ fun LauncherSettingsView(
                 badge = "${textSizeSp}SP · ${textAlignMode.uppercase(Locale.US)}",
                 expanded = expandedTypography,
                 accentColor = accentColor,
-                lomoFontFamily = lomoFontFamily,
+                lomoFontFamily = launcherFont,
                 onToggle = { expandedTypography = !expandedTypography }
             ) {
                 Column(
@@ -4883,7 +4993,7 @@ fun LauncherSettingsView(
                         text = "TYPEFACE ($activeFontName)",
                         color = Color(0xFF8A8A8A),
                         fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = launcherFont
                     )
                     PrebuiltFont.values().forEach { f ->
                         val selected = fontId == f.id
@@ -4914,7 +5024,7 @@ fun LauncherSettingsView(
                                 text = if (selected) "●" else "○",
                                 color = if (selected) accentColor else Color(0xFF525252),
                                 fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace
+                                fontFamily = launcherFont
                             )
                         }
                     }
@@ -4933,7 +5043,7 @@ fun LauncherSettingsView(
                         text = "HOME SCREEN APP FONT SIZE (${textSizeSp} SP)",
                         color = Color(0xFF8A8A8A),
                         fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = launcherFont
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -4945,7 +5055,7 @@ fun LauncherSettingsView(
                                 text = "${spVal}SP",
                                 color = if (sel) Color.Black else Color.White,
                                 fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier
@@ -4962,7 +5072,7 @@ fun LauncherSettingsView(
                     title = "Clock Time Format",
                     subtitle = "Switch between 12-Hour (AM/PM) and 24-Hour time (tapping Clock opens Clock app)",
                     actionLabel = if (use24Hour) "24-HOUR" else "12-HOUR",
-                    lomoFontFamily = lomoFontFamily,
+                    lomoFontFamily = launcherFont,
                     onClick = onToggle24h
                 )
 
@@ -4970,7 +5080,7 @@ fun LauncherSettingsView(
                     title = "Home Text Alignment",
                     subtitle = "Left, Center, or Right aligned apps",
                     actionLabel = textAlignMode.uppercase(Locale.US),
-                    lomoFontFamily = lomoFontFamily,
+                    lomoFontFamily = launcherFont,
                     onClick = {
                         val next = when (textAlignMode) {
                             "left" -> "center"
@@ -4996,7 +5106,7 @@ fun LauncherSettingsView(
                 badge = "DIM ${wallpaperDimPercent}%",
                 expanded = expandedWallpaper,
                 accentColor = accentColor,
-                lomoFontFamily = lomoFontFamily,
+                lomoFontFamily = launcherFont,
                 onToggle = { expandedWallpaper = !expandedWallpaper }
             ) {
                 // 0. UNIVERSAL WALLPAPER DIMMER (Works on Live, Static & User/Third-Party Wallpapers)
@@ -5013,6 +5123,7 @@ fun LauncherSettingsView(
                         valueText = "${wallpaperDimPercent}%",
                         fraction = (wallpaperDimPercent / 90f).coerceIn(0f, 1f),
                         accentColor = accentColor,
+                        lomoFontFamily = launcherFont,
                         onFractionChange = { frac ->
                             val nextDim = (frac * 90f).roundToInt().coerceIn(0, 90)
                             if (nextDim != wallpaperDimPercent) {
@@ -5030,7 +5141,7 @@ fun LauncherSettingsView(
                                 text = "${dimVal}%",
                                 color = if (sel) Color.Black else Color(0xFFD4D4D4),
                                 fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier
@@ -5050,7 +5161,7 @@ fun LauncherSettingsView(
                     badge = if (wallpaperPreset.startsWith("live_")) "ACTIVE" else "${liveWallpaperOptions.size} STYLES",
                     expanded = expandedLiveWallpapers,
                     accentColor = accentColor,
-                    lomoFontFamily = lomoFontFamily,
+                    lomoFontFamily = launcherFont,
                     onToggle = { expandedLiveWallpapers = !expandedLiveWallpapers }
                 ) {
                     liveWallpaperOptions.chunked(2).forEach { rowItems ->
@@ -5084,7 +5195,7 @@ fun LauncherSettingsView(
                                             text = title,
                                             color = if (active) Color.White else Color(0xFFD4D4D4),
                                             fontSize = 10.sp,
-                                            fontFamily = FontFamily.Monospace,
+                                            fontFamily = launcherFont,
                                             fontWeight = FontWeight.Bold
                                         )
                                         Box(
@@ -5101,7 +5212,7 @@ fun LauncherSettingsView(
                                         text = desc,
                                         color = Color(0xFF737373),
                                         fontSize = 8.sp,
-                                        fontFamily = FontFamily.Monospace
+                                        fontFamily = launcherFont
                                     )
                                 }
                             }
@@ -5127,14 +5238,14 @@ fun LauncherSettingsView(
                                 text = "LIVE WALLPAPER TUNING VARIABLES",
                                 color = accentColor,
                                 fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
                                 text = "RESET [1.0x]",
                                 color = Color(0xFFA3A3A3),
                                 fontSize = 8.sp,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier
                                     .border(1.dp, Color(0xFF2E2E2E), RoundedCornerShape(4.dp))
@@ -5149,6 +5260,7 @@ fun LauncherSettingsView(
                             currentValue = wpSpeed,
                             options = listOf(0.25f to "0.25x", 0.5f to "0.5x", 1.0f to "1.0x", 1.5f to "1.5x", 2.2f to "2.2x"),
                             accentColor = accentColor,
+                            lomoFontFamily = launcherFont,
                             onSelect = onChangeWpSpeed
                         )
 
@@ -5157,6 +5269,7 @@ fun LauncherSettingsView(
                             currentValue = wpDensity,
                             options = listOf(0.5f to "0.5x", 0.75f to "0.75x", 1.0f to "1.0x", 1.35f to "1.35x", 1.75f to "1.75x"),
                             accentColor = accentColor,
+                            lomoFontFamily = launcherFont,
                             onSelect = onChangeWpDensity
                         )
 
@@ -5165,6 +5278,7 @@ fun LauncherSettingsView(
                             currentValue = wpOpacity,
                             options = listOf(0.4f to "40%", 0.7f to "70%", 1.0f to "100%", 1.35f to "135%", 1.75f to "175%"),
                             accentColor = accentColor,
+                            lomoFontFamily = launcherFont,
                             onSelect = onChangeWpOpacity
                         )
 
@@ -5173,6 +5287,7 @@ fun LauncherSettingsView(
                             currentValue = wpScale,
                             options = listOf(0.65f to "0.65x", 0.85f to "0.85x", 1.0f to "1.0x", 1.25f to "1.25x", 1.5f to "1.5x"),
                             accentColor = accentColor,
+                            lomoFontFamily = launcherFont,
                             onSelect = onChangeWpScale
                         )
                     }
@@ -5185,7 +5300,7 @@ fun LauncherSettingsView(
                     badge = if (!wallpaperPreset.startsWith("live_") && wallpaperPreset != "system_wallpaper" && wallpaperPreset != "user_image") "ACTIVE" else "${staticWallpaperOptions.size} STYLES",
                     expanded = expandedStaticWallpapers,
                     accentColor = accentColor,
-                    lomoFontFamily = lomoFontFamily,
+                    lomoFontFamily = launcherFont,
                     onToggle = { expandedStaticWallpapers = !expandedStaticWallpapers }
                 ) {
                     staticWallpaperOptions.chunked(2).forEach { rowItems ->
@@ -5219,7 +5334,7 @@ fun LauncherSettingsView(
                                             text = title,
                                             color = if (active) Color.White else Color(0xFFD4D4D4),
                                             fontSize = 10.sp,
-                                            fontFamily = FontFamily.Monospace,
+                                            fontFamily = launcherFont,
                                             fontWeight = FontWeight.Bold
                                         )
                                         if (active) {
@@ -5235,7 +5350,7 @@ fun LauncherSettingsView(
                                         text = desc,
                                         color = Color(0xFF737373),
                                         fontSize = 8.sp,
-                                        fontFamily = FontFamily.Monospace
+                                        fontFamily = launcherFont
                                     )
                                 }
                             }
@@ -5250,7 +5365,7 @@ fun LauncherSettingsView(
                     badge = if (wallpaperPreset == "system_wallpaper" || wallpaperPreset == "user_image") "ACTIVE" else "CUSTOM",
                     expanded = expandedUserWallpapers,
                     accentColor = accentColor,
-                    lomoFontFamily = lomoFontFamily,
+                    lomoFontFamily = launcherFont,
                     onToggle = { expandedUserWallpapers = !expandedUserWallpapers }
                 ) {
                     SettingCard(
@@ -5263,7 +5378,7 @@ fun LauncherSettingsView(
                             "Choose any image from your phone to use as a full-screen wallpaper"
                         },
                         actionLabel = if (wallpaperPreset == "user_image") "CHANGE PHOTO" else "PICK PHOTO",
-                        lomoFontFamily = lomoFontFamily,
+                        lomoFontFamily = launcherFont,
                         onClick = onPickCustomWallpaperImage
                     )
 
@@ -5272,7 +5387,7 @@ fun LauncherSettingsView(
                             title = "Activate Saved Custom Photo",
                             subtitle = "Switch back to your previously imported custom wallpaper",
                             actionLabel = "USE SAVED",
-                            lomoFontFamily = lomoFontFamily,
+                            lomoFontFamily = launcherFont,
                             onClick = { onChangeWallpaperPreset("user_image") }
                         )
                     }
@@ -5281,7 +5396,7 @@ fun LauncherSettingsView(
                         title = "System / Third-Party Wallpaper Picker",
                         subtitle = "Pick a wallpaper from Android or any 3rd-party wallpaper app",
                         actionLabel = "OPEN PICKER",
-                        lomoFontFamily = lomoFontFamily,
+                        lomoFontFamily = launcherFont,
                         onClick = onOpenSystemWallpaperPicker
                     )
 
@@ -5289,7 +5404,7 @@ fun LauncherSettingsView(
                         title = "Use Active System / Third-Party Wallpaper",
                         subtitle = "Display your current system wallpaper behind the launcher with ${wallpaperDimPercent}% dimmer",
                         actionLabel = if (wallpaperPreset == "system_wallpaper") "ACTIVE (ON)" else "ENABLE",
-                        lomoFontFamily = lomoFontFamily,
+                        lomoFontFamily = launcherFont,
                         onClick = { onChangeWallpaperPreset("system_wallpaper") }
                     )
                 }
@@ -5312,13 +5427,13 @@ fun LauncherSettingsView(
                             text = "LAUNCHER ACCENT COLOR (10 PALETTES)",
                             color = Color(0xFF8A8A8A),
                             fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = launcherFont
                         )
                         Text(
                             text = accentHex,
                             color = accentColor,
                             fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = launcherFont,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -5357,7 +5472,7 @@ fun LauncherSettingsView(
                                         text = label,
                                         color = if (isSel) Color.White else Color(0xFF8A8A8A),
                                         fontSize = 8.sp,
-                                        fontFamily = FontFamily.Monospace,
+                                        fontFamily = launcherFont,
                                         fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
                                     )
                                 }
@@ -5381,7 +5496,7 @@ fun LauncherSettingsView(
                 badge = "${drawerTextSizeSp}SP · ${wavePct}%",
                 expanded = expandedMotion,
                 accentColor = accentColor,
-                lomoFontFamily = lomoFontFamily,
+                lomoFontFamily = launcherFont,
                 onToggle = { expandedMotion = !expandedMotion }
             ) {
                 // 1. App Drawer App Name Scale (Shifted here from Typography & Layout)
@@ -5398,6 +5513,7 @@ fun LauncherSettingsView(
                         valueText = "${drawerTextSizeSp} SP",
                         fraction = ((drawerTextSizeSp - 12f) / 14f).coerceIn(0f, 1f),
                         accentColor = accentColor,
+                        lomoFontFamily = launcherFont,
                         onFractionChange = { frac ->
                             val nextSp = (12f + frac * 14f).roundToInt().coerceIn(12, 26)
                             if (nextSp != drawerTextSizeSp) {
@@ -5415,7 +5531,7 @@ fun LauncherSettingsView(
                                 text = "${spVal}",
                                 color = if (sel) Color.Black else Color.White,
                                 fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier
@@ -5442,6 +5558,7 @@ fun LauncherSettingsView(
                         valueText = "${wavePct}%",
                         fraction = (drawerWaveIntensity / 2.0f).coerceIn(0f, 1f),
                         accentColor = accentColor,
+                        lomoFontFamily = launcherFont,
                         onFractionChange = { frac ->
                             val nextVal = ((frac * 200f).roundToInt() / 100f).coerceIn(0f, 2.0f)
                             onChangeDrawerWaveIntensity(nextVal)
@@ -5457,7 +5574,7 @@ fun LauncherSettingsView(
                                 text = wLbl,
                                 color = if (sel) Color.Black else Color.White,
                                 fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier
@@ -5515,7 +5632,7 @@ fun CollapsibleSubSection(
                     text = subtitle,
                     color = Color(0xFF737373),
                     fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = lomoFontFamily
                 )
             }
             Row(
@@ -5526,7 +5643,7 @@ fun CollapsibleSubSection(
                     text = badge,
                     color = if (badge == "ACTIVE") Color.Black else Color(0xFFA3A3A3),
                     fontSize = 8.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
                         .background(
@@ -5539,7 +5656,7 @@ fun CollapsibleSubSection(
                     text = if (expanded) "▾" else "▸",
                     color = if (expanded) accentColor else Color(0xFF737373),
                     fontSize = 13.sp,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = lomoFontFamily
                 )
             }
         }
@@ -5573,6 +5690,7 @@ fun MinimalistSliderRow(
     valueText: String,
     fraction: Float,
     accentColor: Color,
+    lomoFontFamily: FontFamily = FontFamily.Monospace,
     onFractionChange: (Float) -> Unit
 ) {
     val currentOnChange by rememberUpdatedState(onFractionChange)
@@ -5588,14 +5706,14 @@ fun MinimalistSliderRow(
                 text = label,
                 color = Color(0xFF9E9E9E),
                 fontSize = 9.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold
             )
             Text(
                 text = valueText,
                 color = accentColor,
                 fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -5661,6 +5779,7 @@ fun SettingsBackdropControlCard(
     settingsBgMode: String,
     settingsBgIntensity: Int,
     accentColor: Color,
+    lomoFontFamily: FontFamily = FontFamily.Monospace,
     onChangeMode: (String) -> Unit,
     onChangeIntensity: (Int) -> Unit
 ) {
@@ -5681,14 +5800,14 @@ fun SettingsBackdropControlCard(
                 text = "SETTINGS MENU BACKGROUND STYLE",
                 color = Color(0xFF9E9E9E),
                 fontSize = 9.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold
             )
             Text(
                 text = settingsBgMode.uppercase(Locale.US),
                 color = accentColor,
                 fontSize = 9.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -5707,7 +5826,7 @@ fun SettingsBackdropControlCard(
                     text = modeLabel,
                     color = if (selected) Color.Black else Color.White,
                     fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
@@ -5738,6 +5857,7 @@ fun SettingsBackdropControlCard(
             valueText = "${settingsBgIntensity}%",
             fraction = (settingsBgIntensity / 100f).coerceIn(0f, 1f),
             accentColor = accentColor,
+            lomoFontFamily = lomoFontFamily,
             onFractionChange = { frac ->
                 val nextVal = (frac * 100f).roundToInt().coerceIn(0, 100)
                 if (nextVal != settingsBgIntensity) {
@@ -5756,7 +5876,7 @@ fun SettingsBackdropControlCard(
                     text = "${pctVal}%",
                     color = if (sel) Color.Black else Color(0xFFD4D4D4),
                     fontSize = 8.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
@@ -5809,7 +5929,7 @@ fun CollapsibleSettingsSection(
                     text = indexTag,
                     color = accentColor,
                     fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
                         .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(4.dp))
@@ -5827,7 +5947,7 @@ fun CollapsibleSettingsSection(
                         text = subtitle,
                         color = Color(0xFF737373),
                         fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = lomoFontFamily
                     )
                 }
             }
@@ -5839,7 +5959,7 @@ fun CollapsibleSettingsSection(
                     text = badge,
                     color = Color(0xFFA3A3A3),
                     fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = lomoFontFamily,
                     modifier = Modifier
                         .background(Color(0xFF171717), RoundedCornerShape(4.dp))
                         .padding(horizontal = 6.dp, vertical = 3.dp)
@@ -5848,7 +5968,7 @@ fun CollapsibleSettingsSection(
                     text = if (expanded) "▾" else "▸",
                     color = if (expanded) accentColor else Color(0xFF737373),
                     fontSize = 14.sp,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = lomoFontFamily
                 )
             }
         }
@@ -5896,13 +6016,13 @@ fun SettingCard(
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
             Text(text = title, color = Color.White, fontSize = 13.sp, fontFamily = lomoFontFamily)
-            Text(text = subtitle, color = Color(0xFF737373), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+            Text(text = subtitle, color = Color(0xFF737373), fontSize = 10.sp, fontFamily = lomoFontFamily)
         }
         Text(
             text = actionLabel,
             color = Color.Black,
             fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = lomoFontFamily,
             fontWeight = FontWeight.Bold,
             modifier = Modifier
                 .background(Color.White, RoundedCornerShape(6.dp))
@@ -5920,6 +6040,7 @@ fun WallpaperTuningRow(
     currentValue: Float,
     options: List<Pair<Float, String>>,
     accentColor: Color,
+    lomoFontFamily: FontFamily = FontFamily.Monospace,
     onSelect: (Float) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -5932,14 +6053,14 @@ fun WallpaperTuningRow(
                 text = label,
                 color = Color(0xFF9E9E9E),
                 fontSize = 8.sp,
-                fontFamily = FontFamily.Monospace
+                fontFamily = lomoFontFamily
             )
             val activeLabel = options.minByOrNull { abs(it.first - currentValue) }?.second ?: "${currentValue}x"
             Text(
                 text = activeLabel,
                 color = accentColor,
                 fontSize = 8.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -5953,7 +6074,7 @@ fun WallpaperTuningRow(
                     text = textLabel,
                     color = if (selected) Color.Black else Color(0xFFD4D4D4),
                     fontSize = 8.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = lomoFontFamily,
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
@@ -7301,7 +7422,7 @@ fun RetroSplitFlapClockWidget(
                     text = dateStr,
                     color = Color(0xFF8A8A8A),
                     fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = lomoFontFamily
                 )
             }
         }
@@ -7355,7 +7476,7 @@ private fun SplitFlapMechanicalTile(
                 text = subLabel,
                 color = Color(0xFF737373),
                 fontSize = 7.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = lomoFontFamily,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 5.dp, bottom = 2.dp)
@@ -7543,7 +7664,7 @@ fun RetroAnalogChronoWidget(
                         text = amPmStr,
                         color = accentColor,
                         fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = lomoFontFamily,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(bottom = 2.dp)
                     )
@@ -7553,7 +7674,7 @@ fun RetroAnalogChronoWidget(
                 text = dateStr,
                 color = Color(0xFF8A8A8A),
                 fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace
+                fontFamily = lomoFontFamily
             )
         }
     }
@@ -7759,7 +7880,7 @@ fun PrecisionChronographWidget(
                     text = String.format(Locale.US, "LAP %02d:%02d.%02d", lm, ls, lc),
                     color = Color(0xFF737373),
                     fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = lomoFontFamily
                 )
             }
 
@@ -7768,7 +7889,7 @@ fun PrecisionChronographWidget(
                     text = if (running) "PAUSE" else "START",
                     color = if (running) Color.Black else Color.White,
                     fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
                         .background(
@@ -7797,7 +7918,7 @@ fun PrecisionChronographWidget(
                     text = if (running) "LAP" else "RESET",
                     color = Color(0xFFA3A3A3),
                     fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
                         .border(1.dp, Color(0xFF282828), RoundedCornerShape(5.dp))
@@ -7875,7 +7996,7 @@ fun RetroDotMatrixCalendarWidget(
                 text = "${todayDay.toString().padStart(2, '0')} / $daysInMonth",
                 color = accentColor,
                 fontSize = 9.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -7888,7 +8009,7 @@ fun RetroDotMatrixCalendarWidget(
                     text = dName,
                     color = if (idx >= 5) accentColor.copy(alpha = 0.85f) else Color(0xFF737373),
                     fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.weight(1f)
@@ -7940,7 +8061,7 @@ fun RetroDotMatrixCalendarWidget(
                                     else -> Color.White
                                 },
                                 fontSize = if (sizeMode == "large") 11.sp else 10.sp,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = lomoFontFamily,
                                 fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal
                             )
                         }
@@ -8022,7 +8143,7 @@ fun RetroWeekTimelineStripWidget(
                         text = dayLbl,
                         color = if (isToday) accentColor else Color(0xFF737373),
                         fontSize = 8.sp,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = lomoFontFamily,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
@@ -8048,7 +8169,7 @@ fun RetroWeekTimelineStripWidget(
                 text = shortMonth,
                 color = Color(0xFF8A8A8A),
                 fontSize = 8.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold
             )
 
@@ -8086,7 +8207,7 @@ fun RetroWeekTimelineStripWidget(
                 text = "${todayDayOfMonth.toString().padStart(2, '0')}/$daysInMonth",
                 color = accentColor,
                 fontSize = 8.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -8140,7 +8261,7 @@ fun RetroYearDotMatrixWidget(
                 text = "$dayOfYear / $totalDaysInYear",
                 color = accentColor,
                 fontSize = 9.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold
             )
         }
