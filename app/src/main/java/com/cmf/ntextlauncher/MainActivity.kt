@@ -297,22 +297,57 @@ private fun resolveLauncherAccentColor(hex: String): Color = when (hex.uppercase
     else -> Color(0xFFFF3B00)
 }
 
-enum class PrebuiltFont(val id: String, val displayName: String, val uppercaseHome: Boolean) {
-    LOMO_PIXEL("dot", "Lomo Web Pixel (Default · 1px Thin)", false),
-    LOMO_CAPS("ndot", "Lomo Web Pixel (Uppercase)", true),
-    TECH_MONO("mono", "JetBrains Tech Mono", false),
-    SPACE_MONO("spacemono", "Space Mono Industrial", false),
-    CLEAN_SANS("sans", "Clean Geometric Sans", false),
-    EDITORIAL("editorial", "Minimal Editorial Serif", false);
+enum class PrebuiltFont(
+    val id: String,
+    val shortLabel: String,
+    val displayName: String,
+    val uppercaseHome: Boolean
+) {
+    LOMO_PIXEL("dot", "PIXEL", "Lomo Web Pixel (Default · 1px Thin)", false),
+    LOMO_CAPS("ndot", "CAPS", "Lomo Web Pixel (Uppercase)", true),
+    TECH_MONO("mono", "MONO", "JetBrains Tech Mono", false),
+    SPACE_MONO("spacemono", "TECH", "Space Mono Industrial Bold", false),
+    CLEAN_SANS("sans", "SANS", "Clean Geometric Sans", false),
+    EDITORIAL("editorial", "SERIF", "Minimal Editorial Serif", false),
+    CONDENSED_SANS("condensed", "COND", "Cyber Condensed Sans", false),
+    CONDENSED_BOLD("cond_bold", "CND-B", "Industrial Condensed Caps", true),
+    ULTRA_THIN("thin", "THIN", "Ultra-Thin Hairline Sans", false),
+    LIGHT_SANS("light", "LIGHT", "Swiss Light Minimal", false),
+    SMALL_CAPS("smallcaps", "SCAPS", "Architectural Small Caps", false),
+    HEAVY_BLACK("black", "HEAVY", "Brutalist Heavy Black", false),
+    SLAB_MONO("serif_mono", "TYPE", "Typewriter Slab Mono", false),
+    SCRIPT_CURSIVE("cursive", "SCRPT", "Minimalist Script Cursive", false);
 
     fun resolveFontFamily(lomoFamily: FontFamily): FontFamily = when (this) {
         LOMO_PIXEL, LOMO_CAPS -> lomoFamily
-        TECH_MONO, SPACE_MONO -> FontFamily.Monospace
+        TECH_MONO -> FontFamily.Monospace
+        SPACE_MONO -> resolveSystemTypeface("monospace", Typeface.BOLD)
         CLEAN_SANS -> FontFamily.SansSerif
         EDITORIAL -> FontFamily.Serif
+        CONDENSED_SANS -> resolveSystemTypeface("sans-serif-condensed", Typeface.NORMAL)
+        CONDENSED_BOLD -> resolveSystemTypeface("sans-serif-condensed", Typeface.BOLD)
+        ULTRA_THIN -> resolveSystemTypeface("sans-serif-thin", Typeface.NORMAL)
+        LIGHT_SANS -> resolveSystemTypeface("sans-serif-light", Typeface.NORMAL)
+        SMALL_CAPS -> resolveSystemTypeface("sans-serif-smallcaps", Typeface.NORMAL)
+        HEAVY_BLACK -> resolveSystemTypeface("sans-serif-black", Typeface.NORMAL)
+        SLAB_MONO -> resolveSystemTypeface("serif-monospace", Typeface.NORMAL)
+        SCRIPT_CURSIVE -> resolveSystemTypeface("cursive", Typeface.NORMAL)
     }
 
     companion object {
+        private val systemTypefaceCache = mutableMapOf<String, FontFamily>()
+
+        private fun resolveSystemTypeface(familyName: String, style: Int): FontFamily {
+            val key = "$familyName:$style"
+            return systemTypefaceCache.getOrPut(key) {
+                try {
+                    FontFamily(Typeface.create(familyName, style))
+                } catch (_: Exception) {
+                    FontFamily.SansSerif
+                }
+            }
+        }
+
         fun fromId(id: String): PrebuiltFont = values().find { it.id == id } ?: LOMO_PIXEL
     }
 }
@@ -1202,7 +1237,7 @@ fun NTextLauncherApp(
                         .fillMaxWidth()
                         .windowInsetsPadding(WindowInsets.statusBars)
                         .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
-                        .padding(horizontal = 20.dp, vertical = 8.dp)
+                        .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 2.dp)
                         .border(1.dp, Color(0xFF404040), RoundedCornerShape(8.dp))
                         .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
                         .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -1258,7 +1293,8 @@ fun NTextLauncherApp(
                                         }
                                     )
                                 }
-                                .pointerInput(screenHeightPx) {
+                                .pointerInput(screenHeightPx, editMode) {
+                                    if (editMode) return@pointerInput
                                     var totalDy = 0f
                                     var notifTriggered = false
                                     val velocityTracker = VelocityTracker()
@@ -1994,17 +2030,43 @@ fun HomeScreenView(
         label = "colonAlpha"
     )
 
+    val homeEditScrollState = rememberScrollState()
+    val homeWidgetsScrollState = rememberScrollState()
+    var expandedFontWidgetIds by remember { mutableStateOf(setOf<String>()) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(horizontal = 24.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.SpaceBetween
+            .then(
+                if (editMode) {
+                    // Edit Mode banner above already consumes statusBars & displayCutout top insets;
+                    // use a clean 8.dp top spacing so there is no wide gap below the Edit Mode header,
+                    // and enable smooth vertical scrolling across all widgets & pinned apps!
+                    Modifier
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .verticalScroll(homeEditScrollState)
+                        .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 28.dp)
+                } else {
+                    Modifier
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(horizontal = 24.dp, vertical = 18.dp)
+                }
+            ),
+        verticalArrangement = if (editMode) Arrangement.Top else Arrangement.SpaceBetween
     ) {
-        // 1. MODULAR OLED WIDGETS STACK (Each widget has its own independent Size & Font Style in Edit Mode!)
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // 1. MODULAR OLED WIDGETS STACK (Scrollable when overflowing; in Edit Mode the entire page scrolls + top control bar per widget)
+        Column(
+            modifier = if (editMode) {
+                Modifier.fillMaxWidth()
+            } else {
+                Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(homeWidgetsScrollState)
+            },
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             activeWidgets.forEach { widgetId ->
                 val sizeMode = widgetSizes[widgetId] ?: "standard"
                 val wFontId = widgetFonts[widgetId] ?: "dot"
@@ -2024,6 +2086,225 @@ fun HomeScreenView(
                         )
                 ) {
                     Column {
+                        // Top-Anchored Edit Mode Controls: Always accessible at the top of each widget card
+                        // so increasing a widget's size (S -> M -> L -> XL -> MAX) never pushes its controls off-screen!
+                        if (editMode) {
+                            val sizeChoices = when (widgetId) {
+                                "clock", "retro_flip_clock", "analog_chrono", "precision_chrono", "globe" -> listOf(
+                                    "compact" to "S",
+                                    "standard" to "M",
+                                    "large" to "L",
+                                    "xlarge" to "XL",
+                                    "max" to "MAX"
+                                )
+                                else -> listOf(
+                                    "compact" to "S",
+                                    "standard" to "M",
+                                    "large" to "L"
+                                )
+                            }
+                            val allWidgetFonts = remember { PrebuiltFont.values().toList() }
+                            val activeWidgetFont = remember(wFontId) { PrebuiltFont.fromId(wFontId) }
+                            val isWidgetFontMenuExpanded = expandedFontWidgetIds.contains(widgetId)
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                // Row 1: Reorder (↑ / ↓) + Direct Size Pills (S, M, L, XL, MAX) + Remove (×)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        val idx = activeWidgets.indexOf(widgetId)
+                                        if (idx > 0) {
+                                            Text(
+                                                text = "↑",
+                                                color = Color(0xFFD4D4D4),
+                                                fontSize = 10.sp,
+                                                fontFamily = selectedFont,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier
+                                                    .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
+                                                    .background(Color(0xFF141414), RoundedCornerShape(4.dp))
+                                                    .clickable { onMoveWidget(widgetId, -1) }
+                                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                        if (idx < activeWidgets.lastIndex) {
+                                            Text(
+                                                text = "↓",
+                                                color = Color(0xFFD4D4D4),
+                                                fontSize = 10.sp,
+                                                fontFamily = selectedFont,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier
+                                                    .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
+                                                    .background(Color(0xFF141414), RoundedCornerShape(4.dp))
+                                                    .clickable { onMoveWidget(widgetId, 1) }
+                                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                        // Direct S, M, L, XL, MAX Size Selector Pills
+                                        sizeChoices.forEach { (szId, szLbl) ->
+                                            val isSz = sizeMode == szId
+                                            Text(
+                                                text = szLbl,
+                                                color = if (isSz) Color.Black else Color.White,
+                                                fontSize = 9.sp,
+                                                fontFamily = selectedFont,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier
+                                                    .border(
+                                                        1.dp,
+                                                        if (isSz) accentColor else Color(0xFF2E2E2E),
+                                                        RoundedCornerShape(4.dp)
+                                                    )
+                                                    .background(
+                                                        if (isSz) accentColor else Color(0xFF151515),
+                                                        RoundedCornerShape(4.dp)
+                                                    )
+                                                    .clickable { onSetWidgetSize(widgetId, szId) }
+                                                    .padding(horizontal = 6.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Text(
+                                        text = "×",
+                                        color = Color(0xFFEF4444),
+                                        fontSize = 11.sp,
+                                        fontFamily = selectedFont,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                            .background(Color(0xFF1A0808), RoundedCornerShape(4.dp))
+                                            .clickable { onRemoveWidget(widgetId) }
+                                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                                    )
+                                }
+
+                                // Row 2: Collapsible Per-Widget Font Style Menu (14 Fonts for all widgets with text)
+                                if (widgetId != "globe") {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .border(
+                                                    1.dp,
+                                                    if (isWidgetFontMenuExpanded) accentColor.copy(alpha = 0.6f) else Color(0xFF282828),
+                                                    RoundedCornerShape(5.dp)
+                                                )
+                                                .background(Color(0xFF111111), RoundedCornerShape(5.dp))
+                                                .clickable {
+                                                    expandedFontWidgetIds = if (isWidgetFontMenuExpanded) {
+                                                        expandedFontWidgetIds - widgetId
+                                                    } else {
+                                                        expandedFontWidgetIds + widgetId
+                                                    }
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "FONT",
+                                                    color = Color(0xFF8A8A8A),
+                                                    fontSize = 8.sp,
+                                                    fontFamily = selectedFont
+                                                )
+                                                Text(
+                                                    text = activeWidgetFont.shortLabel + " · " + activeWidgetFont.displayName.substringBefore(" ("),
+                                                    color = Color.White,
+                                                    fontSize = 9.sp,
+                                                    fontFamily = wFontFamily,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                            Text(
+                                                text = if (isWidgetFontMenuExpanded) "HIDE ▲" else "${allWidgetFonts.size} FONTS ▼",
+                                                color = accentColor,
+                                                fontSize = 8.sp,
+                                                fontFamily = selectedFont,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        AnimatedVisibility(
+                                            visible = isWidgetFontMenuExpanded,
+                                            enter = expandVertically() + fadeIn(),
+                                            exit = shrinkVertically() + fadeOut()
+                                        ) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(top = 2.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                allWidgetFonts.chunked(5).forEach { rowFonts ->
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        rowFonts.forEach { f ->
+                                                            val isF = wFontId == f.id
+                                                            val previewFamily = f.resolveFontFamily(lomoFontFamily)
+                                                            Text(
+                                                                text = f.shortLabel,
+                                                                color = if (isF) Color.Black else Color(0xFFD4D4D4),
+                                                                fontSize = 8.sp,
+                                                                fontFamily = previewFamily,
+                                                                fontWeight = if (isF) FontWeight.Bold else FontWeight.Normal,
+                                                                textAlign = TextAlign.Center,
+                                                                modifier = Modifier
+                                                                    .weight(1f)
+                                                                    .border(
+                                                                        1.dp,
+                                                                        if (isF) Color.White else Color(0xFF282828),
+                                                                        RoundedCornerShape(4.dp)
+                                                                    )
+                                                                    .background(
+                                                                        if (isF) Color.White else Color(0xFF121212),
+                                                                        RoundedCornerShape(4.dp)
+                                                                    )
+                                                                    .clickable { onSetWidgetFont(widgetId, f.id) }
+                                                                    .padding(vertical = 4.dp)
+                                                            )
+                                                        }
+                                                        repeat(5 - rowFonts.size) {
+                                                            Spacer(modifier = Modifier.weight(1f))
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(1.dp)
+                                        .background(Color(0xFF1F1F1F))
+                                )
+                            }
+                        }
+
                         when (widgetId) {
                             "clock" -> {
                                 val horizontalAlign = when (textAlign) {
@@ -2574,161 +2855,9 @@ fun HomeScreenView(
                                     RetroFuturisticGlobeView(
                                         globeTheme = globeTheme,
                                         globeWireframeColor = globeWireframeColor,
+                                        interactive = !editMode,
                                         onTick = onWaveTick
                                     )
-                                }
-                            }
-                        }
-
-                        // Edit Mode Controls: Direct S/M/L/XL/MAX Size Selection + Per-Widget Font Style Selector + Order/Remove
-                        if (editMode) {
-                            val sizeChoices = when (widgetId) {
-                                "clock", "retro_flip_clock", "analog_chrono", "precision_chrono", "globe" -> listOf(
-                                    "compact" to "S",
-                                    "standard" to "M",
-                                    "large" to "L",
-                                    "xlarge" to "XL",
-                                    "max" to "MAX"
-                                )
-                                else -> listOf(
-                                    "compact" to "S",
-                                    "standard" to "M",
-                                    "large" to "L"
-                                )
-                            }
-                            val widgetFontChoices = listOf(
-                                "dot" to "PIXEL",
-                                "ndot" to "CAPS",
-                                "mono" to "MONO",
-                                "spacemono" to "TECH",
-                                "sans" to "SANS",
-                                "editorial" to "SERIF"
-                            )
-
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 8.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                // Row 1: Reorder (↑ / ↓) + Direct Size Pills (S, M, L, XL, MAX) + Remove (×)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        val idx = activeWidgets.indexOf(widgetId)
-                                        if (idx > 0) {
-                                            Text(
-                                                text = "↑",
-                                                color = Color(0xFFD4D4D4),
-                                                fontSize = 10.sp,
-                                                fontFamily = selectedFont,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier
-                                                    .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
-                                                    .background(Color(0xFF141414), RoundedCornerShape(4.dp))
-                                                    .clickable { onMoveWidget(widgetId, -1) }
-                                                    .padding(horizontal = 7.dp, vertical = 3.dp)
-                                            )
-                                        }
-                                        if (idx < activeWidgets.lastIndex) {
-                                            Text(
-                                                text = "↓",
-                                                color = Color(0xFFD4D4D4),
-                                                fontSize = 10.sp,
-                                                fontFamily = selectedFont,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier
-                                                    .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
-                                                    .background(Color(0xFF141414), RoundedCornerShape(4.dp))
-                                                    .clickable { onMoveWidget(widgetId, 1) }
-                                                    .padding(horizontal = 7.dp, vertical = 3.dp)
-                                            )
-                                        }
-                                        // Direct S, M, L, XL, MAX Size Selector Pills
-                                        sizeChoices.forEach { (szId, szLbl) ->
-                                            val isSz = sizeMode == szId
-                                            Text(
-                                                text = szLbl,
-                                                color = if (isSz) Color.Black else Color.White,
-                                                fontSize = 9.sp,
-                                                fontFamily = selectedFont,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier
-                                                    .border(
-                                                        1.dp,
-                                                        if (isSz) accentColor else Color(0xFF2E2E2E),
-                                                        RoundedCornerShape(4.dp)
-                                                    )
-                                                    .background(
-                                                        if (isSz) accentColor else Color(0xFF151515),
-                                                        RoundedCornerShape(4.dp)
-                                                    )
-                                                    .clickable { onSetWidgetSize(widgetId, szId) }
-                                                    .padding(horizontal = 6.dp, vertical = 3.dp)
-                                            )
-                                        }
-                                    }
-
-                                    Text(
-                                        text = "×",
-                                        color = Color(0xFFEF4444),
-                                        fontSize = 11.sp,
-                                        fontFamily = selectedFont,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                                            .background(Color(0xFF1A0808), RoundedCornerShape(4.dp))
-                                            .clickable { onRemoveWidget(widgetId) }
-                                            .padding(horizontal = 7.dp, vertical = 2.dp)
-                                    )
-                                }
-
-                                // Row 2: Per-Widget Font Style Selector (for all widgets with text)
-                                if (widgetId != "globe") {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "FONT",
-                                            color = Color(0xFF8A8A8A),
-                                            fontSize = 8.sp,
-                                            fontFamily = selectedFont,
-                                            modifier = Modifier.padding(end = 2.dp)
-                                        )
-                                        widgetFontChoices.forEach { (fId, fLbl) ->
-                                            val isF = wFontId == fId
-                                            val previewFamily = PrebuiltFont.fromId(fId).resolveFontFamily(lomoFontFamily)
-                                            Text(
-                                                text = fLbl,
-                                                color = if (isF) Color.Black else Color(0xFFD4D4D4),
-                                                fontSize = 8.sp,
-                                                fontFamily = previewFamily,
-                                                fontWeight = if (isF) FontWeight.Bold else FontWeight.Normal,
-                                                textAlign = TextAlign.Center,
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .border(
-                                                        1.dp,
-                                                        if (isF) Color.White else Color(0xFF282828),
-                                                        RoundedCornerShape(4.dp)
-                                                    )
-                                                    .background(
-                                                        if (isF) Color.White else Color(0xFF121212),
-                                                        RoundedCornerShape(4.dp)
-                                                    )
-                                                    .clickable { onSetWidgetFont(widgetId, fId) }
-                                                    .padding(vertical = 3.dp)
-                                            )
-                                        }
-                                    }
                                 }
                             }
                         }
@@ -2737,8 +2866,12 @@ fun HomeScreenView(
             }
         }
 
-        // 2. FLEXIBLE OLED SPACER (Keeps Pinned Apps anchored at the bottom while widgets are modular at the top/middle)
-        Spacer(modifier = Modifier.weight(1f))
+        // 2. SPACER BETWEEN WIDGETS AND PINNED APPS
+        if (editMode) {
+            Spacer(modifier = Modifier.height(20.dp))
+        } else {
+            Spacer(modifier = Modifier.height(12.dp))
+        }
 
         // 3. PINNED HOME APPS + 1:1 MATCHED RIGHT-SIDE DOTS WAVE SCROLLER (Anchored at Bottom)
         Box(
@@ -3446,6 +3579,7 @@ private val WORLD_COUNTRY_BORDERS: List<List<Pair<Float, Float>>> by lazy {
 fun RetroFuturisticGlobeView(
     globeTheme: String,
     globeWireframeColor: String,
+    interactive: Boolean = true,
     onTick: () -> Unit
 ) {
     val defaultPitch = 0.24f   // ~14 deg natural axial tilt
@@ -3520,7 +3654,8 @@ fun RetroFuturisticGlobeView(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(Unit) {
+            .pointerInput(interactive) {
+                if (!interactive) return@pointerInput
                 detectTapGestures(
                     onDoubleTap = {
                         onTick()
@@ -3532,7 +3667,8 @@ fun RetroFuturisticGlobeView(
                     }
                 )
             }
-            .pointerInput(Unit) {
+            .pointerInput(interactive) {
+                if (!interactive) return@pointerInput
                 var lastHapticStep = 0
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -4824,6 +4960,7 @@ fun LauncherSettingsView(
 ) {
     var expandedSystem by remember { mutableStateOf(false) }
     var expandedTypography by remember { mutableStateOf(false) }
+    var expandedFontMenu by remember { mutableStateOf(false) }
     var expandedWallpaper by remember { mutableStateOf(false) }
     var expandedMotion by remember { mutableStateOf(false) }
 
@@ -4984,48 +5121,105 @@ fun LauncherSettingsView(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
+                        .border(
+                            1.dp,
+                            if (expandedFontMenu) accentColor.copy(alpha = 0.45f) else Color(0xFF222222),
+                            RoundedCornerShape(10.dp)
+                        )
                         .background(Color(0xFF070707), RoundedCornerShape(10.dp))
                         .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = "TYPEFACE ($activeFontName)",
-                        color = Color(0xFF8A8A8A),
-                        fontSize = 9.sp,
-                        fontFamily = launcherFont
-                    )
-                    PrebuiltFont.values().forEach { f ->
-                        val selected = fontId == f.id
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(
-                                    1.dp,
-                                    if (selected) accentColor.copy(alpha = 0.6f) else Color(0xFF171717),
-                                    RoundedCornerShape(8.dp)
-                                )
-                                .background(
-                                    if (selected) Color(0xFF121212) else Color.Transparent,
-                                    RoundedCornerShape(8.dp)
-                                )
-                                .clickable { onChangeFont(f.id) }
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { expandedFontMenu = !expandedFontMenu },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = f.displayName,
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontFamily = f.resolveFontFamily(lomoFontFamily)
-                            )
-                            Text(
-                                text = if (selected) "●" else "○",
-                                color = if (selected) accentColor else Color(0xFF525252),
-                                fontSize = 10.sp,
+                                text = "LAUNCHER FONT MENU (COLLAPSIBLE)",
+                                color = Color(0xFF8A8A8A),
+                                fontSize = 9.sp,
                                 fontFamily = launcherFont
                             )
+                            Text(
+                                text = activeFontName,
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontFamily = launcherFont,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            text = if (expandedFontMenu) "HIDE ▲" else "${PrebuiltFont.values().size} FONTS ▼",
+                            color = accentColor,
+                            fontSize = 9.sp,
+                            fontFamily = launcherFont,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .border(1.dp, accentColor.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+                                .background(Color(0xFF121212), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    AnimatedVisibility(
+                        visible = expandedFontMenu,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            PrebuiltFont.values().forEach { f ->
+                                val selected = fontId == f.id
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(
+                                            1.dp,
+                                            if (selected) accentColor.copy(alpha = 0.6f) else Color(0xFF171717),
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .background(
+                                            if (selected) Color(0xFF121212) else Color.Transparent,
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { onChangeFont(f.id) }
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            text = f.displayName,
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontFamily = f.resolveFontFamily(lomoFontFamily)
+                                        )
+                                        Text(
+                                            text = "TAG: ${f.shortLabel}" + if (f.uppercaseHome) " · ALL-CAPS" else "",
+                                            color = Color(0xFF737373),
+                                            fontSize = 8.sp,
+                                            fontFamily = launcherFont
+                                        )
+                                    }
+                                    Text(
+                                        text = if (selected) "●" else "○",
+                                        color = if (selected) accentColor else Color(0xFF525252),
+                                        fontSize = 10.sp,
+                                        fontFamily = launcherFont
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -8299,5 +8493,3 @@ fun RetroYearDotMatrixWidget(
         }
     }
 }
-
-
