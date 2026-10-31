@@ -745,6 +745,7 @@ fun NTextLauncherApp(
     }
     var globeTheme by remember { mutableStateOf(prefs.getString("globe_theme", "retro_holo") ?: "retro_holo") }
     var globeWireframeColor by remember { mutableStateOf(prefs.getString("globe_wf_color", "#FF3B00") ?: "#FF3B00") }
+    var globeTilt2dDeg by remember { mutableStateOf(prefs.getFloat("globe_tilt_2d_deg", -3f)) }
     var globeRotXDeg by remember { mutableStateOf(prefs.getFloat("globe_rot_x_deg", 14f)) }
     var globeRotYDeg by remember { mutableStateOf(prefs.getFloat("globe_rot_y_deg", -77f)) }
 
@@ -1383,8 +1384,14 @@ fun NTextLauncherApp(
                                 waveScrubMode = waveScrubMode,
                                 globeTheme = globeTheme,
                                 globeWireframeColor = globeWireframeColor,
+                                globeTilt2dDeg = globeTilt2dDeg,
                                 globeRotXDeg = globeRotXDeg,
                                 globeRotYDeg = globeRotYDeg,
+                                onChangeGlobeTilt2d = { deg ->
+                                    val clamped = deg.coerceIn(-180f, 180f)
+                                    globeTilt2dDeg = clamped
+                                    prefs.edit().putFloat("globe_tilt_2d_deg", clamped).apply()
+                                },
                                 onChangeGlobeRotX = { deg ->
                                     val clamped = deg.coerceIn(-85f, 85f)
                                     globeRotXDeg = clamped
@@ -2030,8 +2037,10 @@ fun HomeScreenView(
     waveScrubMode: String,
     globeTheme: String,
     globeWireframeColor: String,
+    globeTilt2dDeg: Float,
     globeRotXDeg: Float,
     globeRotYDeg: Float,
+    onChangeGlobeTilt2d: (Float) -> Unit,
     onChangeGlobeRotX: (Float) -> Unit,
     onChangeGlobeRotY: (Float) -> Unit,
     pinnedApps: List<AppEntry>,
@@ -2343,7 +2352,7 @@ fun HomeScreenView(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
-                                                text = "GLOBE 3D AXIS ROTATION (X & Y)",
+                                                text = "GLOBE AXIS TILT & ROTATION",
                                                 color = Color(0xFFA3A3A3),
                                                 fontSize = 8.sp,
                                                 fontFamily = selectedFont,
@@ -2359,6 +2368,7 @@ fun HomeScreenView(
                                                     .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
                                                     .background(Color(0xFF181818), RoundedCornerShape(4.dp))
                                                     .clickable {
+                                                        onChangeGlobeTilt2d(-3f)
                                                         onChangeGlobeRotX(14f)
                                                         onChangeGlobeRotY(-77f)
                                                     }
@@ -2366,16 +2376,16 @@ fun HomeScreenView(
                                             )
                                         }
 
-                                        // X-Axis Rotation Control (-85° to +85° Pitch / Tilt)
+                                        // X-Axis (2D Screen-Plane Axial Tilt: tilts the globe's spin axis sideways -180° to +180°)
                                         GlobeAxisControlRow(
                                             axisLabel = "X-AXIS (TILT)",
-                                            degreeValue = globeRotXDeg,
-                                            minDeg = -85f,
-                                            maxDeg = 85f,
+                                            degreeValue = globeTilt2dDeg,
+                                            minDeg = -180f,
+                                            maxDeg = 180f,
                                             stepDeg = 5f,
                                             accentColor = accentColor,
                                             fontFamily = selectedFont,
-                                            onChangeDeg = onChangeGlobeRotX
+                                            onChangeDeg = onChangeGlobeTilt2d
                                         )
 
                                         // Y-Axis Rotation Control (-180° to +180° Yaw / Longitude)
@@ -2388,6 +2398,18 @@ fun HomeScreenView(
                                             accentColor = accentColor,
                                             fontFamily = selectedFont,
                                             onChangeDeg = onChangeGlobeRotY
+                                        )
+
+                                        // Polar Inclination Control (-85° to +85° North/South Pitch)
+                                        GlobeAxisControlRow(
+                                            axisLabel = "POLAR (NOD)",
+                                            degreeValue = globeRotXDeg,
+                                            minDeg = -85f,
+                                            maxDeg = 85f,
+                                            stepDeg = 5f,
+                                            accentColor = accentColor,
+                                            fontFamily = selectedFont,
+                                            onChangeDeg = onChangeGlobeRotX
                                         )
                                     }
                                 }
@@ -2951,6 +2973,7 @@ fun HomeScreenView(
                                     RetroFuturisticGlobeView(
                                         globeTheme = globeTheme,
                                         globeWireframeColor = globeWireframeColor,
+                                        axisTilt2dDeg = globeTilt2dDeg,
                                         axisRotXDeg = globeRotXDeg,
                                         axisRotYDeg = globeRotYDeg,
                                         interactive = !editMode,
@@ -3772,23 +3795,28 @@ fun GlobeAxisControlRow(
 fun RetroFuturisticGlobeView(
     globeTheme: String,
     globeWireframeColor: String,
+    axisTilt2dDeg: Float = -3f,
     axisRotXDeg: Float = 14f,
     axisRotYDeg: Float = -77f,
     interactive: Boolean = true,
     onTick: () -> Unit
 ) {
+    val targetRollRad = ((axisTilt2dDeg.coerceIn(-180f, 180f)) * PI / 180.0).toFloat()
     val targetPitchRad = ((axisRotXDeg.coerceIn(-85f, 85f)) * PI / 180.0).toFloat()
     val baseYawOffsetRad = ((axisRotYDeg.coerceIn(-180f, 180f)) * PI / 180.0).toFloat()
+    val currentTargetRoll by rememberUpdatedState(targetRollRad)
     val currentTargetPitch by rememberUpdatedState(targetPitchRad)
     val currentBaseYawOffset by rememberUpdatedState(baseYawOffsetRad)
-    val defaultRoll = -0.06f   // subtle orbital inclination
     val baseSpinSpeed = 0.28f  // calm, precise autonomous Y-axis spin (radians/sec)
 
     var spinYawDelta by remember { mutableStateOf(0f) }
     var pitch by remember { mutableStateOf(targetPitchRad) }
-    var roll by remember { mutableStateOf(defaultRoll) }
+    var roll by remember { mutableStateOf(targetRollRad) }
 
-    // Immediately reflect X-axis rotation adjustments from Edit Mode
+    // Immediately reflect 2D Axial Tilt (roll) and Polar Pitch adjustments from Edit Mode
+    LaunchedEffect(targetRollRad) {
+        roll = targetRollRad
+    }
     LaunchedEffect(targetPitchRad) {
         pitch = targetPitchRad
     }
@@ -3825,7 +3853,7 @@ fun RetroFuturisticGlobeView(
                     val zoomSlowdown = 1f / animatedGlobeZoom.coerceAtLeast(1f)
                     spinYawDelta += velYaw * dt * zoomSlowdown
                     pitch = (pitch + velPitch * dt).coerceIn(-1.48f, 1.48f)
-                    roll = (roll + velRoll * dt).coerceIn(-0.95f, 0.95f)
+                    roll = (roll + velRoll * dt).coerceIn(-3.1416f, 3.1416f)
 
                     val decay = exp(-3.1f * dt)
                     velYaw = baseSpinSpeed + (velYaw - baseSpinSpeed) * decay
@@ -3834,7 +3862,7 @@ fun RetroFuturisticGlobeView(
 
                     val restoreFactor = (1f - exp(-2.6f * dt)).coerceIn(0f, 1f)
                     pitch += (currentTargetPitch - pitch) * restoreFactor
-                    roll += (defaultRoll - roll) * restoreFactor
+                    roll += (currentTargetRoll - roll) * restoreFactor
                 }
             }
         }
@@ -6502,7 +6530,7 @@ fun WallpaperTuningRow(
 // - 8 Live Wallpapers + 36 Static Wallpapers (including Halftone, Glowing & Fade series)
 // ============================================================================
 // ============================================================================
-// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v3.9.0-cmf)
+// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v3.9.1-cmf)
 // - Pre-allocates all primitive FloatArray/IntArray buffers and a single native Paint once
 // - Zero object allocations inside step() or draw() -> 0 bytes/frame GC overhead
 // - Features >= 1,000 stars (1,200 default, up to 1,800 with density slider)
