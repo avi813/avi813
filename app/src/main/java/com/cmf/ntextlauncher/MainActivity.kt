@@ -362,38 +362,38 @@ enum class PrebuiltFont(
 }
 
 // ============================================================================
-// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.1.0-cmf)
+// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.2.0-cmf)
 // Calculates exact vertical height of active widgets + pinned Home apps (and scale)
 // to prevent overflow/scrolling and trigger the "NO SPACE LEFT" popup when full.
 // ============================================================================
 private fun estimateSingleWidgetHeightDp(widgetId: String, sizeMode: String): Float = when (widgetId) {
     "clock" -> when (sizeMode) {
-        "compact" -> 34f
-        "large" -> 118f
-        "xlarge" -> 142f
-        "max" -> 168f
-        else -> 96f
+        "compact" -> 28f
+        "large" -> 98f
+        "xlarge" -> 118f
+        "max" -> 142f
+        else -> 76f
     }
     "retro_flip_clock" -> when (sizeMode) {
-        "compact" -> 58f
-        "large" -> 102f
-        "xlarge" -> 116f
-        "max" -> 132f
-        else -> 90f
+        "compact" -> 54f
+        "large" -> 92f
+        "xlarge" -> 106f
+        "max" -> 122f
+        else -> 80f
     }
     "analog_chrono" -> when (sizeMode) {
-        "compact" -> 80f
-        "large" -> 130f
-        "xlarge" -> 152f
-        "max" -> 178f
-        else -> 108f
+        "compact" -> 76f
+        "large" -> 124f
+        "xlarge" -> 146f
+        "max" -> 172f
+        else -> 102f
     }
     "precision_chrono" -> when (sizeMode) {
-        "compact" -> 82f
-        "large" -> 136f
-        "xlarge" -> 160f
-        "max" -> 182f
-        else -> 112f
+        "compact" -> 78f
+        "large" -> 130f
+        "xlarge" -> 154f
+        "max" -> 174f
+        else -> 106f
     }
     "globe" -> when (sizeMode) {
         "compact" -> 135f
@@ -403,29 +403,29 @@ private fun estimateSingleWidgetHeightDp(widgetId: String, sizeMode: String): Fl
         else -> 195f
     }
     "week_strip" -> when (sizeMode) {
-        "compact" -> 64f
-        "large" -> 108f
-        else -> 88f
+        "compact" -> 54f
+        "large" -> 92f
+        else -> 72f
     }
     "retro_calendar" -> when (sizeMode) {
-        "compact" -> 136f
-        "large" -> 208f
-        else -> 172f
+        "compact" -> 122f
+        "large" -> 188f
+        else -> 154f
     }
     "year_matrix" -> when (sizeMode) {
-        "compact" -> 88f
-        "large" -> 140f
-        else -> 114f
+        "compact" -> 78f
+        "large" -> 124f
+        else -> 98f
     }
     "storage" -> when (sizeMode) {
-        "compact" -> 28f
-        "large" -> 56f
-        else -> 44f
+        "compact" -> 24f
+        "large" -> 48f
+        else -> 36f
     }
     else -> when (sizeMode) { // torch, zen, quote, scratchpad
-        "compact" -> 28f
-        "large" -> 46f
-        else -> 36f
+        "compact" -> 24f
+        "large" -> 40f
+        else -> 30f
     }
 }
 
@@ -445,9 +445,9 @@ private fun estimateWidgetsStackHeightDp(
 
 private fun estimatePinnedAppsHeightDp(pinnedCount: Int, textSizeSp: Int): Float {
     if (pinnedCount <= 0) return 0f
-    // Each pinned app row has 16dp vertical padding (8dp top + 8dp bottom) + line height (~1.28 * textSizeSp)
-    val rowHeightDp = 16f + (textSizeSp * 1.28f)
-    return (pinnedCount * rowHeightDp) + 18f
+    // Each pinned app row has 12dp vertical padding (6dp top + 6dp bottom) + tight line height (~1.12 * textSizeSp)
+    val rowHeightDp = 12f + (textSizeSp * 1.12f)
+    return pinnedCount * rowHeightDp
 }
 
 // ============================================================================
@@ -811,6 +811,9 @@ fun NTextLauncherApp(
     // Settings Menu Background Style ("opaque", "transparent", "blurry") & Intensity (0%..100%)
     var settingsBgMode by remember { mutableStateOf(prefs.getString("settings_bg_mode", "opaque") ?: "opaque") }
     var settingsBgIntensity by remember { mutableStateOf(prefs.getInt("settings_bg_intensity", 65)) }
+    // App Drawer Background Style ("opaque", "transparent", "blurry") & Intensity (0%..100%)
+    var drawerBgMode by remember { mutableStateOf(prefs.getString("drawer_bg_mode", "opaque") ?: "opaque") }
+    var drawerBgIntensity by remember { mutableStateOf(prefs.getInt("drawer_bg_intensity", 65)) }
     // Option to toggle whether Live Wallpapers and Widgets pause when an app is opened
     var pauseWhenAppOpen by remember { mutableStateOf(prefs.getBoolean("pause_when_app_open", true)) }
     val appLifecycleOwner = LocalLifecycleOwner.current
@@ -1110,7 +1113,10 @@ fun NTextLauncherApp(
     var noSpacePopupMessage by remember {
         mutableStateOf("No space left on the Home Screen. Remove or shrink a widget, or unpin/scale down Home apps first.")
     }
-    var usableHomeHeightDp by remember { mutableStateOf(680f) }
+    var usableHomeHeightDp by remember { mutableStateOf(760f) }
+    var measuredHomeInnerHeightDp by remember { mutableStateOf(0f) }
+    var measuredWidgetsHeightDp by remember { mutableStateOf(0f) }
+    var measuredPinnedAppsHeightDp by remember { mutableStateOf(0f) }
     var isGlobeInteractionActive by remember { mutableStateOf(false) }
 
     fun currentPinnedAppsCount(): Int {
@@ -1131,9 +1137,33 @@ fun NTextLauncherApp(
         candidatePinnedCount: Int = currentPinnedAppsCount(),
         candidateTextSizeSp: Int = textSizeSp
     ): Boolean {
-        val widgetsH = estimateWidgetsStackHeightDp(candidateWidgets, candidateSizes)
-        val appsH = estimatePinnedAppsHeightDp(candidatePinnedCount, candidateTextSizeSp)
-        return (widgetsH + appsH) <= usableHomeHeightDp
+        // Use actual measured Home container height if available, leaving just a tiny 4dp padding gap!
+        val effectiveContainerH = if (measuredHomeInnerHeightDp > 200f) {
+            measuredHomeInnerHeightDp - 4f
+        } else {
+            usableHomeHeightDp - 4f
+        }
+
+        val currentEstimatedWidgetsH = estimateWidgetsStackHeightDp(activeWidgets, widgetSizes)
+        val candidateEstimatedWidgetsH = estimateWidgetsStackHeightDp(candidateWidgets, candidateSizes)
+        val widgetsDeltaH = candidateEstimatedWidgetsH - currentEstimatedWidgetsH
+        val effectiveWidgetsH = if (measuredWidgetsHeightDp > 10f && activeWidgets.isNotEmpty()) {
+            (measuredWidgetsHeightDp + widgetsDeltaH).coerceAtLeast(0f)
+        } else {
+            candidateEstimatedWidgetsH
+        }
+
+        val curPinCount = currentPinnedAppsCount()
+        val currentEstimatedAppsH = estimatePinnedAppsHeightDp(curPinCount, textSizeSp)
+        val candidateEstimatedAppsH = estimatePinnedAppsHeightDp(candidatePinnedCount, candidateTextSizeSp)
+        val appsDeltaH = candidateEstimatedAppsH - currentEstimatedAppsH
+        val effectiveAppsH = if (measuredPinnedAppsHeightDp > 10f && curPinCount > 0) {
+            (measuredPinnedAppsHeightDp + appsDeltaH).coerceAtLeast(0f)
+        } else {
+            candidateEstimatedAppsH
+        }
+
+        return (effectiveWidgetsH + effectiveAppsH) <= effectiveContainerH
     }
 
     fun saveWidgetList(updated: List<String>) {
@@ -1390,31 +1420,38 @@ fun NTextLauncherApp(
         val bottomInsetDpVal = with(density) {
             WindowInsets.navigationBars.getBottom(density).toDp().value
         }
-        // Usable single-screen Home height = total height - top/bottom system insets - 36dp vertical padding - 16dp minimum gap
-        val computedUsableHeightDp = (maxHeight.value - topInsetDpVal - bottomInsetDpVal - 52f).coerceAtLeast(340f)
+        // Usable single-screen Home height = total height - top/bottom system insets - 20dp vertical padding (10dp top + 10dp bottom)
+        val computedUsableHeightDp = (maxHeight.value - topInsetDpVal - bottomInsetDpVal - 20f).coerceAtLeast(340f)
         if (abs(usableHomeHeightDp - computedUsableHeightDp) > 0.5f) {
             usableHomeHeightDp = computedUsableHeightDp
         }
 
         // Full-Screen Edge-to-Edge Wallpaper Canvas
-        // When Launcher Settings is open, ONLY the currently applied wallpaper is visible in the background
-        // (blurred when settingsBgMode == "blurry", visible when "transparent", or covered when "opaque")!
+        // Supports real-time hardware blur when Launcher Settings OR App Drawer is in "blurry" mode!
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    if (currentView == LauncherView.SETTINGS && settingsBgMode == "blurry" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        val blurRadiusPx = ((settingsBgIntensity.coerceIn(4, 100) / 100f) * 38.dp.toPx()).coerceAtLeast(1f)
-                        renderEffect = AndroidRenderEffect.createBlurEffect(
-                            blurRadiusPx,
-                            blurRadiusPx,
-                            AndroidShader.TileMode.CLAMP
-                        ).asComposeRenderEffect()
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        val settingsBlurPx = if (currentView == LauncherView.SETTINGS && settingsBgMode == "blurry") {
+                            ((settingsBgIntensity.coerceIn(4, 100) / 100f) * 38.dp.toPx())
+                        } else 0f
+                        val drawerBlurPx = if (currentView == LauncherView.HOME_AND_DRAWER && drawerBgMode == "blurry" && drawerProgress.value > 0.01f) {
+                            ((drawerBgIntensity.coerceIn(4, 100) / 100f) * drawerProgress.value * 38.dp.toPx())
+                        } else 0f
+                        val activeBlurPx = max(settingsBlurPx, drawerBlurPx)
+                        if (activeBlurPx >= 1f) {
+                            renderEffect = AndroidRenderEffect.createBlurEffect(
+                                activeBlurPx,
+                                activeBlurPx,
+                                AndroidShader.TileMode.CLAMP
+                            ).asComposeRenderEffect()
+                        }
                     }
                 }
         ) {
             val isWallpaperScreenVisible = when (currentView) {
-                LauncherView.HOME_AND_DRAWER -> drawerProgress.value < 0.995f
+                LauncherView.HOME_AND_DRAWER -> drawerProgress.value < 0.995f || drawerBgMode != "opaque"
                 LauncherView.WIDGETS -> false
                 LauncherView.SETTINGS -> settingsBgMode != "opaque"
             }
@@ -1617,6 +1654,11 @@ fun NTextLauncherApp(
                                 onGlobeInteractionChanged = { unlocked ->
                                     isGlobeInteractionActive = unlocked
                                 },
+                                onReportMeasuredSpace = { innerH, widgetsH, appsH ->
+                                    if (innerH > 200f) measuredHomeInnerHeightDp = innerH
+                                    measuredWidgetsHeightDp = widgetsH
+                                    measuredPinnedAppsHeightDp = appsH
+                                },
                                 onWaveTick = { tickHaptic(heavy = false) }
                             )
                         }
@@ -1641,6 +1683,8 @@ fun NTextLauncherApp(
                                 selectedFont = selectedFont,
                                 uppercaseHome = prebuiltFont.uppercaseHome,
                                 drawerTextSizeSp = drawerTextSizeSp,
+                                drawerBgMode = drawerBgMode,
+                                drawerBgIntensity = drawerBgIntensity,
                                 accentColor = accentColor,
                                 waveScrubMode = waveScrubMode,
                                 drawerWaveIntensity = drawerWaveIntensity,
@@ -1733,6 +1777,8 @@ fun NTextLauncherApp(
                             wpScale = wpScale,
                             settingsBgMode = settingsBgMode,
                             settingsBgIntensity = settingsBgIntensity,
+                            drawerBgMode = drawerBgMode,
+                            drawerBgIntensity = drawerBgIntensity,
                             lomoFontFamily = lomoFontFamily,
                             launcherFont = selectedFont,
                             onChangeFont = {
@@ -1833,6 +1879,14 @@ fun NTextLauncherApp(
                             onChangeSettingsBgIntensity = {
                                 settingsBgIntensity = it
                                 prefs.edit().putInt("settings_bg_intensity", it).apply()
+                            },
+                            onChangeDrawerBgMode = {
+                                drawerBgMode = it
+                                prefs.edit().putString("drawer_bg_mode", it).apply()
+                            },
+                            onChangeDrawerBgIntensity = {
+                                drawerBgIntensity = it
+                                prefs.edit().putInt("drawer_bg_intensity", it).apply()
                             },
                             onOpenSystemWallpaperPicker = {
                                 wallpaperPreset = "system_wallpaper"
@@ -2231,7 +2285,7 @@ fun NTextLauncherApp(
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.Start,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
@@ -2240,17 +2294,6 @@ fun NTextLauncherApp(
                             fontSize = 15.sp,
                             fontFamily = selectedFont,
                             fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "DONE",
-                            color = Color.Black,
-                            fontSize = 10.sp,
-                            fontFamily = selectedFont,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .background(Color.White, RoundedCornerShape(6.dp))
-                                .clickable { showNoSpacePopup = false }
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
 
@@ -2381,6 +2424,7 @@ fun HomeScreenView(
     onLongPressApp: (AppEntry) -> Unit,
     onLongPressHome: () -> Unit = {},
     onGlobeInteractionChanged: (Boolean) -> Unit = {},
+    onReportMeasuredSpace: (Float, Float, Float) -> Unit = { _, _, _ -> },
     onWaveTick: () -> Unit
 ) {
     val density = LocalDensity.current
@@ -2400,8 +2444,10 @@ fun HomeScreenView(
     )
 
     val homeEditScrollState = rememberScrollState()
-    val homeWidgetsScrollState = rememberScrollState()
     var expandedFontWidgetIds by remember { mutableStateOf(setOf<String>()) }
+    var lastMeasInnerH by remember { mutableStateOf(0f) }
+    var lastMeasWidgetsH by remember { mutableStateOf(0f) }
+    var lastMeasAppsH by remember { mutableStateOf(0f) }
 
     Column(
         modifier = Modifier
@@ -2420,13 +2466,20 @@ fun HomeScreenView(
                     Modifier
                         .windowInsetsPadding(WindowInsets.navigationBars)
                         .verticalScroll(homeEditScrollState)
-                        .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 28.dp)
+                        .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 20.dp)
                 } else {
                     Modifier
                         .windowInsetsPadding(WindowInsets.statusBars)
                         .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
                         .windowInsetsPadding(WindowInsets.navigationBars)
-                        .padding(horizontal = 24.dp, vertical = 18.dp)
+                        .padding(horizontal = 24.dp, vertical = 10.dp)
+                        .onGloballyPositioned { coords ->
+                            val hDp = with(density) { coords.size.height.toDp().value }
+                            if (abs(hDp - lastMeasInnerH) > 0.5f) {
+                                lastMeasInnerH = hDp
+                                onReportMeasuredSpace(lastMeasInnerH, lastMeasWidgetsH, lastMeasAppsH)
+                            }
+                        }
                 }
             ),
         verticalArrangement = if (editMode) Arrangement.Top else Arrangement.SpaceBetween
@@ -2435,7 +2488,19 @@ fun HomeScreenView(
         // In normal Home mode (!editMode), no verticalScroll is attached so swipe-up (App Drawer)
         // and swipe-down (Notification Panel) gestures work over every widget!
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (!editMode) {
+                        Modifier.onGloballyPositioned { coords ->
+                            val hDp = with(density) { coords.size.height.toDp().value }
+                            if (abs(hDp - lastMeasWidgetsH) > 0.5f) {
+                                lastMeasWidgetsH = hDp
+                                onReportMeasuredSpace(lastMeasInnerH, lastMeasWidgetsH, lastMeasAppsH)
+                            }
+                        }
+                    } else Modifier
+                ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             activeWidgets.forEach { widgetId ->
@@ -3356,18 +3421,29 @@ fun HomeScreenView(
             }
         }
 
-        // 2. SPACER BETWEEN WIDGETS AND PINNED APPS
+        // 2. TINY MINIMAL SPACER BETWEEN WIDGETS AND PINNED APPS (Leaves just a tiny 4dp breathing gap)
         if (editMode) {
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(14.dp))
         } else {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(4.dp))
         }
 
-        // 3. PINNED HOME APPS + 1:1 MATCHED RIGHT-SIDE DOTS WAVE SCROLLER (Anchored at Bottom)
+        // 3. PINNED HOME APPS + 1:1 MATCHED RIGHT-SIDE DOTS WAVE SCROLLER (Anchored at Bottom with minimal wasted space)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 18.dp),
+                .padding(bottom = 2.dp)
+                .then(
+                    if (!editMode) {
+                        Modifier.onGloballyPositioned { coords ->
+                            val hDp = with(density) { coords.size.height.toDp().value }
+                            if (abs(hDp - lastMeasAppsH) > 0.5f) {
+                                lastMeasAppsH = hDp
+                                onReportMeasuredSpace(lastMeasInnerH, lastMeasWidgetsH, lastMeasAppsH)
+                            }
+                        }
+                    } else Modifier
+                ),
             contentAlignment = Alignment.BottomStart
         ) {
             val waveRadiusRows = 2.25f
@@ -3457,7 +3533,7 @@ fun HomeScreenView(
                                     onClick = { onLaunchApp(app.packageName) },
                                     onLongClick = { onLongPressApp(app) }
                                 )
-                                .padding(vertical = 8.dp),
+                                .padding(vertical = 6.dp),
                             horizontalArrangement = when (textAlign) {
                                 TextAlign.Center -> Arrangement.Center
                                 TextAlign.End -> Arrangement.End
@@ -4746,6 +4822,8 @@ fun AppDrawerView(
     selectedFont: FontFamily,
     uppercaseHome: Boolean,
     drawerTextSizeSp: Int,
+    drawerBgMode: String = "opaque",
+    drawerBgIntensity: Int = 65,
     accentColor: Color,
     waveScrubMode: String,
     drawerWaveIntensity: Float,
@@ -4876,10 +4954,17 @@ fun AppDrawerView(
         }
     }
 
+    val normDrawerBg = (drawerBgIntensity.coerceIn(0, 100) / 100f)
+    val drawerRootBgColor = when (drawerBgMode) {
+        "transparent" -> Color.Black.copy(alpha = (1f - normDrawerBg * 0.92f).coerceIn(0.06f, 0.96f))
+        "blurry" -> Color(0xFF050505).copy(alpha = (0.76f - normDrawerBg * 0.56f).coerceIn(0.16f, 0.82f))
+        else -> Color.Black
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.98f))
+            .background(drawerRootBgColor)
             .windowInsetsPadding(WindowInsets.statusBars)
             .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
             .windowInsetsPadding(WindowInsets.navigationBars)
@@ -5587,6 +5672,8 @@ fun LauncherSettingsView(
     wpScale: Float,
     settingsBgMode: String,
     settingsBgIntensity: Int,
+    drawerBgMode: String = "opaque",
+    drawerBgIntensity: Int = 65,
     lomoFontFamily: FontFamily,
     launcherFont: FontFamily,
     onChangeFont: (String) -> Unit,
@@ -5608,6 +5695,8 @@ fun LauncherSettingsView(
     onResetWpTuning: () -> Unit,
     onChangeSettingsBgMode: (String) -> Unit,
     onChangeSettingsBgIntensity: (Int) -> Unit,
+    onChangeDrawerBgMode: (String) -> Unit = {},
+    onChangeDrawerBgIntensity: (Int) -> Unit = {},
     onOpenSystemWallpaperPicker: () -> Unit,
     onPickCustomWallpaperImage: () -> Unit,
     onRequestDefaultHomeRole: () -> Unit,
@@ -6443,6 +6532,17 @@ fun LauncherSettingsView(
                         }
                     }
                 }
+
+                // 3. App Drawer Background Style (Opaque, Transparent, Blurry) + Level Slider (0%-100%)
+                SettingsBackdropControlCard(
+                    cardTitle = "APP DRAWER BACKGROUND STYLE",
+                    settingsBgMode = drawerBgMode,
+                    settingsBgIntensity = drawerBgIntensity,
+                    accentColor = accentColor,
+                    lomoFontFamily = launcherFont,
+                    onChangeMode = onChangeDrawerBgMode,
+                    onChangeIntensity = onChangeDrawerBgIntensity
+                )
             }
         }
     }
@@ -6633,6 +6733,7 @@ fun MinimalistSliderRow(
 
 @Composable
 fun SettingsBackdropControlCard(
+    cardTitle: String = "SETTINGS MENU BACKGROUND STYLE",
     settingsBgMode: String,
     settingsBgIntensity: Int,
     accentColor: Color,
@@ -6654,7 +6755,7 @@ fun SettingsBackdropControlCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "SETTINGS MENU BACKGROUND STYLE",
+                text = cardTitle,
                 color = Color(0xFF9E9E9E),
                 fontSize = 9.sp,
                 fontFamily = lomoFontFamily,
@@ -6960,7 +7061,7 @@ fun WallpaperTuningRow(
 // - 8 Live Wallpapers + 36 Static Wallpapers (including Halftone, Glowing & Fade series)
 // ============================================================================
 // ============================================================================
-// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.1.0-cmf)
+// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.2.0-cmf)
 // - Pre-allocates all primitive FloatArray/IntArray buffers and a single native Paint once
 // - Zero object allocations inside step() or draw() -> 0 bytes/frame GC overhead
 // - Features >= 1,000 stars (1,200 default, up to 1,800 with density slider)
