@@ -85,6 +85,11 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import kotlin.math.exp
 import kotlin.math.min
 import kotlin.math.sin
@@ -740,6 +745,8 @@ fun NTextLauncherApp(
     }
     var globeTheme by remember { mutableStateOf(prefs.getString("globe_theme", "retro_holo") ?: "retro_holo") }
     var globeWireframeColor by remember { mutableStateOf(prefs.getString("globe_wf_color", "#FF3B00") ?: "#FF3B00") }
+    var globeRotXDeg by remember { mutableStateOf(prefs.getFloat("globe_rot_x_deg", 14f)) }
+    var globeRotYDeg by remember { mutableStateOf(prefs.getFloat("globe_rot_y_deg", -77f)) }
 
     // 100% Offline Essential Widgets (Default on Home Screen: Clock & Week Strip; Globe can be added from Widget Manager)
     var activeWidgets by remember {
@@ -1220,6 +1227,11 @@ fun NTextLauncherApp(
                     }
                 }
         ) {
+            val isWallpaperScreenVisible = when (currentView) {
+                LauncherView.HOME_AND_DRAWER -> drawerProgress.value < 0.995f
+                LauncherView.WIDGETS -> false
+                LauncherView.SETTINGS -> settingsBgMode != "opaque"
+            }
             OledWallpaperCanvas(
                 preset = wallpaperPreset,
                 accentColor = accentColor,
@@ -1228,6 +1240,7 @@ fun NTextLauncherApp(
                 wpDensity = wpDensity,
                 wpOpacity = wpOpacity,
                 wpScale = wpScale,
+                isScreenVisible = isWallpaperScreenVisible,
                 userWallpaperRefreshTrigger = userWallpaperRefreshTrigger
             )
         }
@@ -1370,6 +1383,18 @@ fun NTextLauncherApp(
                                 waveScrubMode = waveScrubMode,
                                 globeTheme = globeTheme,
                                 globeWireframeColor = globeWireframeColor,
+                                globeRotXDeg = globeRotXDeg,
+                                globeRotYDeg = globeRotYDeg,
+                                onChangeGlobeRotX = { deg ->
+                                    val clamped = deg.coerceIn(-85f, 85f)
+                                    globeRotXDeg = clamped
+                                    prefs.edit().putFloat("globe_rot_x_deg", clamped).apply()
+                                },
+                                onChangeGlobeRotY = { deg ->
+                                    val clamped = deg.coerceIn(-180f, 180f)
+                                    globeRotYDeg = clamped
+                                    prefs.edit().putFloat("globe_rot_y_deg", clamped).apply()
+                                },
                                 pinnedApps = installedApps.filter { it.isPinned && !it.isHidden },
                                 onOpenClockApp = { openClockApp() },
                                 onToggleTorch = { toggleTorchState() },
@@ -2005,6 +2030,10 @@ fun HomeScreenView(
     waveScrubMode: String,
     globeTheme: String,
     globeWireframeColor: String,
+    globeRotXDeg: Float,
+    globeRotYDeg: Float,
+    onChangeGlobeRotX: (Float) -> Unit,
+    onChangeGlobeRotY: (Float) -> Unit,
     pinnedApps: List<AppEntry>,
     onOpenClockApp: () -> Unit,
     onToggleTorch: () -> Unit,
@@ -2297,6 +2326,69 @@ fun HomeScreenView(
                                                 }
                                             }
                                         }
+                                    }
+                                } else {
+                                    // Dedicated Separate X-Axis & Y-Axis Rotation Controls for the 3D Globe Widget in Edit Mode
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, Color(0xFF262626), RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF101010), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "GLOBE 3D AXIS ROTATION (X & Y)",
+                                                color = Color(0xFFA3A3A3),
+                                                fontSize = 8.sp,
+                                                fontFamily = selectedFont,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "RESET AXIS",
+                                                color = accentColor,
+                                                fontSize = 8.sp,
+                                                fontFamily = selectedFont,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier
+                                                    .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                                    .background(Color(0xFF181818), RoundedCornerShape(4.dp))
+                                                    .clickable {
+                                                        onChangeGlobeRotX(14f)
+                                                        onChangeGlobeRotY(-77f)
+                                                    }
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+
+                                        // X-Axis Rotation Control (-85° to +85° Pitch / Tilt)
+                                        GlobeAxisControlRow(
+                                            axisLabel = "X-AXIS (TILT)",
+                                            degreeValue = globeRotXDeg,
+                                            minDeg = -85f,
+                                            maxDeg = 85f,
+                                            stepDeg = 5f,
+                                            accentColor = accentColor,
+                                            fontFamily = selectedFont,
+                                            onChangeDeg = onChangeGlobeRotX
+                                        )
+
+                                        // Y-Axis Rotation Control (-180° to +180° Yaw / Longitude)
+                                        GlobeAxisControlRow(
+                                            axisLabel = "Y-AXIS (SPIN)",
+                                            degreeValue = globeRotYDeg,
+                                            minDeg = -180f,
+                                            maxDeg = 180f,
+                                            stepDeg = 10f,
+                                            accentColor = accentColor,
+                                            fontFamily = selectedFont,
+                                            onChangeDeg = onChangeGlobeRotY
+                                        )
                                     }
                                 }
 
@@ -2859,6 +2951,8 @@ fun HomeScreenView(
                                     RetroFuturisticGlobeView(
                                         globeTheme = globeTheme,
                                         globeWireframeColor = globeWireframeColor,
+                                        axisRotXDeg = globeRotXDeg,
+                                        axisRotYDeg = globeRotYDeg,
                                         interactive = !editMode,
                                         onTick = onWaveTick
                                     )
@@ -3580,19 +3674,124 @@ private val WORLD_COUNTRY_BORDERS: List<List<Pair<Float, Float>>> by lazy {
 }
 
 @Composable
+fun GlobeAxisControlRow(
+    axisLabel: String,
+    degreeValue: Float,
+    minDeg: Float,
+    maxDeg: Float,
+    stepDeg: Float,
+    accentColor: Color,
+    fontFamily: FontFamily,
+    onChangeDeg: (Float) -> Unit
+) {
+    val currentOnChange by rememberUpdatedState(onChangeDeg)
+    val span = (maxDeg - minDeg).coerceAtLeast(1f)
+    val fraction = ((degreeValue - minDeg) / span).coerceIn(0f, 1f)
+    val degInt = degreeValue.roundToInt()
+    val formattedDeg = if (degInt > 0) "+$degInt°" else "$degInt°"
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = "$axisLabel $formattedDeg",
+            color = Color.White,
+            fontSize = 8.sp,
+            fontFamily = fontFamily,
+            modifier = Modifier.width(88.dp)
+        )
+
+        Text(
+            text = "−",
+            color = Color(0xFFD4D4D4),
+            fontSize = 10.sp,
+            fontFamily = fontFamily,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .border(1.dp, Color(0xFF303030), RoundedCornerShape(4.dp))
+                .background(Color(0xFF181818), RoundedCornerShape(4.dp))
+                .clickable { currentOnChange((degreeValue - stepDeg).coerceIn(minDeg, maxDeg)) }
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+        )
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(18.dp)
+                .pointerInput(minDeg, maxDeg) {
+                    detectTapGestures { offset ->
+                        val w = size.width.toFloat().coerceAtLeast(1f)
+                        val f = (offset.x / w).coerceIn(0f, 1f)
+                        currentOnChange(minDeg + f * (maxDeg - minDeg))
+                    }
+                }
+                .pointerInput(minDeg, maxDeg) {
+                    detectHorizontalDragGestures { change, _ ->
+                        change.consume()
+                        val w = size.width.toFloat().coerceAtLeast(1f)
+                        val f = (change.position.x / w).coerceIn(0f, 1f)
+                        currentOnChange(minDeg + f * (maxDeg - minDeg))
+                    }
+                },
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .border(1.dp, Color(0xFF2E2E2E), RoundedCornerShape(999.dp))
+                    .background(Color(0xFF161616), RoundedCornerShape(999.dp))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(fraction)
+                        .background(accentColor, RoundedCornerShape(999.dp))
+                )
+            }
+        }
+
+        Text(
+            text = "+",
+            color = Color(0xFFD4D4D4),
+            fontSize = 10.sp,
+            fontFamily = fontFamily,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .border(1.dp, Color(0xFF303030), RoundedCornerShape(4.dp))
+                .background(Color(0xFF181818), RoundedCornerShape(4.dp))
+                .clickable { currentOnChange((degreeValue + stepDeg).coerceIn(minDeg, maxDeg)) }
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+        )
+    }
+}
+
+@Composable
 fun RetroFuturisticGlobeView(
     globeTheme: String,
     globeWireframeColor: String,
+    axisRotXDeg: Float = 14f,
+    axisRotYDeg: Float = -77f,
     interactive: Boolean = true,
     onTick: () -> Unit
 ) {
-    val defaultPitch = 0.24f   // ~14 deg natural axial tilt
+    val targetPitchRad = ((axisRotXDeg.coerceIn(-85f, 85f)) * PI / 180.0).toFloat()
+    val baseYawOffsetRad = ((axisRotYDeg.coerceIn(-180f, 180f)) * PI / 180.0).toFloat()
+    val currentTargetPitch by rememberUpdatedState(targetPitchRad)
+    val currentBaseYawOffset by rememberUpdatedState(baseYawOffsetRad)
     val defaultRoll = -0.06f   // subtle orbital inclination
     val baseSpinSpeed = 0.28f  // calm, precise autonomous Y-axis spin (radians/sec)
 
-    var yaw by remember { mutableStateOf(-1.35f) } // Starts centered near India / Asia-Europe
-    var pitch by remember { mutableStateOf(defaultPitch) }
+    var spinYawDelta by remember { mutableStateOf(0f) }
+    var pitch by remember { mutableStateOf(targetPitchRad) }
     var roll by remember { mutableStateOf(defaultRoll) }
+
+    // Immediately reflect X-axis rotation adjustments from Edit Mode
+    LaunchedEffect(targetPitchRad) {
+        pitch = targetPitchRad
+    }
 
     var velYaw by remember { mutableStateOf(baseSpinSpeed) }
     var velPitch by remember { mutableStateOf(0f) }
@@ -3624,7 +3823,7 @@ fun RetroFuturisticGlobeView(
 
                 if (!isDragging) {
                     val zoomSlowdown = 1f / animatedGlobeZoom.coerceAtLeast(1f)
-                    yaw += velYaw * dt * zoomSlowdown
+                    spinYawDelta += velYaw * dt * zoomSlowdown
                     pitch = (pitch + velPitch * dt).coerceIn(-1.48f, 1.48f)
                     roll = (roll + velRoll * dt).coerceIn(-0.95f, 0.95f)
 
@@ -3634,7 +3833,7 @@ fun RetroFuturisticGlobeView(
                     velRoll *= decay
 
                     val restoreFactor = (1f - exp(-2.6f * dt)).coerceIn(0f, 1f)
-                    pitch += (defaultPitch - pitch) * restoreFactor
+                    pitch += (currentTargetPitch - pitch) * restoreFactor
                     roll += (defaultRoll - roll) * restoreFactor
                 }
             }
@@ -3701,7 +3900,7 @@ fun RetroFuturisticGlobeView(
                                 val dtSec = dtMs / 1000f
 
                                 val sens = 0.0095f / animatedGlobeZoom.coerceAtLeast(1f)
-                                yaw += dx * sens
+                                spinYawDelta += dx * sens
                                 pitch = (pitch - dy * sens).coerceIn(-1.45f, 1.45f)
                                 roll = (roll + (dx * dy) * 0.00014f).coerceIn(-0.85f, 0.85f)
 
@@ -3712,7 +3911,7 @@ fun RetroFuturisticGlobeView(
                                 velPitch = (velPitch * 0.35f + instVelPitch * 0.65f).coerceIn(-12f, 12f)
                                 velRoll = (velRoll * 0.35f + instVelRoll * 0.65f).coerceIn(-8f, 8f)
 
-                                val step = ((yaw * 7f).toInt())
+                                val step = (((currentBaseYawOffset + spinYawDelta) * 7f).toInt())
                                 if (step != lastHapticStep) {
                                     lastHapticStep = step
                                     onTick()
@@ -3736,8 +3935,9 @@ fun RetroFuturisticGlobeView(
             val baseRadius = (min(w, h) * 0.492f).coerceAtLeast(36f)
             val radius = baseRadius * animatedGlobeZoom
 
-            val cosY = cos(yaw)
-            val sinY = sin(yaw)
+            val effectiveYaw = currentBaseYawOffset + spinYawDelta
+            val cosY = cos(effectiveYaw)
+            val sinY = sin(effectiveYaw)
             val cosP = cos(pitch)
             val sinP = sin(pitch)
             val cosR = cos(roll)
@@ -4977,6 +5177,7 @@ fun LauncherSettingsView(
 
     // 8 Minimal, Full-Screen AMOLED Live Wallpapers (including Glowing & Halftone Wave Live Wallpapers)
     val liveWallpaperOptions = listOf(
+        Triple("live_starfield_3d", "3D STARFIELD", "1,200-Star 3D Night Sky"),
         Triple("live_constellation", "ORBITAL NODES", "Full-Screen Drifting Stars"),
         Triple("live_embers", "DEEP EMBERS", "Full-Screen Rising Dust"),
         Triple("live_starlight", "STARLIGHT BREATH", "Calm Twinkling Field"),
@@ -6300,6 +6501,182 @@ fun WallpaperTuningRow(
 // - Universal Wallpaper Dimmer (dimPercent: 0%..90%) dims Live, Static, Custom Photo & 3rd-Party Wallpapers
 // - 8 Live Wallpapers + 36 Static Wallpapers (including Halftone, Glowing & Fade series)
 // ============================================================================
+// ============================================================================
+// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v3.9.0-cmf)
+// - Pre-allocates all primitive FloatArray/IntArray buffers and a single native Paint once
+// - Zero object allocations inside step() or draw() -> 0 bytes/frame GC overhead
+// - Features >= 1,000 stars (1,200 default, up to 1,800 with density slider)
+// - Varied tiny pinpoint sizes, distinct baseline opacities, realistic spectral color tints
+//   (~78% pure/crisp stellar white, ~13% faint O/B celestial blue, ~9% soft K/M orange/amber)
+// - Gentle autonomous sinusoidal twinkling & slow continuous 3D forward drift (ignores all touch/user inputs)
+// - Clean pause() and resume() methods that completely freeze animation (0% CPU/GPU) when screen is hidden
+// ============================================================================
+class DeepSpaceStarfieldSimulation {
+    companion object {
+        const val MIN_STAR_COUNT = 1000
+        const val DEFAULT_STAR_COUNT = 1200
+        const val MAX_STAR_COUNT = 1800
+    }
+
+    // Flat primitive arrays allocated once (Zero GC during animation loop)
+    private val starX = FloatArray(MAX_STAR_COUNT)
+    private val starY = FloatArray(MAX_STAR_COUNT)
+    private val starZ = FloatArray(MAX_STAR_COUNT)
+    private val starBaseRadiusDp = FloatArray(MAX_STAR_COUNT)
+    private val starBaseAlpha = FloatArray(MAX_STAR_COUNT)
+    private val starTwinklePhase = FloatArray(MAX_STAR_COUNT)
+    private val starTwinkleFreq = FloatArray(MAX_STAR_COUNT)
+    private val starRgbNoAlpha = IntArray(MAX_STAR_COUNT)
+
+    // Single reusable native Paint (Zero GC during Canvas rendering)
+    private val starPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        style = android.graphics.Paint.Style.FILL
+    }
+
+    private var rngState: Int = 0x6D2B79F5
+    private var twinkleClockSec: Float = 0f
+
+    var isPaused: Boolean = false
+        private set
+
+    init {
+        for (i in 0 until MAX_STAR_COUNT) {
+            initStar(i, randomDepth = true)
+        }
+    }
+
+    // Fast allocation-free Xorshift32 PRNG returning [0f, 1f)
+    private fun nextFloat01(): Float {
+        var x = rngState
+        x = x xor (x shl 13)
+        x = x xor (x ushr 17)
+        x = x xor (x shl 5)
+        rngState = x
+        return ((x ushr 8) and 0x00FFFFFF).toFloat() / 16777216.0f
+    }
+
+    private fun initStar(index: Int, randomDepth: Boolean) {
+        // Spread across 3D view frustum [-1f, 1f]
+        starX[index] = (nextFloat01() * 2f - 1f)
+        starY[index] = (nextFloat01() * 2f - 1f)
+        starZ[index] = if (randomDepth) {
+            0.04f + nextFloat01() * 0.96f
+        } else {
+            0.90f + nextFloat01() * 0.10f
+        }
+
+        // Varied tiny sizes: 82% micro pinpoints (0.36..0.72dp), 14% subtle mid-stars (0.72..1.08dp), 4% crisp bright stars (1.08..1.42dp)
+        val sizeRoll = nextFloat01()
+        starBaseRadiusDp[index] = when {
+            sizeRoll < 0.82f -> 0.36f + nextFloat01() * 0.36f
+            sizeRoll < 0.96f -> 0.72f + nextFloat01() * 0.36f
+            else -> 1.08f + nextFloat01() * 0.34f
+        }
+
+        // Distinct baseline opacities (0.22..0.98)
+        starBaseAlpha[index] = 0.22f + nextFloat01() * 0.76f
+
+        // Gentle autonomous ambient twinkling parameters
+        starTwinklePhase[index] = nextFloat01() * 6.2831855f
+        starTwinkleFreq[index] = 0.55f + nextFloat01() * 1.75f
+
+        // Realistic stellar spectral color tints:
+        // ~78% white, ~13% faint celestial blue, ~9% soft warm orange
+        val tintRoll = nextFloat01()
+        starRgbNoAlpha[index] = when {
+            tintRoll < 0.52f -> 0x00FFFFFF // Pure Stellar White
+            tintRoll < 0.78f -> 0x00F4F7FB // Crisp Ice-White
+            tintRoll < 0.85f -> 0x00BFDBFE // Faint O-Type Celestial Blue
+            tintRoll < 0.91f -> 0x0093C5FD // Soft B-Type Sky Blue
+            tintRoll < 0.96f -> 0x00FED7AA // Soft K-Type Warm Orange
+            else -> 0x00FDE68A             // Gentle Amber-Orange Tint
+        }
+    }
+
+    /**
+     * Completely freezes the 3D starfield simulation when the screen is hidden or paused.
+     */
+    fun pause() {
+        isPaused = true
+    }
+
+    /**
+     * Cleanly resumes the 3D starfield simulation when the screen becomes visible again.
+     */
+    fun resume() {
+        isPaused = false
+    }
+
+    /**
+     * Advances the slow 3D forward drift and ambient twinkling by dtSec (Zero allocations).
+     */
+    fun step(dtSec: Float, speedMultiplier: Float, activeCount: Int) {
+        if (isPaused) return
+        val clampedCount = activeCount.coerceIn(MIN_STAR_COUNT, MAX_STAR_COUNT)
+        // Slow, calm default forward drift / gentle warp speed along the Z depth axis
+        val forwardDrift = dtSec * 0.038f * speedMultiplier
+        twinkleClockSec = (twinkleClockSec + dtSec) % 3600f
+
+        for (i in 0 until clampedCount) {
+            val nextZ = starZ[i] - forwardDrift
+            if (nextZ <= 0.025f) {
+                initStar(i, randomDepth = false)
+            } else {
+                starZ[i] = nextZ
+            }
+        }
+    }
+
+    /**
+     * Renders all >= 1,000 3D stars directly onto the hardware-accelerated native Canvas with zero GC overhead.
+     */
+    fun draw(
+        nativeCanvas: android.graphics.Canvas,
+        width: Float,
+        height: Float,
+        densityPxPerDp: Float,
+        activeCount: Int,
+        opacityMultiplier: Float,
+        scaleMultiplier: Float
+    ) {
+        if (width <= 0f || height <= 0f) return
+        val clampedCount = activeCount.coerceIn(MIN_STAR_COUNT, MAX_STAR_COUNT)
+        val cx = width * 0.5f
+        val cy = height * 0.5f
+        val halfSpan = max(width, height) * 0.62f
+        val t = twinkleClockSec
+        val sizeScale = densityPxPerDp * (0.75f + 0.25f * scaleMultiplier)
+
+        for (i in 0 until clampedCount) {
+            val z = starZ[i]
+            val invZ = 1.0f / z
+            val sx = cx + starX[i] * invZ * halfSpan
+            val sy = cy + starY[i] * invZ * halfSpan
+
+            // If perspective projection moves the star outside the screen bounds, recycle it in the far field
+            if (sx < -4f || sx > width + 4f || sy < -4f || sy > height + 4f) {
+                if (!isPaused) {
+                    initStar(i, randomDepth = false)
+                }
+                continue
+            }
+
+            // Depth-attenuated tiny radius (closer stars appear slightly crisper, distant stars are sub-pixel pinpoints)
+            val depthScale = (1.18f - z * 0.68f).coerceIn(0.42f, 1.35f)
+            val radiusPx = (starBaseRadiusDp[i] * depthScale * sizeScale).coerceAtLeast(0.65f)
+
+            // Gentle, automatic ambient sinusoidal twinkling
+            val twinkle = 0.74f + 0.26f * sin(t * starTwinkleFreq[i] + starTwinklePhase[i])
+            val depthAlpha = (1.12f - z * 0.65f).coerceIn(0.18f, 1.0f)
+            val alphaFloat = (starBaseAlpha[i] * twinkle * depthAlpha * opacityMultiplier).coerceIn(0.05f, 1.0f)
+            val alphaByte = (alphaFloat * 255f).toInt().coerceIn(12, 255)
+
+            starPaint.color = (alphaByte shl 24) or starRgbNoAlpha[i]
+            nativeCanvas.drawCircle(sx, sy, radiusPx, starPaint)
+        }
+    }
+}
+
 @Composable
 fun OledWallpaperCanvas(
     preset: String,
@@ -6309,12 +6686,47 @@ fun OledWallpaperCanvas(
     wpDensity: Float = 1.0f,
     wpOpacity: Float = 1.0f,
     wpScale: Float = 1.0f,
+    isScreenVisible: Boolean = true,
     userWallpaperRefreshTrigger: Int = 0
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val isLive = preset.startsWith("live_")
     var liveTimeSec by remember { mutableStateOf(0f) }
+    var starfieldFrameTick by remember { mutableStateOf(0) }
     val currentSpeed by rememberUpdatedState(wpSpeed.coerceIn(0.15f, 3.0f))
+    val currentDensity by rememberUpdatedState(wpDensity.coerceIn(0.4f, 2.0f))
+
+    // Dedicated Zero-GC 3D Starfield Simulation Engine with pause() and resume()
+    val starfieldSimulation = remember { DeepSpaceStarfieldSimulation() }
+    var isLifecycleResumed by remember { mutableStateOf(true) }
+
+    // Automatically call pause() and resume() when the Activity lifecycle or screen visibility changes
+    DisposableEffect(lifecycleOwner, isScreenVisible) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME, Lifecycle.Event.ON_START -> {
+                    isLifecycleResumed = true
+                    if (isScreenVisible) starfieldSimulation.resume()
+                }
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                    isLifecycleResumed = false
+                    starfieldSimulation.pause()
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (isScreenVisible && isLifecycleResumed) {
+            starfieldSimulation.resume()
+        } else {
+            starfieldSimulation.pause()
+        }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            starfieldSimulation.pause()
+        }
+    }
 
     // Load custom imported user wallpaper bitmap when preset == "user_image"
     val customUserBitmap: ImageBitmap? = remember(preset, userWallpaperRefreshTrigger) {
@@ -6330,14 +6742,23 @@ fun OledWallpaperCanvas(
         } else null
     }
 
-    if (isLive) {
-        LaunchedEffect(preset) {
+    val shouldAnimateLive = isLive && isScreenVisible && isLifecycleResumed
+    if (shouldAnimateLive) {
+        LaunchedEffect(preset, shouldAnimateLive) {
             var lastNanos = 0L
             while (true) {
                 withFrameNanos { nanos ->
                     val dt = if (lastNanos == 0L) 0.016f else ((nanos - lastNanos) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
                     lastNanos = nanos
-                    liveTimeSec = (liveTimeSec + dt * 0.42f * currentSpeed) % 7200f
+                    if (preset == "live_starfield_3d") {
+                        val targetStars = (DeepSpaceStarfieldSimulation.DEFAULT_STAR_COUNT * currentDensity)
+                            .roundToInt()
+                            .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_STAR_COUNT)
+                        starfieldSimulation.step(dt, currentSpeed, targetStars)
+                        starfieldFrameTick = (starfieldFrameTick + 1) and 0x7FFFFFFF
+                    } else {
+                        liveTimeSec = (liveTimeSec + dt * 0.42f * currentSpeed) % 7200f
+                    }
                 }
             }
         }
@@ -6356,6 +6777,28 @@ fun OledWallpaperCanvas(
         val t = liveTimeSec
 
         when (preset) {
+            // ================================================================
+            // 0. REALISTIC 1,200-STAR 3D NIGHT SKY SIMULATION (Zero-GC Native Loop)
+            // ================================================================
+            "live_starfield_3d" -> {
+                // Read starfieldFrameTick to subscribe Canvas draw phase to frame updates without allocating
+                if (starfieldFrameTick >= 0) {
+                    val activeStars = (DeepSpaceStarfieldSimulation.DEFAULT_STAR_COUNT * densityMult)
+                        .roundToInt()
+                        .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_STAR_COUNT)
+                    drawIntoCanvas { composeCanvas ->
+                        starfieldSimulation.draw(
+                            nativeCanvas = composeCanvas.nativeCanvas,
+                            width = w,
+                            height = h,
+                            densityPxPerDp = 1.dp.toPx(),
+                            activeCount = activeStars,
+                            opacityMultiplier = opacityMult,
+                            scaleMultiplier = scaleMult
+                        )
+                    }
+                }
+            }
             "oled", "system_wallpaper" -> {
                 // "oled" stays pure #000000; "system_wallpaper" lets Android's FLAG_SHOW_WALLPAPER shine through
                 // and then applies the universal dimmer overlay below!
