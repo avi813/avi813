@@ -362,6 +362,95 @@ enum class PrebuiltFont(
 }
 
 // ============================================================================
+// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.1.0-cmf)
+// Calculates exact vertical height of active widgets + pinned Home apps (and scale)
+// to prevent overflow/scrolling and trigger the "NO SPACE LEFT" popup when full.
+// ============================================================================
+private fun estimateSingleWidgetHeightDp(widgetId: String, sizeMode: String): Float = when (widgetId) {
+    "clock" -> when (sizeMode) {
+        "compact" -> 34f
+        "large" -> 118f
+        "xlarge" -> 142f
+        "max" -> 168f
+        else -> 96f
+    }
+    "retro_flip_clock" -> when (sizeMode) {
+        "compact" -> 58f
+        "large" -> 102f
+        "xlarge" -> 116f
+        "max" -> 132f
+        else -> 90f
+    }
+    "analog_chrono" -> when (sizeMode) {
+        "compact" -> 80f
+        "large" -> 130f
+        "xlarge" -> 152f
+        "max" -> 178f
+        else -> 108f
+    }
+    "precision_chrono" -> when (sizeMode) {
+        "compact" -> 82f
+        "large" -> 136f
+        "xlarge" -> 160f
+        "max" -> 182f
+        else -> 112f
+    }
+    "globe" -> when (sizeMode) {
+        "compact" -> 135f
+        "large" -> 265f
+        "xlarge" -> 330f
+        "max" -> 395f
+        else -> 195f
+    }
+    "week_strip" -> when (sizeMode) {
+        "compact" -> 64f
+        "large" -> 108f
+        else -> 88f
+    }
+    "retro_calendar" -> when (sizeMode) {
+        "compact" -> 136f
+        "large" -> 208f
+        else -> 172f
+    }
+    "year_matrix" -> when (sizeMode) {
+        "compact" -> 88f
+        "large" -> 140f
+        else -> 114f
+    }
+    "storage" -> when (sizeMode) {
+        "compact" -> 28f
+        "large" -> 56f
+        else -> 44f
+    }
+    else -> when (sizeMode) { // torch, zen, quote, scratchpad
+        "compact" -> 28f
+        "large" -> 46f
+        else -> 36f
+    }
+}
+
+private fun estimateWidgetsStackHeightDp(
+    widgets: List<String>,
+    sizes: Map<String, String>
+): Float {
+    if (widgets.isEmpty()) return 0f
+    var total = 0f
+    for (id in widgets) {
+        val sz = sizes[id] ?: "standard"
+        total += estimateSingleWidgetHeightDp(id, sz)
+    }
+    total += (widgets.size - 1).coerceAtLeast(0) * 10f
+    return total
+}
+
+private fun estimatePinnedAppsHeightDp(pinnedCount: Int, textSizeSp: Int): Float {
+    if (pinnedCount <= 0) return 0f
+    // Each pinned app row has 16dp vertical padding (8dp top + 8dp bottom) + line height (~1.28 * textSizeSp)
+    val rowHeightDp = 16f + (textSizeSp * 1.28f)
+    return (pinnedCount * rowHeightDp) + 18f
+}
+
+// ============================================================================
 // MAIN LAUNCHER ACTIVITY (CMF by Nothing Phone 1 · Android 14 / Nothing OS 2.6)
 // ============================================================================
 class MainActivity : ComponentActivity() {
@@ -1017,17 +1106,81 @@ fun NTextLauncherApp(
         vib?.vibrate(effect)
     }
 
+    var showNoSpacePopup by remember { mutableStateOf(false) }
+    var noSpacePopupMessage by remember {
+        mutableStateOf("No space left on the Home Screen. Remove or shrink a widget, or unpin/scale down Home apps first.")
+    }
+    var usableHomeHeightDp by remember { mutableStateOf(680f) }
+    var isGlobeInteractionActive by remember { mutableStateOf(false) }
+
+    fun currentPinnedAppsCount(): Int {
+        return installedApps.count { it.isPinned && !it.isHidden }.let { count ->
+            if (count > 0 || installedApps.isNotEmpty()) count else pinnedPackages.size
+        }
+    }
+
+    fun triggerNoSpaceLeftPopup(reason: String) {
+        tickHaptic(heavy = true)
+        noSpacePopupMessage = reason
+        showNoSpacePopup = true
+    }
+
+    fun canFitOnHomeScreen(
+        candidateWidgets: List<String>,
+        candidateSizes: Map<String, String>,
+        candidatePinnedCount: Int = currentPinnedAppsCount(),
+        candidateTextSizeSp: Int = textSizeSp
+    ): Boolean {
+        val widgetsH = estimateWidgetsStackHeightDp(candidateWidgets, candidateSizes)
+        val appsH = estimatePinnedAppsHeightDp(candidatePinnedCount, candidateTextSizeSp)
+        return (widgetsH + appsH) <= usableHomeHeightDp
+    }
+
     fun saveWidgetList(updated: List<String>) {
         val cleaned = updated.filter {
             it != "blackhole" && it != "telemetry" && it != "weather" && it != "pedometer" && it != "crt_world_map"
+        }
+        // If adding a widget (cleaned.size > activeWidgets.size), verify it fits within the Home Screen boundary!
+        if (cleaned.size > activeWidgets.size) {
+            val pCount = currentPinnedAppsCount()
+            if (!canFitOnHomeScreen(cleaned, widgetSizes, pCount, textSizeSp)) {
+                triggerNoSpaceLeftPopup(
+                    "No space left on the Home Screen to add this widget with $pCount pinned apps (${textSizeSp}SP scale). Remove or shrink an existing widget, or unpin/scale down Home apps first."
+                )
+                return
+            }
         }
         activeWidgets = cleaned
         prefs.edit().putString("widgets_order_v8", cleaned.joinToString(",")).apply()
     }
 
     fun saveWidgetSize(widgetId: String, size: String) {
+        val currentSize = widgetSizes[widgetId] ?: "standard"
+        val currentH = estimateSingleWidgetHeightDp(widgetId, currentSize)
+        val targetH = estimateSingleWidgetHeightDp(widgetId, size)
+
         val newMap = widgetSizes.toMutableMap()
         newMap[widgetId] = size
+
+        // If increasing the size of an active widget, verify it does not exceed the Home Screen boundary!
+        if (targetH > currentH && activeWidgets.contains(widgetId)) {
+            val pCount = currentPinnedAppsCount()
+            if (!canFitOnHomeScreen(activeWidgets, newMap, pCount, textSizeSp)) {
+                val sizeLabel = when (size) {
+                    "compact" -> "S"
+                    "standard" -> "M"
+                    "large" -> "L"
+                    "xlarge" -> "XL"
+                    "max" -> "MAX"
+                    else -> size.uppercase(Locale.US)
+                }
+                triggerNoSpaceLeftPopup(
+                    "No space left on the Home Screen to resize this widget to $sizeLabel with $pCount pinned apps (${textSizeSp}SP scale). Shrink another widget or unpin/scale down Home apps first."
+                )
+                return
+            }
+        }
+
         widgetSizes = newMap.toMap()
         val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
         prefs.edit().putString("widget_sizes_v7", serialized).apply()
@@ -1228,6 +1381,20 @@ fun NTextLauncherApp(
     ) {
         val density = LocalDensity.current
         val screenHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
+        val topInsetDpVal = with(density) {
+            max(
+                WindowInsets.statusBars.getTop(density),
+                WindowInsets.displayCutout.getTop(density)
+            ).toDp().value
+        }
+        val bottomInsetDpVal = with(density) {
+            WindowInsets.navigationBars.getBottom(density).toDp().value
+        }
+        // Usable single-screen Home height = total height - top/bottom system insets - 36dp vertical padding - 16dp minimum gap
+        val computedUsableHeightDp = (maxHeight.value - topInsetDpVal - bottomInsetDpVal - 52f).coerceAtLeast(340f)
+        if (abs(usableHomeHeightDp - computedUsableHeightDp) > 0.5f) {
+            usableHomeHeightDp = computedUsableHeightDp
+        }
 
         // Full-Screen Edge-to-Edge Wallpaper Canvas
         // When Launcher Settings is open, ONLY the currently applied wallpaper is visible in the background
@@ -1330,8 +1497,8 @@ fun NTextLauncherApp(
                                         }
                                     )
                                 }
-                                .pointerInput(screenHeightPx, editMode) {
-                                    if (editMode) return@pointerInput
+                                .pointerInput(screenHeightPx, editMode, isGlobeInteractionActive) {
+                                    if (editMode || isGlobeInteractionActive) return@pointerInput
                                     var totalDy = 0f
                                     var notifTriggered = false
                                     val velocityTracker = VelocityTracker()
@@ -1446,6 +1613,9 @@ fun NTextLauncherApp(
                                         tickHaptic(heavy = true)
                                         showHomeQuickMenu = true
                                     }
+                                },
+                                onGlobeInteractionChanged = { unlocked ->
+                                    isGlobeInteractionActive = unlocked
                                 },
                                 onWaveTick = { tickHaptic(heavy = false) }
                             )
@@ -1577,9 +1747,16 @@ fun NTextLauncherApp(
                                 accentHex = it
                                 prefs.edit().putString("accent", it).apply()
                             },
-                            onChangeTextSize = {
-                                textSizeSp = it
-                                prefs.edit().putInt("text_size", it).apply()
+                            onChangeTextSize = { newSp ->
+                                val pCount = currentPinnedAppsCount()
+                                if (newSp > textSizeSp && activeWidgets.isNotEmpty() && !canFitOnHomeScreen(activeWidgets, widgetSizes, pCount, newSp)) {
+                                    triggerNoSpaceLeftPopup(
+                                        "No space left on the Home Screen to increase app text scale to ${newSp}SP with your current widgets and $pCount pinned apps."
+                                    )
+                                } else {
+                                    textSizeSp = newSp
+                                    prefs.edit().putInt("text_size", newSp).apply()
+                                }
                             },
                             onChangeDrawerTextSize = {
                                 drawerTextSizeSp = it
@@ -1908,13 +2085,23 @@ fun NTextLauncherApp(
                             .border(1.dp, Color(0xFF262626), RoundedCornerShape(10.dp))
                             .background(Color.Black, RoundedCornerShape(10.dp))
                             .clickable {
-                                pinnedPackages = if (isFromHome || currentlyPinned) {
-                                    pinnedPackages - targetApp.packageName
+                                if (isFromHome || currentlyPinned) {
+                                    pinnedPackages = pinnedPackages - targetApp.packageName
+                                    prefs.edit().putStringSet("pinned_pkgs", pinnedPackages).apply()
+                                    contextMenuTarget = null
                                 } else {
-                                    pinnedPackages + targetApp.packageName
+                                    val newPinnedCount = currentPinnedAppsCount() + 1
+                                    if (activeWidgets.isNotEmpty() && !canFitOnHomeScreen(activeWidgets, widgetSizes, newPinnedCount, textSizeSp)) {
+                                        contextMenuTarget = null
+                                        triggerNoSpaceLeftPopup(
+                                            "No space left on the Home Screen to pin another app with your current widgets and ${textSizeSp}SP app scale."
+                                        )
+                                    } else {
+                                        pinnedPackages = pinnedPackages + targetApp.packageName
+                                        prefs.edit().putStringSet("pinned_pkgs", pinnedPackages).apply()
+                                        contextMenuTarget = null
+                                    }
                                 }
-                                prefs.edit().putStringSet("pinned_pkgs", pinnedPackages).apply()
-                                contextMenuTarget = null
                             }
                             .padding(horizontal = 14.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1992,6 +2179,112 @@ fun NTextLauncherApp(
                                 fontFamily = selectedFont
                             )
                         }
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
+        // "NO SPACE LEFT" BOUNDARY POPUP MODAL
+        // Shown whenever adding or resizing a widget (or pinning/scaling apps)
+        // would overflow the single-screen Home Screen boundary!
+        // ====================================================================
+        val noSpaceProgress by animateFloatAsState(
+            targetValue = if (showNoSpacePopup) 1f else 0f,
+            animationSpec = spring(
+                dampingRatio = 0.82f,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "noSpacePopupAnim"
+        )
+        if (showNoSpacePopup || noSpaceProgress > 0.005f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = (0.84f * noSpaceProgress).coerceIn(0f, 0.84f)))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { showNoSpacePopup = false }
+                    .padding(horizontal = 28.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            val p = noSpaceProgress.coerceIn(0f, 1f)
+                            alpha = p
+                            val s = 0.86f + 0.14f * p
+                            scaleX = s
+                            scaleY = s
+                            translationY = (1f - p) * 24.dp.toPx()
+                        }
+                        .border(1.dp, accentColor, RoundedCornerShape(16.dp))
+                        .background(Color(0xFF0A0A0A), RoundedCornerShape(16.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { /* consume inside modal */ }
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "NO SPACE LEFT",
+                            color = accentColor,
+                            fontSize = 15.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "DONE",
+                            color = Color.Black,
+                            fontSize = 10.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .background(Color.White, RoundedCornerShape(6.dp))
+                                .clickable { showNoSpacePopup = false }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(Color(0xFF222222))
+                    )
+
+                    Text(
+                        text = noSpacePopupMessage,
+                        color = Color(0xFFE5E5E5),
+                        fontSize = 12.sp,
+                        fontFamily = selectedFont,
+                        lineHeight = 17.sp
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, accentColor.copy(alpha = 0.65f), RoundedCornerShape(8.dp))
+                            .background(Color(0xFF141414), RoundedCornerShape(8.dp))
+                            .clickable { showNoSpacePopup = false }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "OK",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -2087,6 +2380,7 @@ fun HomeScreenView(
     onLaunchApp: (String) -> Unit,
     onLongPressApp: (AppEntry) -> Unit,
     onLongPressHome: () -> Unit = {},
+    onGlobeInteractionChanged: (Boolean) -> Unit = {},
     onWaveTick: () -> Unit
 ) {
     val density = LocalDensity.current
@@ -2137,15 +2431,11 @@ fun HomeScreenView(
             ),
         verticalArrangement = if (editMode) Arrangement.Top else Arrangement.SpaceBetween
     ) {
-        // 1. MODULAR OLED WIDGETS STACK (Scrollable when overflowing; in Edit Mode the entire page scrolls + top control bar per widget)
+        // 1. MODULAR OLED WIDGETS STACK
+        // In normal Home mode (!editMode), no verticalScroll is attached so swipe-up (App Drawer)
+        // and swipe-down (Notification Panel) gestures work over every widget!
         Column(
-            modifier = if (editMode) {
-                Modifier.fillMaxWidth()
-            } else {
-                Modifier
-                    .weight(1f, fill = false)
-                    .verticalScroll(homeWidgetsScrollState)
-            },
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             activeWidgets.forEach { widgetId ->
@@ -3055,6 +3345,7 @@ fun HomeScreenView(
                                         interactive = !editMode,
                                         widgetsActive = widgetsActive,
                                         onLongPressHome = onLongPressHome,
+                                        onInteractionModeChanged = onGlobeInteractionChanged,
                                         onTick = onWaveTick
                                     )
                                 }
@@ -3879,6 +4170,7 @@ fun RetroFuturisticGlobeView(
     interactive: Boolean = true,
     widgetsActive: Boolean = true,
     onLongPressHome: () -> Unit = {},
+    onInteractionModeChanged: (Boolean) -> Unit = {},
     onTick: () -> Unit
 ) {
     val targetRollRad = ((axisTilt2dDeg.coerceIn(-180f, 180f)) * PI / 180.0).toFloat()
@@ -3912,6 +4204,17 @@ fun RetroFuturisticGlobeView(
     // - Double-tapping unlocks 3D touch interaction (and auto-locks after 8s of idle or another double-tap).
     var isInteractionUnlocked by remember { mutableStateOf(false) }
     var lastInteractionMs by remember { mutableStateOf(0L) }
+    val currentOnInteractionChanged by rememberUpdatedState(onInteractionModeChanged)
+
+    LaunchedEffect(isInteractionUnlocked) {
+        currentOnInteractionChanged(isInteractionUnlocked)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            currentOnInteractionChanged(false)
+        }
+    }
 
     LaunchedEffect(interactive) {
         if (!interactive) isInteractionUnlocked = false
@@ -6657,7 +6960,7 @@ fun WallpaperTuningRow(
 // - 8 Live Wallpapers + 36 Static Wallpapers (including Halftone, Glowing & Fade series)
 // ============================================================================
 // ============================================================================
-// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.0.0-cmf)
+// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.1.0-cmf)
 // - Pre-allocates all primitive FloatArray/IntArray buffers and a single native Paint once
 // - Zero object allocations inside step() or draw() -> 0 bytes/frame GC overhead
 // - Features >= 1,000 stars (1,200 default, up to 1,800 with density slider)
