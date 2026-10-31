@@ -722,6 +722,23 @@ fun NTextLauncherApp(
     // Settings Menu Background Style ("opaque", "transparent", "blurry") & Intensity (0%..100%)
     var settingsBgMode by remember { mutableStateOf(prefs.getString("settings_bg_mode", "opaque") ?: "opaque") }
     var settingsBgIntensity by remember { mutableStateOf(prefs.getInt("settings_bg_intensity", 65)) }
+    // Option to toggle whether Live Wallpapers and Widgets pause when an app is opened
+    var pauseWhenAppOpen by remember { mutableStateOf(prefs.getBoolean("pause_when_app_open", true)) }
+    val appLifecycleOwner = LocalLifecycleOwner.current
+    var isLauncherInForeground by remember { mutableStateOf(true) }
+    DisposableEffect(appLifecycleOwner) {
+        val obs = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME, Lifecycle.Event.ON_START -> isLauncherInForeground = true
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> isLauncherInForeground = false
+                else -> {}
+            }
+        }
+        appLifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { appLifecycleOwner.lifecycle.removeObserver(obs) }
+    }
+    val keepRunningInBackground = !pauseWhenAppOpen
+    val shouldRunWidgetsAndWallpapers = isLauncherInForeground || keepRunningInBackground
 
     // Sync wallpaperPreset when user imports a custom image from gallery
     LaunchedEffect(userWallpaperRefreshTrigger) {
@@ -920,8 +937,9 @@ fun NTextLauncherApp(
         }
     }
 
-    LaunchedEffect(use24Hour, packageRefreshTrigger) {
-        while (true) {
+    LaunchedEffect(use24Hour, packageRefreshTrigger, shouldRunWidgetsAndWallpapers) {
+        if (!shouldRunWidgetsAndWallpapers) return@LaunchedEffect
+        while (shouldRunWidgetsAndWallpapers) {
             refreshRealtimeSystemTelemetry()
             delay(1_000L)
         }
@@ -1242,6 +1260,7 @@ fun NTextLauncherApp(
                 wpOpacity = wpOpacity,
                 wpScale = wpScale,
                 isScreenVisible = isWallpaperScreenVisible,
+                pauseWhenAppOpen = pauseWhenAppOpen,
                 userWallpaperRefreshTrigger = userWallpaperRefreshTrigger
             )
         }
@@ -1416,10 +1435,17 @@ fun NTextLauncherApp(
                                 onRemoveWidget = { id ->
                                     saveWidgetList(activeWidgets.filter { it != id })
                                 },
+                                widgetsActive = shouldRunWidgetsAndWallpapers,
                                 onLaunchApp = { pkg -> launchApp(pkg) },
                                 onLongPressApp = { app ->
                                     tickHaptic(heavy = true)
                                     contextMenuTarget = app to true
+                                },
+                                onLongPressHome = {
+                                    if (drawerProgress.value < 0.1f) {
+                                        tickHaptic(heavy = true)
+                                        showHomeQuickMenu = true
+                                    }
                                 },
                                 onWaveTick = { tickHaptic(heavy = false) }
                             )
@@ -1525,6 +1551,7 @@ fun NTextLauncherApp(
                             drawerTextSizeSp = drawerTextSizeSp,
                             use24Hour = use24Hour,
                             hideAndroidBar = hideAndroidBar,
+                            pauseWhenAppOpen = pauseWhenAppOpen,
                             waveScrubMode = waveScrubMode,
                             drawerWaveIntensity = drawerWaveIntensity,
                             wallpaperPreset = wallpaperPreset,
@@ -1566,6 +1593,10 @@ fun NTextLauncherApp(
                                 val next = !hideAndroidBar
                                 hideAndroidBar = next
                                 onToggleAndroidStatusBar(next)
+                            },
+                            onTogglePauseWhenAppOpen = {
+                                pauseWhenAppOpen = !pauseWhenAppOpen
+                                prefs.edit().putBoolean("pause_when_app_open", pauseWhenAppOpen).apply()
                             },
                             onChangeWaveMode = {
                                 waveScrubMode = it
@@ -2052,8 +2083,10 @@ fun HomeScreenView(
     onSetWidgetFont: (String, String) -> Unit,
     onMoveWidget: (String, Int) -> Unit,
     onRemoveWidget: (String) -> Unit,
+    widgetsActive: Boolean = true,
     onLaunchApp: (String) -> Unit,
     onLongPressApp: (AppEntry) -> Unit,
+    onLongPressHome: () -> Unit = {},
     onWaveTick: () -> Unit
 ) {
     val density = LocalDensity.current
@@ -2079,6 +2112,12 @@ fun HomeScreenView(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+                onLongClick = { onLongPressHome() }
+            )
             .then(
                 if (editMode) {
                     // Edit Mode banner above already consumes statusBars & displayCutout top insets;
@@ -2124,7 +2163,14 @@ fun HomeScreenView(
                                     .border(1.dp, Color(0xFF383838), RoundedCornerShape(8.dp))
                                     .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
                                     .padding(8.dp)
-                            } else Modifier
+                            } else {
+                                Modifier.combinedClickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {},
+                                    onLongClick = { onLongPressHome() }
+                                )
+                            }
                         )
                 ) {
                     Column {
@@ -2439,7 +2485,12 @@ fun HomeScreenView(
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                modifier = Modifier.clickable { onOpenClockApp() }
+                                                modifier = Modifier.combinedClickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null,
+                                                    onClick = { onOpenClockApp() },
+                                                    onLongClick = { onLongPressHome() }
+                                                )
                                             ) {
                                                 Text(
                                                     text = "$currentHourStr:$currentMinStr $currentAmPmStr".trim(),
@@ -2489,7 +2540,12 @@ fun HomeScreenView(
                                             }
                                             Row(
                                                 verticalAlignment = Alignment.Bottom,
-                                                modifier = Modifier.clickable { onOpenClockApp() }
+                                                modifier = Modifier.combinedClickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null,
+                                                    onClick = { onOpenClockApp() },
+                                                    onLongClick = { onLongPressHome() }
+                                                )
                                             ) {
                                                 Text(
                                                     text = currentHourStr,
@@ -2596,7 +2652,12 @@ fun HomeScreenView(
                                         else -> {
                                             Row(
                                                 verticalAlignment = Alignment.Bottom,
-                                                modifier = Modifier.clickable { onOpenClockApp() }
+                                                modifier = Modifier.combinedClickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null,
+                                                    onClick = { onOpenClockApp() },
+                                                    onLongClick = { onLongPressHome() }
+                                                )
                                             ) {
                                                 Text(
                                                     text = currentHourStr,
@@ -2713,7 +2774,8 @@ fun HomeScreenView(
                                     sizeMode = sizeMode,
                                     accentColor = accentColor,
                                     lomoFontFamily = wFontFamily,
-                                    onOpenClockApp = onOpenClockApp
+                                    onOpenClockApp = onOpenClockApp,
+                                    onLongPressHome = onLongPressHome
                                 )
                             }
                             "analog_chrono" -> {
@@ -2727,7 +2789,9 @@ fun HomeScreenView(
                                     sizeMode = sizeMode,
                                     accentColor = accentColor,
                                     lomoFontFamily = wFontFamily,
-                                    onOpenClockApp = onOpenClockApp
+                                    widgetsActive = widgetsActive,
+                                    onOpenClockApp = onOpenClockApp,
+                                    onLongPressHome = onLongPressHome
                                 )
                             }
                             "precision_chrono" -> {
@@ -2735,6 +2799,8 @@ fun HomeScreenView(
                                     sizeMode = sizeMode,
                                     accentColor = accentColor,
                                     lomoFontFamily = wFontFamily,
+                                    widgetsActive = widgetsActive,
+                                    onLongPressHome = onLongPressHome,
                                     onTick = onWaveTick
                                 )
                             }
@@ -2771,7 +2837,12 @@ fun HomeScreenView(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { onToggleTorch() }
+                                        .combinedClickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null,
+                                            onClick = { onToggleTorch() },
+                                            onLongClick = { onLongPressHome() }
+                                        )
                                         .border(1.dp, if (torchEnabled) accentColor else Color(0xFF242424), RoundedCornerShape(8.dp))
                                         .background(if (torchEnabled) accentColor.copy(alpha = 0.12f) else Color(0xFF060606), RoundedCornerShape(8.dp))
                                         .padding(horizontal = 12.dp, vertical = padV),
@@ -2929,7 +3000,12 @@ fun HomeScreenView(
                                         fontSize = 10.sp,
                                         fontFamily = wFontFamily,
                                         fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.clickable { onToggleZen() }
+                                        modifier = Modifier.combinedClickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null,
+                                            onClick = { onToggleZen() },
+                                            onLongClick = { onLongPressHome() }
+                                        )
                                     )
                                 }
                             }
@@ -2977,6 +3053,8 @@ fun HomeScreenView(
                                         axisRotXDeg = globeRotXDeg,
                                         axisRotYDeg = globeRotYDeg,
                                         interactive = !editMode,
+                                        widgetsActive = widgetsActive,
+                                        onLongPressHome = onLongPressHome,
                                         onTick = onWaveTick
                                     )
                                 }
@@ -3799,6 +3877,8 @@ fun RetroFuturisticGlobeView(
     axisRotXDeg: Float = 14f,
     axisRotYDeg: Float = -77f,
     interactive: Boolean = true,
+    widgetsActive: Boolean = true,
+    onLongPressHome: () -> Unit = {},
     onTick: () -> Unit
 ) {
     val targetRollRad = ((axisTilt2dDeg.coerceIn(-180f, 180f)) * PI / 180.0).toFloat()
@@ -3807,6 +3887,7 @@ fun RetroFuturisticGlobeView(
     val currentTargetRoll by rememberUpdatedState(targetRollRad)
     val currentTargetPitch by rememberUpdatedState(targetPitchRad)
     val currentBaseYawOffset by rememberUpdatedState(baseYawOffsetRad)
+    val currentOnLongPressHome by rememberUpdatedState(onLongPressHome)
     val baseSpinSpeed = 0.28f  // calm, precise autonomous Y-axis spin (radians/sec)
 
     var spinYawDelta by remember { mutableStateOf(0f) }
@@ -3826,8 +3907,26 @@ fun RetroFuturisticGlobeView(
     var velRoll by remember { mutableStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
 
-    // Interactive 3D Globe Zoom (Double-tap to cycle 1.0x -> 1.75x -> 2.65x)
-    var targetGlobeZoom by remember { mutableStateOf(1.0f) }
+    // Double-Tap to Unlock Interaction Mode:
+    // - By default, single tap does nothing and normal swipes pass through to the Home Screen.
+    // - Double-tapping unlocks 3D touch interaction (and auto-locks after 8s of idle or another double-tap).
+    var isInteractionUnlocked by remember { mutableStateOf(false) }
+    var lastInteractionMs by remember { mutableStateOf(0L) }
+
+    LaunchedEffect(interactive) {
+        if (!interactive) isInteractionUnlocked = false
+    }
+
+    LaunchedEffect(isInteractionUnlocked, lastInteractionMs, isDragging) {
+        if (isInteractionUnlocked && !isDragging) {
+            delay(8_000L)
+            if (!isDragging && System.currentTimeMillis() - lastInteractionMs >= 7_800L) {
+                isInteractionUnlocked = false
+            }
+        }
+    }
+
+    val targetGlobeZoom = 1.0f
     val animatedGlobeZoom by animateFloatAsState(
         targetValue = targetGlobeZoom,
         animationSpec = spring(
@@ -3837,10 +3936,11 @@ fun RetroFuturisticGlobeView(
         label = "globeZoomAnim"
     )
 
-    // 120Hz physics & smooth spring posture recovery loop
-    LaunchedEffect(Unit) {
+    // 120Hz physics & smooth spring posture recovery loop (pauses when widgetsActive == false)
+    LaunchedEffect(widgetsActive) {
+        if (!widgetsActive) return@LaunchedEffect
         var lastFrameNanos = 0L
-        while (true) {
+        while (widgetsActive) {
             withFrameNanos { frameNanos ->
                 val dt = if (lastFrameNanos == 0L) {
                     0.016f
@@ -3886,26 +3986,33 @@ fun RetroFuturisticGlobeView(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(interactive) {
-                if (!interactive) return@pointerInput
                 detectTapGestures(
+                    onTap = {
+                        // Single tap intentionally does nothing
+                    },
                     onDoubleTap = {
-                        onTick()
-                        targetGlobeZoom = when {
-                            targetGlobeZoom < 1.35f -> 1.75f
-                            targetGlobeZoom < 2.2f -> 2.65f
-                            else -> 1.0f
+                        if (interactive) {
+                            onTick()
+                            isInteractionUnlocked = !isInteractionUnlocked
+                            lastInteractionMs = System.currentTimeMillis()
                         }
+                    },
+                    onLongPress = {
+                        isDragging = false
+                        currentOnLongPressHome()
                     }
                 )
             }
-            .pointerInput(interactive) {
-                if (!interactive) return@pointerInput
+            .pointerInput(interactive, isInteractionUnlocked) {
+                // User can only interact with (spin/drag) the globe after double-tapping it!
+                if (!interactive || !isInteractionUnlocked) return@pointerInput
                 var lastHapticStep = 0
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     var prevPos = down.position
                     var prevTime = down.uptimeMillis
                     var movedEnough = false
+                    lastInteractionMs = System.currentTimeMillis()
 
                     do {
                         val event = awaitPointerEvent()
@@ -3915,7 +4022,7 @@ fun RetroFuturisticGlobeView(
                             val curTime = change.uptimeMillis
                             val dx = curPos.x - prevPos.x
                             val dy = curPos.y - prevPos.y
-                            if (!movedEnough && hypot(dx, dy) > 2.5f) {
+                            if (!movedEnough && hypot(dx, dy) > 3.5f) {
                                 movedEnough = true
                                 isDragging = true
                                 velYaw = 0f
@@ -3924,22 +4031,24 @@ fun RetroFuturisticGlobeView(
                             }
                             if (movedEnough) {
                                 change.consume()
+                                lastInteractionMs = System.currentTimeMillis()
                                 val dtMs = (curTime - prevTime).coerceAtLeast(1L)
                                 val dtSec = dtMs / 1000f
 
-                                val sens = 0.0095f / animatedGlobeZoom.coerceAtLeast(1f)
+                                // Decreased sensitivity (0.0034f instead of 0.0095f) for smooth, weighted 3D control
+                                val sens = 0.0034f / animatedGlobeZoom.coerceAtLeast(1f)
                                 spinYawDelta += dx * sens
                                 pitch = (pitch - dy * sens).coerceIn(-1.45f, 1.45f)
-                                roll = (roll + (dx * dy) * 0.00014f).coerceIn(-0.85f, 0.85f)
+                                roll = (roll + (dx * dy) * 0.000045f).coerceIn(-3.1416f, 3.1416f)
 
                                 val instVelYaw = (dx * sens) / dtSec
                                 val instVelPitch = (-dy * sens) / dtSec
-                                val instVelRoll = ((dx * dy) * 0.00014f) / dtSec
-                                velYaw = (velYaw * 0.35f + instVelYaw * 0.65f).coerceIn(-14f, 14f)
-                                velPitch = (velPitch * 0.35f + instVelPitch * 0.65f).coerceIn(-12f, 12f)
-                                velRoll = (velRoll * 0.35f + instVelRoll * 0.65f).coerceIn(-8f, 8f)
+                                val instVelRoll = ((dx * dy) * 0.000045f) / dtSec
+                                velYaw = (velYaw * 0.55f + instVelYaw * 0.45f).coerceIn(-4.2f, 4.2f)
+                                velPitch = (velPitch * 0.55f + instVelPitch * 0.45f).coerceIn(-3.6f, 3.6f)
+                                velRoll = (velRoll * 0.55f + instVelRoll * 0.45f).coerceIn(-2.4f, 2.4f)
 
-                                val step = (((currentBaseYawOffset + spinYawDelta) * 7f).toInt())
+                                val step = (((currentBaseYawOffset + spinYawDelta) * 5f).toInt())
                                 if (step != lastHapticStep) {
                                     lastHapticStep = step
                                     onTick()
@@ -3951,6 +4060,7 @@ fun RetroFuturisticGlobeView(
                     } while (event.changes.any { it.pressed })
 
                     isDragging = false
+                    lastInteractionMs = System.currentTimeMillis()
                 }
             },
         contentAlignment = Alignment.Center
@@ -4298,20 +4408,28 @@ fun RetroFuturisticGlobeView(
                 }
             }
 
-            // 6. 3D Atmospheric Fresnel Rim Halo & Outer Planetary Horizon Ring
-            val rimGlowColor = if (isWireframe) wfColor.copy(alpha = 0.28f) else Color(0xFF28E098).copy(alpha = 0.32f)
-            val rimCoreColor = if (isWireframe) wfColor.copy(alpha = 0.88f) else Color(0xFF70FFBA).copy(alpha = 0.88f)
+            // 6. 3D Atmospheric Fresnel Rim Halo & Outer Planetary Horizon Ring (Highlights when Double-Tap Interaction Mode is unlocked)
+            val rimGlowColor = when {
+                isInteractionUnlocked -> wfColor.copy(alpha = 0.48f)
+                isWireframe -> wfColor.copy(alpha = 0.28f)
+                else -> Color(0xFF28E098).copy(alpha = 0.32f)
+            }
+            val rimCoreColor = when {
+                isInteractionUnlocked -> wfColor
+                isWireframe -> wfColor.copy(alpha = 0.88f)
+                else -> Color(0xFF70FFBA).copy(alpha = 0.88f)
+            }
             drawCircle(
                 color = rimGlowColor,
                 radius = radius,
                 center = Offset(cx, cy),
-                style = Stroke(width = 3.2.dp.toPx())
+                style = Stroke(width = if (isInteractionUnlocked) 4.5.dp.toPx() else 3.2.dp.toPx())
             )
             drawCircle(
                 color = rimCoreColor,
                 radius = radius,
                 center = Offset(cx, cy),
-                style = Stroke(width = 1.15.dp.toPx())
+                style = Stroke(width = if (isInteractionUnlocked) 1.85.dp.toPx() else 1.15.dp.toPx())
             )
         }
     }
@@ -5154,6 +5272,7 @@ fun LauncherSettingsView(
     drawerTextSizeSp: Int,
     use24Hour: Boolean,
     hideAndroidBar: Boolean,
+    pauseWhenAppOpen: Boolean = true,
     waveScrubMode: String,
     drawerWaveIntensity: Float,
     wallpaperPreset: String,
@@ -5174,6 +5293,7 @@ fun LauncherSettingsView(
     onChangeDrawerTextSize: (Int) -> Unit,
     onToggle24h: () -> Unit,
     onToggleAndroidBar: () -> Unit,
+    onTogglePauseWhenAppOpen: () -> Unit = {},
     onChangeWaveMode: (String) -> Unit,
     onChangeDrawerWaveIntensity: (Float) -> Unit,
     onChangeWallpaperPreset: (String) -> Unit,
@@ -5325,6 +5445,13 @@ fun LauncherSettingsView(
                     actionLabel = if (hideAndroidBar) "HIDDEN (ON)" else "SHOWN (OFF)",
                     lomoFontFamily = launcherFont,
                     onClick = onToggleAndroidBar
+                )
+                SettingCard(
+                    title = "Pause Live Wallpapers & Widgets in Apps",
+                    subtitle = "Turn ON to pause live wallpapers and widgets when an app is open, or OFF to keep everything running",
+                    actionLabel = if (pauseWhenAppOpen) "PAUSED (ON)" else "RUNNING (OFF)",
+                    lomoFontFamily = launcherFont,
+                    onClick = onTogglePauseWhenAppOpen
                 )
 
                 // Settings Menu Background Style (Opaque, Transparent, Blurry) + Intensity Slider
@@ -6530,7 +6657,7 @@ fun WallpaperTuningRow(
 // - 8 Live Wallpapers + 36 Static Wallpapers (including Halftone, Glowing & Fade series)
 // ============================================================================
 // ============================================================================
-// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v3.9.1-cmf)
+// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.0.0-cmf)
 // - Pre-allocates all primitive FloatArray/IntArray buffers and a single native Paint once
 // - Zero object allocations inside step() or draw() -> 0 bytes/frame GC overhead
 // - Features >= 1,000 stars (1,200 default, up to 1,800 with density slider)
@@ -6715,6 +6842,7 @@ fun OledWallpaperCanvas(
     wpOpacity: Float = 1.0f,
     wpScale: Float = 1.0f,
     isScreenVisible: Boolean = true,
+    pauseWhenAppOpen: Boolean = true,
     userWallpaperRefreshTrigger: Int = 0
 ) {
     val context = LocalContext.current
@@ -6729,8 +6857,8 @@ fun OledWallpaperCanvas(
     val starfieldSimulation = remember { DeepSpaceStarfieldSimulation() }
     var isLifecycleResumed by remember { mutableStateOf(true) }
 
-    // Automatically call pause() and resume() when the Activity lifecycle or screen visibility changes
-    DisposableEffect(lifecycleOwner, isScreenVisible) {
+    // Automatically call pause() and resume() based on Activity lifecycle, screen visibility, and pauseWhenAppOpen setting
+    DisposableEffect(lifecycleOwner, isScreenVisible, pauseWhenAppOpen) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME, Lifecycle.Event.ON_START -> {
@@ -6739,13 +6867,18 @@ fun OledWallpaperCanvas(
                 }
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
                     isLifecycleResumed = false
-                    starfieldSimulation.pause()
+                    if (pauseWhenAppOpen) {
+                        starfieldSimulation.pause()
+                    } else if (isScreenVisible) {
+                        starfieldSimulation.resume()
+                    }
                 }
                 else -> {}
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        if (isScreenVisible && isLifecycleResumed) {
+        val allowRun = isScreenVisible && (isLifecycleResumed || !pauseWhenAppOpen)
+        if (allowRun) {
             starfieldSimulation.resume()
         } else {
             starfieldSimulation.pause()
@@ -6770,7 +6903,7 @@ fun OledWallpaperCanvas(
         } else null
     }
 
-    val shouldAnimateLive = isLive && isScreenVisible && isLifecycleResumed
+    val shouldAnimateLive = isLive && isScreenVisible && (isLifecycleResumed || !pauseWhenAppOpen)
     if (shouldAnimateLive) {
         LaunchedEffect(preset, shouldAnimateLive) {
             var lastNanos = 0L
@@ -7992,6 +8125,7 @@ fun OledWallpaperCanvas(
 // Zero filler labels · 100% live-accurate · All resizable
 // ============================================================================
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun RetroSplitFlapClockWidget(
     hourStr: String,
@@ -8002,7 +8136,8 @@ fun RetroSplitFlapClockWidget(
     sizeMode: String,
     accentColor: Color,
     lomoFontFamily: FontFamily,
-    onOpenClockApp: () -> Unit
+    onOpenClockApp: () -> Unit,
+    onLongPressHome: () -> Unit = {}
 ) {
     val tileHeight = when (sizeMode) {
         "compact" -> 42.dp
@@ -8027,7 +8162,12 @@ fun RetroSplitFlapClockWidget(
             .fillMaxWidth()
             .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
             .background(Color(0xFF060606), RoundedCornerShape(10.dp))
-            .clickable { onOpenClockApp() }
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { onOpenClockApp() },
+                onLongClick = { onLongPressHome() }
+            )
             .padding(horizontal = 12.dp, vertical = if (sizeMode == "compact") 8.dp else 10.dp)
     ) {
         Row(
@@ -8154,6 +8294,7 @@ private fun SplitFlapMechanicalTile(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun RetroAnalogChronoWidget(
     currentTimeMillis: Long,
@@ -8165,7 +8306,9 @@ fun RetroAnalogChronoWidget(
     sizeMode: String,
     accentColor: Color,
     lomoFontFamily: FontFamily,
-    onOpenClockApp: () -> Unit
+    widgetsActive: Boolean = true,
+    onOpenClockApp: () -> Unit,
+    onLongPressHome: () -> Unit = {}
 ) {
     val dialSize = when (sizeMode) {
         "compact" -> 64.dp
@@ -8175,10 +8318,11 @@ fun RetroAnalogChronoWidget(
         else -> 84.dp
     }
 
-    // Smooth sub-second live sweep for 100% accurate mechanical/quartz analog hands
+    // Smooth sub-second live sweep for 100% accurate mechanical/quartz analog hands (respects widgetsActive)
     var liveNowMs by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
+    LaunchedEffect(widgetsActive) {
+        if (!widgetsActive) return@LaunchedEffect
+        while (widgetsActive) {
             withFrameNanos {
                 liveNowMs = System.currentTimeMillis()
             }
@@ -8201,7 +8345,12 @@ fun RetroAnalogChronoWidget(
             .fillMaxWidth()
             .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
             .background(Color(0xFF060606), RoundedCornerShape(10.dp))
-            .clickable { onOpenClockApp() }
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { onOpenClockApp() },
+                onLongClick = { onLongPressHome() }
+            )
             .padding(horizontal = 14.dp, vertical = if (sizeMode == "compact") 8.dp else 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -8354,11 +8503,14 @@ fun RetroAnalogChronoWidget(
 // Dual sub-dial vector chronograph (60s sweep + 30m register + 1/10s dial)
 // with tactile RUN/PAUSE and LAP/RST controls & 120Hz frame-accurate stopwatch
 // ============================================================================
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PrecisionChronographWidget(
     sizeMode: String,
     accentColor: Color,
     lomoFontFamily: FontFamily,
+    widgetsActive: Boolean = true,
+    onLongPressHome: () -> Unit = {},
     onTick: () -> Unit
 ) {
     var running by remember { mutableStateOf(false) }
@@ -8367,10 +8519,10 @@ fun PrecisionChronographWidget(
     var displayElapsedMs by remember { mutableStateOf(0L) }
     var lastLapMs by remember { mutableStateOf<Long?>(null) }
 
-    LaunchedEffect(running) {
-        if (running) {
+    LaunchedEffect(running, widgetsActive) {
+        if (running && widgetsActive) {
             startRealtimeMs = System.currentTimeMillis()
-            while (running) {
+            while (running && widgetsActive) {
                 withFrameNanos {
                     displayElapsedMs = accumulatedMs + (System.currentTimeMillis() - startRealtimeMs)
                 }
@@ -8406,16 +8558,21 @@ fun PrecisionChronographWidget(
         Box(
             modifier = Modifier
                 .size(dialSize)
-                .clickable {
-                    onTick()
-                    if (running) {
-                        accumulatedMs += System.currentTimeMillis() - startRealtimeMs
-                        running = false
-                    } else {
-                        startRealtimeMs = System.currentTimeMillis()
-                        running = true
-                    }
-                },
+                .combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {
+                        onTick()
+                        if (running) {
+                            accumulatedMs += System.currentTimeMillis() - startRealtimeMs
+                            running = false
+                        } else {
+                            startRealtimeMs = System.currentTimeMillis()
+                            running = true
+                        }
+                    },
+                    onLongClick = { onLongPressHome() }
+                ),
             contentAlignment = Alignment.Center
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
