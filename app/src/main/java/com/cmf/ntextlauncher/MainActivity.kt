@@ -34,7 +34,10 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.*
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
@@ -364,7 +367,7 @@ enum class PrebuiltFont(
 }
 
 // ============================================================================
-// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.6.0-cmf)
+// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.6.1-cmf)
 // Calculates exact vertical height of active widgets + pinned Home apps (and scale)
 // to prevent overflow/scrolling and trigger the "NO SPACE LEFT" popup when full.
 // ============================================================================
@@ -454,7 +457,7 @@ private fun estimatePinnedAppsHeightDp(pinnedCount: Int, textSizeSp: Int): Float
 }
 
 // ============================================================================
-// iOS PHYSICAL RUBBER-BAND SPRING SCALE-FADE POPUP ENGINE (Nocturnaa v4.6.0-cmf)
+// iOS PHYSICAL RUBBER-BAND SPRING SCALE-FADE POPUP ENGINE (Nocturnaa v4.6.1-cmf)
 // - Starts slightly smaller (scale = 0.80f) and rapidly expands to full size (1.00f)
 //   while fading in from transparent (0f -> 1f) as the background simultaneously dims.
 // - Uses an underdamped physical rubber-band spring (dampingRatio = 0.62f, stiffness = 440f)
@@ -7913,7 +7916,7 @@ fun WallpaperTuningRow(
 // - 8 Live Wallpapers + 36 Static Wallpapers (including Halftone, Glowing & Fade series)
 // ============================================================================
 // ============================================================================
-// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.6.0-cmf)
+// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.6.1-cmf)
 // - Pre-allocates all primitive FloatArray/IntArray buffers and a single native Paint once
 // - Zero object allocations inside step() or draw() -> 0 bytes/frame GC overhead
 // - Features >= 1,000 stars (1,200 default, up to 1,800 with density slider)
