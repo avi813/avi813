@@ -11,8 +11,8 @@ android {
         applicationId = "com.cmf.ntextlauncher"
         minSdk = 29
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.2.0-cmf"
+        versionCode = 38
+        versionName = "4.5.0-cmf"
 
         vectorDrawables {
             useSupportLibrary = true

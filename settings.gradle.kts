@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "CMF-NText-Launcher"
+rootProject.name = "Nocturnaa"
 include(":app")

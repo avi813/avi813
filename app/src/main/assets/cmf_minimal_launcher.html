@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>N-TEXT // CMF Phone 1 Minimalist OLED Launcher Prototype</title>
+  <title>Nocturnaa // CMF Phone 1 Minimalist OLED Launcher Prototype</title>
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -38,8 +38,8 @@
     }
 
     .font-dot {
-      font-family: 'Silkscreen', 'DotGothic16', monospace;
-      letter-spacing: -0.03em;
+      font-family: 'DotGothic16', 'JetBrains Mono', monospace;
+      letter-spacing: 0.02em;
     }
 
     .font-ndot-matrix {
@@ -91,11 +91,40 @@
       background-color: #000000;
       background-image:
         repeating-radial-gradient(
-          circle at 100% 100%,
+          circle at 50% 44%,
           transparent 0,
           transparent 18px,
-          rgba(255, 255, 255, 0.05) 19px,
+          rgba(255, 255, 255, 0.06) 19px,
           transparent 20px
+        );
+    }
+
+    .wp-starfield {
+      background-color: #000000;
+      background-image:
+        radial-gradient(rgba(255, 255, 255, 0.28) 1px, transparent 1px),
+        radial-gradient(rgba(255, 59, 0, 0.22) 1px, transparent 1px);
+      background-size: 42px 42px, 68px 68px;
+      background-position: 0 0, 21px 29px;
+    }
+
+    .wp-glyph-circuit {
+      background-color: #000000;
+      background-image:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+        radial-gradient(circle at 30% 25%, rgba(255, 59, 0, 0.10), transparent 40%);
+      background-size: 24px 24px, 100% 100%;
+    }
+
+    .wp-crt-scanlines {
+      background-color: #000000;
+      background-image:
+        repeating-linear-gradient(
+          0deg,
+          rgba(255, 255, 255, 0.05) 0px,
+          rgba(255, 255, 255, 0.05) 1px,
+          transparent 1px,
+          transparent 5px
         );
     }
 
@@ -166,7 +195,7 @@
       flex-direction: column;
     }
 
-    /* Niagara Launcher Wave / Traversing Animation Rules */
+    /* Fluid Wave / Traversing Animation Rules */
     .app-item {
       transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.1), color 0.15s ease, opacity 0.15s ease, letter-spacing 0.15s ease;
       will-change: transform;
@@ -175,7 +204,7 @@
       transform: scale(0.97);
     }
 
-    .niagara-row {
+    .wave-row {
       transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.15s ease, opacity 0.16s ease;
       will-change: transform;
     }
@@ -205,7 +234,7 @@
       <div class="flex items-center gap-3">
         <div class="w-2.5 h-2.5 rounded-full bg-[#FF3B00] animate-dot"></div>
         <div class="flex items-center gap-2">
-          <span class="font-mono-tech text-xs tracking-widest uppercase text-white font-semibold">CMF // N-TEXT LAUNCHER</span>
+          <span class="font-mono-tech text-xs tracking-widest uppercase text-white font-semibold">CMF // Nocturnaa LAUNCHER</span>
           <span class="text-[10px] font-mono-tech px-2 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-neutral-400">Nothing OS 2.6 · Android 14</span>
           <span id="ramBadgeHeader" class="hidden sm:inline-block text-[10px] font-mono-tech px-2 py-0.5 rounded bg-emerald-950/50 border border-emerald-800/50 text-emerald-400">RAM: 8.4 MB · 0 Bg Services</span>
         </div>
@@ -270,7 +299,7 @@
             </div>
           </div>
 
-          <!-- CUSTOM N-TEXT MINIMAL TOP BAR (The one the user likes!) -->
+          <!-- CUSTOM Nocturnaa MINIMAL TOP BAR (The one the user likes!) -->
           <div id="statusBar" class="w-full px-6 pt-3 pb-1.5 flex items-center justify-between text-[11px] font-mono-tech text-neutral-300 z-20 shrink-0 relative">
             <div class="flex items-center gap-2">
               <span id="statusBarClock" class="font-medium tracking-tight">12:30</span>
@@ -292,14 +321,101 @@
             </div>
           </div>
 
+          <!-- SWIPE-DOWN ANDROID NOTIFICATION SHADE OVERLAY -->
+          <div id="notifShadeOverlay" class="hidden absolute inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col justify-between p-5 font-mono-tech">
+            <div>
+              <div class="flex items-center justify-between border-b border-neutral-800 pb-3 mb-3">
+                <div>
+                  <div class="text-xs text-white font-semibold">NOTHING OS 2.6 // NOTIFICATIONS</div>
+                  <div class="text-[10px] text-neutral-500">Swiped down from Home Screen</div>
+                </div>
+                <button id="btnCloseNotifShade" type="button" class="text-[10px] px-2.5 py-1 rounded border border-neutral-700 text-neutral-300 hover:text-white">CLOSE ↑</button>
+              </div>
+              <div class="space-y-2 text-xs">
+                <div class="p-3 rounded-xl border border-neutral-900 bg-neutral-950">
+                  <div class="flex items-center justify-between text-[10px] text-[#FF3B00]">
+                    <span>MESSAGES · NOW</span>
+                    <span>[2]</span>
+                  </div>
+                  <div class="text-white text-xs mt-1">APK v1.4 ready for CMF Phone 1</div>
+                </div>
+                <div class="p-3 rounded-xl border border-neutral-900 bg-neutral-950">
+                  <div class="flex items-center justify-between text-[10px] text-neutral-400">
+                    <span>SYSTEM · BATTERY</span>
+                    <span>86%</span>
+                  </div>
+                  <div class="text-neutral-300 text-xs mt-1">Pure OLED Black saving display power</div>
+                </div>
+              </div>
+            </div>
+            <div class="text-center text-[10px] text-neutral-600">Swipe up or tap CLOSE to return</div>
+          </div>
+
+          <!-- LONG-TAP HOME SCREEN "ACTIONS" MENU MODAL (Smooth Fluid Open/Close Animation) -->
+          <div id="homeQuickMenuModal" class="opacity-0 pointer-events-none transition-opacity duration-250 ease-out absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-5">
+            <div id="homeQuickMenuCard" class="w-full rounded-2xl bg-neutral-950 border border-neutral-800 p-4 shadow-2xl font-mono-tech transform scale-90 translate-y-5 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]">
+              <div class="flex items-center justify-between border-b border-neutral-900 pb-2.5 mb-3">
+                <div class="font-dot text-base text-white">Actions</div>
+              </div>
+              <div class="space-y-2 text-xs">
+                <button id="btnHomeMenuWidgets" type="button" class="w-full py-2.5 px-3 rounded-xl border border-neutral-800 hover:border-white bg-black text-white text-left flex items-center justify-between transition">
+                  <span>Widget Manager</span>
+                  <span style="color:var(--accent)" class="text-[10px]">WIDGETS</span>
+                </button>
+                <button id="btnHomeMenuEdit" type="button" class="w-full py-2.5 px-3 rounded-xl border border-neutral-800 hover:border-white bg-black text-white text-left flex items-center justify-between transition">
+                  <span>Edit Mode</span>
+                  <span style="color:var(--accent)" class="text-[10px]">EDIT</span>
+                </button>
+                <button id="btnHomeMenuSettings" type="button" class="w-full py-2.5 px-3 rounded-xl border border-neutral-800 hover:border-white bg-black text-white text-left flex items-center justify-between transition">
+                  <span>Nocturnaa Settings</span>
+                  <span style="color:var(--accent)" class="text-[10px]">LAUNCHER</span>
+                </button>
+                <button id="btnHomeMenuPhoneSettings" type="button" class="w-full py-2.5 px-3 rounded-xl border border-neutral-800 hover:border-white bg-black text-white text-left flex items-center justify-between transition">
+                  <span>Phone Settings</span>
+                  <span style="color:var(--accent)" class="text-[10px]">SYSTEM</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- LONG-PRESS APP CONTEXT MENU MODAL (Smooth Fluid Open/Close Animation) -->
+          <div id="appContextMenuModal" class="opacity-0 pointer-events-none transition-opacity duration-250 ease-out absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-5">
+            <div id="appContextMenuCard" class="w-full rounded-2xl bg-neutral-950 border border-neutral-800 p-4 shadow-2xl font-mono-tech transform scale-90 translate-y-5 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]">
+              <div class="flex items-center justify-between border-b border-neutral-900 pb-2.5 mb-3">
+                <div>
+                  <div id="ctxMenuAppName" class="font-dot text-base text-white uppercase">PHONE</div>
+                  <div id="ctxMenuAppPkg" class="text-[10px] text-neutral-500 mt-0.5">com.nothing.dialer · Android 14</div>
+                </div>
+                
+              </div>
+              <div class="space-y-2 text-xs">
+                <button id="btnCtxTogglePin" type="button" class="w-full py-2.5 px-3 rounded-xl border border-neutral-800 hover:border-white bg-black text-white text-left flex items-center justify-between transition">
+                  <span id="lblCtxTogglePin">Remove from Pinned Apps</span>
+                  <span style="color:var(--accent)">★</span>
+                </button>
+                <button id="btnCtxAppInfo" type="button" class="w-full py-2.5 px-3 rounded-xl border border-neutral-800 hover:border-white bg-black text-neutral-200 text-left flex items-center justify-between transition">
+                  <span>App Info</span>
+                  <span class="text-neutral-500">ⓘ</span>
+                </button>
+                <button id="btnCtxUninstall" type="button" class="w-full py-2.5 px-3 rounded-xl border border-red-900/60 hover:border-red-500 bg-red-950/20 text-red-400 text-left flex items-center justify-between transition">
+                  <span>Uninstall App</span>
+                  <span>×</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- IN-PHONE TOAST NOTIFICATION -->
           <div id="phoneToast" class="pointer-events-none opacity-0 transition-opacity duration-200 absolute top-11 left-1/2 -translate-x-1/2 z-50 bg-neutral-900/95 border border-neutral-700 text-white font-mono-tech text-[11px] px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap">
             Saved
           </div>
 
-          <!-- FLOATING NIAGARA WAVE LETTER INDICATOR BUBBLE -->
-          <div id="niagaraWaveBubble" class="pointer-events-none opacity-0 transition-all duration-150 absolute right-14 top-1/2 -translate-y-1/2 z-40 w-12 h-12 rounded-2xl bg-neutral-950/95 border border-neutral-700 flex items-center justify-center font-dot text-2xl text-white shadow-2xl">
-            A
+          <!-- MINIMALIST BLACK & WHITE STEPPED ALPHABET INDICATOR WITH RAZOR-THIN 1PX ACCENT STROKE -->
+          <div id="fluidWaveBubble" class="pointer-events-none opacity-0 transition-opacity duration-100 absolute right-11 top-1/2 -translate-y-1/2 z-40 w-[46px] h-[46px] flex items-center justify-center">
+            <svg id="fluidWavePixelSvg" viewBox="0 0 46 46" shape-rendering="crispEdges" class="absolute inset-0 w-full h-full">
+              <path id="pxSlotB" d="M 4 0.5 L 42 0.5 L 42 4 L 45.5 4 L 45.5 42 L 42 42 L 42 45.5 L 4 45.5 L 4 42 L 0.5 42 L 0.5 4 L 4 4 Z" fill="#000000" stroke="#FF3B00" stroke-width="1"/>
+            </svg>
+            <span id="fluidWaveBubbleLetter" class="relative z-10 font-dot text-[20px] text-white font-bold">A</span>
           </div>
 
           <!-- EDIT MODE BANNER INSIDE PHONE (Visible when customizing home/widgets) -->
@@ -317,24 +433,27 @@
           <div id="viewHome" class="flex-1 flex flex-col justify-between px-6 py-2 overflow-y-auto relative z-10">
 
             <!-- TOP / REMOVABLE WIDGETS STACK -->
-            <div id="homeWidgetsContainer" class="flex flex-col gap-2.5 pt-1">
+            <div id="homeWidgetsContainer" class="flex flex-col gap-2.5 pt-1 shrink-0">
               <!-- Populated dynamically by renderHomeWidgets() -->
             </div>
 
-            <!-- MIDDLE / FAVORITE APPS (TEXT-ONLY LIST + NIAGARA TRAVERSING WAVE) -->
-            <div class="my-auto py-4 relative flex items-center">
+            <!-- FLEXIBLE SPACER (Globe & Black Hole are now resizable, removable widgets inside #homeWidgetsContainer!) -->
+            <div class="flex-1 min-h-[12px]"></div>
+
+            <!-- BOTTOM / FAVORITE APPS (TEXT-ONLY LIST + Fluid TRAVERSING WAVE) -->
+            <div class="mb-4 py-1 relative flex items-center shrink-0">
               <div id="homeAppsList" class="flex-1 flex flex-col pr-4">
                 <!-- Populated dynamically by renderHomeApps() -->
               </div>
 
-              <!-- Subtle Niagara-style Right-Edge Wave Strip on Home Screen -->
-              <div id="homeWaveStrip" class="w-4 py-2 flex flex-col items-center justify-center gap-0.5 text-[8px] font-mono-tech text-neutral-600 cursor-ns-resize select-none" title="Slide or hover to traverse apps (Niagara Wave)">
+              <!-- Subtle Fluid Right-Edge Wave Strip on Home Screen -->
+              <div id="homeWaveStrip" class="w-6 py-1 self-stretch flex flex-col items-center justify-around text-[12px] font-mono-tech text-neutral-500 cursor-ns-resize select-none" title="Slide or hover to traverse apps (Fluid Wave)">
                 <!-- Populated dynamically by renderHomeWaveStrip() -->
               </div>
             </div>
 
-            <!-- BOTTOM MINIMAL DOCK / SEARCH & ALL APPS TRIGGER -->
-            <div class="pt-1 pb-2 flex items-center justify-between border-t border-neutral-900/90 text-neutral-500">
+            <!-- BOTTOM MINIMAL DOCK HIDDEN PER USER REQUEST (Replaced by Long-Tap Home Menu) -->
+            <div class="hidden pt-1 pb-2 items-center justify-between border-t border-neutral-900/90 text-neutral-500">
               <button id="btnQuickSearchHome" type="button" class="font-mono-tech text-[11px] hover:text-white transition flex items-center gap-1.5 py-1">
                 <span>/ search</span>
               </button>
@@ -349,7 +468,7 @@
                 <button id="btnLongPressHint" type="button" class="font-mono-tech text-[11px] hover:text-white transition py-1" title="Customize Widgets & Home">
                   <span>+ widgets</span>
                 </button>
-                <button id="btnOpenSettingsFromHome" type="button" class="font-mono-tech text-[11px] hover:text-white transition py-1" title="Open Launcher Settings inside Phone">
+                <button id="btnOpenSettingsFromHome" type="button" class="font-mono-tech text-[11px] hover:text-white transition py-1" title="Open Nocturnaa Settings inside Phone">
                   <span>⚙ settings</span>
                 </button>
               </div>
@@ -370,7 +489,7 @@
                 autocomplete="off"
                 class="w-full bg-transparent text-white font-mono-tech text-xs focus:outline-none placeholder-neutral-600"
               />
-              <button id="btnClearSearch" type="button" class="text-neutral-500 hover:text-white font-mono-tech text-xs px-1">esc</button>
+              <button id="btnClearSearch" type="button" class="hidden text-neutral-500 hover:text-white font-mono-tech text-sm px-1">×</button>
             </div>
 
             <!-- Instant Calculator / Direct Action Pill (shows when user types math) -->
@@ -386,16 +505,16 @@
                 <button id="filterDrawerPinned" type="button" class="hover:text-neutral-300">PINNED</button>
                 <button id="filterDrawerHidden" type="button" class="hover:text-neutral-300">HIDDEN</button>
               </div>
-              <span class="text-neutral-600">Slide A–Z for Niagara Wave</span>
+              <span class="text-neutral-600">Slide A–Z for Fluid Wave</span>
             </div>
 
-            <!-- App List + Niagara A-Z Wave Scrubber -->
+            <!-- App List + Fluid A-Z Wave Scrubber -->
             <div class="flex-1 flex overflow-hidden relative">
-              <div id="drawerAppsList" class="flex-1 overflow-y-auto pr-6 space-y-0.5">
+              <div id="drawerAppsList" class="flex-1 overflow-y-auto pr-6 pb-4 space-y-0.5 cursor-grab active:cursor-grabbing">
                 <!-- Populated by renderDrawerApps() -->
               </div>
 
-              <!-- A-Z Minimalist Index Scrubber with Niagara Wave Animation -->
+              <!-- A-Z Minimalist Index Scrubber with Fluid Wave Animation -->
               <div id="azScrubber" class="w-6 flex flex-col justify-center items-center text-[9px] font-mono-tech text-neutral-500 select-none shrink-0 space-y-0.5 cursor-ns-resize z-30">
                 <!-- Populated by renderAzScrubber() -->
               </div>
@@ -422,156 +541,216 @@
           </div>
 
           <!-- ========================================== -->
-          <!-- VIEW 4: LAUNCHER SETTINGS (IN-PHONE)       -->
+          <!-- VIEW 4: NOCTURNAA SETTINGS (IN-PHONE)       -->
+          <!-- Collapsible Accordion Menus · Zero Widget Customization Clutter -->
           <!-- ========================================== -->
           <div id="viewSettings" class="hidden flex-1 flex flex-col px-5 pt-2 pb-2 overflow-y-auto bg-black/95 font-mono-tech z-10">
             <div class="border-b border-neutral-900 pb-2 mb-3 flex items-center justify-between">
               <div>
-                <h2 class="text-xs uppercase tracking-wider text-white">N-TEXT // SETTINGS</h2>
-                <p class="text-[10px] text-neutral-500">Nothing OS 2.6 · API 34 (Android 14)</p>
+                <h2 class="text-xs uppercase tracking-wider text-white">NOCTURNAA SETTINGS</h2>
               </div>
-              <span class="text-[10px] px-1.5 py-0.5 rounded bg-neutral-900 text-neutral-400">v1.2-niagara</span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-neutral-900 text-neutral-400">v2.9-cmf</span>
             </div>
 
-            <div class="space-y-2.5 text-xs pb-2">
-              <!-- 1. Set Default Home Launcher -->
-              <div class="p-2.5 rounded-lg border border-neutral-800 bg-neutral-950/90 flex items-center justify-between">
-                <div>
-                  <div class="text-white text-[11px] flex items-center gap-1.5">
-                    <span class="w-1.5 h-1.5 rounded-full bg-[#FF3B00]"></span>
-                    <span>Default Home Launcher</span>
+            <div class="space-y-2.5 text-xs pb-3">
+              <!-- SECTION 01: SYSTEM & HOME INTEGRATION (Collapsed by default) -->
+              <details class="group rounded-xl border border-neutral-800 bg-neutral-950/90 overflow-hidden">
+                <summary class="cursor-pointer list-none p-3 flex items-center justify-between select-none">
+                  <div class="flex items-center gap-2">
+                    <span class="px-1.5 py-0.5 rounded border border-[#FF3B00]/50 text-[#FF3B00] text-[9px] font-bold">01</span>
+                    <div>
+                      <div class="text-white text-[11px] font-semibold">System &amp; Home Integration</div>
+                      <div class="text-[9px] text-neutral-500">Default launcher role, status bar &amp; sleep</div>
+                    </div>
                   </div>
-                  <div id="inPhoneDefaultHomeSub" class="text-[10px] text-emerald-400 mt-0.5">Active: N-TEXT Minimal</div>
-                </div>
-                <button id="btnOpenDefaultHomeDialogPhone" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">Change</button>
-              </div>
+                  <span class="text-neutral-400 group-open:rotate-180 transition-transform text-xs">▾</span>
+                </summary>
+                <div class="px-3 pb-3 pt-2 border-t border-neutral-900 space-y-2">
+                  <div class="p-2 rounded-lg border border-neutral-900 bg-black flex items-center justify-between">
+                    <div>
+                      <div class="text-white text-[11px]">Default Home Launcher</div>
+                      <div id="inPhoneDefaultHomeSub" class="text-[9px] text-emerald-400">Active: Nocturnaa Minimal</div>
+                    </div>
+                    <button id="btnOpenDefaultHomeDialogPhone" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">Change</button>
+                  </div>
+                  <div class="p-2 rounded-lg border border-neutral-900 bg-black flex items-center justify-between">
+                    <div>
+                      <div class="text-white text-[11px]">Hide Android Status Bar</div>
+                      <div class="text-[9px] text-neutral-500">Swipe down on Home for notifications</div>
+                    </div>
+                    <button id="toggleHideAndroidNotifBar" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">ON</button>
+                  </div>
+                  <div class="p-2 rounded-lg border border-neutral-900 bg-black space-y-1.5">
+                    <div class="flex items-center justify-between">
+                      <span class="text-white text-[11px]">Settings Backdrop</span>
+                      <span id="lblSettingsBgStyle" class="text-[9px] text-[#FF3B00] font-bold">OPAQUE · 65%</span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-1 text-[9px]">
+                      <button type="button" onclick="window.setSettingsBackdropMode('opaque')" class="py-1 rounded border border-neutral-700 bg-neutral-900 text-white">OPAQUE</button>
+                      <button type="button" onclick="window.setSettingsBackdropMode('transparent')" class="py-1 rounded border border-neutral-800 bg-neutral-950 text-neutral-300">TRANSPARENT</button>
+                      <button type="button" onclick="window.setSettingsBackdropMode('blurry')" class="py-1 rounded border border-neutral-800 bg-neutral-950 text-neutral-300">BLURRY</button>
+                    </div>
+                    <input id="rangeSettingsBgIntensity" type="range" min="0" max="100" value="65" oninput="window.updateSettingsBackdropIntensity(this.value)" class="w-full accent-[#FF3B00] cursor-pointer" />
+                  </div>
 
-              <!-- 2. Change Wallpaper Setting -->
-              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60">
-                <div class="flex items-center justify-between mb-1.5">
+                  <div class="flex items-center justify-between pt-1 text-[10px] gap-1">
+                    <button id="inPhoneToggleCustomTopBar" type="button" class="flex-1 py-1 rounded border border-neutral-800 text-neutral-300">Nocturnaa Bar: ON</button>
+                    <button id="inPhoneToggleNavMode" type="button" class="flex-1 py-1 rounded border border-neutral-800 text-neutral-300">Nav: 3-Btn</button>
+                  </div>
+                </div>
+              </details>
+
+              <!-- SECTION 02: TYPOGRAPHY & LAYOUT (Collapsible) -->
+              <details class="group rounded-xl border border-neutral-800 bg-neutral-950/90 overflow-hidden">
+                <summary class="cursor-pointer list-none p-3 flex items-center justify-between select-none">
+                  <div class="flex items-center gap-2">
+                    <span class="px-1.5 py-0.5 rounded border border-[#FF3B00]/50 text-[#FF3B00] text-[9px] font-bold">02</span>
+                    <div>
+                      <div class="text-white text-[11px] font-semibold">Typography &amp; Layout</div>
+                      <div class="text-[9px] text-neutral-500">Font engine, text scale &amp; alignment</div>
+                    </div>
+                  </div>
+                  <span class="text-neutral-400 group-open:rotate-180 transition-transform text-xs">▾</span>
+                </summary>
+                <div class="px-3 pb-3 pt-2 border-t border-neutral-900 space-y-2.5">
                   <div>
-                    <div class="text-white text-[11px]">OLED Wallpaper</div>
-                    <div class="text-[10px] text-neutral-500">Pure #000000, Nothing Grids, or Custom</div>
+                    <div class="text-neutral-400 text-[9px] uppercase mb-1.5">Prebuilt Font Style</div>
+                    <div class="grid grid-cols-3 gap-1 text-[10px]">
+                      <button type="button" data-set-font="dot" class="py-1 rounded border border-neutral-800 text-neutral-300 font-dot">N-Dot</button>
+                      <button type="button" data-set-font="ndot" class="py-1 rounded border border-neutral-800 text-neutral-300 font-ndot-matrix">Matrix</button>
+                      <button type="button" data-set-font="mono" class="py-1 rounded border border-neutral-800 text-neutral-300 font-mono-tech">JetBrains</button>
+                      <button type="button" data-set-font="spacemono" class="py-1 rounded border border-neutral-800 text-neutral-300 font-space-mono">SpaceMono</button>
+                      <button type="button" data-set-font="sans" class="py-1 rounded border border-neutral-800 text-neutral-300 font-sans">Clean Sans</button>
+                      <button type="button" data-set-font="editorial" class="py-1 rounded border border-neutral-800 text-neutral-300 font-editorial text-xs">Editorial</button>
+                    </div>
                   </div>
-                  <label for="wallpaperFileInput" class="cursor-pointer px-2 py-0.5 rounded text-[10px] border border-neutral-700 hover:border-white text-neutral-200">
-                    Upload
-                  </label>
-                </div>
-                <div class="grid grid-cols-5 gap-1 text-[9px]">
-                  <button type="button" data-set-wp="oled" class="py-1 rounded border border-neutral-700 bg-black text-white">OLED</button>
-                  <button type="button" data-set-wp="dots" class="py-1 rounded border border-neutral-800 bg-neutral-950 text-neutral-400">Dots</button>
-                  <button type="button" data-set-wp="blueprint" class="py-1 rounded border border-neutral-800 bg-neutral-950 text-neutral-400">CMF</button>
-                  <button type="button" data-set-wp="mesh" class="py-1 rounded border border-neutral-800 bg-neutral-950 text-neutral-400">Mesh</button>
-                  <button type="button" data-set-wp="topo" class="py-1 rounded border border-neutral-800 bg-neutral-950 text-neutral-400">Topo</button>
-                </div>
-                <div class="mt-2 pt-1.5 border-t border-neutral-900 flex items-center justify-between gap-2 text-[10px]">
-                  <span class="text-neutral-400">Wallpaper Dim: <strong id="inPhoneLabelWpDim" class="text-white">50%</strong></span>
-                  <input id="inPhoneRangeWpDim" type="range" min="0" max="85" value="50" class="w-28 accent-[#FF3B00] cursor-pointer" />
-                </div>
-              </div>
-
-              <!-- 2b. Home Text Alignment, Accent Color & Text Scale (In-Phone) -->
-              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60 space-y-2">
-                <div class="flex items-center justify-between">
-                  <span class="text-white text-[11px]">Text Alignment</span>
-                  <div class="flex items-center gap-1 text-[10px]">
-                    <button type="button" data-set-align="left" class="px-2 py-0.5 rounded border border-neutral-800 text-neutral-300">Left</button>
-                    <button type="button" data-set-align="center" class="px-2 py-0.5 rounded border border-neutral-800 text-neutral-300">Center</button>
-                    <button type="button" data-set-align="right" class="px-2 py-0.5 rounded border border-neutral-800 text-neutral-300">Right</button>
+                  <div class="flex items-center justify-between pt-1.5 border-t border-neutral-900">
+                    <span class="text-white text-[11px]">Text Alignment</span>
+                    <div class="flex items-center gap-1 text-[10px]">
+                      <button type="button" data-set-align="left" class="px-2 py-0.5 rounded border border-neutral-800 text-neutral-300">Left</button>
+                      <button type="button" data-set-align="center" class="px-2 py-0.5 rounded border border-neutral-800 text-neutral-300">Center</button>
+                      <button type="button" data-set-align="right" class="px-2 py-0.5 rounded border border-neutral-800 text-neutral-300">Right</button>
+                    </div>
+                  </div>
+                  <div class="flex items-center justify-between pt-1.5 border-t border-neutral-900 text-[10px]">
+                    <span class="text-white text-[11px]">Home Text Size: <strong id="inPhoneLabelTextSize" class="text-neutral-300">20px</strong></span>
+                    <input id="inPhoneRangeTextSize" type="range" min="15" max="28" value="20" class="w-28 accent-[#FF3B00] cursor-pointer" />
+                  </div>
+                  <div class="flex items-center justify-between pt-1.5 border-t border-neutral-900 text-[10px]">
+                    <span class="text-white text-[11px]">Drawer App Scale: <strong id="inPhoneLabelDrawerSize" class="text-neutral-300">16sp</strong></span>
+                    <input id="inPhoneRangeDrawerSize" type="range" min="12" max="26" value="16" oninput="document.getElementById('inPhoneLabelDrawerSize').textContent=this.value+'sp';document.querySelectorAll('#drawerAppList .drawer-app-label').forEach(el=>el.style.fontSize=this.value+'px');" class="w-28 accent-[#FF3B00] cursor-pointer" />
                   </div>
                 </div>
-                <div class="flex items-center justify-between pt-1 border-t border-neutral-900">
-                  <span class="text-white text-[11px]">OLED Accent</span>
-                  <div class="flex items-center gap-1 text-[10px]">
-                    <button type="button" data-set-accent="#FF3B00" class="px-2 py-0.5 rounded border border-neutral-800 text-[#FF3B00]">CMF</button>
-                    <button type="button" data-set-accent="#FFFFFF" class="px-2 py-0.5 rounded border border-neutral-800 text-white">B&amp;W</button>
-                    <button type="button" data-set-accent="#D71921" class="px-2 py-0.5 rounded border border-neutral-800 text-[#D71921]">N-Red</button>
+              </details>
+
+              <!-- SECTION 03: WALLPAPERS AND SETTINGS (Universal Dimmer + Live, Static & User Collapsible Sections) -->
+              <details class="group rounded-xl border border-neutral-800 bg-neutral-950/90 overflow-hidden">
+                <summary class="cursor-pointer list-none p-3 flex items-center justify-between select-none">
+                  <div class="flex items-center gap-2">
+                    <span class="px-1.5 py-0.5 rounded border border-[#FF3B00]/50 text-[#FF3B00] text-[9px] font-bold">03</span>
+                    <div>
+                      <div class="text-white text-[11px] font-semibold">Wallpapers and Settings</div>
+                      <div class="text-[9px] text-neutral-500">Universal dimmer + Live, Static &amp; User wallpapers</div>
+                    </div>
+                  </div>
+                  <span class="text-neutral-400 group-open:rotate-180 transition-transform text-xs">▾</span>
+                </summary>
+                <div class="px-3 pb-3 pt-2 border-t border-neutral-900 space-y-2.5">
+                  <details class="rounded-lg border border-neutral-800 bg-black/70 p-2">
+                    <summary class="cursor-pointer text-[10px] font-semibold text-white flex justify-between"><span>Live Wallpapers (8 Full-Screen + Lab)</span><span>▾</span></summary>
+                    <div class="grid grid-cols-2 gap-1 text-[9px] mt-2">
+                      <button type="button" data-set-wp="starfield" class="py-1.5 rounded border border-neutral-800 bg-neutral-950 text-neutral-300">Orbital Nodes</button>
+                      <button type="button" data-set-wp="mesh" class="py-1.5 rounded border border-neutral-800 bg-neutral-950 text-neutral-300">Aurora Glow Fade</button>
+                      <button type="button" data-set-wp="dots" class="py-1.5 rounded border border-neutral-800 bg-neutral-950 text-neutral-300">Halftone Wave</button>
+                      <button type="button" data-set-wp="topo" class="py-1.5 rounded border border-neutral-800 bg-neutral-950 text-neutral-300">Kepler Orbits</button>
+                    </div>
+                  </details>
+                  <details class="rounded-lg border border-neutral-800 bg-black/70 p-2">
+                    <summary class="cursor-pointer text-[10px] font-semibold text-white flex justify-between"><span>Static Wallpapers (36 Full-Screen Styles)</span><span>▾</span></summary>
+                    <div class="grid grid-cols-4 gap-1 text-[9px] mt-2">
+                      <button type="button" data-set-wp="oled" class="py-1.5 rounded border border-neutral-700 bg-black text-white">OLED</button>
+                      <button type="button" data-set-wp="dots" class="py-1.5 rounded border border-neutral-800 bg-neutral-950 text-neutral-400">Halftone</button>
+                      <button type="button" data-set-wp="blueprint" class="py-1.5 rounded border border-neutral-800 bg-neutral-950 text-neutral-400">CMF Grid</button>
+                      <button type="button" data-set-wp="mesh" class="py-1.5 rounded border border-neutral-800 bg-neutral-950 text-neutral-400">Glow Fade</button>
+                      <button type="button" data-set-wp="topo" class="py-1.5 rounded border border-neutral-800 bg-neutral-950 text-neutral-400">Topo</button>
+                      <button type="button" data-set-wp="starfield" class="py-1.5 rounded border border-neutral-800 bg-neutral-950 text-neutral-400">Star Map</button>
+                      <button type="button" data-set-wp="circuit" class="py-1.5 rounded border border-neutral-800 bg-neutral-950 text-neutral-400">Glyph PCB</button>
+                      <button type="button" data-set-wp="scanlines" class="py-1.5 rounded border border-neutral-800 bg-neutral-950 text-neutral-400">Scan Fade</button>
+                    </div>
+                  </details>
+                  <details class="rounded-lg border border-neutral-800 bg-black/70 p-2">
+                    <summary class="cursor-pointer text-[10px] font-semibold text-white flex justify-between"><span>User Wallpapers (Gallery &amp; 3rd-Party)</span><span>▾</span></summary>
+                    <div class="mt-2 flex items-center justify-between">
+                      <span class="text-[9px] text-neutral-400">Custom Photo / 3rd-Party</span>
+                      <label for="wallpaperFileInput" class="cursor-pointer px-2 py-1 rounded text-[9px] border border-neutral-700 hover:border-white text-neutral-200">+ Pick Photo</label>
+                    </div>
+                  </details>
+                  <div class="flex items-center justify-between pt-1.5 border-t border-neutral-900">
+                    <span class="text-white text-[11px]">OLED Accent</span>
+                    <div class="grid grid-cols-5 gap-1 text-[9px]">
+                      <button type="button" data-set-accent="#FF3B00" class="py-0.5 px-1.5 rounded border border-neutral-800 text-[#FF3B00]">CMF</button>
+                      <button type="button" data-set-accent="#FFFFFF" class="py-0.5 px-1.5 rounded border border-neutral-800 text-white">WHT</button>
+                      <button type="button" data-set-accent="#D71921" class="py-0.5 px-1.5 rounded border border-neutral-800 text-[#D71921]">RED</button>
+                      <button type="button" data-set-accent="#00FF66" class="py-0.5 px-1.5 rounded border border-neutral-800 text-[#00FF66]">GRN</button>
+                      <button type="button" data-set-accent="#00E5FF" class="py-0.5 px-1.5 rounded border border-neutral-800 text-[#00E5FF]">CYN</button>
+                      <button type="button" data-set-accent="#FFB000" class="py-0.5 px-1.5 rounded border border-neutral-800 text-[#FFB000]">AMB</button>
+                      <button type="button" data-set-accent="#A855F7" class="py-0.5 px-1.5 rounded border border-neutral-800 text-[#A855F7]">VLT</button>
+                      <button type="button" data-set-accent="#3B82F6" class="py-0.5 px-1.5 rounded border border-neutral-800 text-[#3B82F6]">BLU</button>
+                      <button type="button" data-set-accent="#FF2A85" class="py-0.5 px-1.5 rounded border border-neutral-800 text-[#FF2A85]">MAG</button>
+                      <button type="button" data-set-accent="#10B981" class="py-0.5 px-1.5 rounded border border-neutral-800 text-[#10B981]">MNT</button>
+                    </div>
+                  </div>
+                  <div class="pt-1.5 border-t border-neutral-900 flex items-center justify-between gap-2 text-[10px]">
+                    <span class="text-neutral-400">Custom Dim: <strong id="inPhoneLabelWpDim" class="text-white">50%</strong></span>
+                    <input id="inPhoneRangeWpDim" type="range" min="0" max="85" value="50" class="w-28 accent-[#FF3B00] cursor-pointer" />
                   </div>
                 </div>
-                <div class="flex items-center justify-between pt-1 border-t border-neutral-900 text-[10px]">
-                  <span class="text-white text-[11px]">Text Size: <strong id="inPhoneLabelTextSize" class="text-neutral-300">20px</strong></span>
-                  <input id="inPhoneRangeTextSize" type="range" min="15" max="28" value="20" class="w-28 accent-[#FF3B00] cursor-pointer" />
-                </div>
-              </div>
+              </details>
 
-              <!-- 2c. Manage Widgets & Clock/Top Bar (In-Phone) -->
-              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60 space-y-2">
-                <div class="flex items-center justify-between">
-                  <div>
-                    <div class="text-white text-[11px]">Home Screen Widgets</div>
-                    <div class="text-[10px] text-neutral-500">Add, reorder, or remove all widgets</div>
+              <!-- SECTION 04: MOTION & GESTURES (Collapsible) -->
+              <details class="group rounded-xl border border-neutral-800 bg-neutral-950/90 overflow-hidden">
+                <summary class="cursor-pointer list-none p-3 flex items-center justify-between select-none">
+                  <div class="flex items-center gap-2">
+                    <span class="px-1.5 py-0.5 rounded border border-[#FF3B00]/50 text-[#FF3B00] text-[9px] font-bold">04</span>
+                    <div>
+                      <div class="text-white text-[11px] font-semibold">App Drawer Settings</div>
+                      <div class="text-[9px] text-neutral-500">App drawer app name scale &amp; alphabet scroller wave</div>
+                    </div>
                   </div>
-                  <button id="btnOpenWidgetsFromSettings" type="button" class="px-2 py-1 rounded text-[10px] border border-neutral-700 hover:border-white text-white">Manage →</button>
+                  <span class="text-neutral-400 group-open:rotate-180 transition-transform text-xs">▾</span>
+                </summary>
+                <div class="px-3 pb-3 pt-2 border-t border-neutral-900 space-y-2">
+                  <div class="p-2 rounded-lg border border-neutral-900 bg-black space-y-1.5">
+                    <div class="flex items-center justify-between">
+                      <span class="text-white text-[11px]">Curved Horizontal Wave: <strong id="inPhoneLabelWaveIntensity" class="text-[#FF3B00]">100%</strong></span>
+                      <button id="toggleWaveScrub" type="button" class="px-2 py-0.5 rounded text-[9px] bg-white text-black font-semibold">ON</button>
+                    </div>
+                    <input id="inPhoneRangeWaveIntensity" type="range" min="0" max="200" value="100" oninput="document.getElementById('inPhoneLabelWaveIntensity').textContent=this.value+'%';" class="w-full accent-[#FF3B00] cursor-pointer" />
+                  </div>
+                  <div class="p-2 rounded-lg border border-neutral-900 bg-black flex items-center justify-between">
+                    <div>
+                      <div class="text-white text-[11px]">Auto-Open Keyboard</div>
+                      <div class="text-[9px] text-neutral-500">Focus search bar on drawer swipe</div>
+                    </div>
+                    <button id="toggleAutoKeyboard" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">OFF</button>
+                  </div>
+                  <div class="p-2 rounded-lg border border-neutral-900 bg-black flex items-center justify-between">
+                    <div>
+                      <div class="text-white text-[11px]">Screen-Time Micro Labels</div>
+                      <div class="text-[9px] text-neutral-500">Show daily minutes next to home apps</div>
+                    </div>
+                    <button id="toggleScreenTimeLabels" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">OFF</button>
+                  </div>
+                  <div class="p-2 rounded-lg border border-neutral-900 bg-black flex items-center justify-between">
+                    <div>
+                      <div class="text-white text-[11px]">Notification Dots</div>
+                      <div class="text-[9px] text-neutral-500">Minimal count badge [2] on unread apps</div>
+                    </div>
+                    <button id="toggleNotifBadges" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">OFF</button>
+                  </div>
                 </div>
-                <div class="flex items-center justify-between pt-1 border-t border-neutral-900 text-[10px]">
-                  <button id="inPhoneToggle24h" type="button" class="px-2 py-1 rounded border border-neutral-800 text-neutral-300">Clock: 24h</button>
-                  <button id="inPhoneToggleCustomTopBar" type="button" class="px-2 py-1 rounded border border-neutral-800 text-neutral-300">N-TEXT Bar: ON</button>
-                  <button id="inPhoneToggleNavMode" type="button" class="px-2 py-1 rounded border border-neutral-800 text-neutral-300">Nav: 3-Btn</button>
-                </div>
-              </div>
+              </details>
 
-              <!-- 3. Font Style Picker (In-Phone) -->
-              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60">
-                <div class="text-white text-[11px] mb-1.5">Prebuilt Font Style</div>
-                <div class="grid grid-cols-3 gap-1 text-[10px]">
-                  <button type="button" data-set-font="dot" class="py-1 rounded border border-neutral-800 text-neutral-300 font-dot">N-Dot</button>
-                  <button type="button" data-set-font="ndot" class="py-1 rounded border border-neutral-800 text-neutral-300 font-ndot-matrix">Matrix</button>
-                  <button type="button" data-set-font="mono" class="py-1 rounded border border-neutral-800 text-neutral-300 font-mono-tech">JetBrains</button>
-                  <button type="button" data-set-font="spacemono" class="py-1 rounded border border-neutral-800 text-neutral-300 font-space-mono">SpaceMono</button>
-                  <button type="button" data-set-font="sans" class="py-1 rounded border border-neutral-800 text-neutral-300 font-sans">Clean Sans</button>
-                  <button type="button" data-set-font="editorial" class="py-1 rounded border border-neutral-800 text-neutral-300 font-editorial text-xs">Editorial</button>
-                </div>
-              </div>
-
-              <!-- 4. Hide Default Android Notification Bar -->
-              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60 flex items-center justify-between">
-                <div>
-                  <div class="text-white text-[11px]">Hide Android Notif Bar</div>
-                  <div class="text-[10px] text-neutral-500">Keep only N-TEXT custom top bar</div>
-                </div>
-                <button id="toggleHideAndroidNotifBar" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">ON</button>
-              </div>
-
-              <!-- 5. Niagara Wave Traversing Animation -->
-              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60 flex items-center justify-between">
-                <div>
-                  <div class="text-white text-[11px]">Niagara Wave Traversal</div>
-                  <div class="text-[10px] text-neutral-500">Curved wave animation on app lists</div>
-                </div>
-                <button id="toggleNiagaraWave" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">ON</button>
-              </div>
-
-              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60 flex items-center justify-between">
-                <div>
-                  <div class="text-white text-[11px]">Auto-Open Keyboard</div>
-                  <div class="text-[10px] text-neutral-500">Focus search bar immediately on drawer swipe</div>
-                </div>
-                <button id="toggleAutoKeyboard" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">ON</button>
-              </div>
-
-              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60 flex items-center justify-between">
-                <div>
-                  <div class="text-white text-[11px]">Screen-Time Micro Labels</div>
-                  <div class="text-[10px] text-neutral-500">Show daily minutes next to home apps</div>
-                </div>
-                <button id="toggleScreenTimeLabels" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">ON</button>
-              </div>
-
-              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60 flex items-center justify-between">
-                <div>
-                  <div class="text-white text-[11px]">Notification Dots</div>
-                  <div class="text-[10px] text-neutral-500">Minimal count badge [2] on unread apps</div>
-                </div>
-                <button id="toggleNotifBadges" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">ON</button>
-              </div>
-
-              <div class="p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/60 flex items-center justify-between">
-                <div>
-                  <div class="text-white text-[11px]">Double-Tap OLED Lock</div>
-                  <div class="text-[10px] text-neutral-500">Double-tap empty black space to sleep</div>
-                </div>
-                <button id="toggleDoubleTapSleep" type="button" class="px-2.5 py-1 rounded text-[10px] bg-white text-black font-semibold">ON</button>
-              </div>
             </div>
           </div>
 
@@ -646,7 +825,7 @@
               </div>
 
               <div class="text-[10px] font-mono-tech text-neutral-500 leading-snug">
-                Calls <code class="text-neutral-300">RoleManager.ROLE_HOME</code> on Nothing OS 2.6 so pressing the Home ○ button always returns to N-TEXT.
+                Calls <code class="text-neutral-300">RoleManager.ROLE_HOME</code> on Nothing OS 2.6 so pressing the Home ○ button always returns to Nocturnaa.
               </div>
             </div>
           </div>
@@ -685,7 +864,7 @@
 
       <!-- Subtle Interactive Hints Below Phone -->
       <div class="mt-3 flex flex-wrap items-center justify-center gap-3 text-[11px] font-mono-tech text-neutral-500">
-        <span>Tip: Hover/drag right edge for Niagara Wave</span>
+        <span>Tip: Hover/drag right edge for Fluid Wave</span>
         <span>·</span>
         <span>Use ◁ ○ ▢ System Nav</span>
         <span>·</span>
@@ -724,12 +903,12 @@
         </div>
       </div>
 
-      <!-- CARD 2: PREBUILT FONTS, NIAGARA WAVE, NOTIF BAR & SYSTEM NAV -->
+      <!-- CARD 2: PREBUILT FONTS, Fluid WAVE, NOTIF BAR & SYSTEM NAV -->
       <div class="rounded-2xl border border-neutral-800/90 bg-neutral-950/70 p-5">
         <div class="flex items-center justify-between border-b border-neutral-800/80 pb-3 mb-4">
           <div class="flex items-center gap-2">
             <span class="w-2 h-2 rounded-full bg-white"></span>
-            <h2 class="font-mono-tech text-sm uppercase tracking-wider text-white font-semibold">2. Fonts, Niagara Wave, Status Bar &amp; Default Launcher</h2>
+            <h2 class="font-mono-tech text-sm uppercase tracking-wider text-white font-semibold">2. Fonts, Fluid Wave, Status Bar &amp; Default Launcher</h2>
           </div>
           <button id="btnStudioDefaultLauncher" type="button" class="font-mono-tech text-[11px] px-3 py-1 rounded-lg bg-[#FF3B00]/15 border border-[#FF3B00] text-[#FF3B00] hover:bg-[#FF3B00] hover:text-black font-semibold transition">
             Set Default Home App
@@ -753,20 +932,20 @@
             </div>
           </div>
 
-          <!-- Niagara Wave Traversal Animation Setting -->
+          <!-- Fluid Wave Scrubbing Animation Setting -->
           <div class="p-3.5 rounded-xl border border-neutral-900 bg-black/60">
             <div class="flex items-center justify-between mb-2">
-              <label class="font-mono-tech text-[11px] uppercase text-neutral-400">Niagara List Wave Animation</label>
+              <label class="font-mono-tech text-[11px] uppercase text-neutral-400">Fluid Wave Scrubbing</label>
               <span class="font-mono-tech text-[10px] text-emerald-400">60/120Hz Smooth</span>
             </div>
             <div class="grid grid-cols-3 gap-1.5 font-mono-tech text-xs">
-              <button id="waveBtnFull" type="button" class="py-1.5 px-2 rounded border border-white bg-white text-black font-medium">Niagara Wave</button>
+              <button id="waveBtnFull" type="button" class="py-1.5 px-2 rounded border border-white bg-white text-black font-medium">Fluid Wave</button>
               <button id="waveBtnSubtle" type="button" class="py-1.5 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600">Subtle Arc</button>
               <button id="waveBtnOff" type="button" class="py-1.5 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600">Static</button>
             </div>
           </div>
 
-          <!-- Notification / Status Bar Controls (Hide Default Android Bar vs Custom N-TEXT Bar) -->
+          <!-- Notification / Status Bar Controls (Hide Default Android Bar vs Custom Nocturnaa Bar) -->
           <div class="p-3.5 rounded-xl border border-neutral-900 bg-black/60 flex flex-col justify-between">
             <label class="block font-mono-tech text-[11px] uppercase text-neutral-400 mb-2">Android Status Bar &amp; Custom Top Bar</label>
             <div class="grid grid-cols-2 gap-1.5 font-mono-tech text-[11px]">
@@ -930,7 +1109,7 @@
           <span class="font-mono-tech text-[10px] uppercase tracking-widest text-[#FF3B00]">Nothing OS 2.6 · Android 14 (API 34)</span>
           <h3 class="text-base font-semibold text-white mt-0.5">Lightweight APK Architecture &amp; Live Config</h3>
         </div>
-        <button id="btnCloseApkModal" type="button" class="font-mono-tech text-xs px-2.5 py-1 rounded border border-neutral-800 hover:border-neutral-600 text-neutral-400 hover:text-white">Close [ESC]</button>
+        <button id="btnCloseApkModal" type="button" class="font-mono-tech text-xs px-2.5 py-1 rounded border border-neutral-800 hover:border-neutral-600 text-neutral-400 hover:text-white">Close</button>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 font-mono-tech text-xs">
@@ -966,7 +1145,7 @@
     // =========================================================================
     // STATE MANAGEMENT (CMF Phone 1 Minimalist OLED Launcher v1.2)
     // =========================================================================
-    const STORAGE_KEY = 'cmf_ntext_launcher_v2';
+    const STORAGE_KEY = 'cmf_ntext_launcher_v9';
 
     const DEFAULT_STATE = {
       currentView: 'home', // 'home' | 'drawer' | 'widgets' | 'settings' | 'launched' | 'recents'
@@ -977,14 +1156,14 @@
       accentColor: '#FF3B00', // '#FF3B00' (CMF Orange) | '#FFFFFF' (Pure B&W) | '#D71921' (Nothing Red)
       navMode: '3button', // '3button' | 'gesture'
       textSize: 20,
-      use24Hour: true,
-      showStatusBar: true, // Our custom N-TEXT minimal top bar
+      use24Hour: false,
+      showStatusBar: false, // Launcher notification bar removed completely per user request
       hideDefaultAndroidBar: true, // Hides the cluttered stock Android status/notification bar
-      niagaraWaveMode: 'full', // 'full' | 'subtle' | 'off'
+      waveScrubMode: 'full', // 'full' | 'subtle' | 'off'
       wallpaperPreset: 'oled', // 'oled' | 'dots' | 'blueprint' | 'mesh' | 'topo' | 'custom'
       customWallpaperDataUrl: null,
       wallpaperDimPercent: 50,
-      defaultLauncherApp: 'ntext', // 'ntext' | 'nothing' | 'niagara'
+      defaultLauncherApp: 'ntext', // 'ntext' | 'nothing' | 'wave'
       autoKeyboard: true,
       showScreenTime: true,
       showNotifBadges: true,
@@ -999,42 +1178,109 @@
       mediaTrackIndex: 0,
       launchedAppId: null,
       recentAppIds: ['phone', 'camera', 'notes'],
+      torchActive: false,
+      pedometerSteps: 6420,
+      blackHoleAccentColor: '#FF3B00',
       widgets: [
         {
           id: 'clock',
           name: 'Dot-Matrix Clock & Date',
-          desc: 'Nothing OS 2.6 dot-matrix digital time, date & next alarm',
-          enabled: true
+          desc: 'Dot-matrix digital time, date & battery bar',
+          enabled: true,
+          size: 'standard'
+        },
+
+        {
+          id: 'week_strip',
+          name: '7-Day Strip & Month Days Block Bar',
+          desc: '7-day MO–SU strip + exact 28/29/30/31 month day progress blocks',
+          enabled: true,
+          size: 'standard'
         },
         {
-          id: 'weather',
-          name: 'Minimal Weather & AQI Pill',
-          desc: 'Lightweight single-line temperature, sky condition & AQI',
-          enabled: true
+          id: 'crt_world_map',
+          name: 'Interactive Flat CRT World Map',
+          desc: 'Retro flat CRT phosphor world map with pan/zoom crosshair & solar wave',
+          enabled: true,
+          size: 'standard'
         },
         {
-          id: 'telemetry',
-          name: 'CMF Battery & RAM Bar',
-          desc: 'Battery %, daily screen-on time & launcher RAM footprint',
-          enabled: true
+          id: 'globe',
+          name: '3D Interactive Spinning Globe',
+          desc: 'High-precision 106-country 3D globe · Resizable up to MAX',
+          enabled: true,
+          size: 'standard'
+        },
+        {
+          id: 'precision_chrono',
+          name: 'Interactive Split-Lap Chronograph',
+          desc: 'Dual sub-dial vector stopwatch with START/PAUSE & LAP/RESET',
+          enabled: false,
+          size: 'standard'
+        },
+        {
+          id: 'retro_flip_clock',
+          name: 'Split-Flap Mechanical Clock',
+          desc: 'Minimalist split-flap tiles for Hours, Minutes & Seconds',
+          enabled: false,
+          size: 'standard'
+        },
+        {
+          id: 'analog_chrono',
+          name: 'Vector Analog Watch Dial',
+          desc: 'Minimalist circular vector dial with smooth sweeping second hand',
+          enabled: false,
+          size: 'standard'
+        },
+        {
+          id: 'retro_calendar',
+          name: 'Dot-Matrix Month Calendar Grid',
+          desc: '7-column MO–SU current month matrix highlighting today',
+          enabled: false,
+          size: 'standard'
+        },
+        {
+          id: 'year_matrix',
+          name: '365-Day Dot-Matrix Year Progress',
+          desc: 'Leap-year accurate 365/366-day dot-matrix year grid',
+          enabled: false,
+          size: 'standard'
+        },
+        {
+          id: 'torch',
+          name: 'CMF Glyph Torch / Flashlight',
+          desc: 'Tactile flashlight quick toggle with active OLED feedback',
+          enabled: false,
+          size: 'standard'
+        },
+
+        {
+          id: 'storage',
+          name: 'OLED RAM & Storage Telemetry',
+          desc: 'Dual progress bar showing real-time memory & internal disk space',
+          enabled: false,
+          size: 'standard'
+        },
+        {
+          id: 'quote',
+          name: 'Minimalist Thought of the Day',
+          desc: 'Curated Nothing OS design ethos and industrial micro-quote',
+          enabled: false,
+          size: 'standard'
         },
         {
           id: 'zen',
           name: 'Zen Focus Timer (25m)',
           desc: 'One-tap minimalist Pomodoro timer that mutes app badges',
-          enabled: false
-        },
-        {
-          id: 'media',
-          name: 'CMF Buds / Media Ticker',
-          desc: 'Text-only now playing bar with play/skip & buds battery',
-          enabled: false
+          enabled: false,
+          size: 'standard'
         },
         {
           id: 'scratchpad',
           name: 'One-Line Terminal Scratchpad',
           desc: 'Editable plain-text micro note pinned to home screen',
-          enabled: false
+          enabled: false,
+          size: 'standard'
         }
       ],
       apps: [
@@ -1064,7 +1310,7 @@
     };
 
     const FONT_NAMES = {
-      dot: 'Nothing N-Dot (Silkscreen)',
+      dot: 'Lomo Web Pixel (Thin 1px)',
       ndot: 'Nothing Dot-Matrix (DotGothic16)',
       mono: 'JetBrains Tech Mono',
       spacemono: 'Space Mono (Industrial)',
@@ -1073,9 +1319,9 @@
     };
 
     const LAUNCHER_CHOICES = [
-      { id: 'ntext', name: 'N-TEXT Minimal Launcher', meta: '8.4 MB RAM · Pure OLED · Niagara Wave' },
+      { id: 'ntext', name: 'Nocturnaa Minimal Launcher', meta: '8.4 MB RAM · Pure OLED · Fluid 120Hz Wave' },
       { id: 'nothing', name: 'Nothing Launcher (OS 2.6)', meta: '145 MB RAM · Stock Nothing Grid' },
-      { id: 'niagara', name: 'Niagara Launcher', meta: '68 MB RAM · Classic Wave List' }
+      { id: 'aosp', name: 'Android 14 Quickstep Home', meta: '95 MB RAM · Stock System Launcher' }
     ];
 
     const MEDIA_TRACKS = [
@@ -1196,7 +1442,10 @@
       // Apply Wallpaper to OLED Screen
       const screen = document.getElementById('oledScreen');
       const dimOverlay = document.getElementById('wallpaperDimOverlay');
-      screen.classList.remove('wp-oled-black', 'wp-dot-matrix', 'wp-cmf-blueprint', 'wp-nothing-mesh', 'wp-topo-lines');
+      screen.classList.remove(
+        'wp-oled-black', 'wp-dot-matrix', 'wp-cmf-blueprint', 'wp-nothing-mesh',
+        'wp-topo-lines', 'wp-starfield', 'wp-glyph-circuit', 'wp-crt-scanlines'
+      );
       screen.style.backgroundImage = '';
 
       if (state.wallpaperPreset === 'custom' && state.customWallpaperDataUrl) {
@@ -1210,7 +1459,10 @@
           dots: 'wp-dot-matrix',
           blueprint: 'wp-cmf-blueprint',
           mesh: 'wp-nothing-mesh',
-          topo: 'wp-topo-lines'
+          topo: 'wp-topo-lines',
+          starfield: 'wp-starfield',
+          circuit: 'wp-glyph-circuit',
+          scanlines: 'wp-crt-scanlines'
         };
         screen.classList.add(map[state.wallpaperPreset] || 'wp-oled-black');
       }
@@ -1241,7 +1493,7 @@
       if (clockEl) clockEl.textContent = t.full;
       if (aodEl) aodEl.textContent = t.full;
 
-      // Custom N-TEXT minimal top bar visibility
+      // Custom Nocturnaa minimal top bar visibility
       if (state.showStatusBar) {
         sb.classList.remove('hidden');
       } else {
@@ -1274,18 +1526,20 @@
     }
 
     // =========================================================================
-    // NIAGARA LAUNCHER WAVE TRAVERSAL ENGINE
+    // Fluid LAUNCHER WAVE TRAVERSAL ENGINE
     // =========================================================================
     function showWaveBubble(letter, clientY) {
-      const bubble = document.getElementById('niagaraWaveBubble');
+      const bubble = document.getElementById('fluidWaveBubble');
       const screen = document.getElementById('oledScreen');
       if (!bubble || !screen) return;
 
       const rect = screen.getBoundingClientRect();
-      const relY = Math.max(90, Math.min(rect.height - 90, clientY - rect.top));
+      const relY = Math.max(48, Math.min(rect.height - 48, clientY - rect.top));
       bubble.style.top = `${relY}px`;
-      bubble.textContent = letter;
-      bubble.style.borderColor = state.accentColor;
+      const letterSpan = document.getElementById("fluidWaveBubbleLetter");
+      if (letterSpan) letterSpan.textContent = letter;
+      const bEl = document.getElementById("pxSlotB");
+      if (bEl) bEl.setAttribute("fill", state.accentColor || "#FF3B00");
       bubble.style.opacity = '1';
 
       if (waveBubbleTimer) clearTimeout(waveBubbleTimer);
@@ -1294,9 +1548,9 @@
       }, 650);
     }
 
-    function applyNiagaraWaveToElements(nodes, clientY, directionSign) {
-      if (state.niagaraWaveMode === 'off') return;
-      const maxShift = state.niagaraWaveMode === 'full' ? 24 : 11;
+    function applyFluidWaveToElements(nodes, clientY, directionSign) {
+      if (state.waveScrubMode === 'off') return;
+      const maxShift = state.waveScrubMode === 'full' ? 24 : 11;
       const radius = 95; // vertical wave spread in px
 
       nodes.forEach((node) => {
@@ -1320,12 +1574,12 @@
       });
     }
 
-    function resetNiagaraWave(nodes) {
+    function resetFluidWave(nodes) {
       nodes.forEach((node) => {
         node.style.transform = '';
         node.style.color = '';
       });
-      const bubble = document.getElementById('niagaraWaveBubble');
+      const bubble = document.getElementById('fluidWaveBubble');
       if (bubble) bubble.style.opacity = '0';
     }
 
@@ -1350,6 +1604,7 @@
       }
 
       enabledWidgets.forEach((w) => {
+        const sizeMode = w.size || 'standard';
         const wrapper = document.createElement('div');
         wrapper.className = 'relative group rounded-lg transition-all ' + (
           state.editMode
@@ -1362,73 +1617,328 @@
           const t = getFormattedTime();
           const d = getFormattedDate();
           const alignCls = state.alignment === 'center' ? 'text-center items-center' : state.alignment === 'right' ? 'text-right items-end' : 'text-left items-start';
-          innerHTML = `
-            <div class="flex flex-col ${alignCls}">
-              <div class="flex items-baseline gap-1.5 cursor-pointer" data-widget-action="toggle24h" title="Tap to switch 12h/24h">
-                <span class="font-dot text-4xl tracking-tight text-white leading-none">${t.hh}<span class="animate-dot" style="color:${state.accentColor}">:</span>${t.mm}</span>
-                ${t.suffix ? `<span class="font-mono-tech text-[10px] text-neutral-500">${t.suffix}</span>` : ''}
+          if (sizeMode === 'compact') {
+            innerHTML = `
+              <div class="flex items-center justify-between font-mono-tech text-xs cursor-pointer py-1" data-widget-action="toggle24h">
+                <span class="font-dot text-xl text-white">${t.hh}<span class="animate-dot" style="color:${state.accentColor}">:</span>${t.mm}${t.suffix}</span>
+                <span class="text-neutral-400 text-[10px]">${d} · BAT 86%</span>
               </div>
-              <div class="font-mono-tech text-[10px] tracking-widest uppercase text-neutral-400 mt-1 flex items-center gap-2">
-                <span>${d}</span>
-                <span style="color:${state.accentColor}">·</span>
-                <span class="text-neutral-500">ALARM 07:00</span>
-              </div>
-            </div>
-          `;
-        } else if (w.id === 'weather') {
-          const temp = state.tempUnitCelsius ? '28°C' : '82°F';
-          const alignJustify = state.alignment === 'center' ? 'justify-center' : state.alignment === 'right' ? 'justify-end' : 'justify-between';
-          innerHTML = `
-            <div class="flex items-center ${alignJustify} gap-2 font-mono-tech text-[11px] py-1 border-b border-neutral-900 cursor-pointer" data-widget-action="toggleTempUnit" title="Tap to switch °C / °F">
-              <div class="flex items-center gap-2">
-                <span class="w-1.5 h-1.5 rounded-full" style="background:${state.accentColor}"></span>
-                <span class="text-white font-medium">${temp}</span>
-                <span class="text-neutral-400">CLEAR SKY</span>
-              </div>
-              <span class="text-[10px] px-1.5 py-0.2 rounded bg-neutral-900 text-neutral-400">AQI 42 · GOOD</span>
-            </div>
-          `;
-        } else if (w.id === 'telemetry') {
-          const totalScreenMin = state.apps.reduce((acc, a) => acc + a.minutes, 0);
-          const hrs = Math.floor(totalScreenMin / 60);
-          const mins = totalScreenMin % 60;
-          innerHTML = `
-            <div class="font-mono-tech text-[10px] py-1 border-b border-neutral-900 flex items-center justify-between text-neutral-400">
-              <div class="flex items-center gap-2">
-                <span class="text-white">BAT 86%</span>
-                <div class="w-14 h-1.5 bg-neutral-900 rounded-full overflow-hidden">
-                  <div class="h-full rounded-full" style="width:86%; background:${state.accentColor}"></div>
+            `;
+          } else if (sizeMode === 'large') {
+            innerHTML = `
+              <div class="flex flex-col ${alignCls}">
+                <div class="flex items-baseline gap-2 cursor-pointer" data-widget-action="toggle24h" title="Tap to switch 12h/24h">
+                  <span class="font-dot text-5xl tracking-tight text-white leading-none">${t.hh}<span class="animate-dot" style="color:${state.accentColor}">:</span>${t.mm}</span>
+                  ${t.suffix ? `<span class="font-mono-tech text-xs text-neutral-500">${t.suffix}</span>` : ''}
+                </div>
+                <div class="font-mono-tech text-[11px] tracking-widest uppercase text-neutral-400 mt-1 flex items-center gap-2">
+                  <span>${d}</span>
+                  <span style="color:${state.accentColor}">·</span>
+                  <span class="text-neutral-500">ALARM 07:00</span>
+                </div>
+                <div class="w-full mt-2.5 pt-2 border-t border-neutral-900/80 flex items-center justify-between gap-3 font-mono-tech text-[11px]">
+                  <span class="text-neutral-300 tracking-wider">BAT ${state.batteryPct || 86}%</span>
+                  <div class="flex-1 h-2 bg-neutral-900 rounded-full overflow-hidden border border-neutral-800/80">
+                    <div class="h-full rounded-full transition-all duration-300" style="width:${state.batteryPct || 86}%; background:${state.accentColor}"></div>
+                  </div>
                 </div>
               </div>
-              <span>SOT ${hrs}h ${mins}m</span>
-              <span class="text-neutral-500">8.4MB</span>
+            `;
+          } else {
+            // Standard
+            innerHTML = `
+              <div class="flex flex-col ${alignCls}">
+                <div class="flex items-baseline gap-1.5 cursor-pointer" data-widget-action="toggle24h" title="Tap to switch 12h/24h">
+                  <span class="font-dot text-4xl tracking-tight text-white leading-none">${t.hh}<span class="animate-dot" style="color:${state.accentColor}">:</span>${t.mm}</span>
+                  ${t.suffix ? `<span class="font-mono-tech text-[10px] text-neutral-500">${t.suffix}</span>` : ''}
+                </div>
+                <div class="font-mono-tech text-[10px] tracking-widest uppercase text-neutral-400 mt-1 flex items-center gap-2">
+                  <span>${d}</span>
+                  <span style="color:${state.accentColor}">·</span>
+                  <span class="text-neutral-500">ALARM 07:00</span>
+                </div>
+                <div class="w-full mt-2 pt-1.5 border-t border-neutral-900/80 flex items-center justify-between gap-3 font-mono-tech text-[10px]">
+                  <span class="text-neutral-300 tracking-wider">BAT ${state.batteryPct || 86}%</span>
+                  <div class="flex-1 h-1.5 bg-neutral-900 rounded-full overflow-hidden border border-neutral-800/80">
+                    <div class="h-full rounded-full transition-all duration-300" style="width:${state.batteryPct || 86}%; background:${state.accentColor}"></div>
+                  </div>
+                </div>
+              </div>
+            `;
+          }
+        } else if (w.id === 'weather') {
+          const wx = state.liveWeather || { tempC: 28, highC: 31, lowC: 22, cond: 'CLEAR SKY', hum: 48, uv: 2, aqi: 42, aqiLabel: 'GOOD', city: 'RAIGARH' };
+          const temp = state.tempUnitCelsius ? `${wx.tempC}°C` : `${Math.round(wx.tempC * 9 / 5 + 32)}°F`;
+          const hi = state.tempUnitCelsius ? `${wx.highC}°` : `${Math.round(wx.highC * 9 / 5 + 32)}°`;
+          const lo = state.tempUnitCelsius ? `${wx.lowC}°` : `${Math.round(wx.lowC * 9 / 5 + 32)}°`;
+          const alignJustify = state.alignment === 'center' ? 'justify-center' : state.alignment === 'right' ? 'justify-end' : 'justify-between';
+          if (sizeMode === 'compact') {
+            innerHTML = `
+              <div class="flex items-center ${alignJustify} gap-2 font-mono-tech text-[10px] py-0.5 cursor-pointer" data-widget-action="toggleTempUnit">
+                <span>● ${temp} ${wx.cond}</span>
+                <span class="text-neutral-500">H ${hi} / L ${lo}</span>
+              </div>
+            `;
+          } else if (sizeMode === 'large') {
+            innerHTML = `
+              <div class="flex flex-col gap-1 font-mono-tech text-[11px] py-1 border-b border-neutral-900 cursor-pointer" data-widget-action="toggleTempUnit">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full" style="background:${state.accentColor}"></span>
+                    <span class="text-white font-bold text-xs">${temp}</span>
+                    <span class="text-neutral-300">${wx.cond} (H ${hi} / L ${lo})</span>
+                  </div>
+                </div>
+                <div class="text-[9px] text-neutral-500">HUMIDITY ${wx.hum}% · UV ${wx.uv} · ${wx.city} · LIVE</div>
+              </div>
+            `;
+          } else {
+            innerHTML = `
+              <div class="flex items-center ${alignJustify} gap-2 font-mono-tech text-[11px] py-1 border-b border-neutral-900 cursor-pointer" data-widget-action="toggleTempUnit" title="Tap to switch °C / °F & sync">
+                <div class="flex items-center gap-2">
+                  <span class="w-1.5 h-1.5 rounded-full" style="background:${state.accentColor}"></span>
+                  <span class="text-white font-medium">${temp}</span>
+                  <span class="text-neutral-400">${wx.cond}</span>
+                </div>
+                <span class="text-[10px] text-neutral-500">H ${hi} · L ${lo}</span>
+              </div>
+            `;
+          }
+        } else if (w.id === 'retro_flip_clock') {
+          const t = getFormattedTime();
+          const d = getFormattedDate();
+          const sec = String(new Date().getSeconds()).padStart(2, '0');
+          const hh = String(t.hh).padStart(2, '0');
+          const mm = String(t.mm).padStart(2, '0');
+          const textSz = sizeMode === 'xlarge' ? 'text-4xl' : sizeMode === 'large' ? 'text-3xl' : sizeMode === 'compact' ? 'text-xl' : 'text-2xl';
+          innerHTML = `
+            <div class="p-2.5 rounded-xl border border-neutral-800 bg-neutral-950/90 font-mono-tech cursor-pointer" data-widget-action="toggle24h">
+              <div class="grid grid-cols-3 gap-2 text-center">
+                <div class="relative py-2 rounded-lg border border-neutral-800 bg-neutral-900/90 font-dot ${textSz} text-white font-bold">
+                  ${hh}
+                  <div class="absolute inset-x-0 top-1/2 h-[1px] bg-black"></div>
+                </div>
+                <div class="relative py-2 rounded-lg border border-neutral-800 bg-neutral-900/90 font-dot ${textSz} text-white font-bold">
+                  ${mm}
+                  <div class="absolute inset-x-0 top-1/2 h-[1px] bg-black"></div>
+                </div>
+                <div class="relative py-2 rounded-lg border border-neutral-800 bg-neutral-900/90 font-dot ${textSz} font-bold" style="color:${state.accentColor}">
+                  ${sec}
+                  <div class="absolute inset-x-0 top-1/2 h-[1px] bg-black"></div>
+                  ${t.suffix ? `<span class="absolute right-1.5 bottom-0.5 text-[7px] font-mono-tech text-neutral-500">${t.suffix.trim()}</span>` : ''}
+                </div>
+              </div>
+              ${sizeMode !== 'compact' ? `<div class="text-right text-[9px] text-neutral-500 mt-1.5">${d}</div>` : ''}
+            </div>
+          `;
+        } else if (w.id === 'analog_chrono') {
+          const now = new Date();
+          const hhNum = now.getHours() % 12;
+          const mmNum = now.getMinutes();
+          const ssNum = now.getSeconds() + now.getMilliseconds() / 1000;
+          const hDeg = (hhNum + (mmNum + ssNum / 60) / 60) * 30;
+          const mDeg = (mmNum + ssNum / 60) * 6;
+          const sDeg = ssNum * 6;
+          const t = getFormattedTime();
+          const d = getFormattedDate();
+          const dialCls = sizeMode === 'xlarge' ? 'w-24 h-24' : sizeMode === 'large' ? 'w-20 h-20' : sizeMode === 'compact' ? 'w-14 h-14' : 'w-16 h-16';
+          innerHTML = `
+            <div class="p-3 rounded-xl border border-neutral-800 bg-neutral-950/90 font-mono-tech flex items-center justify-between gap-3 cursor-pointer" data-widget-action="toggle24h">
+              <svg viewBox="0 0 80 80" class="${dialCls} shrink-0">
+                <circle cx="40" cy="40" r="37" fill="#0a0a0a" stroke="#2c2c2c" stroke-width="1.5"/>
+                <line x1="40" y1="5" x2="40" y2="12" stroke="${state.accentColor}" stroke-width="1.8"/>
+                <line x1="75" y1="40" x2="68" y2="40" stroke="#ffffff" stroke-width="1.5"/>
+                <line x1="40" y1="75" x2="40" y2="68" stroke="#ffffff" stroke-width="1.5"/>
+                <line x1="5" y1="40" x2="12" y2="40" stroke="#ffffff" stroke-width="1.5"/>
+                <line x1="40" y1="40" x2="40" y2="21" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" transform="rotate(${hDeg.toFixed(1)} 40 40)"/>
+                <line x1="40" y1="40" x2="40" y2="13" stroke="#e5e5e5" stroke-width="1.8" stroke-linecap="round" transform="rotate(${mDeg.toFixed(1)} 40 40)"/>
+                <line x1="40" y1="47" x2="40" y2="10" stroke="${state.accentColor}" stroke-width="1.2" stroke-linecap="round" transform="rotate(${sDeg.toFixed(1)} 40 40)"/>
+                <circle cx="40" cy="40" r="2.8" fill="${state.accentColor}"/>
+              </svg>
+              <div class="flex-1 text-right space-y-0.5">
+                <div class="font-dot text-lg text-white font-bold">${String(t.hh).padStart(2, '0')}:${String(t.mm).padStart(2, '0')}:${String(Math.floor(ssNum)).padStart(2, '0')}${t.suffix ? ` <span class="text-[10px] font-mono-tech" style="color:${state.accentColor}">${t.suffix.trim()}</span>` : ''}</div>
+                <div class="text-[10px] text-neutral-500">${d}</div>
+              </div>
+            </div>
+          `;
+        } else if (w.id === 'precision_chrono') {
+          const elapsed = (state.chronoAccumMs || 0) + (state.chronoRunning ? (Date.now() - (state.chronoStartMs || Date.now())) : 0);
+          const mins = String(Math.floor((elapsed / 60000) % 60)).padStart(2, '0');
+          const secs = String(Math.floor((elapsed / 1000) % 60)).padStart(2, '0');
+          const cs = String(Math.floor((elapsed % 1000) / 10)).padStart(2, '0');
+          const sDeg = ((elapsed / 1000) % 60) * 6;
+          const mSubDeg = (((elapsed / 60000) % 30) * 12);
+          const dialCls = sizeMode === 'xlarge' ? 'w-24 h-24' : sizeMode === 'large' ? 'w-20 h-20' : sizeMode === 'compact' ? 'w-14 h-14' : 'w-16 h-16';
+          innerHTML = `
+            <div class="p-3 rounded-xl border border-neutral-800 bg-neutral-950/90 font-mono-tech flex items-center justify-between gap-3">
+              <svg viewBox="0 0 80 80" class="${dialCls} shrink-0 cursor-pointer" data-widget-action="toggleChrono">
+                <circle cx="40" cy="40" r="37" fill="#0a0a0a" stroke="#2c2c2c" stroke-width="1.5"/>
+                <circle cx="40" cy="24" r="9" fill="none" stroke="#262626" stroke-width="1"/>
+                <line x1="40" y1="24" x2="40" y2="17" stroke="#ffffff" stroke-width="1.2" transform="rotate(${mSubDeg.toFixed(1)} 40 24)"/>
+                <circle cx="40" cy="56" r="9" fill="none" stroke="#262626" stroke-width="1"/>
+                <line x1="40" y1="47" x2="40" y2="9" stroke="${state.accentColor}" stroke-width="1.4" stroke-linecap="round" transform="rotate(${sDeg.toFixed(1)} 40 40)"/>
+                <circle cx="40" cy="40" r="2.6" fill="#ffffff"/>
+              </svg>
+              <div class="flex-1 text-right space-y-1.5">
+                <div class="font-dot text-xl text-white font-bold">${mins}:${secs}.${cs}</div>
+                <div class="flex items-center justify-end gap-1.5 text-[9px]">
+                  <button type="button" data-widget-action="toggleChrono" class="px-2.5 py-1 rounded font-bold" style="background:${state.chronoRunning ? state.accentColor : '#171717'}; color:${state.chronoRunning ? '#000' : '#fff'}">${state.chronoRunning ? 'PAUSE' : 'START'}</button>
+                  <button type="button" data-widget-action="resetChrono" class="px-2 py-1 rounded border border-neutral-800 bg-neutral-900 text-neutral-400 font-bold">RESET</button>
+                </div>
+              </div>
+            </div>
+          `;
+        } else if (w.id === 'retro_calendar') {
+          const now = new Date();
+          const year = now.getFullYear();
+          const month = now.getMonth();
+          const today = now.getDate();
+          const monthName = now.toLocaleString('en-US', { month: 'long', year: 'numeric' }).toUpperCase();
+          const firstDow = new Date(year, month, 1).getDay();
+          const leading = firstDow === 0 ? 6 : firstDow - 1;
+          const daysInMonth = new Date(year, month + 1, 0).getDate();
+          const totalCells = Math.ceil((leading + daysInMonth) / 7) * 7;
+          let cellsHtml = '';
+          for (let i = 0; i < totalCells; i++) {
+            const dNum = i - leading + 1;
+            const valid = dNum >= 1 && dNum <= daysInMonth;
+            const isToday = valid && dNum === today;
+            const label = valid ? String(dNum).padStart(2, '0') : '··';
+            cellsHtml += `<div class="py-0.5 rounded text-center text-[10px] ${isToday ? 'font-bold text-black' : valid ? 'text-neutral-200' : 'text-neutral-800'}" style="${isToday ? `background:${state.accentColor}` : ''}">${label}</div>`;
+          }
+          innerHTML = `
+            <div class="p-2.5 rounded-xl border border-neutral-800 bg-neutral-950/90 font-mono-tech">
+              <div class="flex items-center justify-between mb-2">
+                <span class="font-dot text-xs text-white font-bold">${monthName}</span>
+                <span class="text-[9px] font-bold" style="color:${state.accentColor}">${String(today).padStart(2, '0')} / ${daysInMonth}</span>
+              </div>
+              <div class="grid grid-cols-7 gap-1 text-center text-[9px] text-neutral-500 border-b border-neutral-900 pb-1 mb-1">
+                <span>MO</span><span>TU</span><span>WE</span><span>TH</span><span>FR</span><span style="color:${state.accentColor}">SA</span><span style="color:${state.accentColor}">SU</span>
+              </div>
+              <div class="grid grid-cols-7 gap-1">${cellsHtml}</div>
+            </div>
+          `;
+        } else if (w.id === 'week_strip') {
+          const now = new Date();
+          const year = now.getFullYear();
+          const month = now.getMonth();
+          const todayDate = now.getDate();
+          const daysInMonth = new Date(year, month + 1, 0).getDate();
+          const shortMonth = now.toLocaleString('en-US', { month: 'short' }).toUpperCase();
+          const curDow = now.getDay();
+          const mondayDelta = curDow === 0 ? -6 : 1 - curDow;
+          const dayNames = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+          let stripHtml = '';
+          for (let i = 0; i < 7; i++) {
+            const dObj = new Date(now);
+            dObj.setDate(now.getDate() + mondayDelta + i);
+            const isToday = dObj.toDateString() === now.toDateString();
+            stripHtml += `
+              <div class="flex-1 py-1.5 rounded border text-center ${isToday ? 'bg-neutral-900' : 'border-neutral-900 bg-black'}" style="${isToday ? `border-color:${state.accentColor}` : ''}">
+                <div class="text-[8px] font-bold" style="color:${isToday ? state.accentColor : '#737373'}">${dayNames[i]}</div>
+                <div class="font-dot text-xs text-white font-bold mt-0.5">${String(dObj.getDate()).padStart(2, '0')}</div>
+              </div>
+            `;
+          }
+          let blocksHtml = '';
+          for (let d = 1; d <= daysInMonth; d++) {
+            const isPast = d < todayDate;
+            const isCur = d === todayDate;
+            const hCls = isCur ? 'h-2.5' : 'h-1.5';
+            const bgStyle = isCur ? `background:${state.accentColor}` : isPast ? 'background:rgba(255,255,255,0.8)' : 'background:#1d1d1d';
+            blocksHtml += `<div class="flex-1 ${hCls} rounded-[1px]" style="${bgStyle}"></div>`;
+          }
+          innerHTML = `
+            <div class="p-2.5 rounded-xl border border-neutral-800 bg-neutral-950/90 font-mono-tech space-y-2">
+              <div class="flex items-center gap-1">${stripHtml}</div>
+              <div class="flex items-center gap-2 pt-0.5">
+                <span class="text-[8px] text-neutral-400 font-bold">${shortMonth}</span>
+                <div class="flex-1 flex items-center gap-[2px]">${blocksHtml}</div>
+                <span class="text-[8px] font-bold" style="color:${state.accentColor}">${String(todayDate).padStart(2, '0')}/${daysInMonth}</span>
+              </div>
+            </div>
+          `;
+        } else if (w.id === 'year_matrix') {
+          const now = new Date();
+          const year = now.getFullYear();
+          const startOfYear = new Date(year, 0, 0);
+          const dayOfYear = Math.floor((now - startOfYear) / 86400000);
+          const isLeap = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+          const totalDays = isLeap ? 366 : 365;
+          let dotsHtml = '';
+          for (let d = 1; d <= totalDays; d++) {
+            const col = d === dayOfYear ? state.accentColor : d < dayOfYear ? 'rgba(255,255,255,0.78)' : '#222222';
+            dotsHtml += `<span class="w-1 h-1 rounded-full inline-block" style="background:${col}"></span>`;
+          }
+          innerHTML = `
+            <div class="p-2.5 rounded-xl border border-neutral-800 bg-neutral-950/90 font-mono-tech space-y-1.5">
+              <div class="flex items-center justify-between text-[9px]">
+                <span class="font-dot text-white font-bold">${year}</span>
+                <span class="font-bold" style="color:${state.accentColor}">${dayOfYear} / ${totalDays}</span>
+              </div>
+              <div class="grid grid-cols-[repeat(37,minmax(0,1fr))] gap-[3px] py-0.5">${dotsHtml}</div>
+            </div>
+          `;
+        } else if (w.id === 'torch') {
+          const isOn = state.torchActive || false;
+          innerHTML = `
+            <div class="font-mono-tech text-[11px] py-1.5 px-3 rounded border ${isOn ? 'border-[#FF3B00] bg-[#FF3B00]/15' : 'border-neutral-800 bg-neutral-950/60'} flex items-center justify-between cursor-pointer" data-widget-action="toggleTorch">
+              <div class="flex items-center gap-2">
+                <span style="color:${isOn ? state.accentColor : '#737373'}">${isOn ? '⚡' : '☼'}</span>
+                <span class="text-white font-medium">TORCH</span>
+              </div>
+              <span class="text-[10px] font-bold" style="color:${isOn ? state.accentColor : '#737373'}">${isOn ? 'ON' : 'OFF'}</span>
+            </div>
+          `;
+        } else if (w.id === 'pedometer') {
+          const steps = state.pedometerSteps || 6420;
+          const km = (steps * 0.00075).toFixed(1);
+          const pct = Math.min(100, Math.round((steps / 10000) * 100));
+          innerHTML = `
+            <div class="font-mono-tech text-[10px] py-1.5 px-3 rounded border border-neutral-900 bg-neutral-950/40">
+              <div class="flex items-center justify-between text-white">
+                <span>${steps.toLocaleString()} STEPS</span>
+                <span class="text-neutral-400">${km} KM</span>
+              </div>
+              ${sizeMode !== 'compact' ? `
+                <div class="w-full h-1 bg-neutral-900 rounded-full mt-1.5 overflow-hidden">
+                  <div class="h-full rounded-full transition-all" style="width:${pct}%; background:${state.accentColor}"></div>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        } else if (w.id === 'storage') {
+          innerHTML = `
+            <div class="font-mono-tech text-[10px] py-1.5 px-3 rounded border border-neutral-900 bg-neutral-950/40">
+              <div class="flex items-center justify-between text-neutral-300">
+                <span>RAM 2.4/8 GB</span>
+                <span>ROM 64/128 GB</span>
+              </div>
+              ${sizeMode !== 'compact' ? `
+                <div class="flex items-center gap-2 mt-1.5">
+                  <div class="flex-1 h-1 bg-neutral-900 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full" style="width:30%; background:${state.accentColor}"></div>
+                  </div>
+                  <div class="flex-1 h-1 bg-neutral-900 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full bg-neutral-600" style="width:50%"></div>
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        } else if (w.id === 'quote') {
+          innerHTML = `
+            <div class="font-mono-tech text-[10px] py-1.5 px-3 rounded border border-neutral-900 bg-neutral-950/30">
+              <div class="text-white leading-tight font-dot">"Simplify, then add lightness."</div>
             </div>
           `;
         } else if (w.id === 'zen') {
           innerHTML = `
-            <div class="font-mono-tech text-[11px] py-1.5 px-2.5 rounded border border-neutral-800 bg-neutral-950/60 flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full ${state.zenFocusActive ? 'animate-dot' : ''}" style="background:${state.zenFocusActive ? state.accentColor : '#525252'}"></span>
-                <span class="text-neutral-300">ZEN FOCUS</span>
-                <span class="text-white font-semibold">${formatZenTime(state.zenRemainingSec)}</span>
-              </div>
-              <button type="button" data-widget-action="toggleZen" class="px-2 py-0.5 rounded text-[10px] ${state.zenFocusActive ? 'bg-white text-black font-semibold' : 'border border-neutral-700 text-neutral-300 hover:border-white'}">
+            <div class="font-mono-tech text-[11px] py-1.5 px-3 rounded border border-neutral-800 bg-neutral-950/60 flex items-center justify-between">
+              <span class="font-dot text-white font-bold">${formatZenTime(state.zenRemainingSec)}</span>
+              <button type="button" data-widget-action="toggleZen" class="px-2 py-0.5 rounded text-[10px] font-bold" style="color:${state.accentColor}">
                 ${state.zenFocusActive ? 'STOP' : 'START'}
               </button>
-            </div>
-          `;
-        } else if (w.id === 'media') {
-          const track = MEDIA_TRACKS[state.mediaTrackIndex % MEDIA_TRACKS.length];
-          innerHTML = `
-            <div class="font-mono-tech text-[10px] py-1.5 px-2.5 rounded border border-neutral-900 bg-neutral-950/40 flex items-center justify-between gap-2">
-              <div class="truncate">
-                <div class="text-white truncate">${state.mediaPlaying ? '▸ ' : '❚❚ '} ${track.title}</div>
-                <div class="text-[9px] text-neutral-500">${track.buds}</div>
-              </div>
-              <div class="flex items-center gap-1 shrink-0">
-                <button type="button" data-widget-action="playPauseMedia" class="px-1.5 py-0.5 rounded border border-neutral-800 hover:border-white text-neutral-300">${state.mediaPlaying ? 'PAUSE' : 'PLAY'}</button>
-                <button type="button" data-widget-action="nextMedia" class="px-1.5 py-0.5 rounded border border-neutral-800 hover:border-white text-neutral-300">⏭</button>
-              </div>
             </div>
           `;
         } else if (w.id === 'scratchpad') {
@@ -1442,14 +1952,28 @@
             `;
           } else {
             innerHTML = `
-              <div class="font-mono-tech text-[11px] py-1 border-b border-neutral-900 flex items-center justify-between cursor-pointer" data-widget-action="editScratchpad" title="Click to edit quick note">
+              <div class="font-mono-tech text-[11px] py-1.5 px-3 rounded border border-neutral-900 bg-neutral-950/40 flex items-center justify-between cursor-pointer" data-widget-action="editScratchpad">
                 <div class="truncate text-neutral-300">
-                  <span style="color:${state.accentColor}">&gt;</span> ${state.quickNoteText || 'Tap to add note...'}
+                  <span style="color:${state.accentColor}">&gt;</span> ${state.quickNoteText || '...'}
                 </div>
-                <span class="text-[9px] text-neutral-600 uppercase ml-2">edit</span>
               </div>
             `;
           }
+        } else if (w.id === 'globe') {
+          const hPx = sizeMode === 'compact' ? 125 : sizeMode === 'large' ? 240 : sizeMode === 'xlarge' ? 295 : sizeMode === 'max' ? 350 : 185;
+          innerHTML = `
+            <div id="retroGlobeContainer" class="w-full flex items-center justify-center select-none relative overflow-hidden" style="height:${hPx}px">
+              <canvas id="retroGlobeCanvas" class="w-full h-full cursor-grab active:cursor-grabbing touch-none" title="Drag 360° in any direction to spin · Resizable up to MAX"></canvas>
+            </div>
+          `;
+        } else if (w.id === 'crt_world_map') {
+          const mapPx = sizeMode === 'compact' ? 105 : sizeMode === 'large' ? 195 : sizeMode === 'xlarge' ? 245 : sizeMode === 'max' ? 295 : 148;
+          innerHTML = `
+            <div id="crtWorldMapContainer" class="w-full rounded-xl border border-neutral-800 bg-[#030b14] select-none relative overflow-hidden" style="height:${mapPx}px">
+              <canvas id="crtWorldMapCanvas" class="w-full h-full cursor-crosshair touch-none" title="Drag to pan CRT world map · Double-click to zoom"></canvas>
+              <div id="crtWorldMapCoordLabel" class="pointer-events-none absolute right-2 bottom-1.5 px-1.5 py-0.5 rounded bg-black/75 font-mono-tech text-[8px] text-neutral-300">21.9°N 83.4°E</div>
+            </div>
+          `;
         }
 
         wrapper.innerHTML = innerHTML;
@@ -1462,6 +1986,7 @@
             <div class="flex items-center gap-1">
               <button type="button" data-move-widget="${w.id}" data-dir="-1" class="px-1.5 py-0.5 rounded bg-neutral-900 hover:bg-neutral-800 text-neutral-300" title="Move Up">↑</button>
               <button type="button" data-move-widget="${w.id}" data-dir="1" class="px-1.5 py-0.5 rounded bg-neutral-900 hover:bg-neutral-800 text-neutral-300" title="Move Down">↓</button>
+              <button type="button" data-cycle-size-widget="${w.id}" class="px-2 py-0.5 rounded border border-neutral-700 text-white font-semibold">Size: ${(w.size || 'standard').toUpperCase()}</button>
               <button type="button" data-remove-widget="${w.id}" class="px-2 py-0.5 rounded bg-red-950/80 border border-red-800/60 text-red-300 hover:bg-red-900">× Remove</button>
             </div>
           `;
@@ -1476,8 +2001,7 @@
         modalWidgetsSpec.textContent = `${enabledWidgets.length} of ${state.widgets.length} Enabled`;
       }
     }
-
-    function renderHomeApps() {
+function renderHomeApps() {
       const listEl = document.getElementById('homeAppsList');
       if (!listEl) return;
       listEl.innerHTML = '';
@@ -1504,11 +2028,14 @@
 
       pinnedApps.forEach((app) => {
         const row = document.createElement('div');
-        row.className = `niagara-row group flex items-center ${alignCls} py-1.5`;
+        row.className = `wave-row group flex items-center ${alignCls} py-1.5`;
 
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.dataset.launchApp = app.id;
+        btn.dataset.contextApp = app.id;
+        btn.dataset.contextSource = "home";
+        btn.title = "Tap to open · Long-press or right-click for App Info / Unpin / Uninstall";
         btn.className = `app-item ${fontCls} tracking-tight text-white hover:opacity-85 flex items-baseline gap-2 focus:outline-none`;
         btn.style.fontSize = `${state.textSize}px`;
         btn.style.lineHeight = '1.35';
@@ -1551,17 +2078,18 @@
       const strip = document.getElementById('homeWaveStrip');
       if (!strip) return;
       strip.innerHTML = '';
-      if (state.niagaraWaveMode === 'off') {
+      const pinnedApps = state.apps.filter(a => a.pinned && !a.hidden);
+      if (state.waveScrubMode === 'off' || pinnedApps.length === 0) {
         strip.classList.add('hidden');
         return;
       }
       strip.classList.remove('hidden');
 
-      const dots = '•·•·•·•·•·•·•'.split('');
-      dots.forEach((d) => {
+      pinnedApps.forEach((_, idx) => {
         const span = document.createElement('span');
-        span.className = 'az-letter-node leading-none py-0.5';
-        span.textContent = d;
+        span.dataset.homeDotIdx = idx;
+        span.className = 'az-letter-node leading-none w-full flex items-center justify-center';
+        span.textContent = '•';
         strip.appendChild(span);
       });
     }
@@ -1632,11 +2160,14 @@
         }
 
         const row = document.createElement('div');
-        row.className = 'niagara-row flex items-center justify-between py-1.5 border-b border-neutral-950 hover:bg-neutral-900/50 px-1 rounded';
+        row.className = 'wave-row flex items-center justify-between py-1.5 border-b border-neutral-950 hover:bg-neutral-900/50 px-1 rounded';
 
         const leftBtn = document.createElement('button');
         leftBtn.type = 'button';
         leftBtn.dataset.launchApp = app.id;
+        leftBtn.dataset.contextApp = app.id;
+        leftBtn.dataset.contextSource = "drawer";
+        leftBtn.title = "Tap to open · Long-press or right-click for App Info / Add to Home / Uninstall";
         leftBtn.className = `app-item ${fontCls} text-sm text-white hover:opacity-85 text-left flex items-center gap-2 flex-1`;
         leftBtn.innerHTML = `
           <span>${app.name}</span>
@@ -1706,22 +2237,84 @@
 
       state.widgets.forEach((w, idx) => {
         const card = document.createElement('div');
-        card.className = 'p-2.5 rounded-lg border border-neutral-900 bg-neutral-950/70 flex items-center justify-between gap-2';
-        card.innerHTML = `
-          <div class="min-w-0">
-            <div class="font-mono-tech text-xs text-white flex items-center gap-1.5">
-              <span class="w-1.5 h-1.5 rounded-full" style="background:${w.enabled ? state.accentColor : '#404040'}"></span>
-              <span class="truncate">${w.name}</span>
+        card.className = 'p-3 rounded-xl border border-neutral-800 bg-neutral-950/80 flex flex-col gap-2 font-mono-tech';
+        const curSize = (w.size || 'standard').toUpperCase();
+
+        let customControls = '';
+        if (w.enabled && w.id === 'globe') {
+          const isHolo = state.globeTheme === 'retro_holo';
+          const wfColors = ['#FF3B00', '#00FF66', '#00E5FF', '#FFFFFF', '#D71921', '#FFB000', '#3B82F6'];
+          customControls = `
+            <div class="pt-2 border-t border-neutral-900 space-y-2 text-[10px]">
+              <div class="flex items-center justify-between">
+                <span class="text-neutral-400 text-[9px]">GLOBE SIZE</span>
+                <div class="flex items-center gap-1">
+                  ${['compact:S', 'standard:M', 'large:L', 'xlarge:XL', 'max:MAX'].map(pair => {
+                    const [k, lbl] = pair.split(':');
+                    const sel = (w.size || 'standard') === k;
+                    return `<button type="button" data-set-widget-size="globe:${k}" class="px-1.5 py-0.5 rounded text-[9px] font-bold ${sel ? 'bg-[#FF3B00] text-black' : 'bg-neutral-900 text-neutral-300'}">${lbl}</button>`;
+                  }).join('')}
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-1">
+                <button type="button" data-set-globe-theme="retro_holo" class="py-1 px-2 rounded text-[9px] font-semibold ${isHolo ? 'bg-white text-black' : 'border border-neutral-800 text-neutral-300'}">80s Hologram</button>
+                <button type="button" data-set-globe-theme="wireframe" class="py-1 px-2 rounded text-[9px] font-semibold ${!isHolo ? 'bg-white text-black' : 'border border-neutral-800 text-neutral-300'}">3D Wireframe</button>
+              </div>
+              ${!isHolo ? `
+                <div class="flex items-center justify-between pt-1">
+                  ${wfColors.map(hex => `<button type="button" data-globe-wf-color="${hex}" class="w-5 h-5 rounded-full ${state.globeWireframeColor === hex ? 'ring-2 ring-white' : 'opacity-75'}" style="background:${hex}"></button>`).join('')}
+                </div>
+              ` : ''}
             </div>
-            <div class="text-[10px] text-neutral-500 truncate mt-0.5">${w.desc}</div>
+          `;
+        } else if (w.enabled && w.id === 'blackhole') {
+          const bhColors = ['#FFFFFF', '#FF3B00', '#00E5FF', '#A855F7', '#00FF66', '#FFB000', '#D71921'];
+          customControls = `
+            <div class="pt-2 border-t border-neutral-900 space-y-1.5 text-[10px]">
+              <div class="text-[9px] text-neutral-400">ACCRETION RING COLOR (CORE: WHITE)</div>
+              <div class="flex items-center justify-between">
+                ${bhColors.map(hex => `<button type="button" data-bh-color="${hex}" class="w-5 h-5 rounded-full ${state.blackHoleAccentColor === hex ? 'ring-2 ring-white' : 'opacity-75'}" style="background:${hex}"></button>`).join('')}
+              </div>
+            </div>
+          `;
+        } else if (w.enabled && w.id === 'clock') {
+          customControls = `
+            <div class="pt-2 border-t border-neutral-900 flex items-center justify-between text-[10px]">
+              <span class="text-neutral-400 text-[9px]">CLOCK FORMAT</span>
+              <button type="button" data-widget-action="toggle24h" class="px-2 py-0.5 rounded bg-neutral-900 border border-neutral-700 text-white text-[9px]">${state.use24Hour ? '24-HOUR' : '12-HOUR (PM)'}</button>
+            </div>
+          `;
+        } else if (w.enabled && w.id === 'weather') {
+          customControls = `
+            <div class="pt-2 border-t border-neutral-900 flex items-center justify-between text-[10px]">
+              <span class="text-neutral-400 text-[9px]">TEMP UNIT &amp; LIVE AQI</span>
+              <div class="flex items-center gap-1">
+                <button type="button" data-widget-action="toggleTempUnit" class="px-2 py-0.5 rounded bg-white text-black font-bold text-[9px]">${state.tempUnitCelsius ? '°C' : '°F'}</button>
+                <button type="button" data-widget-action="syncWeatherLive" class="px-2 py-0.5 rounded border border-[#FF3B00] text-[#FF3B00] text-[9px]">↻ SYNC</button>
+              </div>
+            </div>
+          `;
+        }
+
+        card.innerHTML = `
+          <div class="flex items-center justify-between gap-2">
+            <div class="min-w-0">
+              <div class="text-xs text-white flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full" style="background:${w.enabled ? state.accentColor : '#404040'}"></span>
+                <span class="truncate">${w.name}</span>
+              </div>
+              <div class="text-[10px] text-neutral-500 truncate mt-0.5">${w.desc}</div>
+            </div>
+            <div class="flex items-center gap-1 shrink-0 text-[10px]">
+              <button type="button" data-move-widget="${w.id}" data-dir="-1" ${idx === 0 ? 'disabled' : ''} class="px-1.5 py-1 rounded border border-neutral-800 text-neutral-400 hover:text-white disabled:opacity-30">↑</button>
+              <button type="button" data-move-widget="${w.id}" data-dir="1" ${idx === state.widgets.length - 1 ? 'disabled' : ''} class="px-1.5 py-1 rounded border border-neutral-800 text-neutral-400 hover:text-white disabled:opacity-30">↓</button>
+              ${w.enabled ? `<button type="button" data-cycle-size-widget="${w.id}" class="px-2 py-1 rounded border border-neutral-700 text-[#FF3B00] text-[9px] font-bold">${curSize}</button>` : ''}
+              <button type="button" data-toggle-widget="${w.id}" class="px-2.5 py-1 rounded font-semibold ${w.enabled ? 'bg-white text-black' : 'border border-neutral-800 text-neutral-400 hover:border-neutral-600'}">
+                ${w.enabled ? 'ON' : 'OFF'}
+              </button>
+            </div>
           </div>
-          <div class="flex items-center gap-1 shrink-0 font-mono-tech text-[10px]">
-            <button type="button" data-move-widget="${w.id}" data-dir="-1" ${idx === 0 ? 'disabled' : ''} class="px-1.5 py-1 rounded border border-neutral-800 text-neutral-400 hover:text-white disabled:opacity-30">↑</button>
-            <button type="button" data-move-widget="${w.id}" data-dir="1" ${idx === state.widgets.length - 1 ? 'disabled' : ''} class="px-1.5 py-1 rounded border border-neutral-800 text-neutral-400 hover:text-white disabled:opacity-30">↓</button>
-            <button type="button" data-toggle-widget="${w.id}" class="px-2.5 py-1 rounded font-semibold ${w.enabled ? 'bg-white text-black' : 'border border-neutral-800 text-neutral-400 hover:border-neutral-600'}">
-              ${w.enabled ? 'ON' : 'OFF'}
-            </button>
-          </div>
+          ${customControls}
         `;
         list.appendChild(card);
       });
@@ -1903,7 +2496,7 @@
         activeFontBadge.textContent = FONT_NAMES[state.fontStyle] || 'Nothing N-Dot';
       }
 
-      // Niagara Wave buttons
+      // Fluid Wave buttons
       const waveMap = {
         full: document.getElementById('waveBtnFull'),
         subtle: document.getElementById('waveBtnSubtle'),
@@ -1911,7 +2504,7 @@
       };
       Object.entries(waveMap).forEach(([k, btn]) => {
         if (!btn) return;
-        btn.className = k === state.niagaraWaveMode
+        btn.className = k === state.waveScrubMode
           ? 'py-1.5 px-2 rounded border border-white bg-white text-black font-medium'
           : 'py-1.5 px-2 rounded border border-neutral-800 text-neutral-300 hover:border-neutral-600';
       });
@@ -2013,7 +2606,7 @@
       const inPhoneTopBar = document.getElementById('inPhoneToggleCustomTopBar');
       const inPhoneNav = document.getElementById('inPhoneToggleNavMode');
       if (inPhone24h) inPhone24h.textContent = `Clock: ${state.use24Hour ? '24h' : '12h'}`;
-      if (inPhoneTopBar) inPhoneTopBar.textContent = `N-TEXT Bar: ${state.showStatusBar ? 'ON' : 'OFF'}`;
+      if (inPhoneTopBar) inPhoneTopBar.textContent = `Nocturnaa Bar: ${state.showStatusBar ? 'ON' : 'OFF'}`;
       if (inPhoneNav) inPhoneNav.textContent = `Nav: ${state.navMode === '3button' ? '3-Btn' : 'Gesture'}`;
 
       // Text size slider
@@ -2048,7 +2641,7 @@
           : 'px-2.5 py-1 rounded text-[10px] border border-neutral-700 text-neutral-400';
       };
       setBtn('toggleHideAndroidNotifBar', state.hideDefaultAndroidBar);
-      setBtn('toggleNiagaraWave', state.niagaraWaveMode !== 'off');
+      setBtn('toggleWaveScrub', state.waveScrubMode !== 'off');
       setBtn('toggleAutoKeyboard', state.autoKeyboard);
       setBtn('toggleScreenTimeLabels', state.showScreenTime);
       setBtn('toggleNotifBadges', state.showNotifBadges);
@@ -2089,12 +2682,23 @@
         }
       });
 
-      if (viewName === 'drawer') {
-        renderDrawerApps();
-        if (state.autoKeyboard) {
-          const inp = document.getElementById('drawerSearchInput');
-          if (inp) setTimeout(() => inp.focus(), 50);
+      const inp = document.getElementById('drawerSearchInput');
+      const clearBtn = document.getElementById('btnClearSearch');
+      const dList = document.getElementById('drawerAppsList');
+      if (viewName !== 'drawer') {
+        if (inp) {
+          inp.value = '';
+          inp.blur();
         }
+        if (clearBtn) clearBtn.classList.add('hidden');
+        if (dList) dList.scrollTop = 0;
+      }
+
+      if (viewName === 'drawer') {
+        if (inp) inp.value = '';
+        if (clearBtn) clearBtn.classList.add('hidden');
+        renderDrawerApps();
+        if (dList) dList.scrollTop = 0;
       } else if (viewName === 'widgets') {
         renderInPhoneWidgetManager();
       } else if (viewName === 'recents') {
@@ -2105,6 +2709,13 @@
     function launchSimulatedApp(appId) {
       const app = state.apps.find(a => a.id === appId);
       if (!app) return;
+      const inp = document.getElementById('drawerSearchInput');
+      const clearBtn = document.getElementById('btnClearSearch');
+      if (inp) {
+        inp.value = '';
+        inp.blur();
+      }
+      if (clearBtn) clearBtn.classList.add('hidden');
       state.launchedAppId = app.id;
       app.badge = 0;
 
@@ -2139,6 +2750,631 @@
     window.addEventListener('DOMContentLoaded', () => {
       renderAzScrubber();
       renderAll();
+
+      // =======================================================================
+      // HIGH-PRECISION 3D INTERACTIVE GLOBE (106 COUNTRY BORDERS · 2 THEMES)
+      // Theme 1 ("retro_holo"): Translucent Blue Ocean + Green Countries + Glowing Mint Borders
+      // Theme 2 ("wireframe"): Pure 3D Vector Wireframe with User-Customizable Color
+      // =======================================================================
+      const globeCanvas = document.getElementById('retroGlobeCanvas');
+      const btnGlobeThemeHolo = document.getElementById('btnGlobeThemeHolo');
+      const btnGlobeThemeWire = document.getElementById('btnGlobeThemeWire');
+      const globeWireframeColorRow = document.getElementById('globeWireframeColorRow');
+
+      const WORLD_COUNTRY_BORDERS = [[[49.0,-123.1],[49.0,-119.6],[49.0,-116.1],[49.0,-112.6],[49.0,-109.2],[49.0,-105.7],[49.0,-102.2],[49.0,-98.7],[49.0,-95.2],[48.5,-92.3],[48.0,-89.5],[47.2,-86.9],[46.5,-84.3],[45.0,-82.5],[42.3,-83.0],[42.6,-81.0],[42.9,-78.9],[44.0,-76.8],[45.0,-74.7],[45.0,-71.5],[47.4,-69.2],[45.1,-67.1],[44.9,-65.3],[44.6,-63.5],[45.8,-62.0],[46.9,-60.4],[49.5,-58.1],[52.0,-55.8],[54.2,-58.1],[56.3,-60.5],[58.5,-62.8],[60.9,-64.8],[59.8,-66.6],[58.8,-68.4],[60.0,-71.5],[61.3,-74.7],[62.5,-77.8],[60.1,-79.3],[57.6,-80.8],[55.2,-82.3],[55.8,-85.6],[56.5,-89.0],[57.1,-92.3],[59.4,-92.9],[61.8,-93.4],[64.1,-94.0],[66.3,-95.2],[68.5,-96.5],[68.7,-99.6],[68.8,-102.7],[69.0,-105.8],[69.2,-108.8],[69.3,-111.9],[69.5,-115.0],[69.6,-117.8],[69.7,-120.6],[69.9,-123.4],[70.0,-126.2],[70.1,-129.0],[70.0,-132.0],[69.8,-135.0],[69.7,-138.0],[69.6,-141.0],[66.5,-141.0],[63.4,-141.0],[60.3,-141.0],[58.9,-138.4],[57.5,-135.8],[56.1,-133.2],[54.7,-130.6],[52.8,-129.5],[50.8,-128.4],[49.9,-125.8],[49.0,-123.1]],[[62.0,-66.0],[64.2,-63.8],[66.5,-61.5],[67.8,-64.2],[69.0,-67.0],[70.2,-69.8],[71.5,-72.5],[72.0,-75.4],[72.6,-78.2],[73.2,-81.1],[73.7,-84.0],[71.8,-85.0],[70.0,-86.0],[68.3,-83.3],[66.7,-80.7],[65.0,-78.0],[64.2,-75.0],[63.5,-72.0],[62.8,-69.0],[62.0,-66.0]],[[49.0,-123.1],[48.4,-124.7],[46.2,-124.0],[44.1,-124.1],[42.0,-124.2],[40.0,-123.6],[38.0,-123.0],[36.2,-121.8],[34.5,-120.5],[33.5,-118.8],[32.5,-117.1],[31.9,-114.0],[31.3,-111.0],[31.6,-108.8],[31.8,-106.5],[30.4,-104.8],[29.0,-103.1],[27.5,-100.2],[26.0,-97.2],[27.8,-97.1],[28.8,-95.4],[29.7,-93.8],[29.4,-91.5],[29.1,-89.2],[30.2,-88.0],[30.1,-86.0],[30.0,-84.0],[28.0,-82.8],[26.6,-81.6],[25.1,-80.4],[28.5,-80.6],[30.7,-81.4],[32.8,-79.9],[34.0,-77.7],[35.2,-75.5],[37.0,-76.0],[39.5,-74.3],[40.6,-74.0],[41.3,-71.8],[42.0,-70.0],[43.6,-70.2],[44.2,-68.6],[44.8,-66.9],[47.4,-69.2],[45.0,-71.5],[45.0,-74.7],[44.0,-76.8],[42.9,-78.9],[42.6,-81.0],[42.3,-83.0],[45.0,-82.5],[46.5,-84.3],[47.2,-86.9],[48.0,-89.5],[48.5,-92.3],[49.0,-95.2],[49.0,-98.7],[49.0,-102.2],[49.0,-105.7],[49.0,-109.2],[49.0,-112.6],[49.0,-116.1],[49.0,-119.6],[49.0,-123.1]],[[60.3,-141.0],[63.4,-141.0],[66.5,-141.0],[69.6,-141.0],[69.9,-144.2],[70.3,-147.3],[70.6,-150.5],[71.0,-153.6],[71.3,-156.8],[70.5,-159.9],[69.7,-163.1],[68.9,-166.2],[67.2,-167.1],[65.6,-168.1],[64.5,-165.1],[63.5,-162.0],[61.8,-163.8],[60.0,-165.6],[59.3,-163.0],[58.7,-160.3],[58.0,-157.7],[56.4,-160.6],[54.8,-163.4],[55.8,-160.7],[56.7,-157.9],[57.6,-155.2],[58.6,-152.5],[59.5,-149.2],[60.5,-146.0],[59.8,-142.6],[59.1,-139.2],[58.4,-135.8],[56.5,-133.2],[54.7,-130.6],[56.1,-133.2],[57.5,-135.8],[58.9,-138.4],[60.3,-141.0]],[[32.5,-117.1],[30.1,-116.0],[27.8,-114.9],[26.2,-113.2],[24.5,-111.6],[22.9,-109.9],[24.7,-110.7],[26.5,-111.5],[28.9,-112.5],[31.2,-113.5],[29.6,-112.2],[28.0,-111.0],[25.6,-108.7],[23.2,-106.4],[21.1,-105.3],[19.0,-104.3],[17.9,-102.1],[16.9,-99.9],[16.4,-98.2],[15.8,-96.5],[15.2,-94.3],[14.5,-92.2],[16.1,-91.6],[17.8,-91.0],[17.8,-89.2],[19.6,-88.2],[21.5,-87.1],[21.2,-90.0],[18.6,-91.8],[18.2,-94.4],[19.9,-95.9],[21.5,-97.4],[23.8,-97.3],[26.0,-97.2],[27.5,-100.2],[29.0,-103.1],[30.4,-104.8],[31.8,-106.5],[31.6,-108.8],[31.3,-111.0],[31.9,-114.0],[32.5,-117.1]],[[17.8,-89.2],[15.9,-88.6],[15.9,-85.8],[15.9,-83.1],[13.4,-83.4],[11.0,-83.7],[9.7,-80.6],[8.3,-77.4],[7.2,-77.9],[7.7,-80.4],[8.1,-82.9],[9.5,-84.3],[10.9,-85.7],[13.0,-87.6],[13.8,-89.9],[14.5,-92.2],[16.1,-91.6],[17.8,-91.0],[17.8,-89.2]],[[21.9,-84.9],[23.1,-81.8],[22.3,-79.4],[21.5,-77.0],[19.8,-74.1],[19.9,-75.9],[19.9,-77.7],[21.6,-80.0],[21.8,-82.5],[21.9,-84.9]],[[19.9,-73.4],[19.8,-71.7],[19.7,-69.9],[18.4,-68.4],[18.0,-71.7],[18.4,-74.4],[19.9,-73.4]],[[60.0,-43.5],[61.9,-41.4],[63.7,-39.3],[65.6,-37.2],[66.6,-34.2],[67.5,-31.1],[68.5,-28.1],[69.4,-25.0],[70.4,-22.0],[72.5,-20.9],[74.7,-19.9],[76.8,-18.8],[78.5,-16.7],[80.1,-14.6],[81.8,-12.5],[82.1,-15.8],[82.4,-19.0],[82.7,-22.2],[83.0,-25.5],[83.3,-28.8],[83.6,-32.0],[83.3,-35.3],[83.1,-38.7],[82.8,-42.0],[82.5,-45.3],[82.3,-48.7],[82.0,-52.0],[81.7,-55.3],[81.5,-58.7],[81.2,-62.0],[79.6,-64.7],[77.9,-67.3],[76.3,-70.0],[75.6,-67.2],[74.9,-64.4],[74.2,-61.6],[73.5,-58.8],[72.8,-56.0],[70.4,-54.8],[68.0,-53.5],[65.9,-52.5],[63.8,-51.5],[62.5,-48.8],[61.3,-46.2],[60.0,-43.5]],[[8.3,-77.4],[9.8,-75.8],[11.2,-74.2],[12.4,-71.6],[9.7,-71.2],[7.0,-70.7],[4.3,-68.9],[1.7,-67.1],[-1.3,-68.5],[-4.2,-69.9],[-2.3,-72.6],[-0.4,-75.2],[0.5,-77.0],[1.4,-78.8],[4.0,-77.3],[6.2,-77.3],[8.3,-77.4]],[[12.4,-71.6],[11.5,-69.2],[10.6,-66.9],[10.6,-64.2],[10.6,-61.6],[8.4,-59.8],[7.2,-57.5],[6.0,-55.2],[5.2,-53.4],[4.3,-51.6],[2.2,-52.9],[2.0,-55.3],[1.7,-57.6],[1.5,-60.0],[4.5,-61.0],[3.1,-64.0],[1.7,-67.1],[4.3,-68.9],[7.0,-70.7],[9.7,-71.2],[12.4,-71.6]],[[1.4,-78.8],[0.5,-77.0],[-0.4,-75.2],[-2.3,-72.6],[-4.2,-69.9],[-5.8,-71.9],[-7.4,-73.9],[-9.2,-71.7],[-11.0,-69.5],[-13.8,-69.2],[-16.5,-69.0],[-18.3,-70.4],[-16.9,-72.4],[-15.4,-74.3],[-14.0,-76.3],[-11.1,-77.7],[-8.1,-79.1],[-6.4,-80.2],[-4.7,-81.3],[-2.2,-81.0],[-0.4,-79.9],[1.4,-78.8]],[[4.3,-51.6],[2.1,-50.5],[0.0,-49.5],[-1.2,-46.9],[-2.5,-44.3],[-3.1,-41.4],[-3.7,-38.5],[-4.8,-36.9],[-5.8,-35.2],[-8.0,-34.9],[-10.5,-36.7],[-13.0,-38.5],[-15.5,-39.0],[-18.0,-39.5],[-20.5,-41.4],[-23.0,-43.2],[-24.2,-45.9],[-25.5,-48.5],[-27.8,-49.4],[-30.0,-50.2],[-31.9,-51.8],[-33.7,-53.4],[-32.0,-55.5],[-30.2,-57.6],[-27.9,-56.1],[-25.6,-54.6],[-23.9,-56.3],[-22.1,-58.0],[-20.1,-57.8],[-18.0,-57.6],[-15.8,-59.0],[-13.6,-60.4],[-12.2,-62.9],[-10.8,-65.4],[-10.9,-67.5],[-11.0,-69.5],[-9.2,-71.7],[-7.4,-73.9],[-5.8,-71.9],[-4.2,-69.9],[-1.2,-68.5],[1.7,-67.1],[3.1,-64.0],[4.5,-61.0],[1.5,-60.0],[1.7,-57.6],[2.0,-55.3],[2.2,-52.9],[4.3,-51.6]],[[-11.0,-69.5],[-10.9,-67.5],[-10.8,-65.4],[-12.2,-62.9],[-13.6,-60.4],[-15.8,-59.0],[-18.0,-57.6],[-20.1,-57.8],[-22.1,-58.0],[-23.9,-56.3],[-25.6,-54.6],[-26.5,-56.6],[-27.3,-58.6],[-25.1,-60.7],[-22.9,-62.7],[-22.9,-65.2],[-22.9,-67.8],[-19.7,-68.4],[-16.5,-69.0],[-13.8,-69.2],[-11.0,-69.5]],[[-18.3,-70.4],[-16.5,-69.0],[-19.7,-68.4],[-22.9,-67.8],[-24.9,-68.2],[-27.0,-68.5],[-30.0,-69.2],[-33.0,-70.0],[-35.7,-70.6],[-38.3,-71.2],[-41.0,-71.8],[-43.7,-72.2],[-46.3,-72.6],[-49.0,-73.0],[-51.0,-71.2],[-52.9,-69.3],[-54.9,-67.5],[-54.4,-70.0],[-53.9,-72.4],[-51.5,-73.5],[-49.2,-74.5],[-46.8,-75.6],[-44.1,-74.7],[-41.5,-73.8],[-38.7,-73.1],[-35.8,-72.3],[-33.0,-71.6],[-29.9,-71.2],[-26.7,-70.8],[-23.6,-70.4],[-21.0,-70.4],[-18.3,-70.4]],[[-22.9,-67.8],[-22.9,-65.2],[-22.9,-62.7],[-25.1,-60.7],[-27.3,-58.6],[-26.5,-56.6],[-25.6,-54.6],[-27.9,-56.1],[-30.2,-57.6],[-32.0,-55.5],[-33.7,-53.4],[-35.0,-54.9],[-34.9,-57.9],[-38.0,-57.5],[-39.5,-60.1],[-41.0,-62.8],[-43.5,-65.2],[-46.0,-67.5],[-49.2,-68.0],[-52.4,-68.4],[-54.9,-67.5],[-52.9,-69.3],[-51.0,-71.2],[-49.0,-73.0],[-46.3,-72.6],[-43.7,-72.2],[-41.0,-71.8],[-38.3,-71.2],[-35.7,-70.6],[-33.0,-70.0],[-30.0,-69.2],[-27.0,-68.5],[-24.9,-68.2],[-22.9,-67.8]],[[50.1,-5.2],[50.5,-2.5],[50.8,0.2],[51.4,1.4],[52.7,1.7],[53.6,0.1],[55.8,-2.1],[57.7,-1.8],[58.6,-3.1],[58.6,-5.0],[56.5,-5.6],[54.8,-5.0],[53.4,-3.0],[51.7,-5.1],[50.1,-5.2]],[[51.5,-9.8],[52.2,-6.4],[54.5,-5.5],[55.4,-7.4],[53.5,-10.1],[51.5,-9.8]],[[63.4,-19.0],[63.9,-16.8],[64.4,-14.5],[66.5,-16.0],[66.2,-18.7],[65.9,-21.5],[65.6,-24.2],[64.5,-21.6],[63.4,-19.0]],[[36.0,-5.6],[37.0,-8.9],[38.8,-9.5],[41.9,-8.9],[43.0,-9.3],[43.2,-6.2],[43.4,-3.0],[43.3,-1.8],[42.8,0.7],[42.4,3.2],[40.7,0.8],[38.7,0.2],[36.7,-2.2],[36.0,-5.6]],[[37.0,-8.9],[37.2,-7.4],[39.5,-7.0],[41.9,-6.6],[41.9,-8.9],[38.8,-9.5],[37.0,-8.9]],[[43.3,-1.8],[46.0,-1.2],[47.2,-3.0],[48.4,-4.8],[48.7,-1.8],[49.7,-1.9],[50.4,0.3],[51.0,2.5],[50.0,5.3],[49.0,8.2],[47.6,7.6],[45.8,6.8],[43.8,7.5],[43.1,5.9],[43.3,3.5],[42.4,3.2],[42.8,0.7],[43.3,-1.8]],[[51.0,2.5],[52.2,4.0],[53.4,5.5],[53.9,8.7],[54.8,8.4],[54.4,11.0],[53.9,14.2],[51.0,15.0],[49.0,13.8],[47.6,13.0],[46.8,11.0],[46.0,9.0],[46.2,6.1],[47.6,7.6],[49.0,8.2],[50.0,5.3],[51.0,2.5]],[[43.8,7.5],[45.8,6.8],[46.0,9.0],[47.0,12.2],[45.6,13.8],[44.4,12.3],[43.2,13.7],[42.0,15.0],[41.0,16.8],[40.1,18.5],[39.8,16.5],[38.0,15.6],[39.0,16.0],[40.8,14.2],[41.8,12.2],[43.1,10.6],[44.4,8.9],[43.8,7.5]],[[58.0,7.0],[60.0,6.0],[62.0,5.0],[63.0,7.5],[64.0,10.0],[66.0,12.2],[68.0,14.5],[68.8,17.3],[69.5,20.1],[70.3,23.0],[71.1,25.8],[70.5,27.8],[69.9,29.7],[69.6,26.7],[69.3,23.8],[69.0,20.8],[67.3,18.5],[65.7,16.3],[64.0,14.0],[61.5,12.6],[59.0,11.2],[58.5,9.1],[58.0,7.0]],[[59.0,11.2],[61.5,12.6],[64.0,14.0],[65.7,16.3],[67.3,18.5],[69.0,20.8],[67.4,22.5],[65.8,24.1],[64.7,22.1],[63.5,20.0],[61.9,19.4],[60.2,18.8],[58.1,17.4],[56.0,16.0],[55.4,13.0],[57.7,11.9],[59.0,11.2]],[[65.8,24.1],[67.4,22.5],[69.0,20.8],[69.3,23.8],[69.6,26.7],[69.9,29.7],[67.5,29.8],[65.0,29.8],[62.8,28.8],[60.5,27.8],[60.1,25.4],[59.8,23.0],[61.5,21.5],[63.6,22.8],[65.8,24.1]],[[53.9,14.2],[54.3,16.3],[54.8,18.4],[55.9,21.1],[57.0,22.8],[58.0,24.4],[59.4,24.7],[59.4,28.0],[56.0,28.2],[55.0,25.9],[53.9,23.5],[50.5,24.0],[49.0,22.5],[49.2,20.6],[49.5,18.8],[49.2,16.3],[49.0,13.8],[51.0,15.0],[53.9,14.2]],[[53.9,23.5],[55.0,25.9],[56.0,28.2],[54.8,30.4],[53.5,32.5],[52.1,34.0],[51.0,36.1],[49.8,38.2],[47.1,39.2],[46.5,37.1],[46.0,35.0],[44.4,33.8],[45.5,32.2],[46.5,30.7],[45.3,29.7],[46.2,27.5],[47.1,25.2],[48.0,23.0],[50.5,24.0],[53.9,23.5]],[[45.6,13.8],[47.0,17.0],[47.5,20.0],[48.0,23.0],[47.1,25.2],[46.2,27.5],[45.3,29.7],[43.6,28.9],[42.0,28.0],[40.8,26.0],[40.5,23.0],[38.0,24.0],[36.4,22.5],[37.7,21.2],[39.0,20.0],[42.0,19.2],[43.8,16.5],[45.6,13.8]],[[59.4,28.0],[60.5,27.8],[62.8,28.8],[65.0,29.8],[67.5,29.8],[69.9,29.7],[69.5,33.1],[69.0,36.5],[67.8,35.2],[66.5,34.0],[65.8,37.0],[65.0,40.0],[66.8,42.0],[68.5,44.0],[68.7,47.2],[68.9,50.4],[69.1,53.6],[69.3,56.8],[69.5,60.0],[70.4,62.5],[71.2,65.0],[72.1,67.5],[73.0,70.0],[73.1,72.6],[73.2,75.2],[73.4,77.9],[73.5,80.5],[74.1,83.9],[74.7,87.3],[75.3,90.7],[75.9,94.1],[76.5,97.5],[77.1,100.9],[77.7,104.3],[76.7,106.7],[75.6,109.2],[74.5,111.6],[73.5,114.0],[73.2,117.1],[72.9,120.3],[72.6,123.4],[72.4,126.6],[72.1,129.7],[71.8,132.9],[71.5,136.0],[71.3,139.2],[71.0,142.5],[70.8,145.8],[70.5,149.0],[70.3,152.2],[70.1,155.5],[69.8,158.8],[69.6,162.0],[69.0,164.9],[68.4,167.8],[67.8,170.8],[67.2,173.7],[66.6,176.6],[66.0,179.5],[64.8,176.6],[63.6,173.7],[62.4,170.8],[61.2,167.9],[60.0,165.0],[57.8,162.9],[55.5,160.8],[53.2,158.8],[51.0,156.7],[54.0,156.1],[57.0,155.6],[60.0,155.0],[59.0,152.0],[58.0,149.0],[57.0,146.0],[56.0,143.0],[55.0,140.0],[54.0,137.0],[51.2,135.8],[48.5,134.5],[45.8,133.2],[43.0,132.0],[45.8,133.5],[48.5,135.0],[49.5,132.2],[50.4,129.4],[51.4,126.6],[52.3,123.8],[53.3,121.0],[51.6,118.0],[50.0,115.0],[50.0,111.7],[50.0,108.3],[50.0,105.0],[50.0,101.7],[50.0,98.3],[50.0,95.0],[49.7,92.4],[49.3,89.9],[49.0,87.3],[50.2,84.2],[51.5,81.2],[52.8,78.1],[54.0,75.0],[53.4,72.0],[52.8,69.0],[52.2,66.0],[51.6,63.0],[51.0,60.0],[51.1,57.0],[51.1,54.0],[51.2,51.0],[49.1,49.2],[47.0,47.5],[45.0,47.5],[43.0,47.5],[43.2,45.0],[43.3,42.5],[43.5,40.0],[45.3,39.6],[47.1,39.2],[49.8,38.2],[51.0,36.1],[52.1,34.0],[53.5,32.5],[54.8,30.4],[56.0,28.2],[59.4,28.0]],[[47.0,47.5],[49.1,49.2],[51.2,51.0],[51.1,54.0],[51.1,57.0],[51.0,60.0],[51.6,63.0],[52.2,66.0],[52.8,69.0],[53.4,72.0],[54.0,75.0],[52.8,78.1],[51.5,81.2],[50.2,84.2],[49.0,87.3],[47.0,84.9],[45.0,82.6],[43.0,80.2],[42.1,78.0],[41.1,75.7],[40.2,73.5],[38.7,70.7],[37.2,67.8],[37.5,65.1],[37.9,62.4],[38.2,59.7],[38.5,57.0],[37.4,54.0],[39.7,53.2],[42.0,52.5],[44.5,50.3],[45.8,48.9],[47.0,47.5]],[[41.2,29.0],[41.6,32.1],[42.0,35.2],[41.5,37.9],[41.0,40.5],[40.5,42.5],[40.0,44.5],[37.2,44.8],[37.1,41.9],[36.9,39.1],[36.8,36.2],[36.5,34.4],[36.2,32.5],[36.5,29.9],[36.8,27.4],[39.5,26.2],[41.2,29.0]],[[36.8,36.2],[36.9,39.1],[37.1,41.9],[37.2,44.8],[40.0,44.5],[39.4,46.7],[38.8,48.9],[38.1,51.5],[37.4,54.0],[38.5,57.0],[37.0,59.1],[35.6,61.2],[32.8,61.0],[29.9,60.9],[27.5,61.2],[25.2,61.6],[25.9,59.0],[26.6,56.3],[27.7,53.7],[28.9,51.1],[30.0,48.5],[29.1,46.5],[29.2,43.6],[29.3,40.8],[29.4,37.9],[29.5,35.0],[31.5,34.5],[34.1,35.4],[36.8,36.2]],[[29.5,35.0],[29.4,37.9],[29.3,40.8],[29.2,43.6],[29.1,46.5],[30.0,48.5],[28.1,49.5],[26.2,50.6],[24.5,51.5],[25.4,53.9],[26.2,56.3],[24.4,58.0],[22.5,59.8],[20.7,58.0],[18.8,56.3],[17.0,54.5],[15.8,51.9],[14.5,49.2],[13.6,46.4],[12.7,43.5],[14.6,43.1],[16.5,42.8],[19.0,41.0],[21.5,39.1],[23.7,37.7],[25.8,36.2],[28.0,34.8],[29.5,35.0]],[[35.6,61.2],[36.4,64.5],[37.2,67.8],[37.1,70.1],[37.1,72.5],[37.0,74.8],[34.5,74.0],[32.2,74.0],[30.0,74.0],[28.0,72.3],[26.0,70.5],[24.0,68.8],[24.8,67.0],[25.0,64.3],[25.2,61.6],[27.5,61.2],[29.9,60.9],[32.8,61.0],[35.6,61.2]],[[34.5,74.0],[35.5,76.5],[34.2,79.0],[31.0,79.8],[29.2,81.0],[28.4,82.8],[27.5,84.5],[27.1,86.3],[26.7,88.2],[27.8,88.8],[27.8,91.7],[28.1,94.1],[28.3,96.5],[27.0,97.1],[25.5,95.7],[24.0,94.2],[22.0,92.6],[25.2,91.5],[25.2,89.8],[23.4,89.4],[21.6,89.1],[21.5,87.0],[19.8,85.8],[17.7,83.3],[15.9,80.8],[13.1,80.3],[10.3,79.8],[8.1,77.5],[9.9,76.2],[12.9,74.8],[15.4,73.8],[17.2,73.3],[19.0,72.8],[21.6,72.6],[20.7,70.4],[22.3,69.0],[23.8,68.4],[24.3,71.0],[26.1,70.8],[28.0,70.5],[29.0,72.2],[30.0,74.0],[32.2,74.0],[34.5,74.0]],[[9.8,80.2],[8.6,81.2],[6.0,80.2],[7.5,79.8],[9.8,80.2]],[[49.0,87.3],[49.3,89.9],[49.7,92.4],[50.0,95.0],[50.0,98.3],[50.0,101.7],[50.0,105.0],[50.0,108.3],[50.0,111.7],[50.0,115.0],[51.6,118.0],[53.3,121.0],[52.3,123.8],[51.4,126.6],[50.4,129.4],[49.5,132.2],[48.5,135.0],[45.8,133.0],[43.0,131.0],[42.0,128.7],[41.0,126.5],[40.0,124.2],[38.8,121.2],[38.9,119.5],[39.0,117.7],[38.2,119.8],[37.5,122.0],[36.2,120.8],[35.0,119.5],[33.1,120.5],[31.2,121.5],[28.6,120.5],[26.0,119.6],[24.2,116.9],[22.5,114.2],[22.0,111.6],[21.5,109.0],[21.5,108.0],[22.1,105.8],[22.8,103.5],[21.5,101.2],[22.8,99.5],[24.0,97.8],[26.1,97.2],[28.3,96.5],[28.1,94.1],[27.8,91.7],[27.8,88.8],[28.3,86.2],[28.7,83.6],[29.2,81.0],[31.0,79.8],[34.2,79.0],[35.6,76.9],[37.0,74.8],[40.2,73.5],[41.1,75.7],[42.1,78.0],[43.0,80.2],[45.0,82.6],[47.0,84.9],[49.0,87.3]],[[49.0,87.3],[49.3,89.9],[49.7,92.4],[50.0,95.0],[50.0,98.3],[50.0,101.7],[50.0,105.0],[50.0,108.3],[50.0,111.7],[50.0,115.0],[48.5,117.2],[47.0,119.5],[45.5,116.5],[44.0,113.5],[42.5,110.5],[42.6,107.6],[42.7,104.7],[42.8,101.8],[42.9,98.9],[43.0,96.0],[44.5,93.8],[46.0,91.7],[47.5,89.5],[49.0,87.3]],[[40.0,124.2],[41.1,127.4],[42.3,130.6],[40.5,129.5],[38.6,128.4],[36.9,128.8],[35.1,129.1],[34.5,126.3],[37.5,126.6],[40.0,124.2]],[[41.5,140.9],[42.5,143.2],[43.4,145.6],[44.5,143.8],[45.5,141.9],[43.5,141.4],[41.5,140.9]],[[41.0,140.6],[39.0,141.9],[35.7,140.8],[34.7,138.9],[33.5,135.8],[33.8,133.4],[34.0,130.9],[35.5,133.2],[36.5,135.2],[37.5,137.3],[39.2,138.9],[41.0,140.6]],[[33.9,130.9],[31.2,130.7],[32.8,129.9],[33.9,130.9]],[[25.3,121.6],[22.0,120.8],[23.5,120.1],[25.3,121.6]],[[28.3,96.5],[26.1,97.2],[24.0,97.8],[22.8,99.5],[21.5,101.2],[22.8,103.5],[22.1,105.8],[21.5,108.0],[18.8,108.1],[16.0,108.2],[13.9,108.7],[11.9,109.2],[10.2,107.0],[8.6,104.8],[10.6,103.5],[12.1,102.0],[13.5,100.6],[10.8,100.4],[8.0,100.2],[5.8,101.5],[3.5,102.9],[1.3,104.2],[3.1,101.4],[4.8,100.8],[6.5,100.1],[8.2,99.3],[9.9,98.6],[13.2,98.1],[16.5,97.6],[16.0,94.3],[18.1,93.6],[20.1,92.9],[22.1,93.6],[24.0,94.2],[25.5,95.7],[27.0,97.1],[28.3,96.5]],[[5.6,95.3],[4.1,97.7],[2.5,100.1],[1.0,102.5],[-1.3,103.6],[-3.6,104.7],[-5.9,105.8],[-4.8,104.0],[-3.8,102.2],[-1.0,100.5],[1.7,98.8],[3.6,97.0],[5.6,95.3]],[[-6.0,106.0],[-6.5,109.2],[-6.9,112.5],[-8.4,114.4],[-8.1,111.7],[-7.8,109.0],[-6.0,106.0]],[[7.0,116.8],[4.2,117.9],[1.5,117.3],[-1.2,116.8],[-3.5,114.5],[-3.2,112.3],[-2.9,110.2],[-0.9,109.6],[1.0,109.0],[2.8,111.5],[4.5,114.0],[5.8,115.4],[7.0,116.8]],[[18.5,121.0],[16.6,121.0],[14.6,121.0],[13.0,123.8],[14.5,121.9],[16.0,120.0],[18.5,121.0]],[[9.8,125.5],[8.0,125.3],[6.1,125.2],[7.0,122.1],[8.4,123.8],[9.8,125.5]],[[-0.8,131.3],[-1.7,134.5],[-2.6,137.8],[-3.5,141.0],[-4.5,143.3],[-5.5,145.5],[-6.5,147.8],[-8.5,149.3],[-10.5,150.8],[-9.8,147.5],[-9.2,144.3],[-8.5,141.0],[-7.2,139.0],[-5.8,137.0],[-4.5,135.0],[-2.6,133.2],[-0.8,131.3]],[[35.8,-5.8],[35.5,-4.0],[35.1,-2.2],[32.0,-1.2],[30.8,-3.7],[29.7,-6.2],[28.5,-8.7],[26.7,-10.8],[24.9,-12.8],[23.1,-14.9],[21.3,-17.0],[24.1,-15.2],[27.0,-13.5],[28.7,-11.6],[30.4,-9.6],[32.0,-8.6],[33.6,-7.6],[35.8,-5.8]],[[35.1,-2.2],[36.0,0.5],[36.8,3.1],[37.0,6.5],[37.3,9.8],[35.2,10.7],[33.2,11.5],[31.7,10.5],[30.2,9.5],[28.0,10.3],[25.7,11.2],[23.5,12.0],[22.0,9.2],[20.5,6.3],[19.0,3.5],[20.5,1.2],[22.0,-1.0],[23.5,-3.2],[25.0,-5.5],[26.8,-7.1],[28.5,-8.7],[29.7,-6.2],[30.8,-3.7],[32.0,-1.2],[35.1,-2.2]],[[33.2,11.5],[32.9,13.2],[31.6,16.1],[30.4,19.0],[31.6,20.8],[32.8,22.6],[31.6,25.2],[28.4,25.1],[25.2,25.1],[22.0,25.0],[19.5,24.0],[20.5,21.0],[21.5,18.0],[22.5,15.0],[23.5,12.0],[25.7,11.2],[28.0,10.3],[30.2,9.5],[31.7,10.5],[33.2,11.5]],[[31.6,25.2],[31.4,27.5],[31.2,29.9],[31.4,32.2],[31.5,34.5],[29.5,35.0],[27.0,35.6],[24.5,36.3],[22.0,36.9],[22.0,33.9],[22.0,30.9],[22.0,28.0],[22.0,25.0],[25.2,25.1],[28.4,25.1],[31.6,25.2]],[[22.0,25.0],[22.0,28.0],[22.0,30.9],[22.0,33.9],[22.0,36.9],[20.0,37.8],[18.0,38.6],[15.0,37.3],[12.0,36.0],[9.5,35.3],[7.0,34.7],[4.5,34.0],[4.8,30.8],[5.0,27.5],[6.7,25.8],[8.3,24.2],[10.0,22.5],[13.2,23.0],[16.3,23.5],[19.5,24.0],[22.0,25.0]],[[21.3,-17.0],[23.1,-14.9],[24.9,-12.8],[26.7,-10.8],[28.5,-8.7],[26.8,-7.1],[25.0,-5.5],[23.5,-3.2],[22.0,-1.0],[20.5,1.2],[19.0,3.5],[20.5,6.3],[22.0,9.2],[23.5,12.0],[22.5,15.0],[21.5,18.0],[20.5,21.0],[19.5,24.0],[16.3,23.5],[13.2,23.0],[10.0,22.5],[8.8,19.9],[7.6,17.2],[6.4,14.6],[5.2,11.9],[4.0,9.3],[5.2,6.4],[6.4,3.4],[5.6,0.7],[4.7,-2.0],[4.6,-4.8],[4.4,-7.7],[6.5,-10.4],[8.5,-13.2],[10.6,-14.6],[12.6,-16.0],[14.7,-17.4],[18.0,-17.2],[21.3,-17.0]],[[18.0,38.6],[16.2,40.2],[14.4,41.8],[12.6,43.4],[12.3,46.0],[12.1,48.7],[11.8,51.3],[9.4,50.2],[6.9,49.1],[4.5,48.0],[2.5,45.9],[0.4,43.7],[-1.6,41.6],[-4.2,40.5],[-6.8,39.3],[-8.7,39.8],[-10.5,40.4],[-11.0,37.7],[-11.5,35.0],[-8.9,33.9],[-6.2,32.8],[-3.6,31.6],[-1.0,30.5],[1.8,32.2],[4.5,34.0],[7.0,34.7],[9.5,35.3],[12.0,36.0],[15.0,37.3],[18.0,38.6]],[[4.0,9.3],[5.2,11.9],[6.4,14.6],[7.6,17.2],[8.8,19.9],[10.0,22.5],[8.3,24.2],[6.7,25.8],[5.0,27.5],[4.8,30.8],[4.5,34.0],[1.8,32.2],[-1.0,30.5],[-3.6,31.6],[-6.2,32.8],[-8.9,33.9],[-11.5,35.0],[-13.0,32.9],[-14.5,30.9],[-16.0,28.8],[-17.8,25.8],[-17.7,23.0],[-17.6,20.2],[-17.6,17.4],[-17.5,14.6],[-17.4,11.8],[-14.9,12.6],[-12.5,13.4],[-9.2,12.8],[-6.0,12.2],[-3.4,10.5],[-0.7,8.8],[1.7,9.1],[4.0,9.3]],[[-17.4,11.8],[-17.5,14.6],[-17.6,17.4],[-17.6,20.2],[-17.7,23.0],[-17.8,25.8],[-16.0,28.8],[-14.5,30.9],[-13.0,32.9],[-11.5,35.0],[-11.0,37.7],[-10.5,40.4],[-13.8,39.7],[-17.0,39.0],[-18.5,37.0],[-20.0,35.0],[-23.0,34.0],[-26.0,32.9],[-27.9,31.9],[-29.8,31.0],[-31.9,28.3],[-34.0,25.6],[-34.4,22.8],[-34.8,20.0],[-33.9,18.4],[-31.2,17.4],[-28.6,16.5],[-25.8,15.5],[-23.0,14.5],[-20.2,13.2],[-17.4,11.8]],[[-12.0,49.3],[-15.3,50.4],[-18.5,49.3],[-21.8,48.1],[-25.0,47.0],[-25.5,45.2],[-22.8,44.8],[-20.0,44.3],[-17.9,45.3],[-15.7,46.3],[-13.8,47.8],[-12.0,49.3]],[[-12.4,130.8],[-11.7,133.8],[-11.0,136.8],[-13.8,138.0],[-16.5,139.2],[-13.6,140.8],[-10.7,142.5],[-12.8,143.6],[-14.8,144.7],[-16.9,145.8],[-19.1,147.5],[-21.2,149.1],[-23.4,150.8],[-26.0,152.2],[-28.6,153.6],[-31.2,152.4],[-33.9,151.2],[-35.7,150.6],[-37.5,150.0],[-37.9,147.4],[-38.3,144.9],[-38.1,142.7],[-38.0,140.5],[-36.5,139.6],[-35.0,138.6],[-34.7,135.5],[-33.1,133.2],[-31.5,131.0],[-32.3,128.0],[-33.2,125.0],[-34.0,122.0],[-34.5,120.0],[-35.0,117.9],[-34.0,115.0],[-32.0,115.8],[-28.9,114.7],[-25.9,113.5],[-23.9,113.8],[-21.8,114.1],[-21.1,116.3],[-20.3,118.6],[-19.1,120.4],[-18.0,122.2],[-16.2,123.8],[-14.5,125.5],[-13.4,128.2],[-12.4,130.8]],[[-40.8,144.7],[-40.9,146.5],[-41.0,148.3],[-43.6,146.9],[-42.2,145.2],[-40.8,144.7]],[[-34.4,172.7],[-36.0,175.6],[-37.7,178.5],[-39.5,176.7],[-41.3,174.8],[-39.3,173.8],[-36.8,173.2],[-34.4,172.7]],[[-40.5,172.7],[-42.4,173.7],[-44.5,171.0],[-46.6,168.3],[-45.8,166.5],[-44.0,168.6],[-42.3,170.6],[-40.5,172.7]],[[17.8,-91.0],[17.8,-89.2],[15.9,-88.6],[13.8,-90.1],[14.5,-92.2],[16.1,-91.6],[17.8,-91.0]],[[15.9,-88.6],[15.9,-85.8],[15.9,-83.1],[14.4,-85.3],[13.0,-87.6],[13.8,-90.1],[15.9,-88.6]],[[15.9,-83.1],[13.4,-83.4],[11.0,-83.7],[10.9,-85.7],[13.0,-87.6],[14.4,-85.3],[15.9,-83.1]],[[1.4,-78.8],[0.7,-77.0],[0.0,-75.2],[-1.5,-76.5],[-3.0,-77.8],[-3.9,-79.5],[-4.7,-81.3],[-2.2,-81.0],[-0.4,-79.9],[1.4,-78.8]],[[-19.3,-58.0],[-22.1,-58.0],[-23.9,-56.3],[-25.6,-54.6],[-26.5,-56.6],[-27.3,-58.6],[-25.1,-60.7],[-22.9,-62.7],[-21.1,-60.4],[-19.3,-58.0]],[[-30.2,-57.6],[-32.0,-55.5],[-33.7,-53.4],[-35.0,-54.9],[-34.4,-57.9],[-32.3,-57.8],[-30.2,-57.6]],[[8.4,-59.8],[7.2,-58.5],[6.0,-57.1],[3.8,-57.8],[1.5,-58.5],[1.5,-60.0],[3.4,-60.4],[5.2,-60.7],[8.4,-59.8]],[[6.0,-57.1],[6.0,-54.0],[4.0,-54.0],[2.0,-54.0],[1.8,-56.2],[1.5,-58.5],[3.8,-57.8],[6.0,-57.1]],[[51.0,2.5],[52.2,4.0],[53.4,5.5],[53.4,7.2],[50.8,6.0],[49.5,5.8],[50.2,4.2],[51.0,2.5]],[[54.8,8.4],[56.2,9.5],[57.7,10.6],[55.5,12.6],[54.4,11.0],[54.8,8.4]],[[47.6,7.6],[47.5,9.6],[46.2,10.5],[45.8,9.0],[46.2,6.1],[47.6,7.6]],[[47.5,9.6],[48.0,11.7],[48.5,13.8],[48.0,17.1],[46.5,16.0],[46.5,13.7],[47.0,11.6],[47.5,9.6]],[[51.0,14.3],[50.2,16.6],[49.5,18.8],[48.6,16.9],[49.0,13.8],[50.2,12.1],[51.0,14.3]],[[48.6,16.9],[49.5,18.8],[49.2,20.6],[49.0,22.5],[48.0,22.9],[46.2,20.1],[45.8,18.4],[47.7,16.5],[48.6,16.9]],[[48.0,22.9],[48.1,24.8],[48.2,26.7],[46.8,28.2],[45.3,29.7],[43.7,28.6],[43.9,25.8],[44.0,22.9],[45.1,21.5],[46.2,20.1],[48.0,22.9]],[[44.0,22.9],[43.9,25.8],[43.7,28.6],[42.0,28.0],[41.3,26.6],[41.3,24.8],[41.4,22.9],[44.0,22.9]],[[59.4,24.7],[59.4,28.0],[57.5,27.5],[57.8,24.4],[59.4,24.7]],[[57.8,24.4],[57.5,27.5],[55.7,26.6],[55.9,23.9],[56.0,21.1],[56.9,22.8],[57.8,24.4]],[[56.0,21.1],[55.9,23.9],[55.7,26.6],[54.8,25.1],[53.9,23.5],[54.1,21.6],[54.4,19.6],[56.0,21.1]],[[56.0,28.2],[54.8,30.4],[53.5,32.5],[51.5,30.6],[51.5,27.1],[51.5,23.6],[53.9,23.5],[55.0,25.9],[56.0,28.2]],[[37.2,42.4],[35.4,44.1],[33.5,45.9],[31.8,47.2],[30.0,48.5],[29.1,46.5],[30.1,44.1],[31.0,41.6],[32.0,39.2],[33.4,38.8],[35.3,40.6],[37.2,42.4]],[[36.8,36.2],[37.0,39.3],[37.2,42.4],[35.3,40.6],[33.4,38.8],[32.3,36.8],[33.3,35.6],[35.8,35.8],[36.8,36.2]],[[17.0,54.5],[15.8,51.9],[14.5,49.2],[13.6,46.4],[12.7,43.5],[14.6,43.1],[16.5,42.8],[17.3,45.9],[18.2,48.9],[19.0,52.0],[17.0,54.5]],[[26.2,56.3],[24.4,58.0],[22.5,59.8],[20.7,58.0],[18.8,56.3],[17.0,54.5],[19.0,52.0],[21.5,53.8],[24.0,55.5],[26.2,56.3]],[[35.6,61.2],[36.4,64.5],[37.2,67.8],[37.1,70.1],[37.1,72.5],[37.0,74.8],[35.5,72.4],[34.0,70.0],[31.5,69.3],[30.5,67.7],[29.5,66.0],[29.7,63.5],[29.9,60.9],[32.8,61.0],[35.6,61.2]],[[30.2,81.0],[29.4,83.4],[28.6,85.8],[27.8,88.2],[26.4,88.0],[26.9,86.0],[27.5,84.0],[28.2,82.0],[29.0,80.1],[30.2,81.0]],[[26.6,88.4],[25.2,89.8],[25.2,91.5],[22.0,92.6],[21.8,90.8],[21.6,89.1],[24.5,88.0],[26.6,88.4]],[[28.3,96.5],[26.1,97.2],[24.0,97.8],[22.8,99.5],[21.5,101.2],[20.4,100.1],[18.4,99.3],[16.5,98.5],[13.2,98.5],[9.9,98.6],[13.2,98.1],[16.5,97.6],[16.0,94.3],[18.1,93.6],[20.1,92.9],[22.1,93.6],[24.0,94.2],[25.5,95.7],[27.0,97.1],[28.3,96.5]],[[20.4,100.1],[19.2,102.4],[18.0,104.8],[15.0,105.6],[13.5,102.5],[12.0,102.5],[13.5,100.6],[10.8,100.4],[8.0,100.2],[6.5,100.1],[8.2,99.3],[9.9,98.6],[13.2,98.5],[16.5,98.5],[18.4,99.3],[20.4,100.1]],[[14.4,102.8],[14.0,106.0],[11.5,107.5],[10.4,104.4],[12.0,102.5],[14.4,102.8]],[[13.9,5.5],[13.6,8.3],[13.3,11.2],[13.0,14.0],[11.0,13.8],[9.0,13.5],[6.8,11.2],[4.5,8.9],[4.3,6.0],[6.4,3.4],[8.9,3.5],[11.5,3.6],[13.9,5.5]],[[13.0,14.0],[10.0,15.5],[7.4,15.7],[4.8,15.8],[2.2,16.0],[2.2,12.9],[2.2,9.8],[4.5,8.9],[6.8,11.2],[9.0,13.5],[11.0,13.8],[13.0,14.0]],[[23.5,12.0],[23.5,15.0],[22.2,18.0],[20.8,21.0],[19.5,24.0],[17.2,23.5],[15.0,23.0],[12.5,22.8],[10.0,22.5],[9.3,20.2],[8.7,17.8],[8.0,15.5],[10.5,14.8],[13.0,14.0],[13.3,11.2],[13.6,8.3],[13.9,5.5],[16.5,4.0],[18.2,5.0],[20.0,6.0],[21.8,9.0],[23.5,12.0]],[[14.5,36.6],[15.5,39.5],[14.1,41.5],[12.6,43.4],[10.8,43.7],[9.0,44.0],[7.0,44.5],[5.0,45.0],[4.0,41.9],[3.8,40.0],[3.5,38.0],[4.5,35.9],[7.0,35.0],[9.5,34.0],[12.0,35.3],[14.5,36.6]],[[4.5,35.9],[3.5,38.0],[3.8,40.0],[4.0,41.9],[1.2,41.8],[-1.6,41.6],[-3.2,40.4],[-4.7,39.2],[-2.9,36.6],[-1.0,34.0],[1.0,34.5],[2.8,35.2],[4.5,35.9]],[[-1.0,30.5],[-1.0,34.0],[-2.9,36.6],[-4.7,39.2],[-7.6,39.8],[-10.5,40.4],[-11.0,37.7],[-11.5,35.0],[-9.4,33.0],[-8.5,30.8],[-6.5,30.0],[-4.4,29.2],[-2.7,29.9],[-1.0,30.5]],[[-6.0,12.2],[-6.4,15.1],[-6.9,17.9],[-7.3,20.8],[-9.2,22.4],[-11.0,24.0],[-13.0,22.0],[-15.4,22.5],[-17.8,23.0],[-17.7,20.2],[-17.6,17.4],[-17.5,14.6],[-17.4,11.8],[-14.9,12.6],[-12.5,13.4],[-9.2,12.8],[-6.0,12.2]],[[-17.4,11.8],[-17.5,15.1],[-17.6,18.4],[-17.7,21.7],[-17.8,25.0],[-19.9,22.5],[-22.0,20.0],[-25.2,20.0],[-28.5,20.0],[-28.6,18.2],[-28.6,16.5],[-25.8,15.5],[-23.0,14.5],[-20.2,13.2],[-17.4,11.8]],[[-17.8,25.0],[-20.0,27.2],[-22.2,29.4],[-23.4,27.7],[-24.7,26.0],[-25.8,23.3],[-26.8,20.6],[-24.4,20.3],[-22.0,20.0],[-19.9,22.5],[-17.8,25.0]],[[-15.6,30.4],[-16.5,28.9],[-17.1,27.1],[-17.8,25.3],[-20.0,27.4],[-22.2,29.4],[-22.4,31.3],[-19.8,33.0],[-16.5,33.0],[-15.6,30.4]]];
+
+      let globeTheme = 'retro_holo'; // 'retro_holo' | 'wireframe'
+      let globeWireframeColor = '#FF3B00';
+
+      function syncGlobeThemeUI() {
+        const isWire = globeTheme === 'wireframe';
+        if (btnGlobeThemeHolo) {
+          btnGlobeThemeHolo.className = !isWire
+            ? 'py-1.5 px-2 rounded bg-white text-black font-semibold'
+            : 'py-1.5 px-2 rounded border border-neutral-800 text-neutral-300';
+        }
+        if (btnGlobeThemeWire) {
+          btnGlobeThemeWire.className = isWire
+            ? 'py-1.5 px-2 rounded bg-white text-black font-semibold'
+            : 'py-1.5 px-2 rounded border border-neutral-800 text-neutral-300';
+        }
+        if (globeWireframeColorRow) {
+          globeWireframeColorRow.classList.toggle('hidden', !isWire);
+        }
+        document.querySelectorAll('[data-globe-wf-color]').forEach((btn) => {
+          const c = btn.getAttribute('data-globe-wf-color');
+          if (c === globeWireframeColor) {
+            btn.classList.add('ring-2', 'ring-white', 'opacity-100');
+            btn.classList.remove('opacity-75');
+          } else {
+            btn.classList.remove('ring-2', 'ring-white', 'opacity-100');
+            btn.classList.add('opacity-75');
+          }
+        });
+      }
+
+      if (btnGlobeThemeHolo) {
+        btnGlobeThemeHolo.addEventListener('click', () => {
+          globeTheme = 'retro_holo';
+          syncGlobeThemeUI();
+          showToast('Globe Theme: 80s Hologram (Green & Blue)');
+        });
+      }
+      if (btnGlobeThemeWire) {
+        btnGlobeThemeWire.addEventListener('click', () => {
+          globeTheme = 'wireframe';
+          syncGlobeThemeUI();
+          showToast('Globe Theme: Customizable 3D Wireframe');
+        });
+      }
+      document.querySelectorAll('[data-globe-wf-color]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          globeWireframeColor = btn.getAttribute('data-globe-wf-color') || '#FF3B00';
+          globeTheme = 'wireframe';
+          syncGlobeThemeUI();
+          showToast(`Wireframe Color: ${globeWireframeColor}`);
+        });
+      });
+      syncGlobeThemeUI();
+
+      const DEFAULT_PITCH = 0.24;
+      const DEFAULT_ROLL = -0.08;
+      const BASE_SPIN_SPEED = 0.36;
+
+      function syncBlackHoleColorUI() {
+        const cur = state.blackHoleAccentColor || '#FF3B00';
+        document.querySelectorAll('[data-bh-color]').forEach((btn) => {
+          const c = btn.getAttribute('data-bh-color');
+          if (c === cur) {
+            btn.classList.add('ring-2', 'ring-white', 'opacity-100');
+            btn.classList.remove('opacity-75');
+          } else {
+            btn.classList.remove('ring-2', 'ring-white', 'opacity-100');
+            btn.classList.add('opacity-75');
+          }
+        });
+      }
+      document.querySelectorAll('[data-bh-color]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          state.blackHoleAccentColor = btn.getAttribute('data-bh-color') || '#FF3B00';
+          syncBlackHoleColorUI();
+          saveState();
+          showToast(`Black Hole Ring Color: ${state.blackHoleAccentColor}`);
+        });
+      });
+      syncBlackHoleColorUI();
+
+      let gYaw = -1.25;
+      let gPitch = DEFAULT_PITCH;
+      let gRoll = DEFAULT_ROLL;
+      let gVelYaw = BASE_SPIN_SPEED;
+      let gVelPitch = 0;
+      let gVelRoll = 0;
+      let gDragging = false;
+      let gPrevX = 0;
+      let gPrevY = 0;
+      let gPrevTime = 0;
+      let gLastFrame = performance.now();
+      let bhSpinPhase = 0;
+
+      // Delegated pointer events for the interactive 3D Globe widget canvas
+      document.body.addEventListener('pointerdown', (e) => {
+        const activeGlobeCanvas = e.target.closest('#retroGlobeCanvas');
+        if (!activeGlobeCanvas) return;
+        e.stopPropagation();
+        activeGlobeCanvas.setPointerCapture(e.pointerId);
+        gDragging = true;
+        gVelYaw = 0;
+        gVelPitch = 0;
+        gVelRoll = 0;
+        gPrevX = e.clientX;
+        gPrevY = e.clientY;
+        gPrevTime = performance.now();
+      });
+
+      window.addEventListener('pointermove', (e) => {
+        if (!gDragging) return;
+        const now = performance.now();
+        const dx = e.clientX - gPrevX;
+        const dy = e.clientY - gPrevY;
+        const dtSec = Math.max(0.001, (now - gPrevTime) / 1000);
+        const sens = 0.0102;
+
+        gYaw += dx * sens;
+        gPitch = Math.max(-1.42, Math.min(1.42, gPitch - dy * sens));
+        gRoll = Math.max(-0.85, Math.min(0.85, gRoll + (dx * dy) * 0.00016));
+
+        gVelYaw = Math.max(-14, Math.min(14, gVelYaw * 0.35 + ((dx * sens) / dtSec) * 0.65));
+        gVelPitch = Math.max(-12, Math.min(12, gVelPitch * 0.35 + ((-dy * sens) / dtSec) * 0.65));
+        gVelRoll = Math.max(-8, Math.min(8, gVelRoll * 0.35 + (((dx * dy) * 0.00016) / dtSec) * 0.65));
+
+        gPrevX = e.clientX;
+        gPrevY = e.clientY;
+        gPrevTime = now;
+      });
+
+      const endGlobeDrag = () => {
+        if (!gDragging) return;
+        gDragging = false;
+      };
+      window.addEventListener('pointerup', endGlobeDrag);
+      window.addEventListener('pointercancel', endGlobeDrag);
+
+      function hexToRgb(hex) {
+        const clean = (hex || '#FF5511').replace('#', '');
+        const num = parseInt(clean.length === 6 ? clean : 'FF5511', 16);
+        return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+      }
+
+      let crtCenterLon = 20;
+      let crtCenterLat = 15;
+      let crtZoom = 1.0;
+      let crtRetLon = 83.4;
+      let crtRetLat = 21.9;
+      let crtDragging = false;
+      let crtPrevX = 0;
+      let crtPrevY = 0;
+
+      document.addEventListener('pointerdown', (e) => {
+        const crtCanvas = e.target.closest('#crtWorldMapCanvas');
+        if (!crtCanvas) return;
+        e.stopPropagation();
+        crtCanvas.setPointerCapture(e.pointerId);
+        crtDragging = true;
+        crtPrevX = e.clientX;
+        crtPrevY = e.clientY;
+        const rect = crtCanvas.getBoundingClientRect();
+        const spanLon = 360 / crtZoom;
+        const spanLat = 165 / crtZoom;
+        const lon = crtCenterLon + (((e.clientX - rect.left) / Math.max(1, rect.width)) - 0.5) * spanLon;
+        const lat = crtCenterLat - (((e.clientY - rect.top) / Math.max(1, rect.height)) - 0.5) * spanLat;
+        crtRetLon = (((lon + 180) % 360 + 360) % 360) - 180;
+        crtRetLat = Math.max(-80, Math.min(80, lat));
+      });
+
+      window.addEventListener('pointermove', (e) => {
+        if (!crtDragging) return;
+        const crtCanvas = document.getElementById('crtWorldMapCanvas');
+        if (!crtCanvas) return;
+        const rect = crtCanvas.getBoundingClientRect();
+        const dx = e.clientX - crtPrevX;
+        const dy = e.clientY - crtPrevY;
+        if (Math.hypot(dx, dy) > 0.5) {
+          const spanLon = 360 / crtZoom;
+          const spanLat = 165 / crtZoom;
+          crtCenterLon = (((crtCenterLon - (dx / Math.max(1, rect.width)) * spanLon + 180) % 360 + 360) % 360) - 180;
+          const maxLat = Math.max(12, 82 - spanLat * 0.42);
+          crtCenterLat = Math.max(-maxLat, Math.min(maxLat, crtCenterLat + (dy / Math.max(1, rect.height)) * spanLat));
+          crtRetLon = crtCenterLon;
+          crtRetLat = crtCenterLat;
+          crtPrevX = e.clientX;
+          crtPrevY = e.clientY;
+        }
+      });
+
+      window.addEventListener('pointerup', () => { crtDragging = false; });
+      window.addEventListener('pointercancel', () => { crtDragging = false; });
+
+      document.addEventListener('dblclick', (e) => {
+        const crtCanvas = e.target.closest('#crtWorldMapCanvas');
+        if (!crtCanvas) return;
+        crtZoom = crtZoom < 1.4 ? 1.8 : crtZoom < 2.3 ? 2.8 : 1.0;
+        if (crtZoom === 1.0) crtCenterLat = 12;
+      });
+
+      function renderCrtFlatWorldMap(crtCanvas) {
+        if (!crtCanvas) return;
+        const rect = crtCanvas.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const dpr = window.devicePixelRatio || 1;
+        const targetW = Math.round(rect.width * dpr);
+        const targetH = Math.round(rect.height * dpr);
+        if (crtCanvas.width !== targetW || crtCanvas.height !== targetH) {
+          crtCanvas.width = targetW;
+          crtCanvas.height = targetH;
+        }
+        const ctx = crtCanvas.getContext('2d');
+        ctx.save();
+        ctx.scale(dpr, dpr);
+        const w = rect.width;
+        const h = rect.height;
+        const isWireframe = state.globeTheme === 'wireframe';
+        const wfCol = state.globeWireframeColor || '#FF3B00';
+        ctx.fillStyle = isWireframe ? '#040404' : '#030b14';
+        ctx.fillRect(0, 0, w, h);
+
+        const spanLon = 360 / crtZoom;
+        const spanLat = 165 / crtZoom;
+
+        function mapPt(lat, lon) {
+          let dLon = lon - crtCenterLon;
+          while (dLon > 180) dLon -= 360;
+          while (dLon < -180) dLon += 360;
+          return [(0.5 + dLon / spanLon) * w, (0.5 - (lat - crtCenterLat) / spanLat) * h];
+        }
+
+        // Graticule grid
+        ctx.strokeStyle = isWireframe ? wfCol : '#00b4ff';
+        ctx.lineWidth = 0.7;
+        for (let lonG = -180; lonG <= 150; lonG += 30) {
+          const [gx] = mapPt(0, lonG);
+          if (gx >= 0 && gx <= w) {
+            ctx.globalAlpha = Math.abs(lonG) < 0.1 ? 0.30 : 0.14;
+            ctx.beginPath();
+            ctx.moveTo(gx, 0);
+            ctx.lineTo(gx, h);
+            ctx.stroke();
+          }
+        }
+        for (let latG = -60; latG <= 60; latG += 30) {
+          const [, gy] = mapPt(latG, crtCenterLon);
+          if (gy >= 0 && gy <= h) {
+            ctx.globalAlpha = Math.abs(latG) < 0.1 ? 0.32 : 0.14;
+            ctx.beginPath();
+            ctx.moveTo(0, gy);
+            ctx.lineTo(w, gy);
+            ctx.stroke();
+          }
+        }
+
+        // 106 Country polygons projected onto the flat CRT plane
+        WORLD_COUNTRY_BORDERS.forEach((poly) => {
+          if (poly.length < 3) return;
+          ctx.beginPath();
+          let prev = null;
+          let wrapped = false;
+          for (let i = 0; i < poly.length; i++) {
+            const pt = mapPt(poly[i][0], poly[i][1]);
+            if (!prev) {
+              ctx.moveTo(pt[0], pt[1]);
+            } else if (Math.abs(pt[0] - prev[0]) > w * 0.45) {
+              wrapped = true;
+              ctx.moveTo(pt[0], pt[1]);
+            } else {
+              ctx.lineTo(pt[0], pt[1]);
+            }
+            prev = pt;
+          }
+          if (!wrapped) {
+            ctx.fillStyle = isWireframe ? wfCol : '#00e676';
+            ctx.globalAlpha = isWireframe ? 0.12 : 0.22;
+            ctx.fill();
+          }
+          ctx.strokeStyle = isWireframe ? wfCol : '#44ff99';
+          ctx.globalAlpha = 0.90;
+          ctx.lineWidth = 1.05;
+          ctx.stroke();
+        });
+
+        // Live UTC Solar Terminator Wave
+        const now = new Date();
+        const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60;
+        const subSolarLon = (12 - utcHours) * 15;
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = state.accentColor || '#FF3B00';
+        ctx.globalAlpha = 0.55;
+        ctx.lineWidth = 1.0;
+        ctx.beginPath();
+        for (let s = 0; s <= 44; s++) {
+          const x = (s / 44) * w;
+          const lonAtX = crtCenterLon + ((x / w) - 0.5) * spanLon;
+          const termLat = 23.4 * Math.cos((lonAtX - subSolarLon) * Math.PI / 180);
+          const [, ty] = mapPt(termLat, lonAtX);
+          if (s === 0) ctx.moveTo(x, ty);
+          else ctx.lineTo(x, ty);
+        }
+        ctx.stroke();
+        ctx.restore();
+
+        // Target Crosshair Reticle
+        const [rx, ry] = mapPt(crtRetLat, crtRetLon);
+        if (rx >= 0 && rx <= w && ry >= 0 && ry <= h) {
+          ctx.strokeStyle = state.accentColor || '#FF3B00';
+          ctx.globalAlpha = 0.35;
+          ctx.lineWidth = 0.9;
+          ctx.beginPath();
+          ctx.moveTo(rx, 0); ctx.lineTo(rx, h);
+          ctx.moveTo(0, ry); ctx.lineTo(w, ry);
+          ctx.stroke();
+
+          ctx.globalAlpha = 0.95;
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.arc(rx, ry, 5.5, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        // CRT horizontal scanlines
+        ctx.fillStyle = 'rgba(0,0,0,0.28)';
+        ctx.globalAlpha = 1;
+        for (let sy = 0; sy < h; sy += 3) {
+          ctx.fillRect(0, sy, w, 1);
+        }
+
+        const lbl = document.getElementById('crtWorldMapCoordLabel');
+        if (lbl) {
+          const ns = crtRetLat >= 0 ? 'N' : 'S';
+          const ew = crtRetLon >= 0 ? 'E' : 'W';
+          lbl.textContent = `${Math.abs(crtRetLat).toFixed(1)}°${ns} ${Math.abs(crtRetLon).toFixed(1)}°${ew}${crtZoom > 1.05 ? ` · ${crtZoom.toFixed(1)}×` : ''}`;
+        }
+
+        ctx.restore();
+      }
+
+      if (true) {
+        function renderRetroGlobe(now) {
+          const dt = Math.min(0.05, Math.max(0.001, (now - gLastFrame) / 1000));
+          gLastFrame = now;
+
+          if (!gDragging) {
+            gYaw += gVelYaw * dt;
+            gPitch = Math.max(-1.45, Math.min(1.45, gPitch + gVelPitch * dt));
+            gRoll = Math.max(-0.95, Math.min(0.95, gRoll + gVelRoll * dt));
+
+            const decay = Math.exp(-3.1 * dt);
+            gVelYaw = BASE_SPIN_SPEED + (gVelYaw - BASE_SPIN_SPEED) * decay;
+            gVelPitch *= decay;
+            gVelRoll *= decay;
+
+            const restore = 1 - Math.exp(-2.8 * dt);
+            gPitch += (DEFAULT_PITCH - gPitch) * restore;
+            gRoll += (DEFAULT_ROLL - gRoll) * restore;
+          }
+
+          const crtCanvas = document.getElementById('crtWorldMapCanvas');
+          if (crtCanvas) {
+            renderCrtFlatWorldMap(crtCanvas);
+          }
+
+          const globeCanvas = document.getElementById('retroGlobeCanvas');
+          const rect = globeCanvas ? globeCanvas.getBoundingClientRect() : { width: 0, height: 0 };
+          const dpr = window.devicePixelRatio || 1;
+          if (rect.width > 0 && rect.height > 0) {
+            const targetW = Math.round(rect.width * dpr);
+            const targetH = Math.round(rect.height * dpr);
+            if (globeCanvas.width !== targetW || globeCanvas.height !== targetH) {
+              globeCanvas.width = targetW;
+              globeCanvas.height = targetH;
+            }
+            const ctx = globeCanvas.getContext('2d');
+            ctx.save();
+            ctx.scale(dpr, dpr);
+            const w = rect.width;
+            const h = rect.height;
+            ctx.clearRect(0, 0, w, h);
+
+            const cx = w / 2;
+            const cy = h / 2;
+            // Larger globe radius (0.47 of middle space) with zero text or surrounding shapes
+            const radius = Math.max(36, Math.min(w, h) * 0.47);
+            const isWireframe = globeTheme === 'wireframe';
+
+            const cosY = Math.cos(gYaw), sinY = Math.sin(gYaw);
+            const cosP = Math.cos(gPitch), sinP = Math.sin(gPitch);
+            const cosR = Math.cos(gRoll), sinR = Math.sin(gRoll);
+
+            function proj(latDeg, lonDeg) {
+              const lat = latDeg * Math.PI / 180;
+              const lon = lonDeg * Math.PI / 180;
+              const cLat = Math.cos(lat);
+              const x0 = cLat * Math.sin(lon);
+              const y0 = -Math.sin(lat);
+              const z0 = cLat * Math.cos(lon);
+
+              const x1 = x0 * cosY + z0 * sinY;
+              const y1 = y0;
+              const z1 = -x0 * sinY + z0 * cosY;
+
+              const x2 = x1;
+              const y2 = y1 * cosP - z1 * sinP;
+              const z2 = y1 * sinP + z1 * cosP;
+
+              const x3 = x2 * cosR - y2 * sinR;
+              const y3 = x2 * sinR + y2 * cosR;
+              return [cx + x3 * radius, cy + y3 * radius, z2];
+            }
+
+            // 1. Ocean / Interior Sphere Fill
+            if (!isWireframe) {
+              const grad = ctx.createRadialGradient(
+                cx - radius * 0.18, cy - radius * 0.18, radius * 0.05,
+                cx, cy, radius
+              );
+              grad.addColorStop(0, 'rgba(10, 102, 153, 0.56)');
+              grad.addColorStop(0.65, 'rgba(6, 66, 105, 0.68)');
+              grad.addColorStop(1, 'rgba(3, 34, 58, 0.82)');
+              ctx.fillStyle = grad;
+              ctx.beginPath();
+              ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+              ctx.fill();
+            } else {
+              const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+              grad.addColorStop(0, globeWireframeColor + '14');
+              grad.addColorStop(1, 'rgba(0,0,0,0)');
+              ctx.fillStyle = grad;
+              ctx.beginPath();
+              ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+              ctx.fill();
+            }
+
+            // 2. Back-Hemisphere Grid & Ghost Country Outlines (z < 0)
+            const lats = [-75, -60, -45, -30, -15, 0, 15, 30, 45, 60, 75];
+            ctx.strokeStyle = isWireframe ? globeWireframeColor : '#1E96C8';
+            ctx.globalAlpha = isWireframe ? 0.11 : 0.14;
+            ctx.lineWidth = 0.6;
+            lats.forEach((latDeg) => {
+              let prev = null;
+              for (let lon = 0; lon <= 360; lon += 10) {
+                const cur = proj(latDeg, lon);
+                if (prev && (prev[2] + cur[2]) * 0.5 < 0) {
+                  ctx.beginPath();
+                  ctx.moveTo(prev[0], prev[1]);
+                  ctx.lineTo(cur[0], cur[1]);
+                  ctx.stroke();
+                }
+                prev = cur;
+              }
+            });
+            for (let lonDeg = 0; lonDeg < 360; lonDeg += 15) {
+              let prev = null;
+              for (let lat = -75; lat <= 75; lat += 10) {
+                const cur = proj(lat, lonDeg);
+                if (prev && (prev[2] + cur[2]) * 0.5 < 0) {
+                  ctx.beginPath();
+                  ctx.moveTo(prev[0], prev[1]);
+                  ctx.lineTo(cur[0], cur[1]);
+                  ctx.stroke();
+                }
+                prev = cur;
+              }
+            }
+
+            // Back-hemisphere ghost countries
+            ctx.strokeStyle = isWireframe ? globeWireframeColor : '#18B868';
+            ctx.globalAlpha = 0.14;
+            ctx.lineWidth = 0.6;
+            WORLD_COUNTRY_BORDERS.forEach((poly) => {
+              let prev = null;
+              for (let i = 0; i < poly.length; i++) {
+                const cur = proj(poly[i][0], poly[i][1]);
+                if (prev && prev[2] < 0 && cur[2] < 0) {
+                  ctx.beginPath();
+                  ctx.moveTo(prev[0], prev[1]);
+                  ctx.lineTo(cur[0], cur[1]);
+                  ctx.stroke();
+                }
+                prev = cur;
+              }
+            });
+
+            // 3. Front-Hemisphere Latitude & Longitude Grid (z >= 0)
+            ctx.strokeStyle = isWireframe ? globeWireframeColor : '#28B8E8';
+            lats.forEach((latDeg) => {
+              let prev = null;
+              for (let lon = 0; lon <= 360; lon += 8) {
+                const cur = proj(latDeg, lon);
+                if (prev) {
+                  const zAvg = (prev[2] + cur[2]) * 0.5;
+                  if (zAvg >= 0) {
+                    ctx.globalAlpha = latDeg === 0 ? (0.35 + 0.25 * zAvg) : (0.18 + 0.22 * zAvg);
+                    ctx.lineWidth = latDeg === 0 ? 1.0 : 0.7;
+                    ctx.beginPath();
+                    ctx.moveTo(prev[0], prev[1]);
+                    ctx.lineTo(cur[0], cur[1]);
+                    ctx.stroke();
+                  }
+                }
+                prev = cur;
+              }
+            });
+            for (let lonDeg = 0; lonDeg < 360; lonDeg += 15) {
+              let prev = null;
+              for (let lat = -75; lat <= 75; lat += 8) {
+                const cur = proj(lat, lonDeg);
+                if (prev) {
+                  const zAvg = (prev[2] + cur[2]) * 0.5;
+                  if (zAvg >= 0) {
+                    ctx.globalAlpha = 0.18 + 0.22 * zAvg;
+                    ctx.lineWidth = 0.7;
+                    ctx.beginPath();
+                    ctx.moveTo(prev[0], prev[1]);
+                    ctx.lineTo(cur[0], cur[1]);
+                    ctx.stroke();
+                  }
+                }
+                prev = cur;
+              }
+            }
+
+            // 4. Front-Hemisphere High-Detail Country Polygons (Fill + Precise Glowing Country Borders)
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.clip();
+
+            WORLD_COUNTRY_BORDERS.forEach((poly) => {
+              const pts = poly.map(([lat, lon]) => proj(lat, lon));
+              const frontCount = pts.filter(p => p[2] > 0).length;
+              if (frontCount === 0) return;
+
+              if (!isWireframe && frontCount >= 3) {
+                ctx.fillStyle = '#0D944E';
+                ctx.globalAlpha = 0.48;
+                ctx.beginPath();
+                pts.forEach((p, idx) => {
+                  let px = p[0], py = p[1];
+                  if (p[2] < 0) {
+                    const dx = px - cx, dy = py - cy;
+                    const d = Math.max(1, Math.hypot(dx, dy));
+                    px = cx + (dx / d) * radius * 0.992;
+                    py = cy + (dy / d) * radius * 0.992;
+                  }
+                  if (idx === 0) ctx.moveTo(px, py);
+                  else ctx.lineTo(px, py);
+                });
+                ctx.closePath();
+                ctx.fill();
+              }
+
+              for (let i = 0; i < pts.length - 1; i++) {
+                const p1 = pts[i], p2 = pts[i + 1];
+                const zAvg = (p1[2] + p2[2]) * 0.5;
+                if (zAvg >= -0.03) {
+                  const vis = Math.max(0, Math.min(1, zAvg));
+                  const edgeAlpha = 0.45 + 0.55 * vis;
+                  if (!isWireframe) {
+                    ctx.strokeStyle = '#1EFF6E';
+                    ctx.globalAlpha = edgeAlpha * 0.45;
+                    ctx.lineWidth = 2.1;
+                    ctx.beginPath();
+                    ctx.moveTo(p1[0], p1[1]);
+                    ctx.lineTo(p2[0], p2[1]);
+                    ctx.stroke();
+
+                    ctx.strokeStyle = '#D6FFCC';
+                    ctx.globalAlpha = edgeAlpha * 0.96;
+                    ctx.lineWidth = 1.05;
+                    ctx.beginPath();
+                    ctx.moveTo(p1[0], p1[1]);
+                    ctx.lineTo(p2[0], p2[1]);
+                    ctx.stroke();
+                  } else {
+                    ctx.strokeStyle = globeWireframeColor;
+                    ctx.globalAlpha = edgeAlpha * 0.95;
+                    ctx.lineWidth = 1.3;
+                    ctx.beginPath();
+                    ctx.moveTo(p1[0], p1[1]);
+                    ctx.lineTo(p2[0], p2[1]);
+                    ctx.stroke();
+                  }
+                }
+              }
+            });
+            ctx.restore();
+
+            // 5. Clean Outer Sphere Horizon Rim (No extra rings, brackets, crosshairs, or text)
+            ctx.strokeStyle = isWireframe ? globeWireframeColor : '#28E098';
+            ctx.globalAlpha = 0.30;
+            ctx.lineWidth = 3.0;
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.strokeStyle = isWireframe ? globeWireframeColor : '#70FFBA';
+            ctx.globalAlpha = 0.86;
+            ctx.lineWidth = 1.3;
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.restore();
+          }
+          requestAnimationFrame(renderRetroGlobe);
+        }
+        requestAnimationFrame(renderRetroGlobe);
+      }
+
       syncZenTimer();
 
       if (clockInterval) clearInterval(clockInterval);
@@ -2148,6 +3384,195 @@
           renderHomeWidgets();
         }
       }, 15000);
+
+
+      // =======================================================================
+      // LONG-PRESS & RIGHT-CLICK APP CONTEXT MENU + SMOOTH SWIPE DRAWER GESTURE
+      // =======================================================================
+      let ctxTargetAppId = null;
+      let longPressTimer = null;
+      const ctxModal = document.getElementById("appContextMenuModal");
+
+      const ctxCard = document.getElementById("appContextMenuCard");
+      function setModalAnimated(modalEl, cardEl, open) {
+        if (!modalEl) return;
+        if (open) {
+          modalEl.classList.remove("opacity-0", "pointer-events-none");
+          modalEl.classList.add("opacity-100", "pointer-events-auto");
+          if (cardEl) {
+            cardEl.classList.remove("scale-90", "translate-y-5");
+            cardEl.classList.add("scale-100", "translate-y-0");
+          }
+        } else {
+          modalEl.classList.remove("opacity-100", "pointer-events-auto");
+          modalEl.classList.add("opacity-0", "pointer-events-none");
+          if (cardEl) {
+            cardEl.classList.remove("scale-100", "translate-y-0");
+            cardEl.classList.add("scale-90", "translate-y-5");
+          }
+        }
+      }
+
+      function openAppContextMenu(appId, source) {
+        const app = state.apps.find(a => a.id === appId);
+        if (!app || !ctxModal) return;
+        ctxTargetAppId = app.id;
+        document.getElementById("ctxMenuAppName").textContent = app.name;
+        document.getElementById("ctxMenuAppPkg").textContent = `com.cmf.${app.id} · ${app.category}`;
+        document.getElementById("lblCtxTogglePin").textContent =
+          source === "home" || app.pinned ? "Remove from Pinned Apps" : "Add to Home Screen";
+        const sysIds = ["phone", "messages", "camera", "calendar", "calculator", "clockapp", "files", "gallery", "settingsapp", "recorder"];
+        const uninstBtn = document.getElementById("btnCtxUninstall");
+        if (uninstBtn) {
+          if (app.category === "System" || sysIds.includes(app.id)) {
+            uninstBtn.classList.add("hidden");
+          } else {
+            uninstBtn.classList.remove("hidden");
+          }
+        }
+        setModalAnimated(ctxModal, ctxCard, true);
+      }
+
+      ctxModal.addEventListener("click", (e) => {
+        if (e.target === ctxModal) setModalAnimated(ctxModal, ctxCard, false);
+      });
+
+      document.getElementById("btnCtxTogglePin").addEventListener("click", () => {
+        const app = state.apps.find(a => a.id === ctxTargetAppId);
+        if (app) {
+          app.pinned = !app.pinned;
+          renderAll();
+          showToast(app.pinned ? `Added ${app.name} to Home Screen` : `Removed ${app.name} from Pinned Apps`);
+        }
+        setModalAnimated(ctxModal, ctxCard, false);
+      });
+
+      document.getElementById("btnCtxAppInfo").addEventListener("click", () => {
+        const app = state.apps.find(a => a.id === ctxTargetAppId);
+        setModalAnimated(ctxModal, ctxCard, false);
+        if (app) {
+          showToast(`App Info: ${app.name} (v2.6 · API 34)`);
+        }
+      });
+
+      document.getElementById("btnCtxUninstall").addEventListener("click", () => {
+        const idx = state.apps.findIndex(a => a.id === ctxTargetAppId);
+        setModalAnimated(ctxModal, ctxCard, false);
+        if (idx !== -1) {
+          const removed = state.apps.splice(idx, 1)[0];
+          renderAll();
+          showToast(`Uninstalled ${removed.name}`);
+        }
+      });
+
+      document.body.addEventListener("contextmenu", (e) => {
+        const target = e.target.closest("[data-context-app]");
+        if (target) {
+          e.preventDefault();
+          openAppContextMenu(target.dataset.contextApp, target.dataset.contextSource);
+        }
+      });
+
+      document.body.addEventListener("pointerdown", (e) => {
+        const target = e.target.closest("[data-context-app]");
+        if (!target) return;
+        if (longPressTimer) clearTimeout(longPressTimer);
+        longPressTimer = setTimeout(() => {
+          openAppContextMenu(target.dataset.contextApp, target.dataset.contextSource);
+        }, 520);
+      });
+      ["pointerup", "pointercancel", "pointermove"].forEach((evName) => {
+        document.body.addEventListener(evName, () => {
+          if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+          }
+        });
+      });
+
+      // Home Quick Menu & Notification Shade Controls
+      const homeQuickModal = document.getElementById("homeQuickMenuModal");
+      const homeQuickCard = document.getElementById("homeQuickMenuCard");
+      const notifShade = document.getElementById("notifShadeOverlay");
+
+      homeQuickModal.addEventListener("click", (e) => {
+        if (e.target === homeQuickModal) setModalAnimated(homeQuickModal, homeQuickCard, false);
+      });
+      document.getElementById("btnHomeMenuWidgets").addEventListener("click", () => {
+        setModalAnimated(homeQuickModal, homeQuickCard, false);
+        switchPhoneView("widgets");
+      });
+      document.getElementById("btnHomeMenuEdit").addEventListener("click", () => {
+        setModalAnimated(homeQuickModal, homeQuickCard, false);
+        state.editMode = !state.editMode;
+        renderAll();
+      });
+      document.getElementById("btnHomeMenuSettings").addEventListener("click", () => {
+        setModalAnimated(homeQuickModal, homeQuickCard, false);
+        switchPhoneView("settings");
+      });
+      document.getElementById("btnHomeMenuPhoneSettings").addEventListener("click", () => {
+        setModalAnimated(homeQuickModal, homeQuickCard, false);
+        launchAppById("settingsapp");
+      });
+      document.getElementById("btnCloseNotifShade").addEventListener("click", () => {
+        notifShade.classList.add("hidden");
+      });
+
+      // Long-tap or right-click empty Home Screen area to open Home Quick Menu
+      let homeBgPressTimer = null;
+      const viewHomeEl = document.getElementById("viewHome");
+      viewHomeEl.addEventListener("contextmenu", (e) => {
+        if (e.target.closest("[data-context-app]")) return;
+        e.preventDefault();
+        setModalAnimated(homeQuickModal, homeQuickCard, true);
+      });
+      viewHomeEl.addEventListener("pointerdown", (e) => {
+        if (e.target.closest("[data-context-app]") || e.target.closest("button") || e.target.closest("#homeWaveStrip")) return;
+        if (homeBgPressTimer) clearTimeout(homeBgPressTimer);
+        homeBgPressTimer = setTimeout(() => {
+          setModalAnimated(homeQuickModal, homeQuickCard, true);
+        }, 500);
+      });
+      ["pointerup", "pointercancel", "pointermove"].forEach((ev) => {
+        viewHomeEl.addEventListener(ev, () => {
+          if (homeBgPressTimer) {
+            clearTimeout(homeBgPressTimer);
+            homeBgPressTimer = null;
+          }
+        });
+      });
+
+      // Smooth vertical swipe gesture on Home Screen & Nav Bar swipe-up return to Home from any window
+      let swipeStartY = null;
+      let swipeStartedNearBottomNav = false;
+      const oledScreenEl = document.getElementById("oledScreen");
+      oledScreenEl.addEventListener("pointerdown", (e) => {
+        if (e.target.closest("#azScrubber") || e.target.closest("#homeWaveStrip") || e.target.closest("#retroGlobeContainer")) return;
+        swipeStartY = e.clientY;
+        const screenRect = oledScreenEl.getBoundingClientRect();
+        swipeStartedNearBottomNav = (screenRect.bottom - e.clientY) <= 75 || Boolean(e.target.closest("#systemNavContainer"));
+      });
+      oledScreenEl.addEventListener("pointerup", (e) => {
+        if (swipeStartY === null) return;
+        const dy = e.clientY - swipeStartY;
+        const fromNav = swipeStartedNearBottomNav;
+        swipeStartY = null;
+        swipeStartedNearBottomNav = false;
+        if (state.currentView !== "home" && dy < -45 && fromNav) {
+          state.editMode = false;
+          switchPhoneView("home");
+          renderAll();
+          showToast("Returned to Home Screen");
+        } else if (state.currentView === "home" && dy < -55) {
+          switchPhoneView("drawer");
+          showToast("Swiped up → App Drawer");
+        } else if (state.currentView === "home" && dy > 60) {
+          notifShade.classList.remove("hidden");
+        } else if (state.currentView === "drawer" && dy > 65 && drawerAppsList.scrollTop <= 4) {
+          switchPhoneView("home");
+        }
+      });
 
       // View switcher tabs above phone
       document.getElementById('tabViewHome').addEventListener('click', () => switchPhoneView('home'));
@@ -2185,19 +3610,74 @@
       });
 
       // =======================================================================
-      // NIAGARA LAUNCHER WAVE TRAVERSAL LISTENERS (HOME & APP DRAWER)
+      // Fluid LAUNCHER WAVE TRAVERSAL LISTENERS (HOME & APP DRAWER)
       // =======================================================================
       const azScrubber = document.getElementById('azScrubber');
       const homeWaveStrip = document.getElementById('homeWaveStrip');
       const homeAppsList = document.getElementById('homeAppsList');
       const drawerAppsList = document.getElementById('drawerAppsList');
 
+      // Smooth touch/mouse drag scrolling with momentum inside #drawerAppsList
+      let isDraggingList = false;
+      let listStartY = 0;
+      let listStartScrollTop = 0;
+      let listVelY = 0;
+      let listLastY = 0;
+      let listMomentumFrame = null;
+
+      drawerAppsList.addEventListener("pointerdown", (e) => {
+        isDraggingList = true;
+        listStartY = e.clientY;
+        listLastY = e.clientY;
+        listStartScrollTop = drawerAppsList.scrollTop;
+        listVelY = 0;
+        if (listMomentumFrame) cancelAnimationFrame(listMomentumFrame);
+      });
+      window.addEventListener("pointermove", (e) => {
+        if (!isDraggingList) return;
+        const dy = e.clientY - listStartY;
+        listVelY = e.clientY - listLastY;
+        listLastY = e.clientY;
+        if (Math.abs(dy) > 4) {
+          drawerAppsList.style.scrollBehavior = "auto";
+          drawerAppsList.scrollTop = listStartScrollTop - dy;
+        }
+      });
+      window.addEventListener("pointerup", () => {
+        if (!isDraggingList) return;
+        isDraggingList = false;
+        drawerAppsList.style.scrollBehavior = "smooth";
+        let v = listVelY * 1.6;
+        function stepMomentum() {
+          if (Math.abs(v) > 0.5) {
+            drawerAppsList.scrollTop -= v;
+            v *= 0.92;
+            listMomentumFrame = requestAnimationFrame(stepMomentum);
+          }
+        }
+        if (Math.abs(v) > 1.5) {
+          listMomentumFrame = requestAnimationFrame(stepMomentum);
+        }
+      });
+
+
+      function scrollToDrawerLetter(ch) {
+        let targetHeader = document.getElementById(`drawer-letter-${ch}`);
+        if (!targetHeader) {
+          const allHeaders = Array.from(drawerAppsList.querySelectorAll('[id^="drawer-letter-"]'));
+          targetHeader = allHeaders.find(h => h.textContent >= ch) || allHeaders[allHeaders.length - 1];
+        }
+        if (targetHeader) {
+          drawerAppsList.scrollTop = targetHeader.offsetTop - drawerAppsList.offsetTop;
+        }
+      }
+
       function handleDrawerWaveMove(clientY) {
-        if (state.niagaraWaveMode === 'off') return;
+        if (state.waveScrubMode === 'off') return;
         const letterNodes = Array.from(azScrubber.querySelectorAll('.az-letter-node'));
-        const rowNodes = Array.from(drawerAppsList.querySelectorAll('.niagara-row'));
-        applyNiagaraWaveToElements(letterNodes, clientY, -1); // curve left
-        applyNiagaraWaveToElements(rowNodes, clientY, 0.55); // ripple app list right
+        const rowNodes = Array.from(drawerAppsList.querySelectorAll('.wave-row'));
+        applyFluidWaveToElements(letterNodes, clientY, -1); // curve left
+        // App drawer rows remain clean and unhighlighted per user preference
 
         // Find closest letter to clientY and scroll/show bubble
         let closestLetter = null;
@@ -2213,10 +3693,7 @@
 
         if (closestLetter && minDist < 40) {
           showWaveBubble(closestLetter, clientY);
-          const targetHeader = document.getElementById(`drawer-letter-${closestLetter}`);
-          if (targetHeader) {
-            targetHeader.scrollIntoView({ behavior: 'auto', block: 'start' });
-          }
+          scrollToDrawerLetter(closestLetter);
         }
       }
 
@@ -2229,39 +3706,102 @@
       }, { passive: false });
 
       azScrubber.addEventListener('mouseleave', () => {
-        resetNiagaraWave(Array.from(azScrubber.querySelectorAll('.az-letter-node')));
-        resetNiagaraWave(Array.from(drawerAppsList.querySelectorAll('.niagara-row')));
+        resetFluidWave(Array.from(azScrubber.querySelectorAll('.az-letter-node')));
+        resetFluidWave(Array.from(drawerAppsList.querySelectorAll('.wave-row')));
       });
       azScrubber.addEventListener('touchend', () => {
-        resetNiagaraWave(Array.from(azScrubber.querySelectorAll('.az-letter-node')));
-        resetNiagaraWave(Array.from(drawerAppsList.querySelectorAll('.niagara-row')));
+        resetFluidWave(Array.from(azScrubber.querySelectorAll('.az-letter-node')));
+        resetFluidWave(Array.from(drawerAppsList.querySelectorAll('.wave-row')));
       });
 
-      // Also apply Niagara Wave when hovering/traversing directly over Home App List or Home Wave Strip
-      function handleHomeWaveMove(clientY) {
-        if (state.niagaraWaveMode === 'off') return;
-        const rows = Array.from(homeAppsList.querySelectorAll('.niagara-row'));
-        const dots = Array.from(homeWaveStrip.querySelectorAll('.az-letter-node'));
-        applyNiagaraWaveToElements(rows, clientY, 0.75);
-        applyNiagaraWaveToElements(dots, clientY, -0.7);
+      // Apply Fluid Wave on Home App List & Right-Side Dots Strip,
+      // and launch the selected app when scrubbing and stopping/releasing on a dot!
+      let homeDotScrubbing = false;
+      let activeHomeDotIndex = null;
+
+      function getClosestHomeDotIndex(clientY) {
+        const pinnedApps = state.apps.filter(a => a.pinned && !a.hidden);
+        if (pinnedApps.length === 0) return null;
+        const rect = homeWaveStrip.getBoundingClientRect();
+        if (rect.height <= 0) return 0;
+        const relY = Math.max(0, Math.min(rect.height - 0.01, clientY - rect.top));
+        return Math.max(0, Math.min(pinnedApps.length - 1, Math.floor((relY / rect.height) * pinnedApps.length)));
       }
 
-      homeAppsList.addEventListener('mousemove', (e) => handleHomeWaveMove(e.clientY));
-      homeWaveStrip.addEventListener('mousemove', (e) => handleHomeWaveMove(e.clientY));
-      homeWaveStrip.addEventListener('touchmove', (e) => {
-        if (e.touches && e.touches[0]) {
-          e.preventDefault();
-          handleHomeWaveMove(e.touches[0].clientY);
-        }
-      }, { passive: false });
+      let isHomeDotOutside = false;
 
+      function isPointerOutsideHomeWaveStrip(clientX, clientY) {
+        const rect = homeWaveStrip.getBoundingClientRect();
+        const marginX = 36;
+        const marginY = 28;
+        return (
+          clientX < rect.left - marginX ||
+          clientX > rect.right + marginX ||
+          clientY < rect.top - marginY ||
+          clientY > rect.bottom + marginY
+        );
+      }
+
+      function handleHomeWaveMove(clientY, clientX = null) {
+        if (state.waveScrubMode === 'off') return;
+        const rows = Array.from(homeAppsList.querySelectorAll('.wave-row'));
+        const dots = Array.from(homeWaveStrip.querySelectorAll('.az-letter-node'));
+        if (clientX !== null && homeDotScrubbing && isPointerOutsideHomeWaveStrip(clientX, clientY)) {
+          // Finger dragged away from the dots strip -> collapse wave & cancel app launch!
+          isHomeDotOutside = true;
+          activeHomeDotIndex = null;
+          resetFluidWave(rows);
+          resetFluidWave(dots);
+          return;
+        }
+        isHomeDotOutside = false;
+        applyFluidWaveToElements(rows, clientY, 0.75);
+        applyFluidWaveToElements(dots, clientY, -0.7);
+        activeHomeDotIndex = getClosestHomeDotIndex(clientY);
+      }
+
+      homeWaveStrip.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        homeWaveStrip.setPointerCapture(e.pointerId);
+        homeDotScrubbing = true;
+        isHomeDotOutside = false;
+        handleHomeWaveMove(e.clientY, e.clientX);
+      });
+      homeWaveStrip.addEventListener('pointermove', (e) => {
+        handleHomeWaveMove(e.clientY, e.clientX);
+      });
+      const finishHomeDotScrub = (e) => {
+        if (!homeDotScrubbing) return;
+        homeDotScrubbing = false;
+        const cancelled = isHomeDotOutside || isPointerOutsideHomeWaveStrip(e.clientX, e.clientY);
+        const idx = !cancelled ? activeHomeDotIndex : null;
+        activeHomeDotIndex = null;
+        isHomeDotOutside = false;
+        resetFluidWave(Array.from(homeAppsList.querySelectorAll('.wave-row')));
+        resetFluidWave(Array.from(homeWaveStrip.querySelectorAll('.az-letter-node')));
+        const pinnedApps = state.apps.filter(a => a.pinned && !a.hidden);
+        if (!cancelled && idx !== null && pinnedApps[idx]) {
+          launchSimulatedApp(pinnedApps[idx].id);
+        }
+      };
+      homeWaveStrip.addEventListener('pointerup', finishHomeDotScrub);
+      homeWaveStrip.addEventListener('pointercancel', () => {
+        homeDotScrubbing = false;
+        activeHomeDotIndex = null;
+        resetFluidWave(Array.from(homeAppsList.querySelectorAll('.wave-row')));
+        resetFluidWave(Array.from(homeWaveStrip.querySelectorAll('.az-letter-node')));
+      });
+
+      homeAppsList.addEventListener('mousemove', (e) => handleHomeWaveMove(e.clientY));
       homeAppsList.addEventListener('mouseleave', () => {
-        resetNiagaraWave(Array.from(homeAppsList.querySelectorAll('.niagara-row')));
-        resetNiagaraWave(Array.from(homeWaveStrip.querySelectorAll('.az-letter-node')));
+        resetFluidWave(Array.from(homeAppsList.querySelectorAll('.wave-row')));
+        resetFluidWave(Array.from(homeWaveStrip.querySelectorAll('.az-letter-node')));
       });
       homeWaveStrip.addEventListener('mouseleave', () => {
-        resetNiagaraWave(Array.from(homeAppsList.querySelectorAll('.niagara-row')));
-        resetNiagaraWave(Array.from(homeWaveStrip.querySelectorAll('.az-letter-node')));
+        if (!homeDotScrubbing) {
+          resetFluidWave(Array.from(homeAppsList.querySelectorAll('.wave-row')));
+          resetFluidWave(Array.from(homeWaveStrip.querySelectorAll('.az-letter-node')));
+        }
       });
 
       // System Navigation Buttons (Android 14 3-Button + Gesture)
@@ -2321,14 +3861,22 @@
 
       // Drawer Search & Filters
       const searchInput = document.getElementById('drawerSearchInput');
+      const btnClearSearch = document.getElementById('btnClearSearch');
       searchInput.addEventListener('input', () => {
+        if (btnClearSearch) {
+          btnClearSearch.classList.toggle('hidden', searchInput.value.trim().length === 0);
+        }
         renderDrawerApps();
       });
 
-      document.getElementById('btnClearSearch').addEventListener('click', () => {
-        searchInput.value = '';
-        renderDrawerApps();
-      });
+      if (btnClearSearch) {
+        btnClearSearch.addEventListener('click', () => {
+          searchInput.value = '';
+          btnClearSearch.classList.add('hidden');
+          searchInput.blur();
+          renderDrawerApps();
+        });
+      }
 
       document.getElementById('filterDrawerAll').addEventListener('click', () => {
         state.drawerFilter = 'all';
@@ -2368,7 +3916,7 @@
         switchPhoneView('settings');
       });
 
-      document.getElementById('btnOpenWidgetsFromSettings').addEventListener('click', () => {
+      document.getElementById('btnOpenWidgetsFromSettings')?.addEventListener('click', () => {
         switchPhoneView('widgets');
       });
 
@@ -2382,7 +3930,7 @@
         renderAll();
       });
 
-      document.getElementById('inPhoneToggle24h').addEventListener('click', () => {
+      document.getElementById('inPhoneToggle24h')?.addEventListener('click', () => {
         state.use24Hour = !state.use24Hour;
         renderAll();
         showToast(state.use24Hour ? '24-Hour Clock' : '12-Hour Clock');
@@ -2391,7 +3939,7 @@
       document.getElementById('inPhoneToggleCustomTopBar').addEventListener('click', () => {
         state.showStatusBar = !state.showStatusBar;
         renderAll();
-        showToast(state.showStatusBar ? 'N-TEXT Bar: ON' : 'N-TEXT Bar: HIDDEN');
+        showToast(state.showStatusBar ? 'Nocturnaa Bar: ON' : 'Nocturnaa Bar: HIDDEN');
       });
 
       document.getElementById('inPhoneToggleNavMode').addEventListener('click', () => {
@@ -2511,11 +4059,72 @@
           return;
         }
 
-        // 7. Interactive Widget Actions on Home Screen
+        // 7. Interactive Widget Actions on Home Screen & Widget Manager
+        const setSizeBtn = e.target.closest('[data-set-widget-size]');
+        if (setSizeBtn) {
+          const [wId, sz] = setSizeBtn.dataset.setWidgetSize.split(':');
+          const w = state.widgets.find(item => item.id === wId);
+          if (w && sz) {
+            w.size = sz;
+            renderAll();
+            showToast(`${w.name} Size: ${sz.toUpperCase()}`);
+          }
+          return;
+        }
+
+        const setGlobeThemeBtn = e.target.closest('[data-set-globe-theme]');
+        if (setGlobeThemeBtn) {
+          state.globeTheme = setGlobeThemeBtn.dataset.setGlobeTheme;
+          renderAll();
+          showToast(state.globeTheme === 'retro_holo' ? 'Globe: 80s Hologram' : 'Globe: 3D Wireframe');
+          return;
+        }
+
+        const cycleSizeBtn = e.target.closest('[data-cycle-size-widget]');
+        if (cycleSizeBtn) {
+          const wId = cycleSizeBtn.dataset.cycleSizeWidget;
+          const w = state.widgets.find(item => item.id === wId);
+          if (w) {
+            const cur = w.size || 'standard';
+            if (wId === 'globe') {
+              w.size = cur === 'compact' ? 'standard' : cur === 'standard' ? 'large' : cur === 'large' ? 'xlarge' : cur === 'xlarge' ? 'max' : 'compact';
+            } else if (wId === 'blackhole') {
+              w.size = cur === 'compact' ? 'standard' : cur === 'standard' ? 'large' : cur === 'large' ? 'xlarge' : 'compact';
+            } else {
+              w.size = cur === 'compact' ? 'standard' : cur === 'standard' ? 'large' : 'compact';
+            }
+            renderAll();
+            showToast(`${w.name} Size: ${w.size.toUpperCase()}`);
+          }
+          return;
+        }
+
         const widgetAct = e.target.closest('[data-widget-action]');
         if (widgetAct) {
           const act = widgetAct.dataset.widgetAction;
-          if (act === 'toggle24h') {
+          if (act === 'toggleTorch') {
+            state.torchActive = !state.torchActive;
+            renderHomeWidgets();
+            showToast(state.torchActive ? 'Torch Active [ON]' : 'Torch Turned [OFF]');
+            return;
+          } else if (act === 'toggleChrono') {
+          if (state.chronoRunning) {
+            state.chronoAccumMs = (state.chronoAccumMs || 0) + (Date.now() - (state.chronoStartMs || Date.now()));
+            state.chronoRunning = false;
+          } else {
+            state.chronoStartMs = Date.now();
+            state.chronoRunning = true;
+          }
+          renderHomeWidgets();
+          return;
+        }
+        } else if (act === 'resetChrono') {
+          state.chronoRunning = false;
+          state.chronoAccumMs = 0;
+          renderHomeWidgets();
+          return;
+        }
+        } else if (act === 'toggle24h') {
             state.use24Hour = !state.use24Hour;
             renderAll();
             showToast(state.use24Hour ? '24-Hour Clock' : '12-Hour Clock');
@@ -2556,10 +4165,7 @@
         if (scrubBtn) {
           const ch = scrubBtn.dataset.scrollLetter;
           showWaveBubble(ch, scrubBtn.getBoundingClientRect().top);
-          const target = document.getElementById(`drawer-letter-${ch}`);
-          if (target) {
-            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }
+          scrollToDrawerLetter(ch);
           return;
         }
 
@@ -2660,7 +4266,7 @@
 
       document.getElementById('btnEnableAllWidgets').addEventListener('click', () => {
         state.widgets.forEach((w) => {
-          w.enabled = ['clock', 'weather', 'telemetry'].includes(w.id);
+          w.enabled = ['clock', 'weather', 'globe', 'blackhole'].includes(w.id);
         });
         switchPhoneView('home');
         renderAll();
@@ -2699,21 +4305,21 @@
         showToast('Font: Editorial Serif');
       });
 
-      // Niagara Wave Mode Buttons
+      // Fluid Wave Mode Buttons
       document.getElementById('waveBtnFull').addEventListener('click', () => {
-        state.niagaraWaveMode = 'full';
+        state.waveScrubMode = 'full';
         renderAll();
-        showToast('Niagara Wave: Full');
+        showToast('Fluid Wave: Full');
       });
       document.getElementById('waveBtnSubtle').addEventListener('click', () => {
-        state.niagaraWaveMode = 'subtle';
+        state.waveScrubMode = 'subtle';
         renderAll();
-        showToast('Niagara Wave: Subtle Arc');
+        showToast('Fluid Wave: Subtle Arc');
       });
       document.getElementById('waveBtnOff').addEventListener('click', () => {
-        state.niagaraWaveMode = 'off';
+        state.waveScrubMode = 'off';
         renderAll();
-        showToast('Niagara Wave: Static');
+        showToast('Fluid Wave: Static');
       });
 
       document.getElementById('alignBtnLeft').addEventListener('click', () => {
@@ -2766,7 +4372,7 @@
       document.getElementById('btnToggleStatusBar').addEventListener('click', () => {
         state.showStatusBar = !state.showStatusBar;
         renderAll();
-        showToast(state.showStatusBar ? 'Custom N-TEXT Top Bar: ON' : 'Custom N-TEXT Top Bar: HIDDEN');
+        showToast(state.showStatusBar ? 'Custom Nocturnaa Top Bar: ON' : 'Custom Nocturnaa Top Bar: HIDDEN');
       });
 
       document.getElementById('btnHideDefaultAndroidBar').addEventListener('click', () => {
@@ -2781,10 +4387,10 @@
         renderAll();
         showToast(state.hideDefaultAndroidBar ? 'Default Android Bar Hidden' : 'Default Android Bar Shown');
       });
-      document.getElementById('toggleNiagaraWave').addEventListener('click', () => {
-        state.niagaraWaveMode = state.niagaraWaveMode === 'off' ? 'full' : 'off';
+      document.getElementById('toggleWaveScrub').addEventListener('click', () => {
+        state.waveScrubMode = state.waveScrubMode === 'off' ? 'full' : 'off';
         renderAll();
-        showToast(state.niagaraWaveMode === 'full' ? 'Niagara Wave Enabled' : 'Niagara Wave Disabled');
+        showToast(state.waveScrubMode === 'full' ? 'Fluid Wave Enabled' : 'Fluid Wave Disabled');
       });
       document.getElementById('toggleAutoKeyboard').addEventListener('click', () => {
         state.autoKeyboard = !state.autoKeyboard;
@@ -2821,7 +4427,7 @@
             appTextSizeSp: state.textSize
           },
           animations: {
-            niagaraWaveTraversal: state.niagaraWaveMode
+            fluidWaveScrubbing: state.waveScrubMode
           },
           systemBars: {
             hideDefaultAndroidNotificationBar: state.hideDefaultAndroidBar,
