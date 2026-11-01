@@ -364,7 +364,7 @@ enum class PrebuiltFont(
 }
 
 // ============================================================================
-// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.4.1-cmf)
+// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.5.0-cmf)
 // Calculates exact vertical height of active widgets + pinned Home apps (and scale)
 // to prevent overflow/scrolling and trigger the "NO SPACE LEFT" popup when full.
 // ============================================================================
@@ -424,6 +424,7 @@ private fun estimateSingleWidgetHeightDp(widgetId: String, sizeMode: String): Fl
         "large" -> 48f
         else -> 36f
     }
+    "pinned_apps" -> 0f
     else -> when (sizeMode) { // torch, zen, quote, scratchpad
         "compact" -> 24f
         "large" -> 40f
@@ -453,7 +454,7 @@ private fun estimatePinnedAppsHeightDp(pinnedCount: Int, textSizeSp: Int): Float
 }
 
 // ============================================================================
-// iOS PHYSICAL RUBBER-BAND SPRING SCALE-FADE POPUP ENGINE (Nocturnaa v4.4.1-cmf)
+// iOS PHYSICAL RUBBER-BAND SPRING SCALE-FADE POPUP ENGINE (Nocturnaa v4.5.0-cmf)
 // - Starts slightly smaller (scale = 0.80f) and rapidly expands to full size (1.00f)
 //   while fading in from transparent (0f -> 1f) as the background simultaneously dims.
 // - Uses an underdamped physical rubber-band spring (dampingRatio = 0.62f, stiffness = 440f)
@@ -514,6 +515,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        title = "Nocturnaa"
+        try {
+            setTaskDescription(ActivityManager.TaskDescription("Nocturnaa"))
+        } catch (_: Exception) {
+        }
         prefs = getSharedPreferences("cmf_ntext_prefs", Context.MODE_PRIVATE)
         hideDefaultAndroidStatusBar = prefs.getBoolean("hide_android_bar", true)
 
@@ -930,11 +936,17 @@ fun NTextLauncherApp(
     var globeRotXDeg by remember { mutableStateOf(prefs.getFloat("globe_rot_x_deg", 14f)) }
     var globeRotYDeg by remember { mutableStateOf(prefs.getFloat("globe_rot_y_deg", -77f)) }
 
-    // 100% Offline Essential Widgets (Default on Home Screen: Clock & Week Strip; Globe can be added from Widget Manager)
+    // 100% Offline Essential Widgets (Default on Home Screen: Clock, Week Strip & Pinned Home Apps Widget; Globe can be added from Widget Manager)
     var activeWidgets by remember {
-        val saved = prefs.getString("widgets_order_v8", "clock,week_strip") ?: "clock,week_strip"
+        val savedV9 = prefs.getString("widgets_order_v9", null)
+        val rawList = if (savedV9 != null) {
+            savedV9.split(",")
+        } else {
+            val v8 = (prefs.getString("widgets_order_v8", "clock,week_strip") ?: "clock,week_strip").split(",")
+            if (v8.contains("pinned_apps")) v8 else v8 + "pinned_apps"
+        }
         mutableStateOf(
-            saved.split(",").filter {
+            rawList.filter {
                 it.isNotBlank() && it != "telemetry" && it != "blackhole" && it != "weather" && it != "pedometer" && it != "crt_world_map"
             }
         )
@@ -942,7 +954,7 @@ fun NTextLauncherApp(
     var widgetSizes by remember {
         val saved = prefs.getString(
             "widget_sizes_v7",
-            "clock:standard,week_strip:standard,retro_calendar:standard,year_matrix:standard,retro_flip_clock:standard,analog_chrono:standard,precision_chrono:standard,globe:standard,torch:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard"
+            "clock:standard,week_strip:standard,pinned_apps:large,retro_calendar:standard,year_matrix:standard,retro_flip_clock:standard,analog_chrono:standard,precision_chrono:standard,globe:standard,torch:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard"
         ) ?: ""
         val map = saved.split(",").mapNotNull {
             val parts = it.split(":")
@@ -954,7 +966,7 @@ fun NTextLauncherApp(
     var widgetFonts by remember {
         val saved = prefs.getString(
             "widget_fonts_v1",
-            "clock:dot,week_strip:dot,retro_calendar:dot,year_matrix:dot,retro_flip_clock:dot,analog_chrono:dot,precision_chrono:dot,torch:dot,storage:dot,quote:dot,scratchpad:dot,zen:dot"
+            "clock:dot,week_strip:dot,pinned_apps:dot,retro_calendar:dot,year_matrix:dot,retro_flip_clock:dot,analog_chrono:dot,precision_chrono:dot,torch:dot,storage:dot,quote:dot,scratchpad:dot,zen:dot"
         ) ?: ""
         val map = saved.split(",").mapNotNull {
             val parts = it.split(":")
@@ -973,21 +985,37 @@ fun NTextLauncherApp(
     var ramUsageFraction by remember { mutableStateOf(0.35f) }
     var storageUsageFraction by remember { mutableStateOf(0.50f) }
 
-    // Pinned & Hidden Package Names
+    // Pinned & Hidden Package Names + Custom Sequence Order for Pinned Apps in Edit Mode
+    val defaultPinnedOrderList = remember {
+        listOf(
+            "com.google.android.dialer",
+            "com.google.android.apps.messaging",
+            "com.brave.browser",
+            "com.android.chrome",
+            "com.nothing.camera",
+            "com.android.settings"
+        )
+    }
     var pinnedPackages by remember {
         mutableStateOf(
             prefs.getStringSet(
                 "pinned_pkgs",
-                setOf(
-                    "com.google.android.dialer",
-                    "com.google.android.apps.messaging",
-                    "com.brave.browser",
-                    "com.android.chrome",
-                    "com.nothing.camera",
-                    "com.android.settings"
-                )
+                defaultPinnedOrderList.toSet()
             )?.toSet() ?: emptySet()
         )
+    }
+    var customPinnedOrderEnabled by remember {
+        mutableStateOf(prefs.getBoolean("custom_pinned_order", true))
+    }
+    var pinnedAppsOrder by remember {
+        val rawOrder = prefs.getString("pinned_apps_order_v1", null)
+        val parsed = if (!rawOrder.isNullOrBlank()) {
+            rawOrder.split(",").filter { it.isNotBlank() }
+        } else {
+            defaultPinnedOrderList.filter { pinnedPackages.contains(it) } +
+                pinnedPackages.filter { !defaultPinnedOrderList.contains(it) }
+        }
+        mutableStateOf(parsed)
     }
     var hiddenPackages by remember {
         mutableStateOf(prefs.getStringSet("hidden_pkgs", emptySet())?.toSet() ?: emptySet())
@@ -1025,9 +1053,14 @@ fun NTextLauncherApp(
                 .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
         }
         if (pinnedPackages.isEmpty() && loaded.isNotEmpty()) {
-            val defaults = loaded.take(6).map { it.packageName }.toSet()
-            pinnedPackages = defaults
-            prefs.edit().putStringSet("pinned_pkgs", defaults).apply()
+            val defaultsList = loaded.take(6).map { it.packageName }
+            val defaultsSet = defaultsList.toSet()
+            pinnedPackages = defaultsSet
+            pinnedAppsOrder = defaultsList
+            prefs.edit()
+                .putStringSet("pinned_pkgs", defaultsSet)
+                .putString("pinned_apps_order_v1", defaultsList.joinToString(","))
+                .apply()
         }
         rawInstalledApps = loaded
     }
@@ -1037,6 +1070,19 @@ fun NTextLauncherApp(
             app.copy(
                 isPinned = pinnedPackages.contains(app.packageName),
                 isHidden = hiddenPackages.contains(app.packageName)
+            )
+        }
+    }
+
+    val orderedPinnedApps = remember(installedApps, pinnedAppsOrder, customPinnedOrderEnabled) {
+        val visiblePinned = installedApps.filter { it.isPinned && !it.isHidden }
+        if (!customPinnedOrderEnabled) {
+            visiblePinned.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
+        } else {
+            val orderMap = pinnedAppsOrder.withIndex().associate { (idx, pkg) -> pkg to idx }
+            visiblePinned.sortedWith(
+                compareBy<AppEntry> { orderMap[it.packageName] ?: Int.MAX_VALUE }
+                    .thenBy(String.CASE_INSENSITIVE_ORDER) { it.label }
             )
         }
     }
@@ -1262,23 +1308,29 @@ fun NTextLauncherApp(
             usableHomeHeightDp - 4f
         }
 
-        val currentEstimatedWidgetsH = estimateWidgetsStackHeightDp(activeWidgets, widgetSizes)
-        val candidateEstimatedWidgetsH = estimateWidgetsStackHeightDp(candidateWidgets, candidateSizes)
+        val nonAppActiveWidgets = activeWidgets.filter { it != "pinned_apps" }
+        val nonAppCandidateWidgets = candidateWidgets.filter { it != "pinned_apps" }
+        val currentEstimatedWidgetsH = estimateWidgetsStackHeightDp(nonAppActiveWidgets, widgetSizes)
+        val candidateEstimatedWidgetsH = estimateWidgetsStackHeightDp(nonAppCandidateWidgets, candidateSizes)
         val widgetsDeltaH = candidateEstimatedWidgetsH - currentEstimatedWidgetsH
-        val effectiveWidgetsH = if (measuredWidgetsHeightDp > 10f && activeWidgets.isNotEmpty()) {
+        val effectiveWidgetsH = if (measuredWidgetsHeightDp > 10f && nonAppActiveWidgets.isNotEmpty()) {
             (measuredWidgetsHeightDp + widgetsDeltaH).coerceAtLeast(0f)
         } else {
             candidateEstimatedWidgetsH
         }
 
-        val curPinCount = currentPinnedAppsCount()
-        val currentEstimatedAppsH = estimatePinnedAppsHeightDp(curPinCount, textSizeSp)
-        val candidateEstimatedAppsH = estimatePinnedAppsHeightDp(candidatePinnedCount, candidateTextSizeSp)
-        val appsDeltaH = candidateEstimatedAppsH - currentEstimatedAppsH
-        val effectiveAppsH = if (measuredPinnedAppsHeightDp > 10f && curPinCount > 0) {
-            (measuredPinnedAppsHeightDp + appsDeltaH).coerceAtLeast(0f)
+        val effectiveAppsH = if (!candidateWidgets.contains("pinned_apps") || candidatePinnedCount <= 0) {
+            0f
         } else {
-            candidateEstimatedAppsH
+            val curPinCount = currentPinnedAppsCount()
+            val currentEstimatedAppsH = estimatePinnedAppsHeightDp(curPinCount, textSizeSp)
+            val candidateEstimatedAppsH = estimatePinnedAppsHeightDp(candidatePinnedCount, candidateTextSizeSp)
+            val appsDeltaH = candidateEstimatedAppsH - currentEstimatedAppsH
+            if (measuredPinnedAppsHeightDp > 10f && curPinCount > 0 && activeWidgets.contains("pinned_apps")) {
+                (measuredPinnedAppsHeightDp + appsDeltaH).coerceAtLeast(0f)
+            } else {
+                candidateEstimatedAppsH
+            }
         }
 
         return (effectiveWidgetsH + effectiveAppsH) <= effectiveContainerH
@@ -1299,10 +1351,41 @@ fun NTextLauncherApp(
             }
         }
         activeWidgets = cleaned
-        prefs.edit().putString("widgets_order_v8", cleaned.joinToString(",")).apply()
+        prefs.edit()
+            .putString("widgets_order_v9", cleaned.joinToString(","))
+            .putString("widgets_order_v8", cleaned.filter { it != "pinned_apps" }.joinToString(","))
+            .apply()
     }
 
     fun saveWidgetSize(widgetId: String, size: String) {
+        if (widgetId == "pinned_apps") {
+            val targetSp = when (size) {
+                "compact" -> 16
+                "standard" -> 18
+                "large" -> 20
+                "xlarge" -> 22
+                "max" -> 24
+                else -> 20
+            }
+            val pCount = currentPinnedAppsCount()
+            if (targetSp > textSizeSp && activeWidgets.contains("pinned_apps") && !canFitOnHomeScreen(activeWidgets, widgetSizes, pCount, targetSp)) {
+                triggerNoSpaceLeftPopup(
+                    "No space left on the Home Screen to resize Pinned Apps to ${targetSp}SP with your current widgets and $pCount pinned apps."
+                )
+                return
+            }
+            textSizeSp = targetSp
+            val newMap = widgetSizes.toMutableMap()
+            newMap["pinned_apps"] = size
+            widgetSizes = newMap.toMap()
+            val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
+            prefs.edit()
+                .putInt("text_size", targetSp)
+                .putString("widget_sizes_v7", serialized)
+                .apply()
+            return
+        }
+
         val currentSize = widgetSizes[widgetId] ?: "standard"
         val currentH = estimateSingleWidgetHeightDp(widgetId, currentSize)
         val targetH = estimateSingleWidgetHeightDp(widgetId, size)
@@ -1339,13 +1422,42 @@ fun NTextLauncherApp(
         newMap[widgetId] = wFontId
         widgetFonts = newMap.toMap()
         val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
-        prefs.edit().putString("widget_fonts_v1", serialized).apply()
+        val editor = prefs.edit().putString("widget_fonts_v1", serialized)
+        if (widgetId == "pinned_apps") {
+            fontId = wFontId
+            editor.putString("font_id", wFontId)
+        }
+        editor.apply()
+    }
+
+    fun movePinnedApp(pkg: String, direction: Int) {
+        val currentList = orderedPinnedApps.map { it.packageName }.toMutableList()
+        val idx = currentList.indexOf(pkg)
+        val targetIdx = idx + direction
+        if (idx in currentList.indices && targetIdx in currentList.indices) {
+            val item = currentList.removeAt(idx)
+            currentList.add(targetIdx, item)
+            pinnedAppsOrder = currentList
+            prefs.edit().putString("pinned_apps_order_v1", currentList.joinToString(",")).apply()
+            tickHaptic(heavy = false)
+        }
+    }
+
+    fun unpinAppFromHome(pkg: String) {
+        pinnedPackages = pinnedPackages - pkg
+        pinnedAppsOrder = pinnedAppsOrder.filter { it != pkg }
+        prefs.edit()
+            .putStringSet("pinned_pkgs", pinnedPackages)
+            .putString("pinned_apps_order_v1", pinnedAppsOrder.joinToString(","))
+            .apply()
+        tickHaptic(heavy = false)
     }
 
     fun cycleWidgetSize(widgetId: String) {
         val current = widgetSizes[widgetId] ?: "standard"
         val next = if (
             widgetId == "clock" ||
+            widgetId == "pinned_apps" ||
             widgetId == "retro_flip_clock" ||
             widgetId == "analog_chrono" ||
             widgetId == "precision_chrono" ||
@@ -1744,7 +1856,10 @@ fun NTextLauncherApp(
                                     globeRotYDeg = clamped
                                     prefs.edit().putFloat("globe_rot_y_deg", clamped).apply()
                                 },
-                                pinnedApps = installedApps.filter { it.isPinned && !it.isHidden },
+                                pinnedApps = orderedPinnedApps,
+                                customPinnedOrderEnabled = customPinnedOrderEnabled,
+                                onMovePinnedApp = { pkg, dir -> movePinnedApp(pkg, dir) },
+                                onUnpinApp = { pkg -> unpinAppFromHome(pkg) },
                                 onOpenClockApp = { openClockApp() },
                                 onToggleTorch = { toggleTorchState() },
                                 onToggleZen = {
@@ -1845,9 +1960,14 @@ fun NTextLauncherApp(
                             accentColor = accentColor,
                             lomoFontFamily = selectedFont,
                             use24Hour = use24Hour,
+                            customPinnedOrderEnabled = customPinnedOrderEnabled,
                             quickNote = quickNote,
                             globeTheme = globeTheme,
                             globeWireframeColor = globeWireframeColor,
+                            onToggleCustomPinnedOrder = {
+                                customPinnedOrderEnabled = !customPinnedOrderEnabled
+                                prefs.edit().putBoolean("custom_pinned_order", customPinnedOrderEnabled).apply()
+                            },
                             onToggle24h = {
                                 use24Hour = !use24Hour
                                 prefs.edit().putBoolean("use_24h_v4", use24Hour).apply()
@@ -1885,6 +2005,7 @@ fun NTextLauncherApp(
                             use24Hour = use24Hour,
                             hideAndroidBar = hideAndroidBar,
                             pauseWhenAppOpen = pauseWhenAppOpen,
+                            customPinnedOrderEnabled = customPinnedOrderEnabled,
                             waveScrubMode = waveScrubMode,
                             drawerWaveIntensity = drawerWaveIntensity,
                             wallpaperPreset = wallpaperPreset,
@@ -1902,7 +2023,14 @@ fun NTextLauncherApp(
                             launcherFont = selectedFont,
                             onChangeFont = {
                                 fontId = it
-                                prefs.edit().putString("font_id", it).apply()
+                                val newFontMap = widgetFonts.toMutableMap()
+                                newFontMap["pinned_apps"] = it
+                                widgetFonts = newFontMap.toMap()
+                                val serializedFonts = newFontMap.entries.joinToString(",") { e -> "${e.key}:${e.value}" }
+                                prefs.edit()
+                                    .putString("font_id", it)
+                                    .putString("widget_fonts_v1", serializedFonts)
+                                    .apply()
                             },
                             onChangeAlign = {
                                 textAlignMode = it
@@ -1920,8 +2048,26 @@ fun NTextLauncherApp(
                                     )
                                 } else {
                                     textSizeSp = newSp
-                                    prefs.edit().putInt("text_size", newSp).apply()
+                                    val mappedSz = when (newSp) {
+                                        16 -> "compact"
+                                        18 -> "standard"
+                                        20 -> "large"
+                                        22 -> "xlarge"
+                                        else -> "max"
+                                    }
+                                    val newSizeMap = widgetSizes.toMutableMap()
+                                    newSizeMap["pinned_apps"] = mappedSz
+                                    widgetSizes = newSizeMap.toMap()
+                                    val serializedSizes = newSizeMap.entries.joinToString(",") { e -> "${e.key}:${e.value}" }
+                                    prefs.edit()
+                                        .putInt("text_size", newSp)
+                                        .putString("widget_sizes_v7", serializedSizes)
+                                        .apply()
                                 }
+                            },
+                            onToggleCustomPinnedOrder = {
+                                customPinnedOrderEnabled = !customPinnedOrderEnabled
+                                prefs.edit().putBoolean("custom_pinned_order", customPinnedOrderEnabled).apply()
                             },
                             onChangeDrawerTextSize = {
                                 drawerTextSizeSp = it
@@ -2238,18 +2384,32 @@ fun NTextLauncherApp(
                             .clickable {
                                 if (isFromHome || currentlyPinned) {
                                     pinnedPackages = pinnedPackages - targetApp.packageName
-                                    prefs.edit().putStringSet("pinned_pkgs", pinnedPackages).apply()
+                                    pinnedAppsOrder = pinnedAppsOrder.filter { it != targetApp.packageName }
+                                    prefs.edit()
+                                        .putStringSet("pinned_pkgs", pinnedPackages)
+                                        .putString("pinned_apps_order_v1", pinnedAppsOrder.joinToString(","))
+                                        .apply()
                                     contextMenuTarget = null
                                 } else {
+                                    val candidateWidgetsList = if (activeWidgets.contains("pinned_apps")) activeWidgets else activeWidgets + "pinned_apps"
                                     val newPinnedCount = currentPinnedAppsCount() + 1
-                                    if (activeWidgets.isNotEmpty() && !canFitOnHomeScreen(activeWidgets, widgetSizes, newPinnedCount, textSizeSp)) {
+                                    if (candidateWidgetsList.isNotEmpty() && !canFitOnHomeScreen(candidateWidgetsList, widgetSizes, newPinnedCount, textSizeSp)) {
                                         contextMenuTarget = null
                                         triggerNoSpaceLeftPopup(
                                             "No space left on the Home Screen to pin another app with your current widgets and ${textSizeSp}SP app scale."
                                         )
                                     } else {
                                         pinnedPackages = pinnedPackages + targetApp.packageName
-                                        prefs.edit().putStringSet("pinned_pkgs", pinnedPackages).apply()
+                                        val nextOrder = orderedPinnedApps.map { it.packageName }.filter { it != targetApp.packageName } + targetApp.packageName
+                                        pinnedAppsOrder = nextOrder
+                                        if (!activeWidgets.contains("pinned_apps")) {
+                                            activeWidgets = candidateWidgetsList
+                                        }
+                                        prefs.edit()
+                                            .putStringSet("pinned_pkgs", pinnedPackages)
+                                            .putString("pinned_apps_order_v1", nextOrder.joinToString(","))
+                                            .putString("widgets_order_v9", activeWidgets.joinToString(","))
+                                            .apply()
                                         contextMenuTarget = null
                                     }
                                 }
@@ -2497,6 +2657,9 @@ fun HomeScreenView(
     onChangeGlobeRotX: (Float) -> Unit,
     onChangeGlobeRotY: (Float) -> Unit,
     pinnedApps: List<AppEntry>,
+    customPinnedOrderEnabled: Boolean = true,
+    onMovePinnedApp: (String, Int) -> Unit = { _, _ -> },
+    onUnpinApp: (String) -> Unit = {},
     onOpenClockApp: () -> Unit,
     onToggleTorch: () -> Unit,
     onToggleZen: () -> Unit,
@@ -2534,6 +2697,7 @@ fun HomeScreenView(
     var lastMeasInnerH by remember { mutableStateOf(0f) }
     var lastMeasWidgetsH by remember { mutableStateOf(0f) }
     var lastMeasAppsH by remember { mutableStateOf(0f) }
+    val measuredWidgetHeights = remember { mutableStateMapOf<String, Float>() }
 
     Column(
         modifier = Modifier
@@ -2548,7 +2712,7 @@ fun HomeScreenView(
                 if (editMode) {
                     // Edit Mode banner above already consumes statusBars & displayCutout top insets;
                     // use a clean 8.dp top spacing so there is no wide gap below the Edit Mode header,
-                    // and enable smooth vertical scrolling across all widgets & pinned apps!
+                    // and enable smooth vertical scrolling across all widgets (including the unified Pinned Apps widget)!
                     Modifier
                         .windowInsetsPadding(WindowInsets.navigationBars)
                         .verticalScroll(homeEditScrollState)
@@ -2568,770 +2732,299 @@ fun HomeScreenView(
                         }
                 }
             ),
-        verticalArrangement = if (editMode) Arrangement.Top else Arrangement.SpaceBetween
+        verticalArrangement = Arrangement.Top
     ) {
-        // 1. MODULAR OLED WIDGETS STACK
+        // UNIFIED MODULAR OLED WIDGETS STACK (Includes "pinned_apps" as a single unified widget!)
         // In normal Home mode (!editMode), no verticalScroll is attached so swipe-up (App Drawer)
         // and swipe-down (Notification Panel) gestures work over every widget!
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(
-                    if (!editMode) {
-                        Modifier.onGloballyPositioned { coords ->
-                            val hDp = with(density) { coords.size.height.toDp().value }
-                            if (abs(hDp - lastMeasWidgetsH) > 0.5f) {
-                                lastMeasWidgetsH = hDp
-                                onReportMeasuredSpace(lastMeasInnerH, lastMeasWidgetsH, lastMeasAppsH)
-                            }
-                        }
-                    } else Modifier
-                ),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            activeWidgets.forEach { widgetId ->
-                val sizeMode = widgetSizes[widgetId] ?: "standard"
-                val wFontId = widgetFonts[widgetId] ?: "dot"
-                val wFontFamily = remember(wFontId, lomoFontFamily) {
-                    PrebuiltFont.fromId(wFontId).resolveFontFamily(lomoFontFamily)
+        activeWidgets.forEachIndexed { widgetIndex, widgetId ->
+            if (widgetIndex > 0) {
+                if (!editMode && widgetIndex == activeWidgets.lastIndex) {
+                    // Flexible spacer before the bottom-most widget (e.g. Pinned Apps by default)
+                    // anchors it cleanly at the bottom while leaving a tiny 4dp minimum gap when full!
+                    Spacer(modifier = Modifier.weight(1f).heightIn(min = 4.dp))
+                } else {
+                    Spacer(modifier = Modifier.height(10.dp))
                 }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (editMode) {
-                                Modifier
-                                    .border(1.dp, Color(0xFF383838), RoundedCornerShape(8.dp))
-                                    .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
-                                    .padding(8.dp)
-                            } else {
-                                Modifier.combinedClickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                    onClick = {},
-                                    onLongClick = { onLongPressHome() }
-                                )
-                            }
-                        )
-                ) {
-                    Column {
-                        // Top-Anchored Edit Mode Controls: Always accessible at the top of each widget card
-                        // so increasing a widget's size (S -> M -> L -> XL -> MAX) never pushes its controls off-screen!
-                        if (editMode) {
-                            val sizeChoices = when (widgetId) {
-                                "clock", "retro_flip_clock", "analog_chrono", "precision_chrono", "globe" -> listOf(
-                                    "compact" to "S",
-                                    "standard" to "M",
-                                    "large" to "L",
-                                    "xlarge" to "XL",
-                                    "max" to "MAX"
-                                )
-                                else -> listOf(
-                                    "compact" to "S",
-                                    "standard" to "M",
-                                    "large" to "L"
-                                )
-                            }
-                            val allWidgetFonts = remember { PrebuiltFont.values().toList() }
-                            val activeWidgetFont = remember(wFontId) { PrebuiltFont.fromId(wFontId) }
-                            val isWidgetFontMenuExpanded = expandedFontWidgetIds.contains(widgetId)
+            }
 
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 8.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                // Row 1: Reorder (↑ / ↓) + Direct Size Pills (S, M, L, XL, MAX) + Remove (×)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        val idx = activeWidgets.indexOf(widgetId)
-                                        if (idx > 0) {
-                                            Text(
-                                                text = "↑",
-                                                color = Color(0xFFD4D4D4),
-                                                fontSize = 10.sp,
-                                                fontFamily = selectedFont,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier
-                                                    .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
-                                                    .background(Color(0xFF141414), RoundedCornerShape(4.dp))
-                                                    .clickable { onMoveWidget(widgetId, -1) }
-                                                    .padding(horizontal = 7.dp, vertical = 3.dp)
-                                            )
-                                        }
-                                        if (idx < activeWidgets.lastIndex) {
-                                            Text(
-                                                text = "↓",
-                                                color = Color(0xFFD4D4D4),
-                                                fontSize = 10.sp,
-                                                fontFamily = selectedFont,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier
-                                                    .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
-                                                    .background(Color(0xFF141414), RoundedCornerShape(4.dp))
-                                                    .clickable { onMoveWidget(widgetId, 1) }
-                                                    .padding(horizontal = 7.dp, vertical = 3.dp)
-                                            )
-                                        }
-                                        // Direct S, M, L, XL, MAX Size Selector Pills
-                                        sizeChoices.forEach { (szId, szLbl) ->
-                                            val isSz = sizeMode == szId
-                                            Text(
-                                                text = szLbl,
-                                                color = if (isSz) Color.Black else Color.White,
-                                                fontSize = 9.sp,
-                                                fontFamily = selectedFont,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier
-                                                    .border(
-                                                        1.dp,
-                                                        if (isSz) accentColor else Color(0xFF2E2E2E),
-                                                        RoundedCornerShape(4.dp)
-                                                    )
-                                                    .background(
-                                                        if (isSz) accentColor else Color(0xFF151515),
-                                                        RoundedCornerShape(4.dp)
-                                                    )
-                                                    .clickable { onSetWidgetSize(widgetId, szId) }
-                                                    .padding(horizontal = 6.dp, vertical = 3.dp)
-                                            )
-                                        }
-                                    }
+            val sizeMode = if (widgetId == "pinned_apps") {
+                when (textSizeSp) {
+                    16 -> "compact"
+                    18 -> "standard"
+                    20 -> "large"
+                    22 -> "xlarge"
+                    else -> "max"
+                }
+            } else {
+                widgetSizes[widgetId] ?: "standard"
+            }
+            val wFontId = widgetFonts[widgetId] ?: "dot"
+            val wPrebuiltFont = remember(wFontId) { PrebuiltFont.fromId(wFontId) }
+            val wFontFamily = remember(wPrebuiltFont, lomoFontFamily) {
+                wPrebuiltFont.resolveFontFamily(lomoFontFamily)
+            }
 
-                                    Text(
-                                        text = "×",
-                                        color = Color(0xFFEF4444),
-                                        fontSize = 11.sp,
-                                        fontFamily = selectedFont,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                                            .background(Color(0xFF1A0808), RoundedCornerShape(4.dp))
-                                            .clickable { onRemoveWidget(widgetId) }
-                                            .padding(horizontal = 7.dp, vertical = 2.dp)
-                                    )
-                                }
-
-                                // Row 2: Collapsible Per-Widget Font Style Menu (14 Fonts for all widgets with text)
-                                if (widgetId != "globe") {
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalArrangement = Arrangement.spacedBy(5.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .border(
-                                                    1.dp,
-                                                    if (isWidgetFontMenuExpanded) accentColor.copy(alpha = 0.6f) else Color(0xFF282828),
-                                                    RoundedCornerShape(5.dp)
-                                                )
-                                                .background(Color(0xFF111111), RoundedCornerShape(5.dp))
-                                                .clickable {
-                                                    expandedFontWidgetIds = if (isWidgetFontMenuExpanded) {
-                                                        expandedFontWidgetIds - widgetId
-                                                    } else {
-                                                        expandedFontWidgetIds + widgetId
-                                                    }
-                                                }
-                                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Text(
-                                                    text = "FONT",
-                                                    color = Color(0xFF8A8A8A),
-                                                    fontSize = 8.sp,
-                                                    fontFamily = selectedFont
-                                                )
-                                                Text(
-                                                    text = activeWidgetFont.shortLabel + " · " + activeWidgetFont.displayName.substringBefore(" ("),
-                                                    color = Color.White,
-                                                    fontSize = 9.sp,
-                                                    fontFamily = wFontFamily,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                            Text(
-                                                text = if (isWidgetFontMenuExpanded) "HIDE ▲" else "${allWidgetFonts.size} FONTS ▼",
-                                                color = accentColor,
-                                                fontSize = 8.sp,
-                                                fontFamily = selectedFont,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-
-                                        AnimatedVisibility(
-                                            visible = isWidgetFontMenuExpanded,
-                                            enter = expandVertically() + fadeIn(),
-                                            exit = shrinkVertically() + fadeOut()
-                                        ) {
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(top = 2.dp),
-                                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                allWidgetFonts.chunked(5).forEach { rowFonts ->
-                                                    Row(
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        rowFonts.forEach { f ->
-                                                            val isF = wFontId == f.id
-                                                            val previewFamily = f.resolveFontFamily(lomoFontFamily)
-                                                            Text(
-                                                                text = f.shortLabel,
-                                                                color = if (isF) Color.Black else Color(0xFFD4D4D4),
-                                                                fontSize = 8.sp,
-                                                                fontFamily = previewFamily,
-                                                                fontWeight = if (isF) FontWeight.Bold else FontWeight.Normal,
-                                                                textAlign = TextAlign.Center,
-                                                                modifier = Modifier
-                                                                    .weight(1f)
-                                                                    .border(
-                                                                        1.dp,
-                                                                        if (isF) Color.White else Color(0xFF282828),
-                                                                        RoundedCornerShape(4.dp)
-                                                                    )
-                                                                    .background(
-                                                                        if (isF) Color.White else Color(0xFF121212),
-                                                                        RoundedCornerShape(4.dp)
-                                                                    )
-                                                                    .clickable { onSetWidgetFont(widgetId, f.id) }
-                                                                    .padding(vertical = 4.dp)
-                                                            )
-                                                        }
-                                                        repeat(5 - rowFonts.size) {
-                                                            Spacer(modifier = Modifier.weight(1f))
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (!editMode) {
+                            Modifier.onGloballyPositioned { coords ->
+                                val hDp = with(density) { coords.size.height.toDp().value }
+                                if (widgetId == "pinned_apps") {
+                                    if (abs(hDp - lastMeasAppsH) > 0.5f) {
+                                        lastMeasAppsH = hDp
+                                        onReportMeasuredSpace(lastMeasInnerH, lastMeasWidgetsH, lastMeasAppsH)
                                     }
                                 } else {
-                                    // Dedicated Separate X-Axis & Y-Axis Rotation Controls for the 3D Globe Widget in Edit Mode
-                                    Column(
+                                    val prev = measuredWidgetHeights[widgetId] ?: 0f
+                                    if (abs(hDp - prev) > 0.5f) {
+                                        measuredWidgetHeights[widgetId] = hDp
+                                        val nonAppWidgets = activeWidgets.filter { it != "pinned_apps" }
+                                        val sumH = nonAppWidgets.sumOf { (measuredWidgetHeights[it] ?: 0f).toDouble() }.toFloat() +
+                                            ((nonAppWidgets.size - 1).coerceAtLeast(0) * 10f)
+                                        lastMeasWidgetsH = sumH
+                                        onReportMeasuredSpace(lastMeasInnerH, lastMeasWidgetsH, lastMeasAppsH)
+                                    }
+                                }
+                            }
+                        } else Modifier
+                    )
+                    .then(
+                        if (editMode) {
+                            Modifier
+                                .border(1.dp, Color(0xFF383838), RoundedCornerShape(8.dp))
+                                .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
+                                .padding(8.dp)
+                        } else {
+                            Modifier.combinedClickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = {},
+                                onLongClick = { onLongPressHome() }
+                            )
+                        }
+                    )
+            ) {
+                Column {
+                    // Top-Anchored Edit Mode Controls: Always accessible at the top of each widget card
+                    // so increasing a widget's size (S -> M -> L -> XL -> MAX) never pushes its controls off-screen!
+                    if (editMode) {
+                        val sizeChoices = when (widgetId) {
+                            "clock", "pinned_apps", "retro_flip_clock", "analog_chrono", "precision_chrono", "globe" -> listOf(
+                                "compact" to "S",
+                                "standard" to "M",
+                                "large" to "L",
+                                "xlarge" to "XL",
+                                "max" to "MAX"
+                            )
+                            else -> listOf(
+                                "compact" to "S",
+                                "standard" to "M",
+                                "large" to "L"
+                            )
+                        }
+                        val allWidgetFonts = remember { PrebuiltFont.values().toList() }
+                        val activeWidgetFont = remember(wFontId) { PrebuiltFont.fromId(wFontId) }
+                        val isWidgetFontMenuExpanded = expandedFontWidgetIds.contains(widgetId)
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            // Row 1: Reorder (↑ / ↓) + Direct Size Pills (S, M, L, XL, MAX) + Remove (×)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val idx = activeWidgets.indexOf(widgetId)
+                                    if (idx > 0) {
+                                        Text(
+                                            text = "↑",
+                                            color = Color(0xFFD4D4D4),
+                                            fontSize = 10.sp,
+                                            fontFamily = selectedFont,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier
+                                                .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
+                                                .background(Color(0xFF141414), RoundedCornerShape(4.dp))
+                                                .clickable { onMoveWidget(widgetId, -1) }
+                                                .padding(horizontal = 7.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                    if (idx < activeWidgets.lastIndex) {
+                                        Text(
+                                            text = "↓",
+                                            color = Color(0xFFD4D4D4),
+                                            fontSize = 10.sp,
+                                            fontFamily = selectedFont,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier
+                                                .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
+                                                .background(Color(0xFF141414), RoundedCornerShape(4.dp))
+                                                .clickable { onMoveWidget(widgetId, 1) }
+                                                .padding(horizontal = 7.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                    // Direct S, M, L, XL, MAX Size Selector Pills
+                                    sizeChoices.forEach { (szId, szLbl) ->
+                                        val isSz = sizeMode == szId
+                                        Text(
+                                            text = szLbl,
+                                            color = if (isSz) Color.Black else Color.White,
+                                            fontSize = 9.sp,
+                                            fontFamily = selectedFont,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier
+                                                .border(
+                                                    1.dp,
+                                                    if (isSz) accentColor else Color(0xFF2E2E2E),
+                                                    RoundedCornerShape(4.dp)
+                                                )
+                                                .background(
+                                                    if (isSz) accentColor else Color(0xFF151515),
+                                                    RoundedCornerShape(4.dp)
+                                                )
+                                                .clickable { onSetWidgetSize(widgetId, szId) }
+                                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
+
+                                Text(
+                                    text = "×",
+                                    color = Color(0xFFEF4444),
+                                    fontSize = 11.sp,
+                                    fontFamily = selectedFont,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                        .background(Color(0xFF1A0808), RoundedCornerShape(4.dp))
+                                        .clickable { onRemoveWidget(widgetId) }
+                                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                                )
+                            }
+
+                            // Row 2: Collapsible Per-Widget Font Style Menu (14 Fonts for all widgets with text)
+                            if (widgetId != "globe") {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .border(1.dp, Color(0xFF262626), RoundedCornerShape(6.dp))
-                                            .background(Color(0xFF101010), RoundedCornerShape(6.dp))
-                                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                            .border(
+                                                1.dp,
+                                                if (isWidgetFontMenuExpanded) accentColor.copy(alpha = 0.6f) else Color(0xFF282828),
+                                                RoundedCornerShape(5.dp)
+                                            )
+                                            .background(Color(0xFF111111), RoundedCornerShape(5.dp))
+                                            .clickable {
+                                                expandedFontWidgetIds = if (isWidgetFontMenuExpanded) {
+                                                    expandedFontWidgetIds - widgetId
+                                                } else {
+                                                    expandedFontWidgetIds + widgetId
+                                                }
+                                            }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
-                                                text = "GLOBE AXIS TILT & ROTATION",
-                                                color = Color(0xFFA3A3A3),
+                                                text = "FONT",
+                                                color = Color(0xFF8A8A8A),
                                                 fontSize = 8.sp,
-                                                fontFamily = selectedFont,
-                                                fontWeight = FontWeight.Bold
+                                                fontFamily = selectedFont
                                             )
                                             Text(
-                                                text = "RESET AXIS",
-                                                color = accentColor,
-                                                fontSize = 8.sp,
-                                                fontFamily = selectedFont,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier
-                                                    .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                                                    .background(Color(0xFF181818), RoundedCornerShape(4.dp))
-                                                    .clickable {
-                                                        onChangeGlobeTilt2d(-3f)
-                                                        onChangeGlobeRotX(14f)
-                                                        onChangeGlobeRotY(-77f)
-                                                    }
-                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                text = activeWidgetFont.shortLabel + " · " + activeWidgetFont.displayName.substringBefore(" ("),
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontFamily = wFontFamily,
+                                                fontWeight = FontWeight.Bold
                                             )
                                         }
-
-                                        // X-Axis (2D Screen-Plane Axial Tilt: tilts the globe's spin axis sideways -180° to +180°)
-                                        GlobeAxisControlRow(
-                                            axisLabel = "X-AXIS (TILT)",
-                                            degreeValue = globeTilt2dDeg,
-                                            minDeg = -180f,
-                                            maxDeg = 180f,
-                                            stepDeg = 5f,
-                                            accentColor = accentColor,
+                                        Text(
+                                            text = if (isWidgetFontMenuExpanded) "HIDE ▲" else "${allWidgetFonts.size} FONTS ▼",
+                                            color = accentColor,
+                                            fontSize = 8.sp,
                                             fontFamily = selectedFont,
-                                            onChangeDeg = onChangeGlobeTilt2d
-                                        )
-
-                                        // Y-Axis Rotation Control (-180° to +180° Yaw / Longitude)
-                                        GlobeAxisControlRow(
-                                            axisLabel = "Y-AXIS (SPIN)",
-                                            degreeValue = globeRotYDeg,
-                                            minDeg = -180f,
-                                            maxDeg = 180f,
-                                            stepDeg = 10f,
-                                            accentColor = accentColor,
-                                            fontFamily = selectedFont,
-                                            onChangeDeg = onChangeGlobeRotY
-                                        )
-
-                                        // Polar Inclination Control (-85° to +85° North/South Pitch)
-                                        GlobeAxisControlRow(
-                                            axisLabel = "POLAR (NOD)",
-                                            degreeValue = globeRotXDeg,
-                                            minDeg = -85f,
-                                            maxDeg = 85f,
-                                            stepDeg = 5f,
-                                            accentColor = accentColor,
-                                            fontFamily = selectedFont,
-                                            onChangeDeg = onChangeGlobeRotX
+                                            fontWeight = FontWeight.Bold
                                         )
                                     }
-                                }
 
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(1.dp)
-                                        .background(Color(0xFF1F1F1F))
-                                )
-                            }
-                        }
-
-                        when (widgetId) {
-                            "clock" -> {
-                                val horizontalAlign = when (textAlign) {
-                                    TextAlign.Center -> Alignment.CenterHorizontally
-                                    TextAlign.End -> Alignment.End
-                                    else -> Alignment.Start
-                                }
-                                Column(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalAlignment = horizontalAlign
-                                ) {
-                                    when (sizeMode) {
-                                        "compact" -> {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                modifier = Modifier.combinedClickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null,
-                                                    onClick = { onOpenClockApp() },
-                                                    onLongClick = { onLongPressHome() }
-                                                )
-                                            ) {
-                                                Text(
-                                                    text = "$currentHourStr:$currentMinStr $currentAmPmStr".trim(),
-                                                    color = Color.White,
-                                                    fontSize = 24.sp,
-                                                    fontFamily = wFontFamily
-                                                )
-                                                Text(
-                                                    text = "·",
-                                                    color = accentColor,
-                                                    fontSize = 12.sp,
-                                                    fontFamily = wFontFamily
-                                                )
-                                                Text(
-                                                    text = "$currentDateStr · $batteryPct%",
-                                                    color = Color(0xFFA3A3A3),
-                                                    fontSize = 11.sp,
-                                                    fontFamily = wFontFamily
-                                                )
-                                            }
-                                        }
-                                        "large", "xlarge", "max" -> {
-                                            val digitSp = when (sizeMode) {
-                                                "max" -> 96.sp
-                                                "xlarge" -> 76.sp
-                                                else -> 58.sp
-                                            }
-                                            val amPmSp = when (sizeMode) {
-                                                "max" -> 17.sp
-                                                "xlarge" -> 15.sp
-                                                else -> 13.sp
-                                            }
-                                            val amPmBottomPad = when (sizeMode) {
-                                                "max" -> 12.dp
-                                                "xlarge" -> 9.dp
-                                                else -> 7.dp
-                                            }
-                                            val metaSp = when (sizeMode) {
-                                                "max" -> 13.sp
-                                                "xlarge" -> 12.sp
-                                                else -> 11.sp
-                                            }
-                                            val barHeight = when (sizeMode) {
-                                                "max" -> 10.dp
-                                                "xlarge" -> 9.dp
-                                                else -> 8.dp
-                                            }
-                                            Row(
-                                                verticalAlignment = Alignment.Bottom,
-                                                modifier = Modifier.combinedClickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null,
-                                                    onClick = { onOpenClockApp() },
-                                                    onLongClick = { onLongPressHome() }
-                                                )
-                                            ) {
-                                                Text(
-                                                    text = currentHourStr,
-                                                    color = Color.White,
-                                                    fontSize = digitSp,
-                                                    fontFamily = wFontFamily
-                                                )
-                                                Text(
-                                                    text = ":",
-                                                    color = accentColor,
-                                                    fontSize = digitSp,
-                                                    fontFamily = wFontFamily,
-                                                    modifier = Modifier.graphicsLayer { alpha = colonAlpha }
-                                                )
-                                                Text(
-                                                    text = currentMinStr,
-                                                    color = Color.White,
-                                                    fontSize = digitSp,
-                                                    fontFamily = wFontFamily
-                                                )
-                                                if (currentAmPmStr.isNotEmpty()) {
-                                                    Spacer(modifier = Modifier.width(6.dp))
-                                                    Text(
-                                                        text = currentAmPmStr,
-                                                        color = Color(0xFF737373),
-                                                        fontSize = amPmSp,
-                                                        fontFamily = wFontFamily,
-                                                        modifier = Modifier.padding(bottom = amPmBottomPad)
-                                                    )
-                                                }
-                                            }
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Text(
-                                                    text = currentDateStr,
-                                                    color = Color(0xFFA3A3A3),
-                                                    fontSize = metaSp,
-                                                    fontFamily = wFontFamily,
-                                                    letterSpacing = 1.2.sp
-                                                )
-                                                if (nextAlarmStr.isNotBlank()) {
-                                                    Text(
-                                                        text = "·",
-                                                        color = accentColor,
-                                                        fontSize = metaSp,
-                                                        fontFamily = wFontFamily,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                    Text(
-                                                        text = nextAlarmStr,
-                                                        color = Color(0xFF737373),
-                                                        fontSize = metaSp,
-                                                        fontFamily = wFontFamily,
-                                                        letterSpacing = 1.2.sp
-                                                    )
-                                                }
-                                            }
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(1.dp)
-                                                    .background(Color(0xFF171717))
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                            ) {
-                                                Text(
-                                                    text = "$batteryPct%",
-                                                    color = Color(0xFFD4D4D4),
-                                                    fontSize = metaSp,
-                                                    fontFamily = wFontFamily,
-                                                    letterSpacing = 0.8.sp
-                                                )
-                                                Box(
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .height(barHeight)
-                                                        .border(1.dp, Color(0xFF262626), RoundedCornerShape(999.dp))
-                                                        .background(Color(0xFF141414), RoundedCornerShape(999.dp))
-                                                ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .fillMaxHeight()
-                                                            .fillMaxWidth((batteryPct / 100f).coerceIn(0.03f, 1f))
-                                                            .background(accentColor, RoundedCornerShape(999.dp))
-                                                    )
-                                                }
-                                                if (isCharging) {
-                                                    Text(
-                                                        text = "⚡",
-                                                        color = accentColor,
-                                                        fontSize = metaSp,
-                                                        fontFamily = wFontFamily
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        else -> {
-                                            Row(
-                                                verticalAlignment = Alignment.Bottom,
-                                                modifier = Modifier.combinedClickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null,
-                                                    onClick = { onOpenClockApp() },
-                                                    onLongClick = { onLongPressHome() }
-                                                )
-                                            ) {
-                                                Text(
-                                                    text = currentHourStr,
-                                                    color = Color.White,
-                                                    fontSize = 42.sp,
-                                                    fontFamily = wFontFamily
-                                                )
-                                                Text(
-                                                    text = ":",
-                                                    color = accentColor,
-                                                    fontSize = 42.sp,
-                                                    fontFamily = wFontFamily,
-                                                    modifier = Modifier.graphicsLayer { alpha = colonAlpha }
-                                                )
-                                                Text(
-                                                    text = currentMinStr,
-                                                    color = Color.White,
-                                                    fontSize = 42.sp,
-                                                    fontFamily = wFontFamily
-                                                )
-                                                if (currentAmPmStr.isNotEmpty()) {
-                                                    Spacer(modifier = Modifier.width(6.dp))
-                                                    Text(
-                                                        text = currentAmPmStr,
-                                                        color = Color(0xFF737373),
-                                                        fontSize = 11.sp,
-                                                        fontFamily = wFontFamily,
-                                                        modifier = Modifier.padding(bottom = 5.dp)
-                                                    )
-                                                }
-                                            }
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Text(
-                                                    text = currentDateStr,
-                                                    color = Color(0xFFA3A3A3),
-                                                    fontSize = 10.sp,
-                                                    fontFamily = wFontFamily,
-                                                    letterSpacing = 1.2.sp
-                                                )
-                                                if (nextAlarmStr.isNotBlank()) {
-                                                    Text(
-                                                        text = "·",
-                                                        color = accentColor,
-                                                        fontSize = 10.sp,
-                                                        fontFamily = wFontFamily,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                    Text(
-                                                        text = nextAlarmStr,
-                                                        color = Color(0xFF737373),
-                                                        fontSize = 10.sp,
-                                                        fontFamily = wFontFamily,
-                                                        letterSpacing = 1.2.sp
-                                                    )
-                                                }
-                                            }
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(1.dp)
-                                                    .background(Color(0xFF171717))
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                            ) {
-                                                Text(
-                                                    text = "$batteryPct%",
-                                                    color = Color(0xFFD4D4D4),
-                                                    fontSize = 10.sp,
-                                                    fontFamily = wFontFamily,
-                                                    letterSpacing = 0.8.sp
-                                                )
-                                                Box(
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .height(6.dp)
-                                                        .border(1.dp, Color(0xFF262626), RoundedCornerShape(999.dp))
-                                                        .background(Color(0xFF141414), RoundedCornerShape(999.dp))
-                                                ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .fillMaxHeight()
-                                                            .fillMaxWidth((batteryPct / 100f).coerceIn(0.03f, 1f))
-                                                            .background(accentColor, RoundedCornerShape(999.dp))
-                                                    )
-                                                }
-                                                if (isCharging) {
-                                                    Text(
-                                                        text = "⚡",
-                                                        color = accentColor,
-                                                        fontSize = 9.sp,
-                                                        fontFamily = wFontFamily
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            "retro_flip_clock" -> {
-                                RetroSplitFlapClockWidget(
-                                    hourStr = currentHourStr,
-                                    minStr = currentMinStr,
-                                    secStr = currentSecStr,
-                                    amPmStr = currentAmPmStr,
-                                    dateStr = currentDateStr,
-                                    sizeMode = sizeMode,
-                                    accentColor = accentColor,
-                                    lomoFontFamily = wFontFamily,
-                                    onOpenClockApp = onOpenClockApp,
-                                    onLongPressHome = onLongPressHome
-                                )
-                            }
-                            "analog_chrono" -> {
-                                RetroAnalogChronoWidget(
-                                    currentTimeMillis = currentTimeMillis,
-                                    hourStr = currentHourStr,
-                                    minStr = currentMinStr,
-                                    secStr = currentSecStr,
-                                    amPmStr = currentAmPmStr,
-                                    dateStr = currentDateStr,
-                                    sizeMode = sizeMode,
-                                    accentColor = accentColor,
-                                    lomoFontFamily = wFontFamily,
-                                    widgetsActive = widgetsActive,
-                                    onOpenClockApp = onOpenClockApp,
-                                    onLongPressHome = onLongPressHome
-                                )
-                            }
-                            "precision_chrono" -> {
-                                PrecisionChronographWidget(
-                                    sizeMode = sizeMode,
-                                    accentColor = accentColor,
-                                    lomoFontFamily = wFontFamily,
-                                    widgetsActive = widgetsActive,
-                                    onLongPressHome = onLongPressHome,
-                                    onTick = onWaveTick
-                                )
-                            }
-                            "retro_calendar" -> {
-                                RetroDotMatrixCalendarWidget(
-                                    currentTimeMillis = currentTimeMillis,
-                                    sizeMode = sizeMode,
-                                    accentColor = accentColor,
-                                    lomoFontFamily = wFontFamily
-                                )
-                            }
-                            "week_strip" -> {
-                                RetroWeekTimelineStripWidget(
-                                    currentTimeMillis = currentTimeMillis,
-                                    sizeMode = sizeMode,
-                                    accentColor = accentColor,
-                                    lomoFontFamily = wFontFamily
-                                )
-                            }
-                            "year_matrix" -> {
-                                RetroYearDotMatrixWidget(
-                                    currentTimeMillis = currentTimeMillis,
-                                    sizeMode = sizeMode,
-                                    accentColor = accentColor,
-                                    lomoFontFamily = wFontFamily
-                                )
-                            }
-                            "torch" -> {
-                                val padV = when (sizeMode) {
-                                    "compact" -> 5.dp
-                                    "large" -> 11.dp
-                                    else -> 7.dp
-                                }
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .combinedClickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = null,
-                                            onClick = { onToggleTorch() },
-                                            onLongClick = { onLongPressHome() }
-                                        )
-                                        .border(1.dp, if (torchEnabled) accentColor else Color(0xFF242424), RoundedCornerShape(8.dp))
-                                        .background(if (torchEnabled) accentColor.copy(alpha = 0.12f) else Color(0xFF060606), RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 12.dp, vertical = padV),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    AnimatedVisibility(
+                                        visible = isWidgetFontMenuExpanded,
+                                        enter = expandVertically() + fadeIn(),
+                                        exit = shrinkVertically() + fadeOut()
                                     ) {
-                                        Text(
-                                            text = if (torchEnabled) "⚡" else "☼",
-                                            color = if (torchEnabled) accentColor else Color(0xFFA3A3A3),
-                                            fontSize = if (sizeMode == "large") 14.sp else 12.sp
-                                        )
-                                        Text(
-                                            text = "TORCH",
-                                            color = Color.White,
-                                            fontSize = if (sizeMode == "large") 12.sp else 11.sp,
-                                            fontFamily = wFontFamily,
-                                            fontWeight = FontWeight.Medium
-                                        )
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(top = 2.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            allWidgetFonts.chunked(5).forEach { rowFonts ->
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    rowFonts.forEach { f ->
+                                                        val isF = wFontId == f.id
+                                                        val previewFamily = f.resolveFontFamily(lomoFontFamily)
+                                                        Text(
+                                                            text = f.shortLabel,
+                                                            color = if (isF) Color.Black else Color(0xFFD4D4D4),
+                                                            fontSize = 8.sp,
+                                                            fontFamily = previewFamily,
+                                                            fontWeight = if (isF) FontWeight.Bold else FontWeight.Normal,
+                                                            textAlign = TextAlign.Center,
+                                                            modifier = Modifier
+                                                                .weight(1f)
+                                                                .border(
+                                                                    1.dp,
+                                                                    if (isF) Color.White else Color(0xFF282828),
+                                                                    RoundedCornerShape(4.dp)
+                                                                )
+                                                                .background(
+                                                                    if (isF) Color.White else Color(0xFF121212),
+                                                                    RoundedCornerShape(4.dp)
+                                                                )
+                                                                .clickable { onSetWidgetFont(widgetId, f.id) }
+                                                                .padding(vertical = 4.dp)
+                                                        )
+                                                    }
+                                                    repeat(5 - rowFonts.size) {
+                                                        Spacer(modifier = Modifier.weight(1f))
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
-                                    Text(
-                                        text = if (torchEnabled) "ON" else "OFF",
-                                        color = if (torchEnabled) accentColor else Color(0xFF737373),
-                                        fontSize = 10.sp,
-                                        fontFamily = wFontFamily,
-                                        fontWeight = FontWeight.Bold
-                                    )
                                 }
-                            }
-                            "storage" -> {
+                            } else {
+                                // Dedicated Separate X-Axis & Y-Axis Rotation Controls for the 3D Globe Widget in Edit Mode
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF060606), RoundedCornerShape(8.dp))
-                                        .padding(
-                                            horizontal = 12.dp,
-                                            vertical = when (sizeMode) {
-                                                "compact" -> 5.dp
-                                                "large" -> 10.dp
-                                                else -> 7.dp
-                                            }
-                                        )
+                                        .border(1.dp, Color(0xFF262626), RoundedCornerShape(6.dp))
+                                        .background(Color(0xFF101010), RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -3339,415 +3032,980 @@ fun HomeScreenView(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = ramStatusText,
-                                            color = Color.White,
-                                            fontSize = if (sizeMode == "large") 11.sp else 10.sp,
-                                            fontFamily = wFontFamily
+                                            text = "GLOBE AXIS TILT & ROTATION",
+                                            color = Color(0xFFA3A3A3),
+                                            fontSize = 8.sp,
+                                            fontFamily = selectedFont,
+                                            fontWeight = FontWeight.Bold
                                         )
                                         Text(
-                                            text = storageStatusText,
-                                            color = Color(0xFFA3A3A3),
-                                            fontSize = if (sizeMode == "large") 11.sp else 10.sp,
-                                            fontFamily = wFontFamily
+                                            text = "RESET AXIS",
+                                            color = accentColor,
+                                            fontSize = 8.sp,
+                                            fontFamily = selectedFont,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier
+                                                .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                                .background(Color(0xFF181818), RoundedCornerShape(4.dp))
+                                                .clickable {
+                                                    onChangeGlobeTilt2d(-3f)
+                                                    onChangeGlobeRotX(14f)
+                                                    onChangeGlobeRotY(-77f)
+                                                }
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }
-                                    if (sizeMode != "compact") {
-                                        Spacer(modifier = Modifier.height(if (sizeMode == "large") 7.dp else 5.dp))
+
+                                    // X-Axis (2D Screen-Plane Axial Tilt: tilts the globe's spin axis sideways -180° to +180°)
+                                    GlobeAxisControlRow(
+                                        axisLabel = "X-AXIS (TILT)",
+                                        degreeValue = globeTilt2dDeg,
+                                        minDeg = -180f,
+                                        maxDeg = 180f,
+                                        stepDeg = 5f,
+                                        accentColor = accentColor,
+                                        fontFamily = selectedFont,
+                                        onChangeDeg = onChangeGlobeTilt2d
+                                    )
+
+                                    // Y-Axis Rotation Control (-180° to +180° Yaw / Longitude)
+                                    GlobeAxisControlRow(
+                                        axisLabel = "Y-AXIS (SPIN)",
+                                        degreeValue = globeRotYDeg,
+                                        minDeg = -180f,
+                                        maxDeg = 180f,
+                                        stepDeg = 10f,
+                                        accentColor = accentColor,
+                                        fontFamily = selectedFont,
+                                        onChangeDeg = onChangeGlobeRotY
+                                    )
+
+                                    // Polar Inclination Control (-85° to +85° North/South Pitch)
+                                    GlobeAxisControlRow(
+                                        axisLabel = "POLAR (NOD)",
+                                        degreeValue = globeRotXDeg,
+                                        minDeg = -85f,
+                                        maxDeg = 85f,
+                                        stepDeg = 5f,
+                                        accentColor = accentColor,
+                                        fontFamily = selectedFont,
+                                        onChangeDeg = onChangeGlobeRotX
+                                    )
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(Color(0xFF1F1F1F))
+                            )
+                        }
+                    }
+
+                    when (widgetId) {
+                        "clock" -> {
+                            val horizontalAlign = when (textAlign) {
+                                TextAlign.Center -> Alignment.CenterHorizontally
+                                TextAlign.End -> Alignment.End
+                                else -> Alignment.Start
+                            }
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = horizontalAlign
+                            ) {
+                                when (sizeMode) {
+                                    "compact" -> {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.combinedClickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                                onClick = { onOpenClockApp() },
+                                                onLongClick = { onLongPressHome() }
+                                            )
+                                        ) {
+                                            Text(
+                                                text = "$currentHourStr:$currentMinStr $currentAmPmStr".trim(),
+                                                color = Color.White,
+                                                fontSize = 24.sp,
+                                                fontFamily = wFontFamily
+                                            )
+                                            Text(
+                                                text = "·",
+                                                color = accentColor,
+                                                fontSize = 12.sp,
+                                                fontFamily = wFontFamily
+                                            )
+                                            Text(
+                                                text = "$currentDateStr · $batteryPct%",
+                                                color = Color(0xFFA3A3A3),
+                                                fontSize = 11.sp,
+                                                fontFamily = wFontFamily
+                                            )
+                                        }
+                                    }
+                                    "large", "xlarge", "max" -> {
+                                        val digitSp = when (sizeMode) {
+                                            "max" -> 96.sp
+                                            "xlarge" -> 76.sp
+                                            else -> 58.sp
+                                        }
+                                        val amPmSp = when (sizeMode) {
+                                            "max" -> 17.sp
+                                            "xlarge" -> 15.sp
+                                            else -> 13.sp
+                                        }
+                                        val amPmBottomPad = when (sizeMode) {
+                                            "max" -> 12.dp
+                                            "xlarge" -> 9.dp
+                                            else -> 7.dp
+                                        }
+                                        val metaSp = when (sizeMode) {
+                                            "max" -> 13.sp
+                                            "xlarge" -> 12.sp
+                                            else -> 11.sp
+                                        }
+                                        val barHeight = when (sizeMode) {
+                                            "max" -> 10.dp
+                                            "xlarge" -> 9.dp
+                                            else -> 8.dp
+                                        }
+                                        Row(
+                                            verticalAlignment = Alignment.Bottom,
+                                            modifier = Modifier.combinedClickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                                onClick = { onOpenClockApp() },
+                                                onLongClick = { onLongPressHome() }
+                                            )
+                                        ) {
+                                            Text(
+                                                text = currentHourStr,
+                                                color = Color.White,
+                                                fontSize = digitSp,
+                                                fontFamily = wFontFamily
+                                            )
+                                            Text(
+                                                text = ":",
+                                                color = accentColor,
+                                                fontSize = digitSp,
+                                                fontFamily = wFontFamily,
+                                                modifier = Modifier.graphicsLayer { alpha = colonAlpha }
+                                            )
+                                            Text(
+                                                text = currentMinStr,
+                                                color = Color.White,
+                                                fontSize = digitSp,
+                                                fontFamily = wFontFamily
+                                            )
+                                            if (currentAmPmStr.isNotEmpty()) {
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = currentAmPmStr,
+                                                    color = Color(0xFF737373),
+                                                    fontSize = amPmSp,
+                                                    fontFamily = wFontFamily,
+                                                    modifier = Modifier.padding(bottom = amPmBottomPad)
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = currentDateStr,
+                                                color = Color(0xFFA3A3A3),
+                                                fontSize = metaSp,
+                                                fontFamily = wFontFamily,
+                                                letterSpacing = 1.2.sp
+                                            )
+                                            if (nextAlarmStr.isNotBlank()) {
+                                                Text(
+                                                    text = "·",
+                                                    color = accentColor,
+                                                    fontSize = metaSp,
+                                                    fontFamily = wFontFamily,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    text = nextAlarmStr,
+                                                    color = Color(0xFF737373),
+                                                    fontSize = metaSp,
+                                                    fontFamily = wFontFamily,
+                                                    letterSpacing = 1.2.sp
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(1.dp)
+                                                .background(Color(0xFF171717))
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                                         ) {
+                                            Text(
+                                                text = "$batteryPct%",
+                                                color = Color(0xFFD4D4D4),
+                                                fontSize = metaSp,
+                                                fontFamily = wFontFamily,
+                                                letterSpacing = 0.8.sp
+                                            )
                                             Box(
                                                 modifier = Modifier
                                                     .weight(1f)
-                                                    .height(if (sizeMode == "large") 6.dp else 4.dp)
+                                                    .height(barHeight)
+                                                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(999.dp))
                                                     .background(Color(0xFF141414), RoundedCornerShape(999.dp))
                                             ) {
                                                 Box(
                                                     modifier = Modifier
                                                         .fillMaxHeight()
-                                                        .fillMaxWidth(ramUsageFraction.coerceIn(0.05f, 1f))
+                                                        .fillMaxWidth((batteryPct / 100f).coerceIn(0.03f, 1f))
                                                         .background(accentColor, RoundedCornerShape(999.dp))
                                                 )
                                             }
+                                            if (isCharging) {
+                                                Text(
+                                                    text = "⚡",
+                                                    color = accentColor,
+                                                    fontSize = metaSp,
+                                                    fontFamily = wFontFamily
+                                                )
+                                            }
+                                        }
+                                    }
+                                    else -> {
+                                        Row(
+                                            verticalAlignment = Alignment.Bottom,
+                                            modifier = Modifier.combinedClickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                                onClick = { onOpenClockApp() },
+                                                onLongClick = { onLongPressHome() }
+                                            )
+                                        ) {
+                                            Text(
+                                                text = currentHourStr,
+                                                color = Color.White,
+                                                fontSize = 42.sp,
+                                                fontFamily = wFontFamily
+                                            )
+                                            Text(
+                                                text = ":",
+                                                color = accentColor,
+                                                fontSize = 42.sp,
+                                                fontFamily = wFontFamily,
+                                                modifier = Modifier.graphicsLayer { alpha = colonAlpha }
+                                            )
+                                            Text(
+                                                text = currentMinStr,
+                                                color = Color.White,
+                                                fontSize = 42.sp,
+                                                fontFamily = wFontFamily
+                                            )
+                                            if (currentAmPmStr.isNotEmpty()) {
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = currentAmPmStr,
+                                                    color = Color(0xFF737373),
+                                                    fontSize = 11.sp,
+                                                    fontFamily = wFontFamily,
+                                                    modifier = Modifier.padding(bottom = 5.dp)
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = currentDateStr,
+                                                color = Color(0xFFA3A3A3),
+                                                fontSize = 10.sp,
+                                                fontFamily = wFontFamily,
+                                                letterSpacing = 1.2.sp
+                                            )
+                                            if (nextAlarmStr.isNotBlank()) {
+                                                Text(
+                                                    text = "·",
+                                                    color = accentColor,
+                                                    fontSize = 10.sp,
+                                                    fontFamily = wFontFamily,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    text = nextAlarmStr,
+                                                    color = Color(0xFF737373),
+                                                    fontSize = 10.sp,
+                                                    fontFamily = wFontFamily,
+                                                    letterSpacing = 1.2.sp
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(1.dp)
+                                                .background(Color(0xFF171717))
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            Text(
+                                                text = "$batteryPct%",
+                                                color = Color(0xFFD4D4D4),
+                                                fontSize = 10.sp,
+                                                fontFamily = wFontFamily,
+                                                letterSpacing = 0.8.sp
+                                            )
                                             Box(
                                                 modifier = Modifier
                                                     .weight(1f)
-                                                    .height(if (sizeMode == "large") 6.dp else 4.dp)
+                                                    .height(6.dp)
+                                                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(999.dp))
                                                     .background(Color(0xFF141414), RoundedCornerShape(999.dp))
                                             ) {
                                                 Box(
                                                     modifier = Modifier
                                                         .fillMaxHeight()
-                                                        .fillMaxWidth(storageUsageFraction.coerceIn(0.05f, 1f))
-                                                        .background(Color(0xFF555555), RoundedCornerShape(999.dp))
+                                                        .fillMaxWidth((batteryPct / 100f).coerceIn(0.03f, 1f))
+                                                        .background(accentColor, RoundedCornerShape(999.dp))
+                                                )
+                                            }
+                                            if (isCharging) {
+                                                Text(
+                                                    text = "⚡",
+                                                    color = accentColor,
+                                                    fontSize = 9.sp,
+                                                    fontFamily = wFontFamily
                                                 )
                                             }
                                         }
                                     }
                                 }
                             }
-                            "quote" -> {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .border(1.dp, Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF060606), RoundedCornerShape(8.dp))
-                                        .padding(
-                                            horizontal = 12.dp,
-                                            vertical = when (sizeMode) {
-                                                "compact" -> 5.dp
-                                                "large" -> 10.dp
-                                                else -> 7.dp
-                                            }
-                                        )
+                        }
+                        "retro_flip_clock" -> {
+                            RetroSplitFlapClockWidget(
+                                hourStr = currentHourStr,
+                                minStr = currentMinStr,
+                                secStr = currentSecStr,
+                                amPmStr = currentAmPmStr,
+                                dateStr = currentDateStr,
+                                sizeMode = sizeMode,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily,
+                                onOpenClockApp = onOpenClockApp,
+                                onLongPressHome = onLongPressHome
+                            )
+                        }
+                        "analog_chrono" -> {
+                            RetroAnalogChronoWidget(
+                                currentTimeMillis = currentTimeMillis,
+                                hourStr = currentHourStr,
+                                minStr = currentMinStr,
+                                secStr = currentSecStr,
+                                amPmStr = currentAmPmStr,
+                                dateStr = currentDateStr,
+                                sizeMode = sizeMode,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily,
+                                widgetsActive = widgetsActive,
+                                onOpenClockApp = onOpenClockApp,
+                                onLongPressHome = onLongPressHome
+                            )
+                        }
+                        "precision_chrono" -> {
+                            PrecisionChronographWidget(
+                                sizeMode = sizeMode,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily,
+                                widgetsActive = widgetsActive,
+                                onLongPressHome = onLongPressHome,
+                                onTick = onWaveTick
+                            )
+                        }
+                        "retro_calendar" -> {
+                            RetroDotMatrixCalendarWidget(
+                                currentTimeMillis = currentTimeMillis,
+                                sizeMode = sizeMode,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily
+                            )
+                        }
+                        "week_strip" -> {
+                            RetroWeekTimelineStripWidget(
+                                currentTimeMillis = currentTimeMillis,
+                                sizeMode = sizeMode,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily
+                            )
+                        }
+                        "year_matrix" -> {
+                            RetroYearDotMatrixWidget(
+                                currentTimeMillis = currentTimeMillis,
+                                sizeMode = sizeMode,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily
+                            )
+                        }
+                        "torch" -> {
+                            val padV = when (sizeMode) {
+                                "compact" -> 5.dp
+                                "large" -> 11.dp
+                                else -> 7.dp
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onClick = { onToggleTorch() },
+                                        onLongClick = { onLongPressHome() }
+                                    )
+                                    .border(1.dp, if (torchEnabled) accentColor else Color(0xFF242424), RoundedCornerShape(8.dp))
+                                    .background(if (torchEnabled) accentColor.copy(alpha = 0.12f) else Color(0xFF060606), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 12.dp, vertical = padV),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Text(
-                                        text = "“Simplify, then add lightness.”",
+                                        text = if (torchEnabled) "⚡" else "☼",
+                                        color = if (torchEnabled) accentColor else Color(0xFFA3A3A3),
+                                        fontSize = if (sizeMode == "large") 14.sp else 12.sp
+                                    )
+                                    Text(
+                                        text = "TORCH",
                                         color = Color.White,
-                                        fontSize = if (sizeMode == "large") 13.sp else 11.sp,
+                                        fontSize = if (sizeMode == "large") 12.sp else 11.sp,
                                         fontFamily = wFontFamily,
-                                        lineHeight = 15.sp
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
+                                Text(
+                                    text = if (torchEnabled) "ON" else "OFF",
+                                    color = if (torchEnabled) accentColor else Color(0xFF737373),
+                                    fontSize = 10.sp,
+                                    fontFamily = wFontFamily,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
-                            "zen" -> {
-                                val mm = (zenSeconds / 60).toString().padStart(2, '0')
-                                val ss = (zenSeconds % 60).toString().padStart(2, '0')
+                        }
+                        "storage" -> {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                    .padding(
+                                        horizontal = 12.dp,
+                                        vertical = when (sizeMode) {
+                                            "compact" -> 5.dp
+                                            "large" -> 10.dp
+                                            else -> 7.dp
+                                        }
+                                    )
+                            ) {
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .border(1.dp, Color(0xFF262626), RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF060606), RoundedCornerShape(8.dp))
-                                        .padding(
-                                            horizontal = 12.dp,
-                                            vertical = when (sizeMode) {
-                                                "compact" -> 5.dp
-                                                "large" -> 10.dp
-                                                else -> 7.dp
-                                            }
-                                        ),
+                                    modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "$mm:$ss",
+                                        text = ramStatusText,
                                         color = Color.White,
-                                        fontSize = if (sizeMode == "large") 15.sp else 12.sp,
-                                        fontFamily = wFontFamily,
-                                        fontWeight = FontWeight.Bold
+                                        fontSize = if (sizeMode == "large") 11.sp else 10.sp,
+                                        fontFamily = wFontFamily
                                     )
                                     Text(
-                                        text = if (zenActive) "STOP" else "START",
-                                        color = accentColor,
-                                        fontSize = 10.sp,
-                                        fontFamily = wFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.combinedClickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = null,
-                                            onClick = { onToggleZen() },
-                                            onLongClick = { onLongPressHome() }
-                                        )
-                                    )
-                                }
-                            }
-                            "scratchpad" -> {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .border(1.dp, Color(0xFF1F1F1F), RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF060606), RoundedCornerShape(8.dp))
-                                        .padding(
-                                            horizontal = 12.dp,
-                                            vertical = when (sizeMode) {
-                                                "compact" -> 5.dp
-                                                "large" -> 10.dp
-                                                else -> 7.dp
-                                            }
-                                        )
-                                ) {
-                                    Text(
-                                        text = "> $quickNote",
-                                        color = Color(0xFFD4D4D4),
-                                        fontSize = if (sizeMode == "large") 13.sp else 11.sp,
+                                        text = storageStatusText,
+                                        color = Color(0xFFA3A3A3),
+                                        fontSize = if (sizeMode == "large") 11.sp else 10.sp,
                                         fontFamily = wFontFamily
                                     )
                                 }
-                            }
-                            "globe" -> {
-                                val globeHeight = when (sizeMode) {
-                                    "compact" -> 135.dp
-                                    "large" -> 265.dp
-                                    "xlarge" -> 330.dp
-                                    "max" -> 395.dp
-                                    else -> 195.dp
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(globeHeight),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    RetroFuturisticGlobeView(
-                                        globeTheme = globeTheme,
-                                        globeWireframeColor = globeWireframeColor,
-                                        axisTilt2dDeg = globeTilt2dDeg,
-                                        axisRotXDeg = globeRotXDeg,
-                                        axisRotYDeg = globeRotYDeg,
-                                        interactive = !editMode,
-                                        widgetsActive = widgetsActive,
-                                        onLongPressHome = onLongPressHome,
-                                        onInteractionModeChanged = onGlobeInteractionChanged,
-                                        onTick = onWaveTick
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. TINY MINIMAL SPACER BETWEEN WIDGETS AND PINNED APPS (Leaves just a tiny 4dp breathing gap)
-        if (editMode) {
-            Spacer(modifier = Modifier.height(14.dp))
-        } else {
-            Spacer(modifier = Modifier.height(4.dp))
-        }
-
-        // 3. PINNED HOME APPS + 1:1 MATCHED RIGHT-SIDE DOTS WAVE SCROLLER (Anchored at Bottom with minimal wasted space)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 2.dp)
-                .then(
-                    if (!editMode) {
-                        Modifier.onGloballyPositioned { coords ->
-                            val hDp = with(density) { coords.size.height.toDp().value }
-                            if (abs(hDp - lastMeasAppsH) > 0.5f) {
-                                lastMeasAppsH = hDp
-                                onReportMeasuredSpace(lastMeasInnerH, lastMeasWidgetsH, lastMeasAppsH)
-                            }
-                        }
-                    } else Modifier
-                ),
-            contentAlignment = Alignment.BottomStart
-        ) {
-            val waveRadiusRows = 2.25f
-            val maxWaveShiftPx = with(density) { (if (waveScrubMode == "full") 32.dp else 16.dp).toPx() }
-            val verticalSpreadPx = with(density) { 4.dp.toPx() }
-            val pressHoverShiftPx = with(density) { 14.dp.toPx() }
-            val maxDotWaveShiftPx = with(density) { 14.dp.toPx() }
-
-            val activeFocusedIndex = remember(waveFloatIndex, pinnedApps.size) {
-                val w = waveFloatIndex
-                if (w == null || pinnedApps.isEmpty() || waveScrubMode == "off") {
-                    null
-                } else {
-                    w.toInt().coerceIn(0, pinnedApps.lastIndex)
-                }
-            }
-
-            LaunchedEffect(activeFocusedIndex) {
-                if (activeFocusedIndex != null && activeFocusedIndex != lastHoveredIndex) {
-                    lastHoveredIndex = activeFocusedIndex
-                    onWaveTick()
-                }
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(IntrinsicSize.Min),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Left/Main Column: Pinned Home Screen Apps
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.Bottom
-                ) {
-                    pinnedApps.forEachIndexed { index, app ->
-                        val interactionSource = remember { MutableInteractionSource() }
-                        val isPressed by interactionSource.collectIsPressedAsState()
-
-                        val targetWaveFactor = if (waveFloatIndex != null && waveScrubMode != "off") {
-                            val distRows = abs(waveFloatIndex!! - (index + 0.5f))
-                            if (distRows < waveRadiusRows) {
-                                val c = cos((distRows / waveRadiusRows) * (PI / 2)).toFloat().coerceIn(0f, 1f)
-                                c * c * (3f - 2f * c)
-                            } else 0f
-                        } else 0f
-
-                        val animWave by animateFloatAsState(
-                            targetValue = targetWaveFactor,
-                            animationSpec = spring(
-                                dampingRatio = 0.78f,
-                                stiffness = Spring.StiffnessMediumLow
-                            ),
-                            label = "homeAppWave"
-                        )
-
-                        val isWaveFocused = activeFocusedIndex == index
-                        val isHighlighted = isWaveFocused || isPressed
-
-                        val pressAnim by animateFloatAsState(
-                            targetValue = if (isPressed) 1f else 0f,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            ),
-                            label = "homeAppPress"
-                        )
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .graphicsLayer {
-                                    val shiftX = (animWave * maxWaveShiftPx) + (pressAnim * pressHoverShiftPx)
-                                    val shiftY = if (waveFloatIndex != null && animWave > 0.01f) {
-                                        ((index + 0.5f) - waveFloatIndex!!) * verticalSpreadPx * animWave
-                                    } else 0f
-                                    val sc = 1f + (animWave * 0.14f) + (pressAnim * 0.04f)
-                                    translationX = shiftX
-                                    translationY = shiftY
-                                    scaleX = sc
-                                    scaleY = sc
-                                    transformOrigin = TransformOrigin(0f, 0.5f)
-                                }
-                                .combinedClickable(
-                                    interactionSource = interactionSource,
-                                    indication = null,
-                                    onClick = { onLaunchApp(app.packageName) },
-                                    onLongClick = { onLongPressApp(app) }
-                                )
-                                .padding(vertical = 6.dp),
-                            horizontalArrangement = when (textAlign) {
-                                TextAlign.Center -> Arrangement.Center
-                                TextAlign.End -> Arrangement.End
-                                else -> Arrangement.Start
-                            },
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val displayLabel = if (uppercaseHome) {
-                                app.label.uppercase(Locale.getDefault())
-                            } else {
-                                app.label
-                            }
-                            Text(
-                                text = if (isHighlighted) "▸ $displayLabel" else displayLabel,
-                                color = if (isHighlighted) accentColor else if (animWave > 0.35f) Color.White else Color(0xFFF5F5F5),
-                                fontSize = textSizeSp.sp,
-                                fontFamily = selectedFont,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-
-                // Right-Side Dots Scroller: Exact same count as pinnedApps.size, aligned 1-to-1 with each app row!
-                if (waveScrubMode != "off" && pinnedApps.isNotEmpty()) {
-                    Column(
-                        modifier = Modifier
-                            .width(34.dp)
-                            .fillMaxHeight()
-                            .pointerInput(pinnedApps) {
-                                awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = false)
-                                    down.consume()
-                                    val h0 = size.height.toFloat().coerceAtLeast(1f)
-                                    var latestWaveIdx: Float? = (down.position.y.coerceIn(0f, h0) / h0) * pinnedApps.size
-                                    waveFloatIndex = latestWaveIdx
-                                    var isFingerOutsideDots = false
-                                    val cancelMarginX = 36.dp.toPx()
-                                    val cancelMarginY = 28.dp.toPx()
-
-                                    do {
-                                        val event = awaitPointerEvent()
-                                        val change = event.changes.firstOrNull()
-                                        if (change != null) {
-                                            val w = size.width.toFloat().coerceAtLeast(1f)
-                                            val h = size.height.toFloat().coerceAtLeast(1f)
-                                            val pos = change.position
-                                            val outsideNow = pos.x < -cancelMarginX ||
-                                                pos.x > w + cancelMarginX ||
-                                                pos.y < -cancelMarginY ||
-                                                pos.y > h + cancelMarginY
-
-                                            if (change.pressed) {
-                                                change.consume()
-                                                isFingerOutsideDots = outsideNow
-                                                if (outsideNow) {
-                                                    // Finger moved away from the dots strip -> collapse wave & cancel app launch!
-                                                    latestWaveIdx = null
-                                                    waveFloatIndex = null
-                                                    lastHoveredIndex = null
-                                                } else {
-                                                    val idx = (pos.y.coerceIn(0f, h) / h) * pinnedApps.size
-                                                    latestWaveIdx = idx
-                                                    waveFloatIndex = idx
-                                                }
-                                            } else {
-                                                isFingerOutsideDots = outsideNow || change.isConsumed
-                                            }
+                                if (sizeMode != "compact") {
+                                    Spacer(modifier = Modifier.height(if (sizeMode == "large") 7.dp else 5.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(if (sizeMode == "large") 6.dp else 4.dp)
+                                                .background(Color(0xFF141414), RoundedCornerShape(999.dp))
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxHeight()
+                                                    .fillMaxWidth(ramUsageFraction.coerceIn(0.05f, 1f))
+                                                    .background(accentColor, RoundedCornerShape(999.dp))
+                                            )
                                         }
-                                    } while (event.changes.any { it.pressed })
-
-                                    val targetIdx = latestWaveIdx?.toInt()?.coerceIn(0, pinnedApps.lastIndex)
-                                    waveFloatIndex = null
-                                    lastHoveredIndex = null
-
-                                    if (!isFingerOutsideDots && targetIdx != null && pinnedApps.isNotEmpty()) {
-                                        onWaveTick()
-                                        onLaunchApp(pinnedApps[targetIdx].packageName)
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(if (sizeMode == "large") 6.dp else 4.dp)
+                                                .background(Color(0xFF141414), RoundedCornerShape(999.dp))
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxHeight()
+                                                    .fillMaxWidth(storageUsageFraction.coerceIn(0.05f, 1f))
+                                                    .background(Color(0xFF555555), RoundedCornerShape(999.dp))
+                                            )
+                                        }
                                     }
                                 }
-                            },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.SpaceAround
-                    ) {
-                        pinnedApps.forEachIndexed { dotIdx, _ ->
-                            val isDotFocused = activeFocusedIndex == dotIdx
-                            val targetDotWave = if (waveFloatIndex != null) {
-                                val dist = abs(waveFloatIndex!! - (dotIdx + 0.5f))
-                                if (dist < waveRadiusRows) {
-                                    cos((dist / waveRadiusRows) * (PI / 2)).toFloat().coerceIn(0f, 1f)
-                                } else 0f
-                            } else 0f
-
-                            val animDotWave by animateFloatAsState(
-                                targetValue = targetDotWave,
-                                animationSpec = spring(
-                                    dampingRatio = 0.75f,
-                                    stiffness = Spring.StiffnessMedium
-                                ),
-                                label = "homeDotWave"
-                            )
-
+                            }
+                        }
+                        "quote" -> {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                    .padding(
+                                        horizontal = 12.dp,
+                                        vertical = when (sizeMode) {
+                                            "compact" -> 5.dp
+                                            "large" -> 10.dp
+                                            else -> 7.dp
+                                        }
+                                    )
+                            ) {
+                                Text(
+                                    text = "“Simplify, then add lightness.”",
+                                    color = Color.White,
+                                    fontSize = if (sizeMode == "large") 13.sp else 11.sp,
+                                    fontFamily = wFontFamily,
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+                        "zen" -> {
+                            val mm = (zenSeconds / 60).toString().padStart(2, '0')
+                            val ss = (zenSeconds % 60).toString().padStart(2, '0')
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                    .padding(
+                                        horizontal = 12.dp,
+                                        vertical = when (sizeMode) {
+                                            "compact" -> 5.dp
+                                            "large" -> 10.dp
+                                            else -> 7.dp
+                                        }
+                                    ),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "$mm:$ss",
+                                    color = Color.White,
+                                    fontSize = if (sizeMode == "large") 15.sp else 12.sp,
+                                    fontFamily = wFontFamily,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (zenActive) "STOP" else "START",
+                                    color = accentColor,
+                                    fontSize = 10.sp,
+                                    fontFamily = wFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.combinedClickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onClick = { onToggleZen() },
+                                        onLongClick = { onLongPressHome() }
+                                    )
+                                )
+                            }
+                        }
+                        "scratchpad" -> {
                             Box(
                                 modifier = Modifier
-                                    .size(16.dp)
-                                    .graphicsLayer {
-                                        translationX = -animDotWave * maxDotWaveShiftPx
-                                        val sc = 1f + animDotWave * 0.9f
-                                        scaleX = sc
-                                        scaleY = sc
-                                    },
+                                    .fillMaxWidth()
+                                    .border(1.dp, Color(0xFF1F1F1F), RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                    .padding(
+                                        horizontal = 12.dp,
+                                        vertical = when (sizeMode) {
+                                            "compact" -> 5.dp
+                                            "large" -> 10.dp
+                                            else -> 7.dp
+                                        }
+                                    )
+                            ) {
+                                Text(
+                                    text = "> $quickNote",
+                                    color = Color(0xFFD4D4D4),
+                                    fontSize = if (sizeMode == "large") 13.sp else 11.sp,
+                                    fontFamily = wFontFamily
+                                )
+                            }
+                        }
+                        "globe" -> {
+                            val globeHeight = when (sizeMode) {
+                                "compact" -> 135.dp
+                                "large" -> 265.dp
+                                "xlarge" -> 330.dp
+                                "max" -> 395.dp
+                                else -> 195.dp
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(globeHeight),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(if (isDotFocused) 6.dp else 4.dp)
-                                        .background(
-                                            color = when {
-                                                isDotFocused -> accentColor
-                                                animDotWave > 0.35f -> Color.White
-                                                else -> Color(0xFF525252)
-                                            },
-                                            shape = CircleShape
-                                        )
+                                RetroFuturisticGlobeView(
+                                    globeTheme = globeTheme,
+                                    globeWireframeColor = globeWireframeColor,
+                                    axisTilt2dDeg = globeTilt2dDeg,
+                                    axisRotXDeg = globeRotXDeg,
+                                    axisRotYDeg = globeRotYDeg,
+                                    interactive = !editMode,
+                                    widgetsActive = widgetsActive,
+                                    onLongPressHome = onLongPressHome,
+                                    onInteractionModeChanged = onGlobeInteractionChanged,
+                                    onTick = onWaveTick
                                 )
+                            }
+                        }
+                        "pinned_apps" -> {
+                            // UNIFIED PINNED APPS WIDGET (All pinned apps together in one widget!)
+                            // In Edit Mode (when customPinnedOrderEnabled is ON), each app row shows ↑ / ↓ sequence buttons!
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 2.dp),
+                                contentAlignment = Alignment.BottomStart
+                            ) {
+                                val waveRadiusRows = 2.25f
+                                val maxWaveShiftPx = with(density) { (if (waveScrubMode == "full") 32.dp else 16.dp).toPx() }
+                                val verticalSpreadPx = with(density) { 4.dp.toPx() }
+                                val pressHoverShiftPx = with(density) { 14.dp.toPx() }
+                                val maxDotWaveShiftPx = with(density) { 14.dp.toPx() }
+
+                                val activeFocusedIndex = remember(waveFloatIndex, pinnedApps.size, editMode) {
+                                    val w = waveFloatIndex
+                                    if (editMode || w == null || pinnedApps.isEmpty() || waveScrubMode == "off") {
+                                        null
+                                    } else {
+                                        w.toInt().coerceIn(0, pinnedApps.lastIndex)
+                                    }
+                                }
+
+                                LaunchedEffect(activeFocusedIndex) {
+                                    if (activeFocusedIndex != null && activeFocusedIndex != lastHoveredIndex) {
+                                        lastHoveredIndex = activeFocusedIndex
+                                        onWaveTick()
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(IntrinsicSize.Min),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Left/Main Column: Pinned Home Screen Apps (Together in the unified Pinned Apps Widget)
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.Bottom
+                                    ) {
+                                        if (editMode) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(bottom = 4.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "PINNED APPS WIDGET (${pinnedApps.size} APPS · ${textSizeSp}SP)",
+                                                    color = Color(0xFFA3A3A3),
+                                                    fontSize = 8.sp,
+                                                    fontFamily = selectedFont,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    text = if (customPinnedOrderEnabled) "SEQUENCE: CUSTOM (↑/↓)" else "SEQUENCE: A–Z AUTO",
+                                                    color = if (customPinnedOrderEnabled) accentColor else Color(0xFF737373),
+                                                    fontSize = 8.sp,
+                                                    fontFamily = selectedFont,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+
+                                        pinnedApps.forEachIndexed { index, app ->
+                                            val interactionSource = remember { MutableInteractionSource() }
+                                            val isPressed by interactionSource.collectIsPressedAsState()
+
+                                            val targetWaveFactor = if (!editMode && waveFloatIndex != null && waveScrubMode != "off") {
+                                                val distRows = abs(waveFloatIndex!! - (index + 0.5f))
+                                                if (distRows < waveRadiusRows) {
+                                                    val c = cos((distRows / waveRadiusRows) * (PI / 2)).toFloat().coerceIn(0f, 1f)
+                                                    c * c * (3f - 2f * c)
+                                                } else 0f
+                                            } else 0f
+
+                                            val animWave by animateFloatAsState(
+                                                targetValue = targetWaveFactor,
+                                                animationSpec = spring(
+                                                    dampingRatio = 0.78f,
+                                                    stiffness = Spring.StiffnessMediumLow
+                                                ),
+                                                label = "homeAppWave"
+                                            )
+
+                                            val isWaveFocused = activeFocusedIndex == index
+                                            val isHighlighted = isWaveFocused || isPressed
+
+                                            val pressAnim by animateFloatAsState(
+                                                targetValue = if (isPressed) 1f else 0f,
+                                                animationSpec = spring(
+                                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                                    stiffness = Spring.StiffnessMedium
+                                                ),
+                                                label = "homeAppPress"
+                                            )
+
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .graphicsLayer {
+                                                        val shiftX = (animWave * maxWaveShiftPx) + (pressAnim * pressHoverShiftPx)
+                                                        val shiftY = if (waveFloatIndex != null && animWave > 0.01f) {
+                                                            ((index + 0.5f) - waveFloatIndex!!) * verticalSpreadPx * animWave
+                                                        } else 0f
+                                                        val sc = 1f + (animWave * 0.14f) + (pressAnim * 0.04f)
+                                                        translationX = shiftX
+                                                        translationY = shiftY
+                                                        scaleX = sc
+                                                        scaleY = sc
+                                                        transformOrigin = TransformOrigin(0f, 0.5f)
+                                                    }
+                                                    .combinedClickable(
+                                                        interactionSource = interactionSource,
+                                                        indication = null,
+                                                        onClick = {
+                                                            if (!editMode) onLaunchApp(app.packageName)
+                                                        },
+                                                        onLongClick = { onLongPressApp(app) }
+                                                    )
+                                                    .padding(vertical = 6.dp),
+                                                horizontalArrangement = if (editMode) {
+                                                    Arrangement.SpaceBetween
+                                                } else {
+                                                    when (textAlign) {
+                                                        TextAlign.Center -> Arrangement.Center
+                                                        TextAlign.End -> Arrangement.End
+                                                        else -> Arrangement.Start
+                                                    }
+                                                },
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                val displayLabel = if (wPrebuiltFont.uppercaseHome || uppercaseHome) {
+                                                    app.label.uppercase(Locale.getDefault())
+                                                } else {
+                                                    app.label
+                                                }
+                                                Text(
+                                                    text = if (isHighlighted && !editMode) "▸ $displayLabel" else displayLabel,
+                                                    color = if (isHighlighted && !editMode) accentColor else if (animWave > 0.35f) Color.White else Color(0xFFF5F5F5),
+                                                    fontSize = textSizeSp.sp,
+                                                    fontFamily = wFontFamily,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = if (editMode) Modifier.weight(1f).padding(end = 8.dp) else Modifier
+                                                )
+
+                                                // In Edit Mode: Customize sequence of pinned apps via ↑ / ↓ buttons (when enabled in settings) + unpin (×)
+                                                if (editMode) {
+                                                    Row(
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        if (customPinnedOrderEnabled) {
+                                                            if (index > 0) {
+                                                                Text(
+                                                                    text = "↑",
+                                                                    color = Color.White,
+                                                                    fontSize = 10.sp,
+                                                                    fontFamily = selectedFont,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    modifier = Modifier
+                                                                        .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
+                                                                        .background(Color(0xFF161616), RoundedCornerShape(4.dp))
+                                                                        .clickable { onMovePinnedApp(app.packageName, -1) }
+                                                                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                                                                )
+                                                            }
+                                                            if (index < pinnedApps.lastIndex) {
+                                                                Text(
+                                                                    text = "↓",
+                                                                    color = Color.White,
+                                                                    fontSize = 10.sp,
+                                                                    fontFamily = selectedFont,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    modifier = Modifier
+                                                                        .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
+                                                                        .background(Color(0xFF161616), RoundedCornerShape(4.dp))
+                                                                        .clickable { onMovePinnedApp(app.packageName, 1) }
+                                                                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                        Text(
+                                                            text = "×",
+                                                            color = Color(0xFFEF4444),
+                                                            fontSize = 10.sp,
+                                                            fontFamily = selectedFont,
+                                                            fontWeight = FontWeight.Bold,
+                                                            modifier = Modifier
+                                                                .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.45f), RoundedCornerShape(4.dp))
+                                                                .background(Color(0xFF180808), RoundedCornerShape(4.dp))
+                                                                .clickable { onUnpinApp(app.packageName) }
+                                                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Right-Side Dots Scroller: Exact same count as pinnedApps.size, aligned 1-to-1 with each app row!
+                                    if (!editMode && waveScrubMode != "off" && pinnedApps.isNotEmpty()) {
+                                        Column(
+                                            modifier = Modifier
+                                                .width(34.dp)
+                                                .fillMaxHeight()
+                                                .pointerInput(pinnedApps) {
+                                                    awaitEachGesture {
+                                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                                        down.consume()
+                                                        val h0 = size.height.toFloat().coerceAtLeast(1f)
+                                                        var latestWaveIdx: Float? = (down.position.y.coerceIn(0f, h0) / h0) * pinnedApps.size
+                                                        waveFloatIndex = latestWaveIdx
+                                                        var isFingerOutsideDots = false
+                                                        val cancelMarginX = 36.dp.toPx()
+                                                        val cancelMarginY = 28.dp.toPx()
+
+                                                        do {
+                                                            val event = awaitPointerEvent()
+                                                            val change = event.changes.firstOrNull()
+                                                            if (change != null) {
+                                                                val w = size.width.toFloat().coerceAtLeast(1f)
+                                                                val h = size.height.toFloat().coerceAtLeast(1f)
+                                                                val pos = change.position
+                                                                val outsideNow = pos.x < -cancelMarginX ||
+                                                                    pos.x > w + cancelMarginX ||
+                                                                    pos.y < -cancelMarginY ||
+                                                                    pos.y > h + cancelMarginY
+
+                                                                if (change.pressed) {
+                                                                    change.consume()
+                                                                    isFingerOutsideDots = outsideNow
+                                                                    if (outsideNow) {
+                                                                        latestWaveIdx = null
+                                                                        waveFloatIndex = null
+                                                                        lastHoveredIndex = null
+                                                                    } else {
+                                                                        val idx = (pos.y.coerceIn(0f, h) / h) * pinnedApps.size
+                                                                        latestWaveIdx = idx
+                                                                        waveFloatIndex = idx
+                                                                    }
+                                                                } else {
+                                                                    isFingerOutsideDots = outsideNow || change.isConsumed
+                                                                }
+                                                            }
+                                                        } while (event.changes.any { it.pressed })
+
+                                                        val targetIdx = latestWaveIdx?.toInt()?.coerceIn(0, pinnedApps.lastIndex)
+                                                        waveFloatIndex = null
+                                                        lastHoveredIndex = null
+
+                                                        if (!isFingerOutsideDots && targetIdx != null && pinnedApps.isNotEmpty()) {
+                                                            onWaveTick()
+                                                            onLaunchApp(pinnedApps[targetIdx].packageName)
+                                                        }
+                                                    }
+                                                },
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.SpaceAround
+                                        ) {
+                                            pinnedApps.forEachIndexed { dotIdx, _ ->
+                                                val isDotFocused = activeFocusedIndex == dotIdx
+                                                val targetDotWave = if (waveFloatIndex != null) {
+                                                    val dist = abs(waveFloatIndex!! - (dotIdx + 0.5f))
+                                                    if (dist < waveRadiusRows) {
+                                                        cos((dist / waveRadiusRows) * (PI / 2)).toFloat().coerceIn(0f, 1f)
+                                                    } else 0f
+                                                } else 0f
+
+                                                val animDotWave by animateFloatAsState(
+                                                    targetValue = targetDotWave,
+                                                    animationSpec = spring(
+                                                        dampingRatio = 0.75f,
+                                                        stiffness = Spring.StiffnessMedium
+                                                    ),
+                                                    label = "homeDotWave"
+                                                )
+
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(16.dp)
+                                                        .graphicsLayer {
+                                                            translationX = -animDotWave * maxDotWaveShiftPx
+                                                            val sc = 1f + animDotWave * 0.9f
+                                                            scaleX = sc
+                                                            scaleY = sc
+                                                        },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(if (isDotFocused) 6.dp else 4.dp)
+                                                            .background(
+                                                                color = when {
+                                                                    isDotFocused -> accentColor
+                                                                    animDotWave > 0.35f -> Color.White
+                                                                    else -> Color(0xFF525252)
+                                                                },
+                                                                shape = CircleShape
+                                                            )
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -5465,9 +5723,11 @@ fun WidgetsManagerView(
     accentColor: Color,
     lomoFontFamily: FontFamily,
     use24Hour: Boolean,
+    customPinnedOrderEnabled: Boolean = true,
     quickNote: String,
     globeTheme: String,
     globeWireframeColor: String,
+    onToggleCustomPinnedOrder: () -> Unit = {},
     onToggle24h: () -> Unit,
     onChangeQuickNote: (String) -> Unit,
     onChangeGlobeTheme: (String) -> Unit,
@@ -5481,6 +5741,7 @@ fun WidgetsManagerView(
     val allWidgets = listOf(
         "clock" to "Dot-Matrix Clock, Date & Battery Bar",
         "week_strip" to "7-Day Strip & Month Days Block Bar",
+        "pinned_apps" to "Pinned Home Apps List (Unified Widget)",
         "retro_calendar" to "Dot-Matrix Month Calendar Grid",
         "year_matrix" to "365-Day Dot-Matrix Year Progress",
         "retro_flip_clock" to "Split-Flap Mechanical Clock",
@@ -5722,6 +5983,38 @@ fun WidgetsManagerView(
                             }
                         }
 
+                        if (id == "pinned_apps") {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "CUSTOMIZE SEQUENCE IN EDIT MODE",
+                                    color = Color(0xFF8A8A8A),
+                                    fontSize = 9.sp,
+                                    fontFamily = lomoFontFamily
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    listOf(true to "CUSTOM (↑/↓)", false to "A–Z AUTO").forEach { (isCust, lbl) ->
+                                        val sel = customPinnedOrderEnabled == isCust
+                                        Text(
+                                            text = lbl,
+                                            color = if (sel) Color.Black else Color.White,
+                                            fontSize = 9.sp,
+                                            fontFamily = lomoFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier
+                                                .background(if (sel) Color.White else Color(0xFF191919), RoundedCornerShape(4.dp))
+                                                .clickable { if (customPinnedOrderEnabled != isCust) onToggleCustomPinnedOrder() }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         if (id == "scratchpad") {
                             Spacer(modifier = Modifier.height(10.dp))
                             BasicTextField(
@@ -5766,6 +6059,7 @@ fun LauncherSettingsView(
     use24Hour: Boolean,
     hideAndroidBar: Boolean,
     pauseWhenAppOpen: Boolean = true,
+    customPinnedOrderEnabled: Boolean = true,
     waveScrubMode: String,
     drawerWaveIntensity: Float,
     wallpaperPreset: String,
@@ -5789,6 +6083,7 @@ fun LauncherSettingsView(
     onToggle24h: () -> Unit,
     onToggleAndroidBar: () -> Unit,
     onTogglePauseWhenAppOpen: () -> Unit = {},
+    onToggleCustomPinnedOrder: () -> Unit = {},
     onChangeWaveMode: (String) -> Unit,
     onChangeDrawerWaveIntensity: (Float) -> Unit,
     onChangeWallpaperPreset: (String) -> Unit,
@@ -6140,6 +6435,14 @@ fun LauncherSettingsView(
                         }
                         onChangeAlign(next)
                     }
+                )
+
+                SettingCard(
+                    title = "Customize Pinned Apps Sequence in Edit Mode",
+                    subtitle = "Enable ↑ / ↓ buttons on pinned apps inside the Pinned Apps widget during Edit Mode to customize their sequence",
+                    actionLabel = if (customPinnedOrderEnabled) "CUSTOM (ON)" else "A-Z AUTO (OFF)",
+                    lomoFontFamily = launcherFont,
+                    onClick = onToggleCustomPinnedOrder
                 )
             }
         }
@@ -7166,7 +7469,7 @@ fun WallpaperTuningRow(
 // - 8 Live Wallpapers + 36 Static Wallpapers (including Halftone, Glowing & Fade series)
 // ============================================================================
 // ============================================================================
-// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.4.1-cmf)
+// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.5.0-cmf)
 // - Pre-allocates all primitive FloatArray/IntArray buffers and a single native Paint once
 // - Zero object allocations inside step() or draw() -> 0 bytes/frame GC overhead
 // - Features >= 1,000 stars (1,200 default, up to 1,800 with density slider)
@@ -9430,16 +9733,23 @@ fun RetroWeekTimelineStripWidget(
         SimpleDateFormat("MMM", Locale.ENGLISH).format(cal.time).uppercase(Locale.ENGLISH)
     }
 
+    // Center the current date in the middle of the 7-day strip (3 days before today, TODAY in center, 3 days after today)
     val weekDays = remember(currentTimeMillis / 60_000L) {
         val temp = Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
-        val currentDow = temp.get(Calendar.DAY_OF_WEEK)
-        val deltaToMonday = if (currentDow == Calendar.SUNDAY) -6 else Calendar.MONDAY - currentDow
-        temp.add(Calendar.DAY_OF_MONTH, deltaToMonday)
-        val labels = listOf("MO", "TU", "WE", "TH", "FR", "SA", "SU")
-        labels.map { lbl ->
+        temp.add(Calendar.DAY_OF_MONTH, -3)
+        (-3..3).map { offset ->
+            val dow = temp.get(Calendar.DAY_OF_WEEK)
+            val lbl = when (dow) {
+                Calendar.MONDAY -> "MO"
+                Calendar.TUESDAY -> "TU"
+                Calendar.WEDNESDAY -> "WE"
+                Calendar.THURSDAY -> "TH"
+                Calendar.FRIDAY -> "FR"
+                Calendar.SATURDAY -> "SA"
+                else -> "SU"
+            }
             val dNum = temp.get(Calendar.DAY_OF_MONTH)
-            val isToday = temp.get(Calendar.YEAR) == todayYear &&
-                temp.get(Calendar.DAY_OF_YEAR) == todayDayOfYear
+            val isToday = offset == 0
             temp.add(Calendar.DAY_OF_MONTH, 1)
             Triple(lbl, dNum, isToday)
         }
