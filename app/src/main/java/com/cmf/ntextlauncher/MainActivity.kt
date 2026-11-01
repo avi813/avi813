@@ -362,7 +362,7 @@ enum class PrebuiltFont(
 }
 
 // ============================================================================
-// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.2.0-cmf)
+// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.3.0-cmf)
 // Calculates exact vertical height of active widgets + pinned Home apps (and scale)
 // to prevent overflow/scrolling and trigger the "NO SPACE LEFT" popup when full.
 // ============================================================================
@@ -451,7 +451,50 @@ private fun estimatePinnedAppsHeightDp(pinnedCount: Int, textSizeSp: Int): Float
 }
 
 // ============================================================================
-// MAIN LAUNCHER ACTIVITY (CMF by Nothing Phone 1 · Android 14 / Nothing OS 2.6)
+// iOS PHYSICAL RUBBER-BAND SPRING SCALE-FADE POPUP ENGINE (Nocturnaa v4.3.0-cmf)
+// - Starts slightly smaller (scale = 0.80f) and rapidly expands to full size (1.00f)
+//   while fading in from transparent (0f -> 1f) as the background simultaneously dims.
+// - Uses an underdamped physical rubber-band spring (dampingRatio = 0.62f, stiffness = 440f)
+//   so the popup gently bounces past its native 1.00f boundaries (~1.015f-1.022f)
+//   before snapping into its crisp 1.000f resting position.
+// ============================================================================
+@Composable
+fun rememberIosPopupProgress(isVisible: Boolean, label: String = "iosPopupSpring"): State<Float> {
+    return animateFloatAsState(
+        targetValue = if (isVisible) 1f else 0f,
+        animationSpec = if (isVisible) {
+            spring(
+                dampingRatio = 0.62f,
+                stiffness = 440f,
+                visibilityThreshold = 0.0005f
+            )
+        } else {
+            spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = 620f,
+                visibilityThreshold = 0.0005f
+            )
+        },
+        label = label
+    )
+}
+
+fun Modifier.iosPopupWindowLayer(
+    progress: Float,
+    initialScale: Float = 0.80f
+): Modifier = this.graphicsLayer {
+    // Do NOT clamp upper bound of p on scale so the rubber-band spring overshoot (> 1.0f)
+    // physically bounces the window past its native boundary before snapping to 1.0f!
+    val p = progress.coerceAtLeast(0f)
+    alpha = (p * 1.45f).coerceIn(0f, 1f)
+    val s = initialScale + (1f - initialScale) * p
+    scaleX = s
+    scaleY = s
+    transformOrigin = TransformOrigin.Center
+}
+
+// ============================================================================
+// MAIN LAUNCHER ACTIVITY — NOCTURNAA (CMF by Nothing Phone 1 · Android 14 / Nothing OS 2.6)
 // ============================================================================
 class MainActivity : ComponentActivity() {
 
@@ -1426,15 +1469,33 @@ fun NTextLauncherApp(
             usableHomeHeightDp = computedUsableHeightDp
         }
 
+        // iOS Physical Spring Progress States for Overlay Windows & Edit Mode Banner
+        val widgetsWindowProgress by rememberIosPopupProgress(
+            isVisible = currentView == LauncherView.WIDGETS,
+            label = "iosWidgetsWindowSpring"
+        )
+        val settingsWindowProgress by rememberIosPopupProgress(
+            isVisible = currentView == LauncherView.SETTINGS,
+            label = "iosSettingsWindowSpring"
+        )
+        val editBannerProgress by rememberIosPopupProgress(
+            isVisible = editMode && currentView == LauncherView.HOME_AND_DRAWER && drawerProgress.value < 0.2f,
+            label = "iosEditBannerSpring"
+        )
+        val overlayWindowProgress = max(
+            widgetsWindowProgress.coerceIn(0f, 1f),
+            settingsWindowProgress.coerceIn(0f, 1f)
+        )
+
         // Full-Screen Edge-to-Edge Wallpaper Canvas
-        // Supports real-time hardware blur when Launcher Settings OR App Drawer is in "blurry" mode!
+        // Supports real-time hardware blur when Nocturnaa Settings OR App Drawer is in "blurry" mode!
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        val settingsBlurPx = if (currentView == LauncherView.SETTINGS && settingsBgMode == "blurry") {
-                            ((settingsBgIntensity.coerceIn(4, 100) / 100f) * 38.dp.toPx())
+                        val settingsBlurPx = if (settingsWindowProgress > 0.01f && settingsBgMode == "blurry") {
+                            ((settingsBgIntensity.coerceIn(4, 100) / 100f) * settingsWindowProgress.coerceIn(0f, 1f) * 38.dp.toPx())
                         } else 0f
                         val drawerBlurPx = if (currentView == LauncherView.HOME_AND_DRAWER && drawerBgMode == "blurry" && drawerProgress.value > 0.01f) {
                             ((drawerBgIntensity.coerceIn(4, 100) / 100f) * drawerProgress.value * 38.dp.toPx())
@@ -1452,8 +1513,8 @@ fun NTextLauncherApp(
         ) {
             val isWallpaperScreenVisible = when (currentView) {
                 LauncherView.HOME_AND_DRAWER -> drawerProgress.value < 0.995f || drawerBgMode != "opaque"
-                LauncherView.WIDGETS -> false
-                LauncherView.SETTINGS -> settingsBgMode != "opaque"
+                LauncherView.WIDGETS -> widgetsWindowProgress < 0.995f
+                LauncherView.SETTINGS -> settingsBgMode != "opaque" || settingsWindowProgress < 0.995f
             }
             OledWallpaperCanvas(
                 preset = wallpaperPreset,
@@ -1472,42 +1533,52 @@ fun NTextLauncherApp(
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            if (editMode && currentView == LauncherView.HOME_AND_DRAWER && drawerProgress.value < 0.2f) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .windowInsetsPadding(WindowInsets.statusBars)
-                        .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
-                        .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 2.dp)
-                        .border(1.dp, Color(0xFF404040), RoundedCornerShape(8.dp))
-                        .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "EDIT MODE: CUSTOMIZE SIZE, FONT & ORDER",
-                        color = accentColor,
-                        fontSize = 10.sp,
-                        fontFamily = selectedFont
-                    )
-                    Text(
-                        text = "DONE",
-                        color = Color.Black,
-                        fontSize = 10.sp,
-                        fontFamily = selectedFont,
-                        fontWeight = FontWeight.Bold,
+            if (editMode || editBannerProgress > 0.005f) {
+                if (currentView == LauncherView.HOME_AND_DRAWER && drawerProgress.value < 0.2f) {
+                    Row(
                         modifier = Modifier
-                            .background(Color.White, RoundedCornerShape(4.dp))
-                            .clickable { editMode = false }
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                    )
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.statusBars)
+                            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+                            .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 2.dp)
+                            .iosPopupWindowLayer(progress = editBannerProgress, initialScale = 0.82f)
+                            .border(1.dp, Color(0xFF404040), RoundedCornerShape(8.dp))
+                            .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "EDIT MODE: CUSTOMIZE SIZE, FONT & ORDER",
+                            color = accentColor,
+                            fontSize = 10.sp,
+                            fontFamily = selectedFont
+                        )
+                        Text(
+                            text = "DONE",
+                            color = Color.Black,
+                            fontSize = 10.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .background(Color.White, RoundedCornerShape(4.dp))
+                                .clickable { editMode = false }
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
                 }
             }
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                when (currentView) {
-                    LauncherView.HOME_AND_DRAWER -> {
+                // Base Layer: Home Screen & App Drawer (fades out cleanly when Nocturnaa Settings or Widget Manager pops up)
+                if (overlayWindowProgress < 0.995f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                alpha = (1f - overlayWindowProgress * 1.35f).coerceIn(0f, 1f)
+                            }
+                    ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1718,9 +1789,21 @@ fun NTextLauncherApp(
                             )
                         }
                     }
+                }
 
-                    LauncherView.WIDGETS -> {
-                        WidgetsManagerView(
+                // iOS Spring-Driven Scale-Fade Popup Window: WIDGET MANAGER
+                if (currentView == LauncherView.WIDGETS || widgetsWindowProgress > 0.002f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = (0.76f * widgetsWindowProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.76f)))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .iosPopupWindowLayer(progress = widgetsWindowProgress, initialScale = 0.84f)
+                        ) {
+                            WidgetsManagerView(
                             activeWidgets = activeWidgets,
                             widgetSizes = widgetSizes,
                             accentColor = accentColor,
@@ -1751,13 +1834,27 @@ fun NTextLauncherApp(
                             onMoveWidget = { id, dir -> moveWidget(id, dir) },
                             onBack = { currentView = LauncherView.HOME_AND_DRAWER }
                         )
-                    }
-
-                    LauncherView.SETTINGS -> {
-                        val hasCustomImageFile = remember(userWallpaperRefreshTrigger, wallpaperPreset) {
-                            File(context.filesDir, "user_custom_wallpaper.jpg").exists()
                         }
-                        LauncherSettingsView(
+                    }
+                }
+
+                // iOS Spring-Driven Scale-Fade Popup Window: NOCTURNAA SETTINGS
+                if (currentView == LauncherView.SETTINGS || settingsWindowProgress > 0.002f) {
+                    val hasCustomImageFile = remember(userWallpaperRefreshTrigger, wallpaperPreset) {
+                        File(context.filesDir, "user_custom_wallpaper.jpg").exists()
+                    }
+                    val dimScrimAlpha = if (settingsBgMode == "opaque") 0.76f else 0.42f
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = (dimScrimAlpha * settingsWindowProgress.coerceIn(0f, 1f)).coerceIn(0f, dimScrimAlpha)))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .iosPopupWindowLayer(progress = settingsWindowProgress, initialScale = 0.84f)
+                        ) {
+                            LauncherSettingsView(
                             fontId = fontId,
                             textAlignMode = textAlignMode,
                             accentHex = accentHex,
@@ -1897,6 +1994,7 @@ fun NTextLauncherApp(
                             onRequestDefaultHomeRole = onRequestDefaultHomeRole,
                             onBack = { currentView = LauncherView.HOME_AND_DRAWER }
                         )
+                        }
                     }
                 }
             }
@@ -1906,19 +2004,15 @@ fun NTextLauncherApp(
         // FLUID SPRING-ANIMATED LONG-TAP HOME SCREEN "ACTIONS" MENU
         // Smooth 120Hz scale + vertical glide + backdrop fade on BOTH open and close
         // ====================================================================
-        val quickMenuProgress by animateFloatAsState(
-            targetValue = if (showHomeQuickMenu) 1f else 0f,
-            animationSpec = spring(
-                dampingRatio = 0.82f,
-                stiffness = Spring.StiffnessMediumLow
-            ),
-            label = "quickMenuFluidAnim"
+        val quickMenuProgress by rememberIosPopupProgress(
+            isVisible = showHomeQuickMenu,
+            label = "iosQuickMenuSpring"
         )
-        if (showHomeQuickMenu || quickMenuProgress > 0.005f) {
+        if (showHomeQuickMenu || quickMenuProgress > 0.002f) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = (0.84f * quickMenuProgress).coerceIn(0f, 0.84f)))
+                    .background(Color.Black.copy(alpha = (0.84f * quickMenuProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.84f)))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
@@ -1929,14 +2023,7 @@ fun NTextLauncherApp(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .graphicsLayer {
-                            val p = quickMenuProgress.coerceIn(0f, 1f)
-                            alpha = p
-                            val s = 0.86f + 0.14f * p
-                            scaleX = s
-                            scaleY = s
-                            translationY = (1f - p) * 26.dp.toPx()
-                        }
+                        .iosPopupWindowLayer(progress = quickMenuProgress, initialScale = 0.80f)
                         .border(1.dp, Color(0xFF2E2E2E), RoundedCornerShape(16.dp))
                         .background(Color(0xFF0A0A0A), RoundedCornerShape(16.dp))
                         .clickable(
@@ -2004,8 +2091,8 @@ fun NTextLauncherApp(
 
                     // 3. Launcher Settings
                     QuickMenuButton(
-                        label = "Launcher Settings",
-                        badge = "LAUNCHER",
+                        label = "Nocturnaa Settings",
+                        badge = "NOCTURNAA",
                         accentColor = accentColor,
                         lomoFontFamily = selectedFont,
                         onClick = {
@@ -2039,20 +2126,16 @@ fun NTextLauncherApp(
         if (contextMenuTarget != null) {
             lastContextMenuTarget = contextMenuTarget
         }
-        val appMenuProgress by animateFloatAsState(
-            targetValue = if (contextMenuTarget != null) 1f else 0f,
-            animationSpec = spring(
-                dampingRatio = 0.82f,
-                stiffness = Spring.StiffnessMediumLow
-            ),
-            label = "appMenuFluidAnim"
+        val appMenuProgress by rememberIosPopupProgress(
+            isVisible = contextMenuTarget != null,
+            label = "iosAppMenuSpring"
         )
-        val activeTargetPair = contextMenuTarget ?: if (appMenuProgress > 0.005f) lastContextMenuTarget else null
+        val activeTargetPair = contextMenuTarget ?: if (appMenuProgress > 0.002f) lastContextMenuTarget else null
         activeTargetPair?.let { (targetApp, isFromHome) ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = (0.82f * appMenuProgress).coerceIn(0f, 0.82f)))
+                    .background(Color.Black.copy(alpha = (0.84f * appMenuProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.84f)))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
@@ -2063,14 +2146,7 @@ fun NTextLauncherApp(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .graphicsLayer {
-                            val p = appMenuProgress.coerceIn(0f, 1f)
-                            alpha = p
-                            val s = 0.86f + 0.14f * p
-                            scaleX = s
-                            scaleY = s
-                            translationY = (1f - p) * 24.dp.toPx()
-                        }
+                        .iosPopupWindowLayer(progress = appMenuProgress, initialScale = 0.80f)
                         .border(1.dp, Color(0xFF333333), RoundedCornerShape(16.dp))
                         .background(Color(0xFF0A0A0A), RoundedCornerShape(16.dp))
                         .clickable(
@@ -2243,19 +2319,15 @@ fun NTextLauncherApp(
         // Shown whenever adding or resizing a widget (or pinning/scaling apps)
         // would overflow the single-screen Home Screen boundary!
         // ====================================================================
-        val noSpaceProgress by animateFloatAsState(
-            targetValue = if (showNoSpacePopup) 1f else 0f,
-            animationSpec = spring(
-                dampingRatio = 0.82f,
-                stiffness = Spring.StiffnessMediumLow
-            ),
-            label = "noSpacePopupAnim"
+        val noSpaceProgress by rememberIosPopupProgress(
+            isVisible = showNoSpacePopup,
+            label = "iosNoSpaceAlertSpring"
         )
-        if (showNoSpacePopup || noSpaceProgress > 0.005f) {
+        if (showNoSpacePopup || noSpaceProgress > 0.002f) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = (0.84f * noSpaceProgress).coerceIn(0f, 0.84f)))
+                    .background(Color.Black.copy(alpha = (0.84f * noSpaceProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.84f)))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
@@ -2266,14 +2338,7 @@ fun NTextLauncherApp(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .graphicsLayer {
-                            val p = noSpaceProgress.coerceIn(0f, 1f)
-                            alpha = p
-                            val s = 0.86f + 0.14f * p
-                            scaleX = s
-                            scaleY = s
-                            translationY = (1f - p) * 24.dp.toPx()
-                        }
+                        .iosPopupWindowLayer(progress = noSpaceProgress, initialScale = 0.80f)
                         .border(1.dp, accentColor, RoundedCornerShape(16.dp))
                         .background(Color(0xFF0A0A0A), RoundedCornerShape(16.dp))
                         .clickable(
@@ -5793,7 +5858,7 @@ fun LauncherSettingsView(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "LAUNCHER SETTINGS",
+                    text = "NOCTURNAA SETTINGS",
                     color = Color.White,
                     fontSize = 16.sp,
                     fontFamily = launcherFont,
@@ -5826,7 +5891,7 @@ fun LauncherSettingsView(
             ) {
                 SettingCard(
                     title = "Default Home Launcher",
-                    subtitle = "Set N-TEXT as your primary Android 14 Home App",
+                    subtitle = "Set Nocturnaa as your primary Android 14 Home App",
                     actionLabel = "CHOOSE HOME",
                     lomoFontFamily = launcherFont,
                     onClick = onRequestDefaultHomeRole
@@ -6733,7 +6798,7 @@ fun MinimalistSliderRow(
 
 @Composable
 fun SettingsBackdropControlCard(
-    cardTitle: String = "SETTINGS MENU BACKGROUND STYLE",
+    cardTitle: String = "NOCTURNAA SETTINGS BACKGROUND STYLE",
     settingsBgMode: String,
     settingsBgIntensity: Int,
     accentColor: Color,
@@ -7061,7 +7126,7 @@ fun WallpaperTuningRow(
 // - 8 Live Wallpapers + 36 Static Wallpapers (including Halftone, Glowing & Fade series)
 // ============================================================================
 // ============================================================================
-// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.2.0-cmf)
+// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.3.0-cmf)
 // - Pre-allocates all primitive FloatArray/IntArray buffers and a single native Paint once
 // - Zero object allocations inside step() or draw() -> 0 bytes/frame GC overhead
 // - Features >= 1,000 stars (1,200 default, up to 1,800 with density slider)
