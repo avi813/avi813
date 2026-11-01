@@ -364,7 +364,7 @@ enum class PrebuiltFont(
 }
 
 // ============================================================================
-// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.5.0-cmf)
+// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.6.0-cmf)
 // Calculates exact vertical height of active widgets + pinned Home apps (and scale)
 // to prevent overflow/scrolling and trigger the "NO SPACE LEFT" popup when full.
 // ============================================================================
@@ -454,7 +454,7 @@ private fun estimatePinnedAppsHeightDp(pinnedCount: Int, textSizeSp: Int): Float
 }
 
 // ============================================================================
-// iOS PHYSICAL RUBBER-BAND SPRING SCALE-FADE POPUP ENGINE (Nocturnaa v4.5.0-cmf)
+// iOS PHYSICAL RUBBER-BAND SPRING SCALE-FADE POPUP ENGINE (Nocturnaa v4.6.0-cmf)
 // - Starts slightly smaller (scale = 0.80f) and rapidly expands to full size (1.00f)
 //   while fading in from transparent (0f -> 1f) as the background simultaneously dims.
 // - Uses an underdamped physical rubber-band spring (dampingRatio = 0.62f, stiffness = 440f)
@@ -842,13 +842,18 @@ fun NTextLauncherApp(
     val keyboardController = LocalSoftwareKeyboardController.current
     val lomoFontFamily = remember { getLomoPixelFontFamily(context) }
 
-    // Navigation & App Drawer State (Launcher Settings opened via Long-Tap Menu)
+    // Navigation, Left Home Page & App Drawer State (Launcher Settings opened via Long-Tap Menu)
     var currentView by remember { mutableStateOf(LauncherView.HOME_AND_DRAWER) }
     val drawerProgress = remember { Animatable(0f) }
     val isDrawerOpen by remember { derivedStateOf { drawerProgress.value > 0.5f } }
     val isDrawerFullyOpen by remember { derivedStateOf { drawerProgress.value >= 0.995f } }
     val isDrawerNearClosed by remember { derivedStateOf { drawerProgress.value < 0.2f } }
     var focusDrawerSearchOnOpen by remember { mutableStateOf(false) }
+
+    // Additional Left Home Page State (0f = Main Page, 1f = Left Page; pure horizontal slide, zero fade)
+    var enableLeftPage by remember { mutableStateOf(prefs.getBoolean("enable_left_page", true)) }
+    val leftPageProgress = remember { Animatable(0f) }
+    val isOnLeftPage by remember { derivedStateOf { enableLeftPage && leftPageProgress.value > 0.5f } }
 
     var editMode by remember { mutableStateOf(false) }
 
@@ -966,6 +971,39 @@ fun NTextLauncherApp(
     var widgetFonts by remember {
         val saved = prefs.getString(
             "widget_fonts_v1",
+            "clock:dot,week_strip:dot,pinned_apps:dot,retro_calendar:dot,year_matrix:dot,retro_flip_clock:dot,analog_chrono:dot,precision_chrono:dot,torch:dot,storage:dot,quote:dot,scratchpad:dot,zen:dot"
+        ) ?: ""
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
+        }.toMap()
+        mutableStateOf(map)
+    }
+
+    // Left Page Independent Widgets Stack, Sizes & Fonts
+    var leftPageWidgets by remember {
+        val saved = prefs.getString("left_widgets_order_v1", "retro_calendar,storage,scratchpad,torch,zen")
+            ?: "retro_calendar,storage,scratchpad,torch,zen"
+        mutableStateOf(
+            saved.split(",").filter {
+                it.isNotBlank() && it != "telemetry" && it != "blackhole" && it != "weather" && it != "pedometer" && it != "crt_world_map"
+            }
+        )
+    }
+    var leftWidgetSizes by remember {
+        val saved = prefs.getString(
+            "left_widget_sizes_v1",
+            "clock:standard,week_strip:standard,pinned_apps:large,retro_calendar:standard,year_matrix:standard,retro_flip_clock:standard,analog_chrono:standard,precision_chrono:standard,globe:standard,torch:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard"
+        ) ?: ""
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
+        }.toMap()
+        mutableStateOf(map)
+    }
+    var leftWidgetFonts by remember {
+        val saved = prefs.getString(
+            "left_widget_fonts_v1",
             "clock:dot,week_strip:dot,pinned_apps:dot,retro_calendar:dot,year_matrix:dot,retro_flip_clock:dot,analog_chrono:dot,precision_chrono:dot,torch:dot,storage:dot,quote:dot,scratchpad:dot,zen:dot"
         ) ?: ""
         val map = saved.split(",").mapNotNull {
@@ -1112,12 +1150,13 @@ fun NTextLauncherApp(
         telemetryBroadcastTrigger++
     }
 
-    LaunchedEffect(use24Hour, packageRefreshTrigger, shouldRunWidgetsAndWallpapers, activeWidgets, telemetryBroadcastTrigger) {
+    LaunchedEffect(use24Hour, packageRefreshTrigger, shouldRunWidgetsAndWallpapers, activeWidgets, leftPageWidgets, enableLeftPage, telemetryBroadcastTrigger) {
         if (!shouldRunWidgetsAndWallpapers) return@LaunchedEffect
         var tickCounter = 0
         var lastMinuteBucket = -1L
-        val needsSeconds = activeWidgets.contains("retro_flip_clock") || activeWidgets.contains("analog_chrono")
-        val needsStorage = activeWidgets.contains("storage")
+        val combinedWidgets = if (enableLeftPage) activeWidgets + leftPageWidgets else activeWidgets
+        val needsSeconds = combinedWidgets.contains("retro_flip_clock") || combinedWidgets.contains("analog_chrono")
+        val needsStorage = combinedWidgets.contains("storage")
 
         while (shouldRunWidgetsAndWallpapers) {
             val nowMs = System.currentTimeMillis()
@@ -1281,6 +1320,8 @@ fun NTextLauncherApp(
     var measuredHomeInnerHeightDp by remember { mutableStateOf(0f) }
     var measuredWidgetsHeightDp by remember { mutableStateOf(0f) }
     var measuredPinnedAppsHeightDp by remember { mutableStateOf(0f) }
+    var measuredLeftWidgetsHeightDp by remember { mutableStateOf(0f) }
+    var measuredLeftPinnedAppsHeightDp by remember { mutableStateOf(0f) }
     var isGlobeInteractionActive by remember { mutableStateOf(false) }
 
     fun currentPinnedAppsCount(): Int {
@@ -1491,6 +1532,152 @@ fun NTextLauncherApp(
         }
     }
 
+    fun canFitOnLeftPage(
+        candidateWidgets: List<String>,
+        candidateSizes: Map<String, String>,
+        candidatePinnedCount: Int = currentPinnedAppsCount(),
+        candidateTextSizeSp: Int = textSizeSp
+    ): Boolean {
+        val effectiveContainerH = if (measuredHomeInnerHeightDp > 200f) {
+            measuredHomeInnerHeightDp - 4f
+        } else {
+            usableHomeHeightDp - 4f
+        }
+        val nonAppActive = leftPageWidgets.filter { it != "pinned_apps" }
+        val nonAppCandidate = candidateWidgets.filter { it != "pinned_apps" }
+        val currentEstH = estimateWidgetsStackHeightDp(nonAppActive, leftWidgetSizes)
+        val candidateEstH = estimateWidgetsStackHeightDp(nonAppCandidate, candidateSizes)
+        val deltaH = candidateEstH - currentEstH
+        val effectiveWidgetsH = if (measuredLeftWidgetsHeightDp > 10f && nonAppActive.isNotEmpty()) {
+            (measuredLeftWidgetsHeightDp + deltaH).coerceAtLeast(0f)
+        } else {
+            candidateEstH
+        }
+        val effectiveAppsH = if (!candidateWidgets.contains("pinned_apps") || candidatePinnedCount <= 0) {
+            0f
+        } else {
+            val curPinCount = currentPinnedAppsCount()
+            val curEstAppsH = estimatePinnedAppsHeightDp(curPinCount, textSizeSp)
+            val candEstAppsH = estimatePinnedAppsHeightDp(candidatePinnedCount, candidateTextSizeSp)
+            val appsDeltaH = candEstAppsH - curEstAppsH
+            if (measuredLeftPinnedAppsHeightDp > 10f && curPinCount > 0 && leftPageWidgets.contains("pinned_apps")) {
+                (measuredLeftPinnedAppsHeightDp + appsDeltaH).coerceAtLeast(0f)
+            } else {
+                candEstAppsH
+            }
+        }
+        return (effectiveWidgetsH + effectiveAppsH) <= effectiveContainerH
+    }
+
+    fun saveLeftWidgetList(updated: List<String>) {
+        val cleaned = updated.filter {
+            it != "blackhole" && it != "telemetry" && it != "weather" && it != "pedometer" && it != "crt_world_map"
+        }
+        if (cleaned.size > leftPageWidgets.size) {
+            val pCount = currentPinnedAppsCount()
+            if (!canFitOnLeftPage(cleaned, leftWidgetSizes, pCount, textSizeSp)) {
+                triggerNoSpaceLeftPopup(
+                    "No space left on the Left Page to add this widget. Remove or shrink an existing widget on the Left Page first."
+                )
+                return
+            }
+        }
+        leftPageWidgets = cleaned
+        prefs.edit().putString("left_widgets_order_v1", cleaned.joinToString(",")).apply()
+    }
+
+    fun saveLeftWidgetSize(widgetId: String, size: String) {
+        if (widgetId == "pinned_apps") {
+            saveWidgetSize(widgetId, size)
+            return
+        }
+        val currentSize = leftWidgetSizes[widgetId] ?: "standard"
+        val currentH = estimateSingleWidgetHeightDp(widgetId, currentSize)
+        val targetH = estimateSingleWidgetHeightDp(widgetId, size)
+        val newMap = leftWidgetSizes.toMutableMap()
+        newMap[widgetId] = size
+        if (targetH > currentH && leftPageWidgets.contains(widgetId)) {
+            val pCount = currentPinnedAppsCount()
+            if (!canFitOnLeftPage(leftPageWidgets, newMap, pCount, textSizeSp)) {
+                val sizeLabel = when (size) {
+                    "compact" -> "S"
+                    "standard" -> "M"
+                    "large" -> "L"
+                    "xlarge" -> "XL"
+                    "max" -> "MAX"
+                    else -> size.uppercase(Locale.US)
+                }
+                triggerNoSpaceLeftPopup(
+                    "No space left on the Left Page to resize this widget to $sizeLabel. Shrink another widget on the Left Page first."
+                )
+                return
+            }
+        }
+        leftWidgetSizes = newMap.toMap()
+        val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
+        prefs.edit().putString("left_widget_sizes_v1", serialized).apply()
+    }
+
+    fun saveLeftWidgetFont(widgetId: String, wFontId: String) {
+        val newMap = leftWidgetFonts.toMutableMap()
+        newMap[widgetId] = wFontId
+        leftWidgetFonts = newMap.toMap()
+        val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
+        prefs.edit().putString("left_widget_fonts_v1", serialized).apply()
+    }
+
+    fun cycleLeftWidgetSize(widgetId: String) {
+        val current = leftWidgetSizes[widgetId] ?: "standard"
+        val next = if (
+            widgetId == "clock" ||
+            widgetId == "pinned_apps" ||
+            widgetId == "retro_flip_clock" ||
+            widgetId == "analog_chrono" ||
+            widgetId == "precision_chrono" ||
+            widgetId == "globe"
+        ) {
+            when (current) {
+                "compact" -> "standard"
+                "standard" -> "large"
+                "large" -> "xlarge"
+                "xlarge" -> "max"
+                else -> "compact"
+            }
+        } else {
+            when (current) {
+                "compact" -> "standard"
+                "standard" -> "large"
+                else -> "compact"
+            }
+        }
+        saveLeftWidgetSize(widgetId, next)
+    }
+
+    fun moveLeftWidget(widgetId: String, direction: Int) {
+        val list = leftPageWidgets.toMutableList()
+        val idx = list.indexOf(widgetId)
+        val targetIdx = idx + direction
+        if (idx in list.indices && targetIdx in list.indices) {
+            val item = list.removeAt(idx)
+            list.add(targetIdx, item)
+            saveLeftWidgetList(list)
+        }
+    }
+
+    fun animateLeftPageTo(target: Float) {
+        val clamped = if (enableLeftPage) target.coerceIn(0f, 1f) else 0f
+        scope.launch {
+            leftPageProgress.animateTo(
+                targetValue = clamped,
+                animationSpec = tween(
+                    durationMillis = 220,
+                    easing = FastOutSlowInEasing
+                )
+            )
+            leftPageProgress.snapTo(clamped)
+        }
+    }
+
     fun toggleTorchState() {
         torchEnabled = !torchEnabled
         try {
@@ -1597,6 +1784,18 @@ fun NTextLauncherApp(
             if (drawerProgress.value > 0f) {
                 drawerProgress.snapTo(0f)
             }
+            if (leftPageProgress.value > 0f) {
+                leftPageProgress.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(enableLeftPage) {
+        if (!enableLeftPage && leftPageProgress.value > 0f) {
+            leftPageProgress.snapTo(0f)
         }
     }
 
@@ -1617,7 +1816,7 @@ fun NTextLauncherApp(
     }
 
     val backDispatcher = activity.onBackPressedDispatcher
-    DisposableEffect(backDispatcher, currentView, editMode, isDrawerOpen, contextMenuTarget, showHomeQuickMenu) {
+    DisposableEffect(backDispatcher, currentView, editMode, isDrawerOpen, isOnLeftPage, contextMenuTarget, showHomeQuickMenu) {
         val callback = object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
@@ -1626,6 +1825,7 @@ fun NTextLauncherApp(
                     editMode -> editMode = false
                     currentView != LauncherView.HOME_AND_DRAWER -> currentView = LauncherView.HOME_AND_DRAWER
                     drawerProgress.value > 0.05f -> animateDrawerTo(0f)
+                    leftPageProgress.value > 0.05f -> animateLeftPageTo(0f)
                 }
             }
         }
@@ -1640,6 +1840,7 @@ fun NTextLauncherApp(
             .background(if (wallpaperPreset == "system_wallpaper") Color.Transparent else Color.Black)
     ) {
         val density = LocalDensity.current
+        val screenWidthPx = with(density) { maxWidth.toPx().coerceAtLeast(1f) }
         val screenHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
         val topInsetDpVal = with(density) {
             max(
@@ -1716,12 +1917,42 @@ fun NTextLauncherApp(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "EDIT MODE: CUSTOMIZE SIZE, FONT & ORDER",
-                        color = accentColor,
-                        fontSize = 10.sp,
-                        fontFamily = selectedFont
-                    )
+                    if (enableLeftPage) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "◀ LEFT PAGE",
+                                color = if (isOnLeftPage) Color.Black else Color.White,
+                                fontSize = 9.sp,
+                                fontFamily = selectedFont,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .background(if (isOnLeftPage) accentColor else Color(0xFF1A1A1A), RoundedCornerShape(4.dp))
+                                    .clickable { animateLeftPageTo(1f) }
+                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                            )
+                            Text(
+                                text = "MAIN PAGE ▶",
+                                color = if (!isOnLeftPage) Color.Black else Color.White,
+                                fontSize = 9.sp,
+                                fontFamily = selectedFont,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .background(if (!isOnLeftPage) accentColor else Color(0xFF1A1A1A), RoundedCornerShape(4.dp))
+                                    .clickable { animateLeftPageTo(0f) }
+                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "EDIT MODE: CUSTOMIZE SIZE, FONT & ORDER",
+                            color = accentColor,
+                            fontSize = 10.sp,
+                            fontFamily = selectedFont
+                        )
+                    }
                     Text(
                         text = "DONE",
                         color = Color.Black,
@@ -1762,6 +1993,48 @@ fun NTextLauncherApp(
                                                 tickHaptic(heavy = true)
                                                 showHomeQuickMenu = true
                                             }
+                                        }
+                                    )
+                                }
+                                .pointerInput(screenWidthPx, enableLeftPage, isGlobeInteractionActive) {
+                                    if (!enableLeftPage || isGlobeInteractionActive) return@pointerInput
+                                    var totalDx = 0f
+                                    var startPage = 0f
+                                    val horizVelocityTracker = VelocityTracker()
+                                    detectHorizontalDragGestures(
+                                        onDragStart = {
+                                            totalDx = 0f
+                                            startPage = if (leftPageProgress.value >= 0.5f) 1f else 0f
+                                            horizVelocityTracker.resetTracking()
+                                        },
+                                        onHorizontalDrag = { change, dragAmount ->
+                                            if (drawerProgress.value > 0.02f) return@detectHorizontalDragGestures
+                                            horizVelocityTracker.addPosition(change.uptimeMillis, change.position)
+                                            change.consume()
+                                            totalDx += dragAmount
+                                            // Dragging right (dragAmount > 0) reveals the Left Page (0f -> 1f);
+                                            // dragging left (dragAmount < 0) returns to the Main Page (1f -> 0f)
+                                            val delta = dragAmount / screenWidthPx
+                                            val next = (leftPageProgress.value + delta).coerceIn(0f, 1f)
+                                            scope.launch { leftPageProgress.snapTo(next) }
+                                        },
+                                        onDragEnd = {
+                                            val vx = horizVelocityTracker.calculateVelocity().x
+                                            val cur = leftPageProgress.value
+                                            val target = when {
+                                                startPage < 0.5f && (totalDx > 55f || vx > 420f || cur > 0.22f) -> 1f
+                                                startPage >= 0.5f && (totalDx < -55f || vx < -420f || cur < 0.78f) -> 0f
+                                                cur >= 0.5f -> 1f
+                                                else -> 0f
+                                            }
+                                            if (target != startPage) {
+                                                tickHaptic(heavy = false)
+                                            }
+                                            animateLeftPageTo(target)
+                                        },
+                                        onDragCancel = {
+                                            val target = if (leftPageProgress.value >= 0.5f) 1f else 0f
+                                            animateLeftPageTo(target)
                                         }
                                     )
                                 }
@@ -1807,94 +2080,206 @@ fun NTextLauncherApp(
                                     )
                                 }
                         ) {
-                            HomeScreenView(
-                                activeWidgets = activeWidgets,
-                                widgetSizes = widgetSizes,
-                                widgetFonts = widgetFonts,
-                                editMode = editMode,
-                                currentTimeMillis = currentTimeMillis,
-                                currentHourStr = currentHourStr,
-                                currentMinStr = currentMinStr,
-                                currentSecStr = currentSecStr,
-                                currentAmPmStr = currentAmPmStr,
-                                currentDateStr = currentDateStr,
-                                nextAlarmStr = nextAlarmStr,
-                                batteryPct = batteryPct,
-                                isCharging = isCharging,
-                                ramStatusText = ramStatusText,
-                                storageStatusText = storageStatusText,
-                                ramUsageFraction = ramUsageFraction,
-                                storageUsageFraction = storageUsageFraction,
-                                torchEnabled = torchEnabled,
-                                zenActive = zenActive,
-                                zenSeconds = zenSeconds,
-                                quickNote = quickNote,
-                                accentColor = accentColor,
-                                lomoFontFamily = lomoFontFamily,
-                                selectedFont = selectedFont,
-                                uppercaseHome = prebuiltFont.uppercaseHome,
-                                textAlign = textAlign,
-                                textSizeSp = textSizeSp,
-                                waveScrubMode = waveScrubMode,
-                                globeTheme = globeTheme,
-                                globeWireframeColor = globeWireframeColor,
-                                globeTilt2dDeg = globeTilt2dDeg,
-                                globeRotXDeg = globeRotXDeg,
-                                globeRotYDeg = globeRotYDeg,
-                                onChangeGlobeTilt2d = { deg ->
-                                    val clamped = deg.coerceIn(-180f, 180f)
-                                    globeTilt2dDeg = clamped
-                                    prefs.edit().putFloat("globe_tilt_2d_deg", clamped).apply()
-                                },
-                                onChangeGlobeRotX = { deg ->
-                                    val clamped = deg.coerceIn(-85f, 85f)
-                                    globeRotXDeg = clamped
-                                    prefs.edit().putFloat("globe_rot_x_deg", clamped).apply()
-                                },
-                                onChangeGlobeRotY = { deg ->
-                                    val clamped = deg.coerceIn(-180f, 180f)
-                                    globeRotYDeg = clamped
-                                    prefs.edit().putFloat("globe_rot_y_deg", clamped).apply()
-                                },
-                                pinnedApps = orderedPinnedApps,
-                                customPinnedOrderEnabled = customPinnedOrderEnabled,
-                                onMovePinnedApp = { pkg, dir -> movePinnedApp(pkg, dir) },
-                                onUnpinApp = { pkg -> unpinAppFromHome(pkg) },
-                                onOpenClockApp = { openClockApp() },
-                                onToggleTorch = { toggleTorchState() },
-                                onToggleZen = {
-                                    zenActive = !zenActive
-                                    if (!zenActive) zenSeconds = 1500
-                                },
-                                onCycleWidgetSize = { id -> cycleWidgetSize(id) },
-                                onSetWidgetSize = { id, sz -> saveWidgetSize(id, sz) },
-                                onSetWidgetFont = { id, fId -> saveWidgetFont(id, fId) },
-                                onMoveWidget = { id, dir -> moveWidget(id, dir) },
-                                onRemoveWidget = { id ->
-                                    saveWidgetList(activeWidgets.filter { it != id })
-                                },
-                                widgetsActive = shouldRunWidgetsAndWallpapers,
-                                onLaunchApp = { pkg -> launchApp(pkg) },
-                                onLongPressApp = { app ->
-                                    tickHaptic(heavy = true)
-                                    contextMenuTarget = app to true
-                                },
-                                onLongPressHome = {
-                                    if (drawerProgress.value < 0.1f) {
-                                        tickHaptic(heavy = true)
-                                        showHomeQuickMenu = true
+                            // 1. ADDITIONAL LEFT HOME PAGE (To the left of the Main Page; pure horizontal slide with NO fade!)
+                            if (enableLeftPage) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer {
+                                            val hp = leftPageProgress.value
+                                            // Pure horizontal translation from -screenWidthPx to 0f; alpha is strictly 1f (no fade)!
+                                            translationX = if (hp <= 0.0005f) -screenWidthPx * 2f else (hp - 1f) * screenWidthPx
+                                        }
+                                ) {
+                                    HomeScreenView(
+                                        activeWidgets = leftPageWidgets,
+                                        widgetSizes = leftWidgetSizes,
+                                        widgetFonts = leftWidgetFonts,
+                                        editMode = editMode,
+                                        currentTimeMillis = currentTimeMillis,
+                                        currentHourStr = currentHourStr,
+                                        currentMinStr = currentMinStr,
+                                        currentSecStr = currentSecStr,
+                                        currentAmPmStr = currentAmPmStr,
+                                        currentDateStr = currentDateStr,
+                                        nextAlarmStr = nextAlarmStr,
+                                        batteryPct = batteryPct,
+                                        isCharging = isCharging,
+                                        ramStatusText = ramStatusText,
+                                        storageStatusText = storageStatusText,
+                                        ramUsageFraction = ramUsageFraction,
+                                        storageUsageFraction = storageUsageFraction,
+                                        torchEnabled = torchEnabled,
+                                        zenActive = zenActive,
+                                        zenSeconds = zenSeconds,
+                                        quickNote = quickNote,
+                                        accentColor = accentColor,
+                                        lomoFontFamily = lomoFontFamily,
+                                        selectedFont = selectedFont,
+                                        uppercaseHome = prebuiltFont.uppercaseHome,
+                                        textAlign = textAlign,
+                                        textSizeSp = textSizeSp,
+                                        waveScrubMode = waveScrubMode,
+                                        globeTheme = globeTheme,
+                                        globeWireframeColor = globeWireframeColor,
+                                        globeTilt2dDeg = globeTilt2dDeg,
+                                        globeRotXDeg = globeRotXDeg,
+                                        globeRotYDeg = globeRotYDeg,
+                                        onChangeGlobeTilt2d = { deg ->
+                                            val clamped = deg.coerceIn(-180f, 180f)
+                                            globeTilt2dDeg = clamped
+                                            prefs.edit().putFloat("globe_tilt_2d_deg", clamped).apply()
+                                        },
+                                        onChangeGlobeRotX = { deg ->
+                                            val clamped = deg.coerceIn(-85f, 85f)
+                                            globeRotXDeg = clamped
+                                            prefs.edit().putFloat("globe_rot_x_deg", clamped).apply()
+                                        },
+                                        onChangeGlobeRotY = { deg ->
+                                            val clamped = deg.coerceIn(-180f, 180f)
+                                            globeRotYDeg = clamped
+                                            prefs.edit().putFloat("globe_rot_y_deg", clamped).apply()
+                                        },
+                                        pinnedApps = orderedPinnedApps,
+                                        customPinnedOrderEnabled = customPinnedOrderEnabled,
+                                        onMovePinnedApp = { pkg, dir -> movePinnedApp(pkg, dir) },
+                                        onUnpinApp = { pkg -> unpinAppFromHome(pkg) },
+                                        onOpenClockApp = { openClockApp() },
+                                        onToggleTorch = { toggleTorchState() },
+                                        onToggleZen = {
+                                            zenActive = !zenActive
+                                            if (!zenActive) zenSeconds = 1500
+                                        },
+                                        onCycleWidgetSize = { id -> cycleLeftWidgetSize(id) },
+                                        onSetWidgetSize = { id, sz -> saveLeftWidgetSize(id, sz) },
+                                        onSetWidgetFont = { id, fId -> saveLeftWidgetFont(id, fId) },
+                                        onMoveWidget = { id, dir -> moveLeftWidget(id, dir) },
+                                        onRemoveWidget = { id ->
+                                            saveLeftWidgetList(leftPageWidgets.filter { it != id })
+                                        },
+                                        widgetsActive = shouldRunWidgetsAndWallpapers && leftPageProgress.value > 0.01f,
+                                        onLaunchApp = { pkg -> launchApp(pkg) },
+                                        onLongPressApp = { app ->
+                                            tickHaptic(heavy = true)
+                                            contextMenuTarget = app to true
+                                        },
+                                        onLongPressHome = {
+                                            if (drawerProgress.value < 0.1f) {
+                                                tickHaptic(heavy = true)
+                                                showHomeQuickMenu = true
+                                            }
+                                        },
+                                        onGlobeInteractionChanged = { unlocked ->
+                                            isGlobeInteractionActive = unlocked
+                                        },
+                                        onReportMeasuredSpace = { innerH, widgetsH, appsH ->
+                                            if (innerH > 200f) measuredHomeInnerHeightDp = innerH
+                                            measuredLeftWidgetsHeightDp = widgetsH
+                                            measuredLeftPinnedAppsHeightDp = appsH
+                                        },
+                                        onWaveTick = { tickHaptic(heavy = false) }
+                                    )
+                                }
+                            }
+
+                            // 2. MAIN HOME PAGE (Pure horizontal slide to +screenWidthPx when Left Page slides in; NO fade!)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        val hp = if (enableLeftPage) leftPageProgress.value else 0f
+                                        translationX = if (hp >= 0.9995f) screenWidthPx * 2f else hp * screenWidthPx
                                     }
-                                },
-                                onGlobeInteractionChanged = { unlocked ->
-                                    isGlobeInteractionActive = unlocked
-                                },
-                                onReportMeasuredSpace = { innerH, widgetsH, appsH ->
-                                    if (innerH > 200f) measuredHomeInnerHeightDp = innerH
-                                    measuredWidgetsHeightDp = widgetsH
-                                    measuredPinnedAppsHeightDp = appsH
-                                },
-                                onWaveTick = { tickHaptic(heavy = false) }
-                            )
+                            ) {
+                                HomeScreenView(
+                                    activeWidgets = activeWidgets,
+                                    widgetSizes = widgetSizes,
+                                    widgetFonts = widgetFonts,
+                                    editMode = editMode,
+                                    currentTimeMillis = currentTimeMillis,
+                                    currentHourStr = currentHourStr,
+                                    currentMinStr = currentMinStr,
+                                    currentSecStr = currentSecStr,
+                                    currentAmPmStr = currentAmPmStr,
+                                    currentDateStr = currentDateStr,
+                                    nextAlarmStr = nextAlarmStr,
+                                    batteryPct = batteryPct,
+                                    isCharging = isCharging,
+                                    ramStatusText = ramStatusText,
+                                    storageStatusText = storageStatusText,
+                                    ramUsageFraction = ramUsageFraction,
+                                    storageUsageFraction = storageUsageFraction,
+                                    torchEnabled = torchEnabled,
+                                    zenActive = zenActive,
+                                    zenSeconds = zenSeconds,
+                                    quickNote = quickNote,
+                                    accentColor = accentColor,
+                                    lomoFontFamily = lomoFontFamily,
+                                    selectedFont = selectedFont,
+                                    uppercaseHome = prebuiltFont.uppercaseHome,
+                                    textAlign = textAlign,
+                                    textSizeSp = textSizeSp,
+                                    waveScrubMode = waveScrubMode,
+                                    globeTheme = globeTheme,
+                                    globeWireframeColor = globeWireframeColor,
+                                    globeTilt2dDeg = globeTilt2dDeg,
+                                    globeRotXDeg = globeRotXDeg,
+                                    globeRotYDeg = globeRotYDeg,
+                                    onChangeGlobeTilt2d = { deg ->
+                                        val clamped = deg.coerceIn(-180f, 180f)
+                                        globeTilt2dDeg = clamped
+                                        prefs.edit().putFloat("globe_tilt_2d_deg", clamped).apply()
+                                    },
+                                    onChangeGlobeRotX = { deg ->
+                                        val clamped = deg.coerceIn(-85f, 85f)
+                                        globeRotXDeg = clamped
+                                        prefs.edit().putFloat("globe_rot_x_deg", clamped).apply()
+                                    },
+                                    onChangeGlobeRotY = { deg ->
+                                        val clamped = deg.coerceIn(-180f, 180f)
+                                        globeRotYDeg = clamped
+                                        prefs.edit().putFloat("globe_rot_y_deg", clamped).apply()
+                                    },
+                                    pinnedApps = orderedPinnedApps,
+                                    customPinnedOrderEnabled = customPinnedOrderEnabled,
+                                    onMovePinnedApp = { pkg, dir -> movePinnedApp(pkg, dir) },
+                                    onUnpinApp = { pkg -> unpinAppFromHome(pkg) },
+                                    onOpenClockApp = { openClockApp() },
+                                    onToggleTorch = { toggleTorchState() },
+                                    onToggleZen = {
+                                        zenActive = !zenActive
+                                        if (!zenActive) zenSeconds = 1500
+                                    },
+                                    onCycleWidgetSize = { id -> cycleWidgetSize(id) },
+                                    onSetWidgetSize = { id, sz -> saveWidgetSize(id, sz) },
+                                    onSetWidgetFont = { id, fId -> saveWidgetFont(id, fId) },
+                                    onMoveWidget = { id, dir -> moveWidget(id, dir) },
+                                    onRemoveWidget = { id ->
+                                        saveWidgetList(activeWidgets.filter { it != id })
+                                    },
+                                    widgetsActive = shouldRunWidgetsAndWallpapers && (!enableLeftPage || leftPageProgress.value < 0.99f),
+                                    onLaunchApp = { pkg -> launchApp(pkg) },
+                                    onLongPressApp = { app ->
+                                        tickHaptic(heavy = true)
+                                    contextMenuTarget = app to true
+                                    },
+                                    onLongPressHome = {
+                                        if (drawerProgress.value < 0.1f) {
+                                            tickHaptic(heavy = true)
+                                            showHomeQuickMenu = true
+                                        }
+                                    },
+                                    onGlobeInteractionChanged = { unlocked ->
+                                        isGlobeInteractionActive = unlocked
+                                    },
+                                    onReportMeasuredSpace = { innerH, widgetsH, appsH ->
+                                        if (innerH > 200f) measuredHomeInnerHeightDp = innerH
+                                        measuredWidgetsHeightDp = widgetsH
+                                        measuredPinnedAppsHeightDp = appsH
+                                    },
+                                    onWaveTick = { tickHaptic(heavy = false) }
+                                )
+                            }
                         }
 
                         Box(
@@ -1957,6 +2342,10 @@ fun NTextLauncherApp(
                         WidgetsManagerView(
                             activeWidgets = activeWidgets,
                             widgetSizes = widgetSizes,
+                            leftPageEnabled = enableLeftPage,
+                            initialTargetLeftPage = isOnLeftPage,
+                            leftPageWidgets = leftPageWidgets,
+                            leftWidgetSizes = leftWidgetSizes,
                             accentColor = accentColor,
                             lomoFontFamily = selectedFont,
                             use24Hour = use24Hour,
@@ -1985,6 +2374,7 @@ fun NTextLauncherApp(
                                 prefs.edit().putString("globe_wf_color", it).apply()
                             },
                             onUpdateWidgets = { saveWidgetList(it) },
+                            onUpdateLeftWidgets = { saveLeftWidgetList(it) },
                             onCycleWidgetSize = { cycleWidgetSize(it) },
                             onSetWidgetSize = { id, sz -> saveWidgetSize(id, sz) },
                             onMoveWidget = { id, dir -> moveWidget(id, dir) },
@@ -2004,6 +2394,7 @@ fun NTextLauncherApp(
                             drawerTextSizeSp = drawerTextSizeSp,
                             use24Hour = use24Hour,
                             hideAndroidBar = hideAndroidBar,
+                            enableLeftPage = enableLeftPage,
                             pauseWhenAppOpen = pauseWhenAppOpen,
                             customPinnedOrderEnabled = customPinnedOrderEnabled,
                             waveScrubMode = waveScrubMode,
@@ -2081,6 +2472,10 @@ fun NTextLauncherApp(
                                 val next = !hideAndroidBar
                                 hideAndroidBar = next
                                 onToggleAndroidStatusBar(next)
+                            },
+                            onToggleLeftPage = {
+                                enableLeftPage = !enableLeftPage
+                                prefs.edit().putBoolean("enable_left_page", enableLeftPage).apply()
                             },
                             onTogglePauseWhenAppOpen = {
                                 pauseWhenAppOpen = !pauseWhenAppOpen
@@ -5720,6 +6115,10 @@ private fun AlphabetScrubberRail(
 fun WidgetsManagerView(
     activeWidgets: List<String>,
     widgetSizes: Map<String, String>,
+    leftPageEnabled: Boolean = true,
+    initialTargetLeftPage: Boolean = false,
+    leftPageWidgets: List<String> = emptyList(),
+    leftWidgetSizes: Map<String, String> = emptyMap(),
     accentColor: Color,
     lomoFontFamily: FontFamily,
     use24Hour: Boolean,
@@ -5733,11 +6132,16 @@ fun WidgetsManagerView(
     onChangeGlobeTheme: (String) -> Unit,
     onChangeGlobeWireframeColor: (String) -> Unit,
     onUpdateWidgets: (List<String>) -> Unit,
+    onUpdateLeftWidgets: (List<String>) -> Unit = {},
     onCycleWidgetSize: (String) -> Unit,
     onSetWidgetSize: (String, String) -> Unit,
     onMoveWidget: (String, Int) -> Unit,
     onBack: () -> Unit
 ) {
+    var editingLeftPage by remember { mutableStateOf(leftPageEnabled && initialTargetLeftPage) }
+    val targetWidgetsList = if (leftPageEnabled && editingLeftPage) leftPageWidgets else activeWidgets
+    val targetSizesMap = if (leftPageEnabled && editingLeftPage) leftWidgetSizes else widgetSizes
+    val onUpdateTargetWidgets: (List<String>) -> Unit = if (leftPageEnabled && editingLeftPage) onUpdateLeftWidgets else onUpdateWidgets
     val allWidgets = listOf(
         "clock" to "Dot-Matrix Clock, Date & Battery Bar",
         "week_strip" to "7-Day Strip & Month Days Block Bar",
@@ -5808,15 +6212,46 @@ fun WidgetsManagerView(
             )
         }
 
+        if (leftPageEnabled) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, Color(0xFF282828), RoundedCornerShape(8.dp))
+                    .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf(
+                    false to "MAIN PAGE (${activeWidgets.size} ACTIVE)",
+                    true to "LEFT PAGE (${leftPageWidgets.size} ACTIVE)"
+                ).forEach { (isLeft, tabLabel) ->
+                    val selected = editingLeftPage == isLeft
+                    Text(
+                        text = tabLabel,
+                        color = if (selected) Color.Black else Color.White,
+                        fontSize = 10.sp,
+                        fontFamily = lomoFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(if (selected) accentColor else Color(0xFF141414), RoundedCornerShape(6.dp))
+                            .clickable { editingLeftPage = isLeft }
+                            .padding(vertical = 7.dp)
+                    )
+                }
+            }
+        }
+
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(bottom = 20.dp)
         ) {
             items(allWidgets) { (id, title) ->
-                val enabled = activeWidgets.contains(id)
-                val currentSize = widgetSizes[id] ?: "standard"
-                val idx = activeWidgets.indexOf(id)
+                val enabled = targetWidgetsList.contains(id)
+                val currentSize = targetSizesMap[id] ?: "standard"
+                val idx = targetWidgetsList.indexOf(id)
 
                 Column(
                     modifier = Modifier
@@ -5851,8 +6286,8 @@ fun WidgetsManagerView(
                                     RoundedCornerShape(6.dp)
                                 )
                                 .clickable {
-                                    val next = if (enabled) activeWidgets - id else activeWidgets + id
-                                    onUpdateWidgets(next)
+                                    val next = if (enabled) targetWidgetsList - id else targetWidgetsList + id
+                                    onUpdateTargetWidgets(next)
                                 }
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         )
@@ -6058,6 +6493,7 @@ fun LauncherSettingsView(
     drawerTextSizeSp: Int,
     use24Hour: Boolean,
     hideAndroidBar: Boolean,
+    enableLeftPage: Boolean = true,
     pauseWhenAppOpen: Boolean = true,
     customPinnedOrderEnabled: Boolean = true,
     waveScrubMode: String,
@@ -6082,6 +6518,7 @@ fun LauncherSettingsView(
     onChangeDrawerTextSize: (Int) -> Unit,
     onToggle24h: () -> Unit,
     onToggleAndroidBar: () -> Unit,
+    onToggleLeftPage: () -> Unit = {},
     onTogglePauseWhenAppOpen: () -> Unit = {},
     onToggleCustomPinnedOrder: () -> Unit = {},
     onChangeWaveMode: (String) -> Unit,
@@ -6230,6 +6667,13 @@ fun LauncherSettingsView(
                     actionLabel = "CHOOSE HOME",
                     lomoFontFamily = launcherFont,
                     onClick = onRequestDefaultHomeRole
+                )
+                SettingCard(
+                    title = "Additional Left Home Page",
+                    subtitle = "Swipe right on the Home Screen to slide to the additional page on the left (pure horizontal slide, no fade)",
+                    actionLabel = if (enableLeftPage) "ENABLED (ON)" else "DISABLED (OFF)",
+                    lomoFontFamily = launcherFont,
+                    onClick = onToggleLeftPage
                 )
                 SettingCard(
                     title = "Hide Android Status Bar",
@@ -7469,7 +7913,7 @@ fun WallpaperTuningRow(
 // - 8 Live Wallpapers + 36 Static Wallpapers (including Halftone, Glowing & Fade series)
 // ============================================================================
 // ============================================================================
-// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.5.0-cmf)
+// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.6.0-cmf)
 // - Pre-allocates all primitive FloatArray/IntArray buffers and a single native Paint once
 // - Zero object allocations inside step() or draw() -> 0 bytes/frame GC overhead
 // - Features >= 1,000 stars (1,200 default, up to 1,800 with density slider)
@@ -9944,17 +10388,3 @@ fun RetroYearDotMatrixWidget(
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
