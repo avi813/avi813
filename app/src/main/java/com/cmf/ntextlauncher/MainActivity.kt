@@ -120,8 +120,10 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -362,7 +364,7 @@ enum class PrebuiltFont(
 }
 
 // ============================================================================
-// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.3.0-cmf)
+// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.4.0-cmf)
 // Calculates exact vertical height of active widgets + pinned Home apps (and scale)
 // to prevent overflow/scrolling and trigger the "NO SPACE LEFT" popup when full.
 // ============================================================================
@@ -451,7 +453,7 @@ private fun estimatePinnedAppsHeightDp(pinnedCount: Int, textSizeSp: Int): Float
 }
 
 // ============================================================================
-// iOS PHYSICAL RUBBER-BAND SPRING SCALE-FADE POPUP ENGINE (Nocturnaa v4.3.0-cmf)
+// iOS PHYSICAL RUBBER-BAND SPRING SCALE-FADE POPUP ENGINE (Nocturnaa v4.4.0-cmf)
 // - Starts slightly smaller (scale = 0.80f) and rapidly expands to full size (1.00f)
 //   while fading in from transparent (0f -> 1f) as the background simultaneously dims.
 // - Uses an underdamped physical rubber-band spring (dampingRatio = 0.62f, stiffness = 440f)
@@ -529,8 +531,9 @@ class MainActivity : ComponentActivity() {
             registerReceiver(packageBroadcastReceiver, pkgFilter)
         }
 
-        // Configure edge-to-edge WindowInsets for Android 14 System Navigation
+        // Configure edge-to-edge WindowInsets & Lock 120Hz Display Refresh Rate on CMF Phone 1
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        enableHighRefreshRate120Hz()
         applySystemStatusBarVisibility(hideDefaultAndroidStatusBar)
         dismissKeyboardHard()
 
@@ -566,10 +569,34 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        enableHighRefreshRate120Hz()
         applySystemStatusBarVisibility(hideDefaultAndroidStatusBar)
-        // Prevent the Android 14 IME from popping up when returning from Recents or closing an app
         dismissKeyboardHard()
-        packageRefreshTrigger++
+    }
+
+    private fun enableHighRefreshRate120Hz() {
+        try {
+            val disp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                display
+            } else {
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay
+            }
+            val modes = disp?.supportedModes
+            val bestMode = modes?.maxWithOrNull(
+                compareBy<android.view.Display.Mode> { it.physicalWidth * it.physicalHeight }
+                    .thenBy { it.refreshRate }
+            )
+            val lp = window.attributes
+            if (bestMode != null) {
+                lp.preferredDisplayModeId = bestMode.modeId
+                lp.preferredRefreshRate = bestMode.refreshRate.coerceAtLeast(120f)
+            } else {
+                lp.preferredRefreshRate = 120f
+            }
+            window.attributes = lp
+        } catch (_: Exception) {
+        }
     }
 
     private fun dismissKeyboardHard() {
@@ -813,6 +840,8 @@ fun NTextLauncherApp(
     var currentView by remember { mutableStateOf(LauncherView.HOME_AND_DRAWER) }
     val drawerProgress = remember { Animatable(0f) }
     val isDrawerOpen by remember { derivedStateOf { drawerProgress.value > 0.5f } }
+    val isDrawerFullyOpen by remember { derivedStateOf { drawerProgress.value >= 0.995f } }
+    val isDrawerNearClosed by remember { derivedStateOf { drawerProgress.value < 0.2f } }
     var focusDrawerSearchOnOpen by remember { mutableStateOf(false) }
 
     var editMode by remember { mutableStateOf(false) }
@@ -964,45 +993,55 @@ fun NTextLauncherApp(
         mutableStateOf(prefs.getStringSet("hidden_pkgs", emptySet())?.toSet() ?: emptySet())
     }
 
-    // Installed Apps Loader (Sorted alphabetically A-Z)
-    var installedApps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
-    LaunchedEffect(pinnedPackages, hiddenPackages, packageRefreshTrigger) {
-        val pm = context.packageManager
-        val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
-            addCategory(Intent.CATEGORY_LAUNCHER)
-        }
-        val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
-        val loaded = resolveInfos
-            .mapNotNull { ri ->
-                val pkg = ri.activityInfo.packageName
-                if (pkg == context.packageName) return@mapNotNull null
-                val label = ri.loadLabel(pm).toString().trim()
-                val firstCh = label.firstOrNull()?.uppercaseChar()?.let {
-                    if (it in 'A'..'Z') it else '#'
-                } ?: '#'
-                val appFlags = ri.activityInfo?.applicationInfo?.flags ?: 0
-                val isSysApp = (appFlags and ApplicationInfo.FLAG_SYSTEM) != 0
-                AppEntry(
-                    label = label,
-                    packageName = pkg,
-                    firstLetter = firstCh,
-                    isPinned = pinnedPackages.contains(pkg),
-                    isHidden = hiddenPackages.contains(pkg),
-                    isSystemApp = isSysApp
-                )
+    // Installed Apps Loader (Offloaded to Dispatchers.IO so PackageManager label loading never blocks 120Hz UI thread!)
+    var rawInstalledApps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
+    LaunchedEffect(packageRefreshTrigger) {
+        val loaded = withContext(Dispatchers.IO) {
+            val pm = context.packageManager
+            val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
             }
-            .distinctBy { it.packageName }
-            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
-
+            val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
+            resolveInfos
+                .mapNotNull { ri ->
+                    val pkg = ri.activityInfo.packageName
+                    if (pkg == context.packageName) return@mapNotNull null
+                    val label = ri.loadLabel(pm).toString().trim()
+                    val firstCh = label.firstOrNull()?.uppercaseChar()?.let {
+                        if (it in 'A'..'Z') it else '#'
+                    } ?: '#'
+                    val appFlags = ri.activityInfo?.applicationInfo?.flags ?: 0
+                    val isSysApp = (appFlags and ApplicationInfo.FLAG_SYSTEM) != 0
+                    AppEntry(
+                        label = label,
+                        packageName = pkg,
+                        firstLetter = firstCh,
+                        isPinned = false,
+                        isHidden = false,
+                        isSystemApp = isSysApp
+                    )
+                }
+                .distinctBy { it.packageName }
+                .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
+        }
         if (pinnedPackages.isEmpty() && loaded.isNotEmpty()) {
             val defaults = loaded.take(6).map { it.packageName }.toSet()
             pinnedPackages = defaults
             prefs.edit().putStringSet("pinned_pkgs", defaults).apply()
         }
-        installedApps = loaded
+        rawInstalledApps = loaded
     }
 
-    // Real-Time Offline Clock, Date, Next Alarm, Battery, RAM & ROM
+    val installedApps = remember(rawInstalledApps, pinnedPackages, hiddenPackages) {
+        rawInstalledApps.map { app ->
+            app.copy(
+                isPinned = pinnedPackages.contains(app.packageName),
+                isHidden = hiddenPackages.contains(app.packageName)
+            )
+        }
+    }
+
+    // Real-Time Offline Clock, Date, Next Alarm, Battery, RAM & ROM (Optimized for 120 FPS: zero per-second main-thread IPC/StatFs stalls)
     var currentTimeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
     var currentHourStr by remember { mutableStateOf("4") }
     var currentMinStr by remember { mutableStateOf("22") }
@@ -1013,70 +1052,101 @@ fun NTextLauncherApp(
     var batteryPct by remember { mutableStateOf(86) }
     var isCharging by remember { mutableStateOf(false) }
 
-    fun refreshRealtimeSystemTelemetry() {
-        val nowMs = System.currentTimeMillis()
-        currentTimeMillis = nowMs
-        val now = Date(nowMs)
-        if (use24Hour) {
-            currentHourStr = SimpleDateFormat("HH", Locale.getDefault()).format(now)
-            currentMinStr = SimpleDateFormat("mm", Locale.getDefault()).format(now)
-            currentAmPmStr = ""
-        } else {
-            currentHourStr = SimpleDateFormat("h", Locale.getDefault()).format(now)
-            currentMinStr = SimpleDateFormat("mm", Locale.getDefault()).format(now)
-            currentAmPmStr = SimpleDateFormat("a", Locale.ENGLISH).format(now).uppercase(Locale.ENGLISH)
-        }
-        currentSecStr = SimpleDateFormat("ss", Locale.getDefault()).format(now)
-        currentDateStr = SimpleDateFormat("EEE · dd MMM", Locale.ENGLISH).format(now).uppercase(Locale.ENGLISH)
+    val fmt24H = remember { SimpleDateFormat("HH", Locale.getDefault()) }
+    val fmt12H = remember { SimpleDateFormat("h", Locale.getDefault()) }
+    val fmtMin = remember { SimpleDateFormat("mm", Locale.getDefault()) }
+    val fmtSec = remember { SimpleDateFormat("ss", Locale.getDefault()) }
+    val fmtAmPm = remember { SimpleDateFormat("a", Locale.ENGLISH) }
+    val fmtDate = remember { SimpleDateFormat("EEE · dd MMM", Locale.ENGLISH) }
+    val fmtAlarm24 = remember { SimpleDateFormat("HH:mm", Locale.ENGLISH) }
+    val fmtAlarm12 = remember { SimpleDateFormat("h:mm a", Locale.ENGLISH) }
 
-        val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
-        val nextAlarm = am?.nextAlarmClock
-        nextAlarmStr = if (nextAlarm != null) {
-            val fmt = if (use24Hour) "HH:mm" else "h:mm a"
-            val alarmTime = SimpleDateFormat(fmt, Locale.ENGLISH).format(Date(nextAlarm.triggerTime)).uppercase(Locale.ENGLISH)
-            "ALARM $alarmTime"
-        } else {
-            ""
-        }
-
-        val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
-        if (bm != null) {
-            val cap = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-            if (cap in 1..100) batteryPct = cap
-            isCharging = bm.isCharging
-        }
-
-        try {
-            val actMgr = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-            if (actMgr != null) {
-                val memInfo = ActivityManager.MemoryInfo()
-                actMgr.getMemoryInfo(memInfo)
-                val totalGb = memInfo.totalMem.toDouble() / (1024.0 * 1024.0 * 1024.0)
-                val usedGb = (memInfo.totalMem - memInfo.availMem).toDouble() / (1024.0 * 1024.0 * 1024.0)
-                ramStatusText = String.format(Locale.US, "RAM %.1f/%.0f GB", usedGb, totalGb)
-                ramUsageFraction = (usedGb / totalGb.coerceAtLeast(1.0)).toFloat().coerceIn(0.05f, 1f)
-            }
-        } catch (_: Exception) {
-        }
-
-        try {
-            val stat = StatFs(Environment.getDataDirectory().path)
-            val totalBytes = stat.totalBytes.toDouble()
-            val availBytes = stat.availableBytes.toDouble()
-            val usedBytes = (totalBytes - availBytes).coerceAtLeast(0.0)
-            val totalGb = totalBytes / (1000.0 * 1000.0 * 1000.0)
-            val usedGb = usedBytes / (1000.0 * 1000.0 * 1000.0)
-            storageStatusText = String.format(Locale.US, "ROM %.0f/%.0f GB", usedGb, totalGb)
-            storageUsageFraction = (usedBytes / totalBytes.coerceAtLeast(1.0)).toFloat().coerceIn(0.05f, 1f)
-        } catch (_: Exception) {
-        }
-    }
-
-    LaunchedEffect(use24Hour, packageRefreshTrigger, shouldRunWidgetsAndWallpapers) {
+    LaunchedEffect(use24Hour, packageRefreshTrigger, shouldRunWidgetsAndWallpapers, activeWidgets) {
         if (!shouldRunWidgetsAndWallpapers) return@LaunchedEffect
+        var tickCounter = 0
+        var lastMinuteBucket = -1L
+        val needsSeconds = activeWidgets.contains("retro_flip_clock") || activeWidgets.contains("analog_chrono")
+        val needsStorage = activeWidgets.contains("storage")
+
         while (shouldRunWidgetsAndWallpapers) {
-            refreshRealtimeSystemTelemetry()
-            delay(1_000L)
+            val nowMs = System.currentTimeMillis()
+            val now = Date(nowMs)
+            val minuteBucket = nowMs / 60_000L
+
+            if (needsSeconds) {
+                val sec = fmtSec.format(now)
+                if (sec != currentSecStr) currentSecStr = sec
+            }
+
+            if (minuteBucket != lastMinuteBucket || tickCounter == 0) {
+                lastMinuteBucket = minuteBucket
+                currentTimeMillis = nowMs
+                val newH = if (use24Hour) fmt24H.format(now) else fmt12H.format(now)
+                val newM = fmtMin.format(now)
+                val newAmPm = if (use24Hour) "" else fmtAmPm.format(now).uppercase(Locale.ENGLISH)
+                val newDate = fmtDate.format(now).uppercase(Locale.ENGLISH)
+                if (newH != currentHourStr) currentHourStr = newH
+                if (newM != currentMinStr) currentMinStr = newM
+                if (newAmPm != currentAmPmStr) currentAmPmStr = newAmPm
+                if (newDate != currentDateStr) currentDateStr = newDate
+            }
+
+            // Query Alarm, Battery, RAM & ROM off the main UI thread only once every 15 seconds (or first tick)
+            if (tickCounter % 15 == 0) {
+                withContext(Dispatchers.IO) {
+                    try {
+                        val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+                        val nextAlarm = am?.nextAlarmClock
+                        val alarmTxt = if (nextAlarm != null) {
+                            val fmt = if (use24Hour) fmtAlarm24 else fmtAlarm12
+                            "ALARM " + fmt.format(Date(nextAlarm.triggerTime)).uppercase(Locale.ENGLISH)
+                        } else ""
+
+                        val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                        val cap = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+                        val charging = bm?.isCharging ?: isCharging
+
+                        var newRamTxt = ramStatusText
+                        var newRamFrac = ramUsageFraction
+                        var newRomTxt = storageStatusText
+                        var newRomFrac = storageUsageFraction
+
+                        if (needsStorage || tickCounter == 0) {
+                            val actMgr = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                            if (actMgr != null) {
+                                val memInfo = ActivityManager.MemoryInfo()
+                                actMgr.getMemoryInfo(memInfo)
+                                val totalGb = memInfo.totalMem.toDouble() / (1024.0 * 1024.0 * 1024.0)
+                                val usedGb = (memInfo.totalMem - memInfo.availMem).toDouble() / (1024.0 * 1024.0 * 1024.0)
+                                newRamTxt = String.format(Locale.US, "RAM %.1f/%.0f GB", usedGb, totalGb)
+                                newRamFrac = (usedGb / totalGb.coerceAtLeast(1.0)).toFloat().coerceIn(0.05f, 1f)
+                            }
+                            val stat = StatFs(Environment.getDataDirectory().path)
+                            val totalBytes = stat.totalBytes.toDouble()
+                            val availBytes = stat.availableBytes.toDouble()
+                            val usedBytes = (totalBytes - availBytes).coerceAtLeast(0.0)
+                            val totalGb = totalBytes / (1000.0 * 1000.0 * 1000.0)
+                            val usedGb = usedBytes / (1000.0 * 1000.0 * 1000.0)
+                            newRomTxt = String.format(Locale.US, "ROM %.0f/%.0f GB", usedGb, totalGb)
+                            newRomFrac = (usedBytes / totalBytes.coerceAtLeast(1.0)).toFloat().coerceIn(0.05f, 1f)
+                        }
+
+                        withContext(Dispatchers.Main) {
+                            if (alarmTxt != nextAlarmStr) nextAlarmStr = alarmTxt
+                            if (cap in 1..100 && cap != batteryPct) batteryPct = cap
+                            if (charging != isCharging) isCharging = charging
+                            if (newRamTxt != ramStatusText) ramStatusText = newRamTxt
+                            if (abs(newRamFrac - ramUsageFraction) > 0.01f) ramUsageFraction = newRamFrac
+                            if (newRomTxt != storageStatusText) storageStatusText = newRomTxt
+                            if (abs(newRomFrac - storageUsageFraction) > 0.01f) storageUsageFraction = newRomFrac
+                        }
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+
+            tickCounter++
+            delay(if (needsSeconds) 1_000L else 2_000L)
         }
     }
 
@@ -1469,33 +1539,16 @@ fun NTextLauncherApp(
             usableHomeHeightDp = computedUsableHeightDp
         }
 
-        // iOS Physical Spring Progress States for Overlay Windows & Edit Mode Banner
-        val widgetsWindowProgress by rememberIosPopupProgress(
-            isVisible = currentView == LauncherView.WIDGETS,
-            label = "iosWidgetsWindowSpring"
-        )
-        val settingsWindowProgress by rememberIosPopupProgress(
-            isVisible = currentView == LauncherView.SETTINGS,
-            label = "iosSettingsWindowSpring"
-        )
-        val editBannerProgress by rememberIosPopupProgress(
-            isVisible = editMode && currentView == LauncherView.HOME_AND_DRAWER && drawerProgress.value < 0.2f,
-            label = "iosEditBannerSpring"
-        )
-        val overlayWindowProgress = max(
-            widgetsWindowProgress.coerceIn(0f, 1f),
-            settingsWindowProgress.coerceIn(0f, 1f)
-        )
-
         // Full-Screen Edge-to-Edge Wallpaper Canvas
         // Supports real-time hardware blur when Nocturnaa Settings OR App Drawer is in "blurry" mode!
+        // Reads drawerProgress.value ONLY inside graphicsLayer (Draw phase) so zero recomposition occurs during 120Hz swipes!
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        val settingsBlurPx = if (settingsWindowProgress > 0.01f && settingsBgMode == "blurry") {
-                            ((settingsBgIntensity.coerceIn(4, 100) / 100f) * settingsWindowProgress.coerceIn(0f, 1f) * 38.dp.toPx())
+                        val settingsBlurPx = if (currentView == LauncherView.SETTINGS && settingsBgMode == "blurry") {
+                            ((settingsBgIntensity.coerceIn(4, 100) / 100f) * 38.dp.toPx())
                         } else 0f
                         val drawerBlurPx = if (currentView == LauncherView.HOME_AND_DRAWER && drawerBgMode == "blurry" && drawerProgress.value > 0.01f) {
                             ((drawerBgIntensity.coerceIn(4, 100) / 100f) * drawerProgress.value * 38.dp.toPx())
@@ -1512,9 +1565,9 @@ fun NTextLauncherApp(
                 }
         ) {
             val isWallpaperScreenVisible = when (currentView) {
-                LauncherView.HOME_AND_DRAWER -> drawerProgress.value < 0.995f || drawerBgMode != "opaque"
-                LauncherView.WIDGETS -> widgetsWindowProgress < 0.995f
-                LauncherView.SETTINGS -> settingsBgMode != "opaque" || settingsWindowProgress < 0.995f
+                LauncherView.HOME_AND_DRAWER -> !isDrawerFullyOpen || drawerBgMode != "opaque"
+                LauncherView.WIDGETS -> false
+                LauncherView.SETTINGS -> settingsBgMode != "opaque"
             }
             OledWallpaperCanvas(
                 preset = wallpaperPreset,
@@ -1533,52 +1586,42 @@ fun NTextLauncherApp(
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            if (editMode || editBannerProgress > 0.005f) {
-                if (currentView == LauncherView.HOME_AND_DRAWER && drawerProgress.value < 0.2f) {
-                    Row(
+            if (editMode && currentView == LauncherView.HOME_AND_DRAWER && isDrawerNearClosed) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+                        .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 2.dp)
+                        .border(1.dp, Color(0xFF404040), RoundedCornerShape(8.dp))
+                        .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "EDIT MODE: CUSTOMIZE SIZE, FONT & ORDER",
+                        color = accentColor,
+                        fontSize = 10.sp,
+                        fontFamily = selectedFont
+                    )
+                    Text(
+                        text = "DONE",
+                        color = Color.Black,
+                        fontSize = 10.sp,
+                        fontFamily = selectedFont,
+                        fontWeight = FontWeight.Bold,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.statusBars)
-                            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
-                            .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 2.dp)
-                            .iosPopupWindowLayer(progress = editBannerProgress, initialScale = 0.82f)
-                            .border(1.dp, Color(0xFF404040), RoundedCornerShape(8.dp))
-                            .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "EDIT MODE: CUSTOMIZE SIZE, FONT & ORDER",
-                            color = accentColor,
-                            fontSize = 10.sp,
-                            fontFamily = selectedFont
-                        )
-                        Text(
-                            text = "DONE",
-                            color = Color.Black,
-                            fontSize = 10.sp,
-                            fontFamily = selectedFont,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .background(Color.White, RoundedCornerShape(4.dp))
-                                .clickable { editMode = false }
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
+                            .background(Color.White, RoundedCornerShape(4.dp))
+                            .clickable { editMode = false }
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
                 }
             }
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                // Base Layer: Home Screen & App Drawer (fades out cleanly when Nocturnaa Settings or Widget Manager pops up)
-                if (overlayWindowProgress < 0.995f) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                alpha = (1f - overlayWindowProgress * 1.35f).coerceIn(0f, 1f)
-                            }
-                    ) {
+                when (currentView) {
+                    LauncherView.HOME_AND_DRAWER -> {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1789,21 +1832,9 @@ fun NTextLauncherApp(
                             )
                         }
                     }
-                }
 
-                // iOS Spring-Driven Scale-Fade Popup Window: WIDGET MANAGER
-                if (currentView == LauncherView.WIDGETS || widgetsWindowProgress > 0.002f) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = (0.76f * widgetsWindowProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.76f)))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .iosPopupWindowLayer(progress = widgetsWindowProgress, initialScale = 0.84f)
-                        ) {
-                            WidgetsManagerView(
+                    LauncherView.WIDGETS -> {
+                        WidgetsManagerView(
                             activeWidgets = activeWidgets,
                             widgetSizes = widgetSizes,
                             accentColor = accentColor,
@@ -1834,27 +1865,13 @@ fun NTextLauncherApp(
                             onMoveWidget = { id, dir -> moveWidget(id, dir) },
                             onBack = { currentView = LauncherView.HOME_AND_DRAWER }
                         )
-                        }
                     }
-                }
 
-                // iOS Spring-Driven Scale-Fade Popup Window: NOCTURNAA SETTINGS
-                if (currentView == LauncherView.SETTINGS || settingsWindowProgress > 0.002f) {
-                    val hasCustomImageFile = remember(userWallpaperRefreshTrigger, wallpaperPreset) {
-                        File(context.filesDir, "user_custom_wallpaper.jpg").exists()
-                    }
-                    val dimScrimAlpha = if (settingsBgMode == "opaque") 0.76f else 0.42f
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = (dimScrimAlpha * settingsWindowProgress.coerceIn(0f, 1f)).coerceIn(0f, dimScrimAlpha)))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .iosPopupWindowLayer(progress = settingsWindowProgress, initialScale = 0.84f)
-                        ) {
-                            LauncherSettingsView(
+                    LauncherView.SETTINGS -> {
+                        val hasCustomImageFile = remember(userWallpaperRefreshTrigger, wallpaperPreset) {
+                            File(context.filesDir, "user_custom_wallpaper.jpg").exists()
+                        }
+                        LauncherSettingsView(
                             fontId = fontId,
                             textAlignMode = textAlignMode,
                             accentHex = accentHex,
@@ -1994,7 +2011,6 @@ fun NTextLauncherApp(
                             onRequestDefaultHomeRole = onRequestDefaultHomeRole,
                             onBack = { currentView = LauncherView.HOME_AND_DRAWER }
                         )
-                        }
                     }
                 }
             }
@@ -2975,9 +2991,10 @@ fun HomeScreenView(
                                                 )
                                                 Text(
                                                     text = ":",
-                                                    color = accentColor.copy(alpha = colonAlpha),
+                                                    color = accentColor,
                                                     fontSize = digitSp,
-                                                    fontFamily = wFontFamily
+                                                    fontFamily = wFontFamily,
+                                                    modifier = Modifier.graphicsLayer { alpha = colonAlpha }
                                                 )
                                                 Text(
                                                     text = currentMinStr,
@@ -3087,9 +3104,10 @@ fun HomeScreenView(
                                                 )
                                                 Text(
                                                     text = ":",
-                                                    color = accentColor.copy(alpha = colonAlpha),
+                                                    color = accentColor,
                                                     fontSize = 42.sp,
-                                                    fontFamily = wFontFamily
+                                                    fontFamily = wFontFamily,
+                                                    modifier = Modifier.graphicsLayer { alpha = colonAlpha }
                                                 )
                                                 Text(
                                                     text = currentMinStr,
@@ -4202,8 +4220,57 @@ private val WORLD_SPHERE_POLYGONS_3D: List<SpherePolygon3D> by lazy {
     }
 }
 
-private val WORLD_COUNTRY_BORDERS: List<List<Pair<Float, Float>>> by lazy {
-    WORLD_SPHERE_POLYGONS_3D.map { it.latLonPairs }
+// Precomputed 3D Graticule Latitude Rings & Longitude Meridians on Unit Sphere (Zero sin/cos or Triple allocations per frame!)
+private val GRATICULE_LAT_RINGS_3D: List<Pair<Boolean, FloatArray>> by lazy {
+    val latLevels = listOf(-75f, -60f, -45f, -30f, -15f, 0f, 15f, 30f, 45f, 60f, 75f)
+    latLevels.map { latDeg ->
+        val isEq = latDeg == 0f
+        val latRad = (latDeg * PI / 180.0).toFloat()
+        val cosLat = cos(latRad)
+        val y0 = -sin(latRad)
+        val steps = 61 // 0..360 step 6
+        val packed = FloatArray(steps * 3)
+        for (idx in 0 until steps) {
+            val lonDeg = (idx * 6).toFloat()
+            val lonRad = (lonDeg * PI / 180.0).toFloat()
+            val base = idx * 3
+            packed[base] = cosLat * sin(lonRad)
+            packed[base + 1] = y0
+            packed[base + 2] = cosLat * cos(lonRad)
+        }
+        isEq to packed
+    }
+}
+
+private val GRATICULE_LON_MERIDIANS_3D: List<FloatArray> by lazy {
+    (0 until 360 step 15).map { lonDeg ->
+        val lonRad = (lonDeg * PI / 180.0).toFloat()
+        val sinLon = sin(lonRad)
+        val cosLon = cos(lonRad)
+        val steps = 26 // -75..75 step 6
+        val packed = FloatArray(steps * 3)
+        for (idx in 0 until steps) {
+            val latDeg = (-75 + idx * 6).toFloat()
+            val latRad = (latDeg * PI / 180.0).toFloat()
+            val cosLat = cos(latRad)
+            val base = idx * 3
+            packed[base] = cosLat * sinLon
+            packed[base + 1] = -sin(latRad)
+            packed[base + 2] = cosLat * cosLon
+        }
+        packed
+    }
+}
+
+// Plain mutable holder for 120Hz Globe rotation state so frame updates NEVER trigger Composable recomposition!
+private class GlobePoseState(initialPitch: Float, initialRoll: Float) {
+    var spinYawDelta: Float = 0f
+    var pitch: Float = initialPitch
+    var roll: Float = initialRoll
+    var velYaw: Float = 0.28f
+    var velPitch: Float = 0f
+    var velRoll: Float = 0f
+    var isDragging: Boolean = false
 }
 
 @Composable
@@ -4321,28 +4388,31 @@ fun RetroFuturisticGlobeView(
     val currentTargetPitch by rememberUpdatedState(targetPitchRad)
     val currentBaseYawOffset by rememberUpdatedState(baseYawOffsetRad)
     val currentOnLongPressHome by rememberUpdatedState(onLongPressHome)
-    val baseSpinSpeed = 0.28f  // calm, precise autonomous Y-axis spin (radians/sec)
+    val baseSpinSpeed = 0.28f
 
-    var spinYawDelta by remember { mutableStateOf(0f) }
-    var pitch by remember { mutableStateOf(targetPitchRad) }
-    var roll by remember { mutableStateOf(targetRollRad) }
+    // Pose state is stored in a plain object; only globeFrameTick is observed inside Canvas {} (Draw phase only -> 0 recompositions!)
+    val pose = remember { GlobePoseState(targetPitchRad, targetRollRad) }
+    var globeFrameTick by remember { mutableStateOf(0) }
 
-    // Immediately reflect 2D Axial Tilt (roll) and Polar Pitch adjustments from Edit Mode
+    // Pre-allocated vertex buffers & reusable Paths (Zero heap allocations per frame at 120 FPS!)
+    val sharedRx = remember { FloatArray(2048) }
+    val sharedRy = remember { FloatArray(2048) }
+    val sharedRz = remember { FloatArray(2048) }
+    val sharedFillPath = remember { Path() }
+    val sharedBorderPath = remember { Path() }
+
     LaunchedEffect(targetRollRad) {
-        roll = targetRollRad
+        pose.roll = targetRollRad
+        globeFrameTick = (globeFrameTick + 1) and 0x7FFFFFFF
     }
     LaunchedEffect(targetPitchRad) {
-        pitch = targetPitchRad
+        pose.pitch = targetPitchRad
+        globeFrameTick = (globeFrameTick + 1) and 0x7FFFFFFF
+    }
+    LaunchedEffect(baseYawOffsetRad) {
+        globeFrameTick = (globeFrameTick + 1) and 0x7FFFFFFF
     }
 
-    var velYaw by remember { mutableStateOf(baseSpinSpeed) }
-    var velPitch by remember { mutableStateOf(0f) }
-    var velRoll by remember { mutableStateOf(0f) }
-    var isDragging by remember { mutableStateOf(false) }
-
-    // Double-Tap to Unlock Interaction Mode:
-    // - By default, single tap does nothing and normal swipes pass through to the Home Screen.
-    // - Double-tapping unlocks 3D touch interaction (and auto-locks after 8s of idle or another double-tap).
     var isInteractionUnlocked by remember { mutableStateOf(false) }
     var lastInteractionMs by remember { mutableStateOf(0L) }
     val currentOnInteractionChanged by rememberUpdatedState(onInteractionModeChanged)
@@ -4361,26 +4431,16 @@ fun RetroFuturisticGlobeView(
         if (!interactive) isInteractionUnlocked = false
     }
 
-    LaunchedEffect(isInteractionUnlocked, lastInteractionMs, isDragging) {
-        if (isInteractionUnlocked && !isDragging) {
+    LaunchedEffect(isInteractionUnlocked, lastInteractionMs) {
+        if (isInteractionUnlocked && !pose.isDragging) {
             delay(8_000L)
-            if (!isDragging && System.currentTimeMillis() - lastInteractionMs >= 7_800L) {
+            if (!pose.isDragging && System.currentTimeMillis() - lastInteractionMs >= 7_800L) {
                 isInteractionUnlocked = false
             }
         }
     }
 
-    val targetGlobeZoom = 1.0f
-    val animatedGlobeZoom by animateFloatAsState(
-        targetValue = targetGlobeZoom,
-        animationSpec = spring(
-            dampingRatio = 0.82f,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "globeZoomAnim"
-    )
-
-    // 120Hz physics & smooth spring posture recovery loop (pauses when widgetsActive == false)
+    // 120Hz physics & smooth spring posture recovery loop (updates pose + draw-phase globeFrameTick; zero recomposition!)
     LaunchedEffect(widgetsActive) {
         if (!widgetsActive) return@LaunchedEffect
         var lastFrameNanos = 0L
@@ -4393,21 +4453,21 @@ fun RetroFuturisticGlobeView(
                 }
                 lastFrameNanos = frameNanos
 
-                if (!isDragging) {
-                    val zoomSlowdown = 1f / animatedGlobeZoom.coerceAtLeast(1f)
-                    spinYawDelta += velYaw * dt * zoomSlowdown
-                    pitch = (pitch + velPitch * dt).coerceIn(-1.48f, 1.48f)
-                    roll = (roll + velRoll * dt).coerceIn(-3.1416f, 3.1416f)
+                if (!pose.isDragging) {
+                    pose.spinYawDelta += pose.velYaw * dt
+                    pose.pitch = (pose.pitch + pose.velPitch * dt).coerceIn(-1.48f, 1.48f)
+                    pose.roll = (pose.roll + pose.velRoll * dt).coerceIn(-3.1416f, 3.1416f)
 
                     val decay = exp(-3.1f * dt)
-                    velYaw = baseSpinSpeed + (velYaw - baseSpinSpeed) * decay
-                    velPitch *= decay
-                    velRoll *= decay
+                    pose.velYaw = baseSpinSpeed + (pose.velYaw - baseSpinSpeed) * decay
+                    pose.velPitch *= decay
+                    pose.velRoll *= decay
 
                     val restoreFactor = (1f - exp(-2.6f * dt)).coerceIn(0f, 1f)
-                    pitch += (currentTargetPitch - pitch) * restoreFactor
-                    roll += (currentTargetRoll - roll) * restoreFactor
+                    pose.pitch += (currentTargetPitch - pose.pitch) * restoreFactor
+                    pose.roll += (currentTargetRoll - pose.roll) * restoreFactor
                 }
+                globeFrameTick = (globeFrameTick + 1) and 0x7FFFFFFF
             }
         }
     }
@@ -4442,13 +4502,12 @@ fun RetroFuturisticGlobeView(
                         }
                     },
                     onLongPress = {
-                        isDragging = false
+                        pose.isDragging = false
                         currentOnLongPressHome()
                     }
                 )
             }
             .pointerInput(interactive, isInteractionUnlocked) {
-                // User can only interact with (spin/drag) the globe after double-tapping it!
                 if (!interactive || !isInteractionUnlocked) return@pointerInput
                 var lastHapticStep = 0
                 awaitEachGesture {
@@ -4468,10 +4527,10 @@ fun RetroFuturisticGlobeView(
                             val dy = curPos.y - prevPos.y
                             if (!movedEnough && hypot(dx, dy) > 3.5f) {
                                 movedEnough = true
-                                isDragging = true
-                                velYaw = 0f
-                                velPitch = 0f
-                                velRoll = 0f
+                                pose.isDragging = true
+                                pose.velYaw = 0f
+                                pose.velPitch = 0f
+                                pose.velRoll = 0f
                             }
                             if (movedEnough) {
                                 change.consume()
@@ -4479,76 +4538,55 @@ fun RetroFuturisticGlobeView(
                                 val dtMs = (curTime - prevTime).coerceAtLeast(1L)
                                 val dtSec = dtMs / 1000f
 
-                                // Decreased sensitivity (0.0034f instead of 0.0095f) for smooth, weighted 3D control
-                                val sens = 0.0034f / animatedGlobeZoom.coerceAtLeast(1f)
-                                spinYawDelta += dx * sens
-                                pitch = (pitch - dy * sens).coerceIn(-1.45f, 1.45f)
-                                roll = (roll + (dx * dy) * 0.000045f).coerceIn(-3.1416f, 3.1416f)
+                                val sens = 0.0034f
+                                pose.spinYawDelta += dx * sens
+                                pose.pitch = (pose.pitch - dy * sens).coerceIn(-1.45f, 1.45f)
+                                pose.roll = (pose.roll + (dx * dy) * 0.000045f).coerceIn(-3.1416f, 3.1416f)
 
                                 val instVelYaw = (dx * sens) / dtSec
                                 val instVelPitch = (-dy * sens) / dtSec
                                 val instVelRoll = ((dx * dy) * 0.000045f) / dtSec
-                                velYaw = (velYaw * 0.55f + instVelYaw * 0.45f).coerceIn(-4.2f, 4.2f)
-                                velPitch = (velPitch * 0.55f + instVelPitch * 0.45f).coerceIn(-3.6f, 3.6f)
-                                velRoll = (velRoll * 0.55f + instVelRoll * 0.45f).coerceIn(-2.4f, 2.4f)
+                                pose.velYaw = (pose.velYaw * 0.55f + instVelYaw * 0.45f).coerceIn(-4.2f, 4.2f)
+                                pose.velPitch = (pose.velPitch * 0.55f + instVelPitch * 0.45f).coerceIn(-3.6f, 3.6f)
+                                pose.velRoll = (pose.velRoll * 0.55f + instVelRoll * 0.45f).coerceIn(-2.4f, 2.4f)
 
-                                val step = (((currentBaseYawOffset + spinYawDelta) * 5f).toInt())
+                                val step = (((currentBaseYawOffset + pose.spinYawDelta) * 5f).toInt())
                                 if (step != lastHapticStep) {
                                     lastHapticStep = step
                                     onTick()
                                 }
                                 prevPos = curPos
                                 prevTime = curTime
+                                globeFrameTick = (globeFrameTick + 1) and 0x7FFFFFFF
                             }
                         }
                     } while (event.changes.any { it.pressed })
 
-                    isDragging = false
+                    pose.isDragging = false
                     lastInteractionMs = System.currentTimeMillis()
                 }
             },
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
+            // Subscribe draw phase to globeFrameTick without triggering recomposition
+            if (globeFrameTick < 0) return@Canvas
+
             val w = size.width
             val h = size.height
-            val cx = w / 2f
-            val cy = h / 2f
-            val baseRadius = (min(w, h) * 0.492f).coerceAtLeast(36f)
-            val radius = baseRadius * animatedGlobeZoom
+            val cx = w * 0.5f
+            val cy = h * 0.5f
+            val radius = (min(w, h) * 0.492f).coerceAtLeast(36f)
 
-            val effectiveYaw = currentBaseYawOffset + spinYawDelta
+            val effectiveYaw = currentBaseYawOffset + pose.spinYawDelta
             val cosY = cos(effectiveYaw)
             val sinY = sin(effectiveYaw)
-            val cosP = cos(pitch)
-            val sinP = sin(pitch)
-            val cosR = cos(roll)
-            val sinR = sin(roll)
+            val cosP = cos(pose.pitch)
+            val sinP = sin(pose.pitch)
+            val cosR = cos(pose.roll)
+            val sinR = sin(pose.roll)
 
-            // Fast 3D matrix rotation for unit-sphere vector (x0, y0, z0)
-            fun rotateUnitVec(x0: Float, y0: Float, z0: Float): Triple<Float, Float, Float> {
-                val x1 = x0 * cosY + z0 * sinY
-                val z1 = -x0 * sinY + z0 * cosY
-                val y2 = y0 * cosP - z1 * sinP
-                val z2 = y0 * sinP + z1 * cosP
-                val x3 = x1 * cosR - y2 * sinR
-                val y3 = x1 * sinR + y2 * cosR
-                return Triple(x3, y3, z2)
-            }
-
-            fun projectLatLon(latDeg: Float, lonDeg: Float): Triple<Float, Float, Float> {
-                val lat = (latDeg * PI / 180.0).toFloat()
-                val lon = (lonDeg * PI / 180.0).toFloat()
-                val cosLat = cos(lat)
-                val (x3, y3, z3) = rotateUnitVec(
-                    cosLat * sin(lon),
-                    -sin(lat),
-                    cosLat * cos(lon)
-                )
-                return Triple(cx + x3 * radius, cy + y3 * radius, z3)
-            }
-
-            // 1. 3D Ocean Sphere with Bathymetric Depth Gradient & Specular Solar Highlight
+            // 1. 3D Ocean Sphere
             if (!isWireframe) {
                 drawCircle(
                     brush = Brush.radialGradient(
@@ -4580,52 +4618,110 @@ fun RetroFuturisticGlobeView(
                 )
             }
 
-            // 2. Back-Hemisphere Geodesic Graticule Grid (z < 0)
-            val latLevels = listOf(-75f, -60f, -45f, -30f, -15f, 0f, 15f, 30f, 45f, 60f, 75f)
+            // 2. Precomputed Geodesic Graticule Grid (Back & Front Hemispheres in a single zero-allocation pass)
             val backGridColor = if (isWireframe) wfColor.copy(alpha = 0.09f) else Color(0xFF1E96C8).copy(alpha = 0.12f)
-            for (latDeg in latLevels) {
-                var prevPt: Triple<Float, Float, Float>? = null
-                for (lonStep in 0..360 step 12) {
-                    val curPt = projectLatLon(latDeg, lonStep.toFloat())
-                    if (prevPt != null) {
-                        val zAvg = (prevPt.third + curPt.third) * 0.5f
-                        if (zAvg < 0f) {
+            val frontGridColor = if (isWireframe) wfColor.copy(alpha = 0.22f) else Color(0xFF28B8E8).copy(alpha = 0.22f)
+            val frontEqColor = if (isWireframe) wfColor.copy(alpha = 0.44f) else Color(0xFF28B8E8).copy(alpha = 0.44f)
+            val thinStrokePx = 0.58.dp.toPx()
+            val eqStrokePx = 0.95.dp.toPx()
+
+            for (ringIdx in GRATICULE_LAT_RINGS_3D.indices) {
+                val (isEq, packed) = GRATICULE_LAT_RINGS_3D[ringIdx]
+                val count = packed.size / 3
+                var prevX = 0f
+                var prevY = 0f
+                var prevZ = 0f
+                for (i in 0 until count) {
+                    val b = i * 3
+                    val x0 = packed[b]
+                    val y0 = packed[b + 1]
+                    val z0 = packed[b + 2]
+                    val x1 = x0 * cosY + z0 * sinY
+                    val z1 = -x0 * sinY + z0 * cosY
+                    val y2 = y0 * cosP - z1 * sinP
+                    val rz = y0 * sinP + z1 * cosP
+                    val rx = x1 * cosR - y2 * sinR
+                    val ry = x1 * sinR + y2 * cosR
+                    val sx = cx + rx * radius
+                    val sy = cy + ry * radius
+                    if (i > 0) {
+                        val zAvg = (prevZ + rz) * 0.5f
+                        if (zAvg >= 0f) {
+                            drawLine(
+                                color = if (isEq) frontEqColor else frontGridColor,
+                                start = Offset(prevX, prevY),
+                                end = Offset(sx, sy),
+                                strokeWidth = if (isEq) eqStrokePx else thinStrokePx
+                            )
+                        } else if (i % 2 == 0) {
                             drawLine(
                                 color = backGridColor,
-                                start = Offset(prevPt.first, prevPt.second),
-                                end = Offset(curPt.first, curPt.second),
-                                strokeWidth = 0.55.dp.toPx()
+                                start = Offset(prevX, prevY),
+                                end = Offset(sx, sy),
+                                strokeWidth = thinStrokePx
                             )
                         }
                     }
-                    prevPt = curPt
-                }
-            }
-            for (lonDeg in 0 until 360 step 15) {
-                var prevPt: Triple<Float, Float, Float>? = null
-                for (latStep in -75..75 step 12) {
-                    val curPt = projectLatLon(latStep.toFloat(), lonDeg.toFloat())
-                    if (prevPt != null) {
-                        val zAvg = (prevPt.third + curPt.third) * 0.5f
-                        if (zAvg < 0f) {
-                            drawLine(
-                                color = backGridColor,
-                                start = Offset(prevPt.first, prevPt.second),
-                                end = Offset(curPt.first, curPt.second),
-                                strokeWidth = 0.55.dp.toPx()
-                            )
-                        }
-                    }
-                    prevPt = curPt
+                    prevX = sx
+                    prevY = sy
+                    prevZ = rz
                 }
             }
 
-            // 3. Back-Hemisphere Ghost Country Outlines (z < 0 for 3D Holographic Depth)
+            for (merIdx in GRATICULE_LON_MERIDIANS_3D.indices) {
+                val packed = GRATICULE_LON_MERIDIANS_3D[merIdx]
+                val count = packed.size / 3
+                var prevX = 0f
+                var prevY = 0f
+                var prevZ = 0f
+                for (i in 0 until count) {
+                    val b = i * 3
+                    val x0 = packed[b]
+                    val y0 = packed[b + 1]
+                    val z0 = packed[b + 2]
+                    val x1 = x0 * cosY + z0 * sinY
+                    val z1 = -x0 * sinY + z0 * cosY
+                    val y2 = y0 * cosP - z1 * sinP
+                    val rz = y0 * sinP + z1 * cosP
+                    val rx = x1 * cosR - y2 * sinR
+                    val ry = x1 * sinR + y2 * cosR
+                    val sx = cx + rx * radius
+                    val sy = cy + ry * radius
+                    if (i > 0) {
+                        val zAvg = (prevZ + rz) * 0.5f
+                        if (zAvg >= 0f) {
+                            drawLine(
+                                color = frontGridColor,
+                                start = Offset(prevX, prevY),
+                                end = Offset(sx, sy),
+                                strokeWidth = thinStrokePx
+                            )
+                        } else if (i % 2 == 0) {
+                            drawLine(
+                                color = backGridColor,
+                                start = Offset(prevX, prevY),
+                                end = Offset(sx, sy),
+                                strokeWidth = thinStrokePx
+                            )
+                        }
+                    }
+                    prevX = sx
+                    prevY = sy
+                    prevZ = rz
+                }
+            }
+
+            // 3. Back-Hemisphere Ghost Country Outlines (Zero Triple allocations)
             val backBorderColor = if (isWireframe) wfColor.copy(alpha = 0.12f) else Color(0xFF18B868).copy(alpha = 0.13f)
-            for (poly3d in WORLD_SPHERE_POLYGONS_3D) {
-                // Quick back-hemisphere check using rotated polygon normal
-                val (_, _, nz) = rotateUnitVec(poly3d.normalX, poly3d.normalY, poly3d.normalZ)
-                if (nz > 0.45f) continue
+            for (polyIdx in WORLD_SPHERE_POLYGONS_3D.indices) {
+                val poly3d = WORLD_SPHERE_POLYGONS_3D[polyIdx]
+                val nx0 = poly3d.normalX
+                val ny0 = poly3d.normalY
+                val nz0 = poly3d.normalZ
+                val nz1 = -nx0 * sinY + nz0 * cosY
+                val rnz = ny0 * sinP + nz1 * cosP
+                if (rnz > 0.45f) continue
+
                 val xyz = poly3d.xyzPacked
                 val count = xyz.size / 3
                 var prevX = 0f
@@ -4633,7 +4729,15 @@ fun RetroFuturisticGlobeView(
                 var prevZ = 1f
                 for (i in 0 until count) {
                     val base = i * 3
-                    val (rx, ry, rz) = rotateUnitVec(xyz[base], xyz[base + 1], xyz[base + 2])
+                    val x0 = xyz[base]
+                    val y0 = xyz[base + 1]
+                    val z0 = xyz[base + 2]
+                    val x1 = x0 * cosY + z0 * sinY
+                    val z1 = -x0 * sinY + z0 * cosY
+                    val y2 = y0 * cosP - z1 * sinP
+                    val rz = y0 * sinP + z1 * cosP
+                    val rx = x1 * cosR - y2 * sinR
+                    val ry = x1 * sinR + y2 * cosR
                     val sx = cx + rx * radius
                     val sy = cy + ry * radius
                     if (i > 0 && prevZ < 0f && rz < 0f) {
@@ -4641,7 +4745,7 @@ fun RetroFuturisticGlobeView(
                             color = backBorderColor,
                             start = Offset(prevX, prevY),
                             end = Offset(sx, sy),
-                            strokeWidth = 0.55.dp.toPx()
+                            strokeWidth = thinStrokePx
                         )
                     }
                     prevX = sx
@@ -4650,180 +4754,111 @@ fun RetroFuturisticGlobeView(
                 }
             }
 
-            // 4. Front-Hemisphere Geodesic Graticule Grid (z >= 0)
-            for (latDeg in latLevels) {
-                val isEquator = latDeg == 0f
-                var prevPt: Triple<Float, Float, Float>? = null
-                for (lonStep in 0..360 step 6) {
-                    val curPt = projectLatLon(latDeg, lonStep.toFloat())
-                    if (prevPt != null) {
-                        val zAvg = (prevPt.third + curPt.third) * 0.5f
-                        if (zAvg >= 0f) {
-                            val gridAlpha = if (isEquator) (0.32f + 0.25f * zAvg) else (0.14f + 0.20f * zAvg)
-                            val gridCol = if (isWireframe) {
-                                wfColor.copy(alpha = gridAlpha.coerceIn(0f, 1f))
-                            } else {
-                                Color(0xFF28B8E8).copy(alpha = gridAlpha.coerceIn(0f, 1f))
-                            }
-                            drawLine(
-                                color = gridCol,
-                                start = Offset(prevPt.first, prevPt.second),
-                                end = Offset(curPt.first, curPt.second),
-                                strokeWidth = if (isEquator) 0.95.dp.toPx() else 0.62.dp.toPx()
-                            )
-                        }
-                    }
-                    prevPt = curPt
-                }
-            }
-            for (lonDeg in 0 until 360 step 15) {
-                var prevPt: Triple<Float, Float, Float>? = null
-                for (latStep in -75..75 step 6) {
-                    val curPt = projectLatLon(latStep.toFloat(), lonDeg.toFloat())
-                    if (prevPt != null) {
-                        val zAvg = (prevPt.third + curPt.third) * 0.5f
-                        if (zAvg >= 0f) {
-                            val gridAlpha = 0.14f + 0.20f * zAvg
-                            val gridCol = if (isWireframe) {
-                                wfColor.copy(alpha = gridAlpha.coerceIn(0f, 1f))
-                            } else {
-                                Color(0xFF28B8E8).copy(alpha = gridAlpha.coerceIn(0f, 1f))
-                            }
-                            drawLine(
-                                color = gridCol,
-                                start = Offset(prevPt.first, prevPt.second),
-                                end = Offset(curPt.first, curPt.second),
-                                strokeWidth = 0.62.dp.toPx()
-                            )
-                        }
-                    }
-                    prevPt = curPt
-                }
-            }
-
-            // 5. Front-Hemisphere Ultra-Accurate 3D Country Mesh (Exact Horizon Clipping + 3D Lambertian Shading)
-            // Directional light source from upper-left front: L = (-0.38, -0.44, 0.81)
+            // 4. Front-Hemisphere 3D Country Mesh (Reuses sharedRx/Ry/Rz and sharedFillPath/sharedBorderPath -> Zero Allocations!)
             val lightX = -0.38f
             val lightY = -0.44f
             val lightZ = 0.81f
+            val holoStrokeOuter = Stroke(width = 1.85.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            val holoStrokeInner = Stroke(width = 0.92.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            val wfStroke = Stroke(width = 1.15.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
 
-            for (poly3d in WORLD_SPHERE_POLYGONS_3D) {
-                val (rnx, rny, rnz) = rotateUnitVec(poly3d.normalX, poly3d.normalY, poly3d.normalZ)
-                // Cull polygons completely on the far back side of the sphere
+            for (polyIdx in WORLD_SPHERE_POLYGONS_3D.indices) {
+                val poly3d = WORLD_SPHERE_POLYGONS_3D[polyIdx]
+                val nx0 = poly3d.normalX
+                val ny0 = poly3d.normalY
+                val nz0 = poly3d.normalZ
+                val nx1 = nx0 * cosY + nz0 * sinY
+                val nz1 = -nx0 * sinY + nz0 * cosY
+                val ny2 = ny0 * cosP - nz1 * sinP
+                val rnz = ny0 * sinP + nz1 * cosP
                 if (rnz < -0.68f) continue
+                val rnx = nx1 * cosR - ny2 * sinR
+                val rny = nx1 * sinR + ny2 * cosR
 
                 val xyz = poly3d.xyzPacked
-                val n = xyz.size / 3
+                val n = (xyz.size / 3).coerceAtMost(sharedRx.size)
                 var anyFront = false
 
-                // Rotate vertices & clip against the 3D horizon plane (z = 0)
-                val rxArr = FloatArray(n)
-                val ryArr = FloatArray(n)
-                val rzArr = FloatArray(n)
                 for (i in 0 until n) {
                     val base = i * 3
-                    val (rx, ry, rz) = rotateUnitVec(xyz[base], xyz[base + 1], xyz[base + 2])
-                    rxArr[i] = rx
-                    ryArr[i] = ry
-                    rzArr[i] = rz
+                    val x0 = xyz[base]
+                    val y0 = xyz[base + 1]
+                    val z0 = xyz[base + 2]
+                    val x1 = x0 * cosY + z0 * sinY
+                    val z1 = -x0 * sinY + z0 * cosY
+                    val y2 = y0 * cosP - z1 * sinP
+                    val rz = y0 * sinP + z1 * cosP
+                    val rx = x1 * cosR - y2 * sinR
+                    val ry = x1 * sinR + y2 * cosR
+                    sharedRx[i] = rx
+                    sharedRy[i] = ry
+                    sharedRz[i] = rz
                     if (rz >= -0.02f) anyFront = true
                 }
                 if (!anyFront) continue
 
-                // 3D Lambertian illumination factor from surface normal
                 val lambert = (rnx * lightX + rny * lightY + rnz * lightZ).coerceIn(0f, 1f)
 
-                if (!isWireframe) {
-                    val fillPath = Path()
-                    var started = false
-                    for (i in 0 until n) {
-                        val rx = rxArr[i]
-                        val ry = ryArr[i]
-                        val rz = rzArr[i]
-                        val px: Float
-                        val py: Float
-                        if (rz >= 0f) {
-                            px = cx + rx * radius
-                            py = cy + ry * radius
-                        } else {
-                            // Project horizon-crossing points cleanly onto the 3D sphere's circular limb
-                            val normXY = hypot(rx, ry).coerceAtLeast(1e-4f)
-                            px = cx + (rx / normXY) * radius * 0.996f
-                            py = cy + (ry / normXY) * radius * 0.996f
-                        }
-                        if (!started) {
-                            fillPath.moveTo(px, py)
-                            started = true
-                        } else {
-                            fillPath.lineTo(px, py)
-                        }
+                sharedFillPath.reset()
+                var started = false
+                for (i in 0 until n) {
+                    val rx = sharedRx[i]
+                    val ry = sharedRy[i]
+                    val rz = sharedRz[i]
+                    val px: Float
+                    val py: Float
+                    if (rz >= 0f) {
+                        px = cx + rx * radius
+                        py = cy + ry * radius
+                    } else {
+                        val normXY = hypot(rx, ry).coerceAtLeast(1e-4f)
+                        px = cx + (rx / normXY) * radius * 0.996f
+                        py = cy + (ry / normXY) * radius * 0.996f
                     }
-                    if (started) {
-                        fillPath.close()
+                    if (!started) {
+                        sharedFillPath.moveTo(px, py)
+                        started = true
+                    } else {
+                        sharedFillPath.lineTo(px, py)
+                    }
+                }
+                if (started) {
+                    sharedFillPath.close()
+                    if (!isWireframe) {
                         val landAlpha = (0.38f + 0.24f * lambert).coerceIn(0.32f, 0.64f)
                         drawPath(
-                            path = fillPath,
+                            path = sharedFillPath,
                             color = Color(0xFF0E9F54).copy(alpha = landAlpha)
                         )
-                    }
-                } else {
-                    // In wireframe mode, give front continents a subtle 3D shaded vector fill
-                    val fillPath = Path()
-                    var started = false
-                    for (i in 0 until n) {
-                        val rx = rxArr[i]
-                        val ry = ryArr[i]
-                        val rz = rzArr[i]
-                        val px: Float
-                        val py: Float
-                        if (rz >= 0f) {
-                            px = cx + rx * radius
-                            py = cy + ry * radius
-                        } else {
-                            val normXY = hypot(rx, ry).coerceAtLeast(1e-4f)
-                            px = cx + (rx / normXY) * radius * 0.996f
-                            py = cy + (ry / normXY) * radius * 0.996f
-                        }
-                        if (!started) {
-                            fillPath.moveTo(px, py)
-                            started = true
-                        } else {
-                            fillPath.lineTo(px, py)
-                        }
-                    }
-                    if (started) {
-                        fillPath.close()
+                    } else {
                         drawPath(
-                            path = fillPath,
+                            path = sharedFillPath,
                             color = wfColor.copy(alpha = (0.06f + 0.08f * lambert).coerceIn(0.04f, 0.15f))
                         )
                     }
                 }
 
-                // Draw ultra-crisp, high-precision sovereign borders & coastlines on the front hemisphere
-                // with exact z = 0 horizon interpolation!
-                val borderPath = Path()
+                sharedBorderPath.reset()
                 var penDown = false
                 for (i in 0 until n) {
-                    val rx1 = rxArr[i]
-                    val ry1 = ryArr[i]
-                    val rz1 = rzArr[i]
+                    val rx1 = sharedRx[i]
+                    val ry1 = sharedRy[i]
+                    val rz1 = sharedRz[i]
                     if (rz1 >= 0f) {
                         val sx = cx + rx1 * radius
                         val sy = cy + ry1 * radius
                         if (!penDown) {
-                            borderPath.moveTo(sx, sy)
+                            sharedBorderPath.moveTo(sx, sy)
                             penDown = true
                         } else {
-                            borderPath.lineTo(sx, sy)
+                            sharedBorderPath.lineTo(sx, sy)
                         }
-                    } else if (i > 0 && rzArr[i - 1] >= 0f) {
-                        // Interpolate exact horizon crossing point where z = 0
-                        val prevZ = rzArr[i - 1]
+                    } else if (i > 0 && sharedRz[i - 1] >= 0f) {
+                        val prevZ = sharedRz[i - 1]
                         val tCross = (prevZ / (prevZ - rz1)).coerceIn(0f, 1f)
-                        val hx = rxArr[i - 1] + (rx1 - rxArr[i - 1]) * tCross
-                        val hy = ryArr[i - 1] + (ry1 - ryArr[i - 1]) * tCross
-                        borderPath.lineTo(cx + hx * radius, cy + hy * radius)
+                        val hx = sharedRx[i - 1] + (rx1 - sharedRx[i - 1]) * tCross
+                        val hy = sharedRy[i - 1] + (ry1 - sharedRy[i - 1]) * tCross
+                        sharedBorderPath.lineTo(cx + hx * radius, cy + hy * radius)
                         penDown = false
                     } else {
                         penDown = false
@@ -4834,25 +4869,25 @@ fun RetroFuturisticGlobeView(
                 val edgeAlpha = (0.50f + 0.50f * depthVis).coerceIn(0.35f, 1f)
                 if (!isWireframe) {
                     drawPath(
-                        path = borderPath,
+                        path = sharedBorderPath,
                         color = Color(0xFF1EFF6E).copy(alpha = edgeAlpha * 0.42f),
-                        style = Stroke(width = 1.85.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                        style = holoStrokeOuter
                     )
                     drawPath(
-                        path = borderPath,
+                        path = sharedBorderPath,
                         color = Color(0xFFDCFFD4).copy(alpha = edgeAlpha * 0.96f),
-                        style = Stroke(width = 0.92.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                        style = holoStrokeInner
                     )
                 } else {
                     drawPath(
-                        path = borderPath,
+                        path = sharedBorderPath,
                         color = wfColor.copy(alpha = edgeAlpha * 0.96f),
-                        style = Stroke(width = 1.15.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                        style = wfStroke
                     )
                 }
             }
 
-            // 6. 3D Atmospheric Fresnel Rim Halo & Outer Planetary Horizon Ring (Highlights when Double-Tap Interaction Mode is unlocked)
+            // 5. 3D Atmospheric Fresnel Rim Halo & Outer Planetary Horizon Ring
             val rimGlowColor = when {
                 isInteractionUnlocked -> wfColor.copy(alpha = 0.48f)
                 isWireframe -> wfColor.copy(alpha = 0.28f)
@@ -7126,7 +7161,7 @@ fun WallpaperTuningRow(
 // - 8 Live Wallpapers + 36 Static Wallpapers (including Halftone, Glowing & Fade series)
 // ============================================================================
 // ============================================================================
-// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.3.0-cmf)
+// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.4.0-cmf)
 // - Pre-allocates all primitive FloatArray/IntArray buffers and a single native Paint once
 // - Zero object allocations inside step() or draw() -> 0 bytes/frame GC overhead
 // - Features >= 1,000 stars (1,200 default, up to 1,800 with density slider)
