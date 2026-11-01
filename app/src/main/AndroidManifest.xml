@@ -2,30 +2,27 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Location Permissions for GPS & Weather -->
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-
-    <!-- Core Launcher Permissions -->
+    <!-- Required for listing all launchable apps in a custom Android 14 Launcher -->
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <!-- Required on Android 14 for triggering system-wide app uninstallation dialog -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- Allows swipe-down on Home Screen to expand the Android notification panel -->
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
-    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:allowBackup="true"
-        android:label="N-TEXT Launcher"
+        android:label="Nocturnaa"
         android:supportsRtl="true"
         android:hardwareAccelerated="true"
-        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        android:theme="@style/Theme.NTextLauncher">
 
         <activity
             android:name=".MainActivity"
+            android:label="Nocturnaa"
             android:exported="true"
             android:launchMode="singleTask"
             android:clearTaskOnLaunch="true"
