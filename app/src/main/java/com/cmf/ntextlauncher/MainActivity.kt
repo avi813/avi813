@@ -373,7 +373,7 @@ enum class PrebuiltFont(
 }
 
 // ============================================================================
-// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.7.0-cmf)
+// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.8.0-cmf)
 // Calculates exact vertical height of active widgets + pinned Home apps (and scale)
 // to prevent overflow/scrolling and trigger the "NO SPACE LEFT" popup when full.
 // ============================================================================
@@ -468,7 +468,7 @@ private fun estimatePinnedAppsHeightDp(pinnedCount: Int, textSizeSp: Int): Float
 }
 
 // ============================================================================
-// iOS PHYSICAL RUBBER-BAND SPRING SCALE-FADE POPUP ENGINE (Nocturnaa v4.7.0-cmf)
+// iOS PHYSICAL RUBBER-BAND SPRING SCALE-FADE POPUP ENGINE (Nocturnaa v4.8.0-cmf)
 // - Starts slightly smaller (scale = 0.80f) and rapidly expands to full size (1.00f)
 //   while fading in from transparent (0f -> 1f) as the background simultaneously dims.
 // - Uses an underdamped physical rubber-band spring (dampingRatio = 0.62f, stiffness = 440f)
@@ -997,6 +997,18 @@ fun NTextLauncherApp(
         }.toMap()
         mutableStateOf(map)
     }
+    // Per-Widget Visual Style ("80s_retro", "default", "cyber_hud") — Every widget includes an 80s Retro version!
+    var widgetStyles by remember {
+        val saved = prefs.getString(
+            "widget_styles_v1",
+            "clock:default,battery_bar:80s_retro,week_strip:default,pinned_apps:default,retro_calendar:default,year_matrix:default,retro_flip_clock:default,analog_chrono:default,precision_chrono:default,globe:default,torch:default,storage:default,quote:default,scratchpad:default,zen:default"
+        ) ?: ""
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
+        }.toMap()
+        mutableStateOf(map)
+    }
 
     // Left Page Independent Widgets Stack, Sizes & Fonts
     var leftPageWidgets by remember {
@@ -1023,6 +1035,17 @@ fun NTextLauncherApp(
         val saved = prefs.getString(
             "left_widget_fonts_v1",
             "clock:dot,week_strip:dot,pinned_apps:dot,retro_calendar:dot,year_matrix:dot,retro_flip_clock:dot,analog_chrono:dot,precision_chrono:dot,torch:dot,storage:dot,quote:dot,scratchpad:dot,zen:dot"
+        ) ?: ""
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
+        }.toMap()
+        mutableStateOf(map)
+    }
+    var leftWidgetStyles by remember {
+        val saved = prefs.getString(
+            "left_widget_styles_v1",
+            "clock:default,battery_bar:80s_retro,week_strip:default,pinned_apps:default,retro_calendar:default,year_matrix:default,retro_flip_clock:default,analog_chrono:default,precision_chrono:default,globe:default,torch:default,storage:default,quote:default,scratchpad:default,zen:default"
         ) ?: ""
         val map = saved.split(",").mapNotNull {
             val parts = it.split(":")
@@ -1487,6 +1510,27 @@ fun NTextLauncherApp(
             editor.putString("font_id", wFontId)
         }
         editor.apply()
+    }
+
+    fun saveWidgetStyle(widgetId: String, styleId: String) {
+        val newMap = widgetStyles.toMutableMap()
+        newMap[widgetId] = styleId
+        widgetStyles = newMap.toMap()
+        val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
+        val editor = prefs.edit().putString("widget_styles_v1", serialized)
+        if (widgetId == "globe") {
+            globeTheme = if (styleId == "default") "retro_holo" else "wireframe"
+            editor.putString("globe_theme", globeTheme)
+        }
+        editor.apply()
+    }
+
+    fun saveLeftWidgetStyle(widgetId: String, styleId: String) {
+        val newMap = leftWidgetStyles.toMutableMap()
+        newMap[widgetId] = styleId
+        leftWidgetStyles = newMap.toMap()
+        val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
+        prefs.edit().putString("left_widget_styles_v1", serialized).apply()
     }
 
     fun movePinnedApp(pkg: String, direction: Int) {
@@ -2169,6 +2213,7 @@ fun NTextLauncherApp(
                                         activeWidgets = leftPageWidgets,
                                         widgetSizes = leftWidgetSizes,
                                         widgetFonts = leftWidgetFonts,
+                                        widgetStyles = leftWidgetStyles,
                                         editMode = editMode,
                                         currentTimeMillis = currentTimeMillis,
                                         currentHourStr = currentHourStr,
@@ -2233,6 +2278,7 @@ fun NTextLauncherApp(
                                         onCycleWidgetSize = { id -> cycleLeftWidgetSize(id) },
                                         onSetWidgetSize = { id, sz -> saveLeftWidgetSize(id, sz) },
                                         onSetWidgetFont = { id, fId -> saveLeftWidgetFont(id, fId) },
+                                        onSetWidgetStyle = { id, stId -> saveLeftWidgetStyle(id, stId) },
                                         onMoveWidget = { id, dir -> moveLeftWidget(id, dir) },
                                         onRemoveWidget = { id ->
                                             saveLeftWidgetList(leftPageWidgets.filter { it != id })
@@ -2275,6 +2321,7 @@ fun NTextLauncherApp(
                                     activeWidgets = activeWidgets,
                                     widgetSizes = widgetSizes,
                                     widgetFonts = widgetFonts,
+                                    widgetStyles = widgetStyles,
                                     editMode = editMode,
                                     currentTimeMillis = currentTimeMillis,
                                     currentHourStr = currentHourStr,
@@ -2339,6 +2386,7 @@ fun NTextLauncherApp(
                                     onCycleWidgetSize = { id -> cycleWidgetSize(id) },
                                     onSetWidgetSize = { id, sz -> saveWidgetSize(id, sz) },
                                     onSetWidgetFont = { id, fId -> saveWidgetFont(id, fId) },
+                                    onSetWidgetStyle = { id, stId -> saveWidgetStyle(id, stId) },
                                     onMoveWidget = { id, dir -> moveWidget(id, dir) },
                                     onRemoveWidget = { id ->
                                         saveWidgetList(activeWidgets.filter { it != id })
@@ -2428,10 +2476,12 @@ fun NTextLauncherApp(
                         WidgetsManagerView(
                             activeWidgets = activeWidgets,
                             widgetSizes = widgetSizes,
+                            widgetStyles = widgetStyles,
                             leftPageEnabled = enableLeftPage,
                             initialTargetLeftPage = isOnLeftPage,
                             leftPageWidgets = leftPageWidgets,
                             leftWidgetSizes = leftWidgetSizes,
+                            leftWidgetStyles = leftWidgetStyles,
                             accentColor = accentColor,
                             lomoFontFamily = selectedFont,
                             use24Hour = use24Hour,
@@ -2466,6 +2516,8 @@ fun NTextLauncherApp(
                             },
                             onUpdateWidgets = { saveWidgetList(it) },
                             onUpdateLeftWidgets = { saveLeftWidgetList(it) },
+                            onSetWidgetStyle = { id, stId -> saveWidgetStyle(id, stId) },
+                            onSetLeftWidgetStyle = { id, stId -> saveLeftWidgetStyle(id, stId) },
                             onCycleWidgetSize = { cycleWidgetSize(it) },
                             onSetWidgetSize = { id, sz -> saveWidgetSize(id, sz) },
                             onMoveWidget = { id, dir -> moveWidget(id, dir) },
@@ -3087,87 +3139,41 @@ fun NTextLauncherApp(
 // ============================================================================
 @Composable
 fun Retro80sCrtScreenEdgeGlowOverlay() {
+    // Subtle 80s CRT horizontal phosphor scanlines across the display — NO glowing around the edges of the phone screen!
     Canvas(modifier = Modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
-        val phosphorGreen = Color(0xFF7CFF5B)
-
-        // 1. Subtle Horizontal 80s CRT Phosphor Scanlines (every 3.dp)
         val scanStep = 3.dp.toPx().coerceAtLeast(2f)
         var y = 0f
         while (y < h) {
             drawLine(
-                color = Color(0xFF001400).copy(alpha = 0.22f),
+                color = Color(0xFF001400).copy(alpha = 0.20f),
                 start = Offset(0f, y),
                 end = Offset(w, y),
                 strokeWidth = 1f
             )
             y += scanStep
         }
-
-        // 2. Glowing 80s CRT Phosphor Inner Bezel Edge Halo (Top, Bottom, Left, Right)
-        val edgeGlowThickness = 28.dp.toPx()
-        drawRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    phosphorGreen.copy(alpha = 0.22f),
-                    phosphorGreen.copy(alpha = 0.06f),
-                    Color.Transparent
-                ),
-                startY = 0f,
-                endY = edgeGlowThickness
-            ),
-            size = Size(w, edgeGlowThickness)
-        )
-        drawRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    phosphorGreen.copy(alpha = 0.06f),
-                    phosphorGreen.copy(alpha = 0.22f)
-                ),
-                startY = h - edgeGlowThickness,
-                endY = h
-            ),
-            topLeft = Offset(0f, h - edgeGlowThickness),
-            size = Size(w, edgeGlowThickness)
-        )
-        drawRect(
-            brush = Brush.horizontalGradient(
-                colors = listOf(
-                    phosphorGreen.copy(alpha = 0.20f),
-                    phosphorGreen.copy(alpha = 0.05f),
-                    Color.Transparent
-                ),
-                startX = 0f,
-                endX = edgeGlowThickness
-            ),
-            size = Size(edgeGlowThickness, h)
-        )
-        drawRect(
-            brush = Brush.horizontalGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    phosphorGreen.copy(alpha = 0.05f),
-                    phosphorGreen.copy(alpha = 0.20f)
-                ),
-                startX = w - edgeGlowThickness,
-                endX = w
-            ),
-            topLeft = Offset(w - edgeGlowThickness, 0f),
-            size = Size(edgeGlowThickness, h)
-        )
-
-        // 3. Razor-thin glowing phosphor outer frame line around the CRT tube perimeter
-        val inset = 2.dp.toPx()
-        drawRoundRect(
-            color = phosphorGreen.copy(alpha = 0.36f),
-            topLeft = Offset(inset, inset),
-            size = Size(w - inset * 2f, h - inset * 2f),
-            cornerRadius = CornerRadius(18.dp.toPx(), 18.dp.toPx()),
-            style = Stroke(width = 1.2.dp.toPx())
-        )
     }
+}
+
+fun getWidgetStyleChoices(widgetId: String): List<Pair<String, String>> = when (widgetId) {
+    "clock" -> listOf("80s_retro" to "80s RETRO", "default" to "MODERN DOT", "cyber_hud" to "TACTICAL HUD")
+    "battery_bar" -> listOf("80s_retro" to "80s RETRO", "default" to "CLEAN BAR", "cyber_hud" to "CELL DIAG")
+    "week_strip" -> listOf("80s_retro" to "80s 4x2 GRID", "default" to "7-DAY STRIP", "cyber_hud" to "TIMELINE")
+    "retro_calendar" -> listOf("80s_retro" to "80s CRT TABLE", "default" to "DOT MATRIX", "cyber_hud" to "BRACKET [DD]")
+    "year_matrix" -> listOf("80s_retro" to "80s BLOCKS", "default" to "365 DOTS", "cyber_hud" to "12 MONTHS")
+    "retro_flip_clock" -> listOf("80s_retro" to "80s CRT DECK", "default" to "SPLIT-FLAP", "cyber_hud" to "TERMINAL")
+    "analog_chrono" -> listOf("80s_retro" to "80s RADAR", "default" to "WATCH DIAL", "cyber_hud" to "AVIONICS")
+    "precision_chrono" -> listOf("80s_retro" to "80s LAB CRT", "default" to "SPLIT-LAP", "cyber_hud" to "TELEMETRY")
+    "globe" -> listOf("80s_retro" to "80s VECTOR", "default" to "CRT HOLO", "cyber_hud" to "WIREFRAME")
+    "torch" -> listOf("80s_retro" to "80s SWITCH", "default" to "CLEAN PILL", "cyber_hud" to "ARMED HUD")
+    "storage" -> listOf("80s_retro" to "80s MEM BANK", "default" to "DUAL BARS", "cyber_hud" to "LED SECTORS")
+    "zen" -> listOf("80s_retro" to "80s DECK", "default" to "MINIMAL", "cyber_hud" to "CHAMBER")
+    "quote" -> listOf("80s_retro" to "80s MOTD", "default" to "EDITORIAL", "cyber_hud" to "LOG STREAM")
+    "scratchpad" -> listOf("80s_retro" to "80s DOS A:>", "default" to "MINIMAL >", "cyber_hud" to "MEMO LOG")
+    "pinned_apps" -> listOf("80s_retro" to "80s > PROMPT", "default" to "CLEAN LIST", "cyber_hud" to "[01] INDEXED")
+    else -> listOf("80s_retro" to "80s RETRO", "default" to "DEFAULT", "cyber_hud" to "CYBER HUD")
 }
 
 val BATTERY_BAR_STYLES: List<Pair<String, String>> = listOf(
@@ -3427,6 +3433,7 @@ fun HomeScreenView(
     activeWidgets: List<String>,
     widgetSizes: Map<String, String>,
     widgetFonts: Map<String, String>,
+    widgetStyles: Map<String, String> = emptyMap(),
     editMode: Boolean,
     currentTimeMillis: Long,
     currentHourStr: String,
@@ -3473,6 +3480,7 @@ fun HomeScreenView(
     onCycleWidgetSize: (String) -> Unit,
     onSetWidgetSize: (String, String) -> Unit,
     onSetWidgetFont: (String, String) -> Unit,
+    onSetWidgetStyle: (String, String) -> Unit = { _, _ -> },
     onMoveWidget: (String, Int) -> Unit,
     onRemoveWidget: (String) -> Unit,
     widgetsActive: Boolean = true,
@@ -3571,6 +3579,8 @@ fun HomeScreenView(
             val wFontFamily = remember(wPrebuiltFont, lomoFontFamily) {
                 wPrebuiltFont.resolveFontFamily(lomoFontFamily)
             }
+            val rawWStyle = widgetStyles[widgetId] ?: if (widgetId == "battery_bar") "80s_retro" else "default"
+            val wStyle = if (retro80sMode && rawWStyle == "default") "80s_retro" else rawWStyle
 
             Box(
                 modifier = Modifier
@@ -3718,6 +3728,54 @@ fun HomeScreenView(
                                         .clickable { onRemoveWidget(widgetId) }
                                         .padding(horizontal = 7.dp, vertical = 2.dp)
                                 )
+                            }
+
+                            // Per-Widget Visual Style Selector (Every widget has an 80s Retro style + Default + Cyber/HUD!)
+                            val styleChoices = remember(widgetId) { getWidgetStyleChoices(widgetId) }
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(5.dp))
+                                    .background(Color(0xFF101010), RoundedCornerShape(5.dp))
+                                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "WIDGET STYLE (INCLUDES 80s RETRO)",
+                                    color = Color(0xFF8A8A8A),
+                                    fontSize = 8.sp,
+                                    fontFamily = selectedFont,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    styleChoices.forEach { (stId, stLbl) ->
+                                        val isSt = rawWStyle == stId
+                                        Text(
+                                            text = stLbl,
+                                            color = if (isSt) Color.Black else Color.White,
+                                            fontSize = 8.sp,
+                                            fontFamily = selectedFont,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .border(
+                                                    1.dp,
+                                                    if (isSt) accentColor else Color(0xFF282828),
+                                                    RoundedCornerShape(4.dp)
+                                                )
+                                                .background(
+                                                    if (isSt) accentColor else Color(0xFF151515),
+                                                    RoundedCornerShape(4.dp)
+                                                )
+                                                .clickable { onSetWidgetStyle(widgetId, stId) }
+                                                .padding(vertical = 4.dp)
+                                        )
+                                    }
+                                }
                             }
 
                             // Battery Progress Bar Style Selector in Edit Mode (for Clock & Battery Bar widgets)
@@ -3966,278 +4024,410 @@ fun HomeScreenView(
                                 TextAlign.End -> Alignment.End
                                 else -> Alignment.Start
                             }
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalAlignment = horizontalAlign
-                            ) {
-                                when (sizeMode) {
-                                    "compact" -> {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            modifier = Modifier.combinedClickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null,
-                                                onClick = { onOpenClockApp() },
-                                                onLongClick = { onLongPressHome() }
-                                            )
-                                        ) {
+                            if (wStyle == "80s_retro") {
+                                // 80s RETRO CLOCK: Exact match to top-left of 80s CRT reference image!
+                                // Single-line 80s terminal timestamp ("1:39 PM TUE - 03 NOV") + full-width framed 80s Blocky Dithered Battery Bar!
+                                val timePart = if (currentAmPmStr.isNotEmpty()) {
+                                    "$currentHourStr:$currentMinStr $currentAmPmStr"
+                                } else {
+                                    "$currentHourStr:$currentMinStr"
+                                }
+                                val dateClean = currentDateStr.replace("·", "-")
+                                val hdrSp = when (sizeMode) {
+                                    "max" -> 18.sp
+                                    "xlarge" -> 16.sp
+                                    "large" -> 14.sp
+                                    "compact" -> 11.sp
+                                    else -> 13.sp
+                                }
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .combinedClickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null,
+                                            onClick = { onOpenClockApp() },
+                                            onLongClick = { onLongPressHome() }
+                                        ),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "$timePart $dateClean",
+                                            color = accentColor,
+                                            fontSize = hdrSp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 1.0.sp
+                                        )
+                                        Text(
+                                            text = if (isCharging) "$batteryPct% ⚡" else "$batteryPct%",
+                                            color = accentColor,
+                                            fontSize = hdrSp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    RetroBatteryProgressBar(
+                                        batteryPct = batteryPct,
+                                        barStyle = "retro_blocks",
+                                        accentColor = accentColor,
+                                        retro80sMode = retro80sMode,
+                                        sizeMode = sizeMode,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            } else if (wStyle == "cyber_hud") {
+                                // TACTICAL HUD CLOCK: Framed dual-column cybernetic telemetry module
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, accentColor.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                        .combinedClickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null,
+                                            onClick = { onOpenClockApp() },
+                                            onLongClick = { onLongPressHome() }
+                                        )
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.Bottom) {
+                                        val dSp = when (sizeMode) {
+                                            "max" -> 58.sp
+                                            "xlarge" -> 48.sp
+                                            "large" -> 40.sp
+                                            "compact" -> 26.sp
+                                            else -> 34.sp
+                                        }
+                                        Text(
+                                            text = "$currentHourStr:$currentMinStr",
+                                            color = Color.White,
+                                            fontSize = dSp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        if (currentAmPmStr.isNotEmpty()) {
+                                            Spacer(modifier = Modifier.width(4.dp))
                                             Text(
-                                                text = "$currentHourStr:$currentMinStr $currentAmPmStr".trim(),
-                                                color = Color.White,
-                                                fontSize = 24.sp,
-                                                fontFamily = wFontFamily
-                                            )
-                                            Text(
-                                                text = "·",
+                                                text = currentAmPmStr,
                                                 color = accentColor,
-                                                fontSize = 12.sp,
-                                                fontFamily = wFontFamily
-                                            )
-                                            Text(
-                                                text = "$currentDateStr · $batteryPct%",
-                                                color = Color(0xFFA3A3A3),
-                                                fontSize = 11.sp,
-                                                fontFamily = wFontFamily
+                                                fontSize = 10.sp,
+                                                fontFamily = wFontFamily,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(bottom = 4.dp)
                                             )
                                         }
                                     }
-                                    "large", "xlarge", "max" -> {
-                                        val digitSp = when (sizeMode) {
-                                            "max" -> 96.sp
-                                            "xlarge" -> 76.sp
-                                            else -> 58.sp
-                                        }
-                                        val amPmSp = when (sizeMode) {
-                                            "max" -> 17.sp
-                                            "xlarge" -> 15.sp
-                                            else -> 13.sp
-                                        }
-                                        val amPmBottomPad = when (sizeMode) {
-                                            "max" -> 12.dp
-                                            "xlarge" -> 9.dp
-                                            else -> 7.dp
-                                        }
-                                        val metaSp = when (sizeMode) {
-                                            "max" -> 13.sp
-                                            "xlarge" -> 12.sp
-                                            else -> 11.sp
-                                        }
-                                        val barHeight = when (sizeMode) {
-                                            "max" -> 10.dp
-                                            "xlarge" -> 9.dp
-                                            else -> 8.dp
-                                        }
-                                        Row(
-                                            verticalAlignment = Alignment.Bottom,
-                                            modifier = Modifier.combinedClickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null,
-                                                onClick = { onOpenClockApp() },
-                                                onLongClick = { onLongPressHome() }
-                                            )
-                                        ) {
-                                            Text(
-                                                text = currentHourStr,
-                                                color = Color.White,
-                                                fontSize = digitSp,
-                                                fontFamily = wFontFamily
-                                            )
-                                            Text(
-                                                text = ":",
-                                                color = accentColor,
-                                                fontSize = digitSp,
-                                                fontFamily = wFontFamily,
-                                                modifier = Modifier.graphicsLayer { alpha = colonAlpha }
-                                            )
-                                            Text(
-                                                text = currentMinStr,
-                                                color = Color.White,
-                                                fontSize = digitSp,
-                                                fontFamily = wFontFamily
-                                            )
-                                            if (currentAmPmStr.isNotEmpty()) {
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(
-                                                    text = currentAmPmStr,
-                                                    color = Color(0xFF737373),
-                                                    fontSize = amPmSp,
-                                                    fontFamily = wFontFamily,
-                                                    modifier = Modifier.padding(bottom = amPmBottomPad)
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(6.dp))
+                                    Column(
+                                        horizontalAlignment = Alignment.End,
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier.widthIn(min = 110.dp, max = 165.dp)
+                                    ) {
+                                        Text(
+                                            text = "[$currentDateStr]",
+                                            color = Color(0xFFD4D4D4),
+                                            fontSize = 9.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             Text(
-                                                text = currentDateStr,
-                                                color = Color(0xFFA3A3A3),
-                                                fontSize = metaSp,
+                                                text = "PWR $batteryPct%",
+                                                color = accentColor,
+                                                fontSize = 9.sp,
                                                 fontFamily = wFontFamily,
-                                                letterSpacing = 1.2.sp
-                                            )
-                                            if (nextAlarmStr.isNotBlank()) {
-                                                Text(
-                                                    text = "·",
-                                                    color = accentColor,
-                                                    fontSize = metaSp,
-                                                    fontFamily = wFontFamily,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                                Text(
-                                                    text = nextAlarmStr,
-                                                    color = Color(0xFF737373),
-                                                    fontSize = metaSp,
-                                                    fontFamily = wFontFamily,
-                                                    letterSpacing = 1.2.sp
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(1.dp)
-                                                .background(Color(0xFF171717))
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                        ) {
-                                            Text(
-                                                text = "$batteryPct%",
-                                                color = Color(0xFFD4D4D4),
-                                                fontSize = metaSp,
-                                                fontFamily = wFontFamily,
-                                                letterSpacing = 0.8.sp
+                                                fontWeight = FontWeight.Bold
                                             )
                                             RetroBatteryProgressBar(
                                                 batteryPct = batteryPct,
                                                 barStyle = batteryBarStyle,
                                                 accentColor = accentColor,
                                                 retro80sMode = retro80sMode,
-                                                sizeMode = sizeMode,
-                                                modifier = Modifier.weight(1f)
+                                                sizeMode = "compact",
+                                                modifier = Modifier.width(68.dp)
                                             )
-                                            if (isCharging) {
-                                                Text(
-                                                    text = "⚡",
-                                                    color = accentColor,
-                                                    fontSize = metaSp,
-                                                    fontFamily = wFontFamily
-                                                )
-                                            }
                                         }
                                     }
-                                    else -> {
-                                        Row(
-                                            verticalAlignment = Alignment.Bottom,
-                                            modifier = Modifier.combinedClickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null,
-                                                onClick = { onOpenClockApp() },
-                                                onLongClick = { onLongPressHome() }
-                                            )
-                                        ) {
-                                            Text(
-                                                text = currentHourStr,
-                                                color = Color.White,
-                                                fontSize = 42.sp,
-                                                fontFamily = wFontFamily
-                                            )
-                                            Text(
-                                                text = ":",
-                                                color = accentColor,
-                                                fontSize = 42.sp,
-                                                fontFamily = wFontFamily,
-                                                modifier = Modifier.graphicsLayer { alpha = colonAlpha }
-                                            )
-                                            Text(
-                                                text = currentMinStr,
-                                                color = Color.White,
-                                                fontSize = 42.sp,
-                                                fontFamily = wFontFamily
-                                            )
-                                            if (currentAmPmStr.isNotEmpty()) {
-                                                Spacer(modifier = Modifier.width(6.dp))
+                                }
+                            } else {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = horizontalAlign
+                                ) {
+                                    when (sizeMode) {
+                                        "compact" -> {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                modifier = Modifier.combinedClickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null,
+                                                    onClick = { onOpenClockApp() },
+                                                    onLongClick = { onLongPressHome() }
+                                                )
+                                            ) {
                                                 Text(
-                                                    text = currentAmPmStr,
-                                                    color = Color(0xFF737373),
+                                                    text = "$currentHourStr:$currentMinStr $currentAmPmStr".trim(),
+                                                    color = Color.White,
+                                                    fontSize = 24.sp,
+                                                    fontFamily = wFontFamily
+                                                )
+                                                Text(
+                                                    text = "·",
+                                                    color = accentColor,
+                                                    fontSize = 12.sp,
+                                                    fontFamily = wFontFamily
+                                                )
+                                                Text(
+                                                    text = "$currentDateStr · $batteryPct%",
+                                                    color = Color(0xFFA3A3A3),
                                                     fontSize = 11.sp,
-                                                    fontFamily = wFontFamily,
-                                                    modifier = Modifier.padding(bottom = 5.dp)
+                                                    fontFamily = wFontFamily
                                                 )
                                             }
                                         }
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Text(
-                                                text = currentDateStr,
-                                                color = Color(0xFFA3A3A3),
-                                                fontSize = 10.sp,
-                                                fontFamily = wFontFamily,
-                                                letterSpacing = 1.2.sp
-                                            )
-                                            if (nextAlarmStr.isNotBlank()) {
+                                        "large", "xlarge", "max" -> {
+                                            val digitSp = when (sizeMode) {
+                                                "max" -> 96.sp
+                                                "xlarge" -> 76.sp
+                                                else -> 58.sp
+                                            }
+                                            val amPmSp = when (sizeMode) {
+                                                "max" -> 17.sp
+                                                "xlarge" -> 15.sp
+                                                else -> 13.sp
+                                            }
+                                            val amPmBottomPad = when (sizeMode) {
+                                                "max" -> 12.dp
+                                                "xlarge" -> 9.dp
+                                                else -> 7.dp
+                                            }
+                                            val metaSp = when (sizeMode) {
+                                                "max" -> 13.sp
+                                                "xlarge" -> 12.sp
+                                                else -> 11.sp
+                                            }
+                                            Row(
+                                                verticalAlignment = Alignment.Bottom,
+                                                modifier = Modifier.combinedClickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null,
+                                                    onClick = { onOpenClockApp() },
+                                                    onLongClick = { onLongPressHome() }
+                                                )
+                                            ) {
                                                 Text(
-                                                    text = "·",
-                                                    color = accentColor,
-                                                    fontSize = 10.sp,
-                                                    fontFamily = wFontFamily,
-                                                    fontWeight = FontWeight.Bold
+                                                    text = currentHourStr,
+                                                    color = Color.White,
+                                                    fontSize = digitSp,
+                                                    fontFamily = wFontFamily
                                                 )
                                                 Text(
-                                                    text = nextAlarmStr,
-                                                    color = Color(0xFF737373),
+                                                    text = ":",
+                                                    color = accentColor,
+                                                    fontSize = digitSp,
+                                                    fontFamily = wFontFamily,
+                                                    modifier = Modifier.graphicsLayer { alpha = colonAlpha }
+                                                )
+                                                Text(
+                                                    text = currentMinStr,
+                                                    color = Color.White,
+                                                    fontSize = digitSp,
+                                                    fontFamily = wFontFamily
+                                                )
+                                                if (currentAmPmStr.isNotEmpty()) {
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = currentAmPmStr,
+                                                        color = Color(0xFF737373),
+                                                        fontSize = amPmSp,
+                                                        fontFamily = wFontFamily,
+                                                        modifier = Modifier.padding(bottom = amPmBottomPad)
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = currentDateStr,
+                                                    color = Color(0xFFA3A3A3),
+                                                    fontSize = metaSp,
+                                                    fontFamily = wFontFamily,
+                                                    letterSpacing = 1.2.sp
+                                                )
+                                                if (nextAlarmStr.isNotBlank()) {
+                                                    Text(
+                                                        text = "·",
+                                                        color = accentColor,
+                                                        fontSize = metaSp,
+                                                        fontFamily = wFontFamily,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text(
+                                                        text = nextAlarmStr,
+                                                        color = Color(0xFF737373),
+                                                        fontSize = metaSp,
+                                                        fontFamily = wFontFamily,
+                                                        letterSpacing = 1.2.sp
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(1.dp)
+                                                    .background(Color(0xFF171717))
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                Text(
+                                                    text = "$batteryPct%",
+                                                    color = Color(0xFFD4D4D4),
+                                                    fontSize = metaSp,
+                                                    fontFamily = wFontFamily,
+                                                    letterSpacing = 0.8.sp
+                                                )
+                                                RetroBatteryProgressBar(
+                                                    batteryPct = batteryPct,
+                                                    barStyle = batteryBarStyle,
+                                                    accentColor = accentColor,
+                                                    retro80sMode = retro80sMode,
+                                                    sizeMode = sizeMode,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                if (isCharging) {
+                                                    Text(
+                                                        text = "⚡",
+                                                        color = accentColor,
+                                                        fontSize = metaSp,
+                                                        fontFamily = wFontFamily
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        else -> {
+                                            Row(
+                                                verticalAlignment = Alignment.Bottom,
+                                                modifier = Modifier.combinedClickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null,
+                                                    onClick = { onOpenClockApp() },
+                                                    onLongClick = { onLongPressHome() }
+                                                )
+                                            ) {
+                                                Text(
+                                                    text = currentHourStr,
+                                                    color = Color.White,
+                                                    fontSize = 42.sp,
+                                                    fontFamily = wFontFamily
+                                                )
+                                                Text(
+                                                    text = ":",
+                                                    color = accentColor,
+                                                    fontSize = 42.sp,
+                                                    fontFamily = wFontFamily,
+                                                    modifier = Modifier.graphicsLayer { alpha = colonAlpha }
+                                                )
+                                                Text(
+                                                    text = currentMinStr,
+                                                    color = Color.White,
+                                                    fontSize = 42.sp,
+                                                    fontFamily = wFontFamily
+                                                )
+                                                if (currentAmPmStr.isNotEmpty()) {
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = currentAmPmStr,
+                                                        color = Color(0xFF737373),
+                                                        fontSize = 11.sp,
+                                                        fontFamily = wFontFamily,
+                                                        modifier = Modifier.padding(bottom = 5.dp)
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = currentDateStr,
+                                                    color = Color(0xFFA3A3A3),
                                                     fontSize = 10.sp,
                                                     fontFamily = wFontFamily,
                                                     letterSpacing = 1.2.sp
                                                 )
+                                                if (nextAlarmStr.isNotBlank()) {
+                                                    Text(
+                                                        text = "·",
+                                                        color = accentColor,
+                                                        fontSize = 10.sp,
+                                                        fontFamily = wFontFamily,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text(
+                                                        text = nextAlarmStr,
+                                                        color = Color(0xFF737373),
+                                                        fontSize = 10.sp,
+                                                        fontFamily = wFontFamily,
+                                                        letterSpacing = 1.2.sp
+                                                    )
+                                                }
                                             }
-                                        }
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(1.dp)
-                                                .background(Color(0xFF171717))
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                        ) {
-                                            Text(
-                                                text = "$batteryPct%",
-                                                color = Color(0xFFD4D4D4),
-                                                fontSize = 10.sp,
-                                                fontFamily = wFontFamily,
-                                                letterSpacing = 0.8.sp
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(1.dp)
+                                                    .background(Color(0xFF171717))
                                             )
-                                            RetroBatteryProgressBar(
-                                                batteryPct = batteryPct,
-                                                barStyle = batteryBarStyle,
-                                                accentColor = accentColor,
-                                                retro80sMode = retro80sMode,
-                                                sizeMode = sizeMode,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            if (isCharging) {
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
                                                 Text(
-                                                    text = "⚡",
-                                                    color = accentColor,
-                                                    fontSize = 9.sp,
-                                                    fontFamily = wFontFamily
+                                                    text = "$batteryPct%",
+                                                    color = Color(0xFFD4D4D4),
+                                                    fontSize = 10.sp,
+                                                    fontFamily = wFontFamily,
+                                                    letterSpacing = 0.8.sp
                                                 )
+                                                RetroBatteryProgressBar(
+                                                    batteryPct = batteryPct,
+                                                    barStyle = batteryBarStyle,
+                                                    accentColor = accentColor,
+                                                    retro80sMode = retro80sMode,
+                                                    sizeMode = sizeMode,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                if (isCharging) {
+                                                    Text(
+                                                        text = "⚡",
+                                                        color = accentColor,
+                                                        fontSize = 9.sp,
+                                                        fontFamily = wFontFamily
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -4245,10 +4435,29 @@ fun HomeScreenView(
                             }
                         }
                         "battery_bar" -> {
-                            // Dedicated 80s CRT Blocky Battery & Time Header Widget (Matches top-left of reference image!)
+                            val headerSp = when (sizeMode) {
+                                "large" -> 14.sp
+                                "compact" -> 10.sp
+                                else -> 12.sp
+                            }
+                            val timePart = if (currentAmPmStr.isNotEmpty()) {
+                                "$currentHourStr:$currentMinStr $currentAmPmStr"
+                            } else {
+                                "$currentHourStr:$currentMinStr"
+                            }
+                            val dateClean = currentDateStr.replace("·", "-")
+                            val effectiveBarStyle = if (wStyle == "80s_retro") "retro_blocks" else batteryBarStyle
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .then(
+                                        if (wStyle == "cyber_hud") {
+                                            Modifier
+                                                .border(1.dp, accentColor.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+                                                .background(Color(0xFF060606), RoundedCornerShape(6.dp))
+                                                .padding(8.dp)
+                                        } else Modifier
+                                    )
                                     .combinedClickable(
                                         interactionSource = remember { MutableInteractionSource() },
                                         indication = null,
@@ -4257,32 +4466,21 @@ fun HomeScreenView(
                                     ),
                                 verticalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
-                                val headerSp = when (sizeMode) {
-                                    "large" -> 14.sp
-                                    "compact" -> 10.sp
-                                    else -> 12.sp
-                                }
-                                val timePart = if (currentAmPmStr.isNotEmpty()) {
-                                    "$currentHourStr:$currentMinStr $currentAmPmStr"
-                                } else {
-                                    "$currentHourStr:$currentMinStr"
-                                }
-                                val dateClean = currentDateStr.replace("·", "-")
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "$timePart $dateClean",
-                                        color = Color.White,
+                                        text = if (wStyle == "cyber_hud") "SYS.PWR // $timePart" else "$timePart $dateClean",
+                                        color = if (wStyle == "80s_retro") accentColor else Color.White,
                                         fontSize = headerSp,
                                         fontFamily = wFontFamily,
                                         fontWeight = FontWeight.Bold,
                                         letterSpacing = 0.8.sp
                                     )
                                     Text(
-                                        text = if (isCharging) "$batteryPct% ⚡" else "$batteryPct%",
+                                        text = if (wStyle == "cyber_hud") "[CELL: $batteryPct%${if (isCharging) " ⚡" else ""}]" else if (isCharging) "$batteryPct% ⚡" else "$batteryPct%",
                                         color = accentColor,
                                         fontSize = headerSp,
                                         fontFamily = wFontFamily,
@@ -4291,7 +4489,7 @@ fun HomeScreenView(
                                 }
                                 RetroBatteryProgressBar(
                                     batteryPct = batteryPct,
-                                    barStyle = batteryBarStyle,
+                                    barStyle = effectiveBarStyle,
                                     accentColor = accentColor,
                                     retro80sMode = retro80sMode,
                                     sizeMode = sizeMode,
@@ -4307,6 +4505,7 @@ fun HomeScreenView(
                                 amPmStr = currentAmPmStr,
                                 dateStr = currentDateStr,
                                 sizeMode = sizeMode,
+                                widgetStyle = wStyle,
                                 accentColor = accentColor,
                                 lomoFontFamily = wFontFamily,
                                 onOpenClockApp = onOpenClockApp,
@@ -4322,6 +4521,7 @@ fun HomeScreenView(
                                 amPmStr = currentAmPmStr,
                                 dateStr = currentDateStr,
                                 sizeMode = sizeMode,
+                                widgetStyle = wStyle,
                                 accentColor = accentColor,
                                 lomoFontFamily = wFontFamily,
                                 widgetsActive = widgetsActive,
@@ -4332,6 +4532,7 @@ fun HomeScreenView(
                         "precision_chrono" -> {
                             PrecisionChronographWidget(
                                 sizeMode = sizeMode,
+                                widgetStyle = wStyle,
                                 accentColor = accentColor,
                                 lomoFontFamily = wFontFamily,
                                 widgetsActive = widgetsActive,
@@ -4343,14 +4544,23 @@ fun HomeScreenView(
                             RetroDotMatrixCalendarWidget(
                                 currentTimeMillis = currentTimeMillis,
                                 sizeMode = sizeMode,
+                                widgetStyle = wStyle,
                                 accentColor = accentColor,
                                 lomoFontFamily = wFontFamily
                             )
                         }
                         "week_strip" -> {
+                            val timeHeader = if (currentAmPmStr.isNotEmpty()) {
+                                "$currentHourStr:$currentMinStr $currentAmPmStr"
+                            } else {
+                                "$currentHourStr:$currentMinStr"
+                            }
                             RetroWeekTimelineStripWidget(
                                 currentTimeMillis = currentTimeMillis,
                                 sizeMode = sizeMode,
+                                widgetStyle = wStyle,
+                                timeHeaderStr = timeHeader,
+                                batteryPct = batteryPct,
                                 accentColor = accentColor,
                                 lomoFontFamily = wFontFamily
                             )
@@ -4359,6 +4569,7 @@ fun HomeScreenView(
                             RetroYearDotMatrixWidget(
                                 currentTimeMillis = currentTimeMillis,
                                 sizeMode = sizeMode,
+                                widgetStyle = wStyle,
                                 accentColor = accentColor,
                                 lomoFontFamily = wFontFamily
                             )
@@ -4369,202 +4580,558 @@ fun HomeScreenView(
                                 "large" -> 11.dp
                                 else -> 7.dp
                             }
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .combinedClickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null,
-                                        onClick = { onToggleTorch() },
-                                        onLongClick = { onLongPressHome() }
-                                    )
-                                    .border(1.dp, if (torchEnabled) accentColor else Color(0xFF242424), RoundedCornerShape(8.dp))
-                                    .background(if (torchEnabled) accentColor.copy(alpha = 0.12f) else Color(0xFF060606), RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 12.dp, vertical = padV),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Text(
-                                        text = if (torchEnabled) "⚡" else "☼",
-                                        color = if (torchEnabled) accentColor else Color(0xFFA3A3A3),
-                                        fontSize = if (sizeMode == "large") 14.sp else 12.sp
-                                    )
-                                    Text(
-                                        text = "TORCH",
-                                        color = Color.White,
-                                        fontSize = if (sizeMode == "large") 12.sp else 11.sp,
-                                        fontFamily = wFontFamily,
-                                        fontWeight = FontWeight.Medium
-                                    )
+                            when (wStyle) {
+                                "80s_retro" -> {
+                                    // 80s RETRO BEAM SWITCH: Crisp rectangular CRT frame + blocky 6-cell power bar
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .combinedClickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                                onClick = { onToggleTorch() },
+                                                onLongClick = { onLongPressHome() }
+                                            )
+                                            .border(1.2.dp, accentColor, RoundedCornerShape(2.dp))
+                                            .background(Color(0xFF040804), RoundedCornerShape(2.dp))
+                                            .padding(horizontal = 10.dp, vertical = padV),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "AUX.LAMP // BEAM",
+                                            color = accentColor,
+                                            fontSize = if (sizeMode == "large") 12.sp else 10.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = if (torchEnabled) "[██████] ON" else "[░░░░░░] OFF",
+                                            color = if (torchEnabled) accentColor else Color(0xFF737373),
+                                            fontSize = if (sizeMode == "large") 11.sp else 10.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
-                                Text(
-                                    text = if (torchEnabled) "ON" else "OFF",
-                                    color = if (torchEnabled) accentColor else Color(0xFF737373),
-                                    fontSize = 10.sp,
-                                    fontFamily = wFontFamily,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                "cyber_hud" -> {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .combinedClickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                                onClick = { onToggleTorch() },
+                                                onLongClick = { onLongPressHome() }
+                                            )
+                                            .border(1.dp, if (torchEnabled) accentColor else Color(0xFF2E2E2E), RoundedCornerShape(4.dp))
+                                            .background(Color(0xFF080808), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 12.dp, vertical = padV),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "⟦ ⚡ ILLUMINATOR ⟧",
+                                            color = Color.White,
+                                            fontSize = if (sizeMode == "large") 12.sp else 10.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = if (torchEnabled) "STATUS: ACTIVE" else "STATUS: STANDBY",
+                                            color = if (torchEnabled) accentColor else Color(0xFF737373),
+                                            fontSize = 9.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                                else -> {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .combinedClickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                                onClick = { onToggleTorch() },
+                                                onLongClick = { onLongPressHome() }
+                                            )
+                                            .border(1.dp, if (torchEnabled) accentColor else Color(0xFF242424), RoundedCornerShape(8.dp))
+                                            .background(if (torchEnabled) accentColor.copy(alpha = 0.12f) else Color(0xFF060606), RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 12.dp, vertical = padV),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text(
+                                                text = if (torchEnabled) "⚡" else "☼",
+                                                color = if (torchEnabled) accentColor else Color(0xFFA3A3A3),
+                                                fontSize = if (sizeMode == "large") 14.sp else 12.sp
+                                            )
+                                            Text(
+                                                text = "TORCH",
+                                                color = Color.White,
+                                                fontSize = if (sizeMode == "large") 12.sp else 11.sp,
+                                                fontFamily = wFontFamily,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                        Text(
+                                            text = if (torchEnabled) "ON" else "OFF",
+                                            color = if (torchEnabled) accentColor else Color(0xFF737373),
+                                            fontSize = 10.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
                             }
                         }
                         "storage" -> {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
-                                    .background(Color(0xFF060606), RoundedCornerShape(8.dp))
-                                    .padding(
-                                        horizontal = 12.dp,
-                                        vertical = when (sizeMode) {
-                                            "compact" -> 5.dp
-                                            "large" -> 10.dp
-                                            else -> 7.dp
-                                        }
-                                    )
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = ramStatusText,
-                                        color = Color.White,
-                                        fontSize = if (sizeMode == "large") 11.sp else 10.sp,
-                                        fontFamily = wFontFamily
-                                    )
-                                    Text(
-                                        text = storageStatusText,
-                                        color = Color(0xFFA3A3A3),
-                                        fontSize = if (sizeMode == "large") 11.sp else 10.sp,
-                                        fontFamily = wFontFamily
-                                    )
-                                }
-                                if (sizeMode != "compact") {
-                                    Spacer(modifier = Modifier.height(if (sizeMode == "large") 7.dp else 5.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            when (wStyle) {
+                                "80s_retro" -> {
+                                    // 80s RETRO MEMORY BANKS: Framed 80s CRT box with blocky dithered RAM & ROM progress bars!
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.2.dp, accentColor, RoundedCornerShape(2.dp))
+                                            .background(Color(0xFF040804), RoundedCornerShape(2.dp))
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .height(if (sizeMode == "large") 6.dp else 4.dp)
-                                                .background(Color(0xFF141414), RoundedCornerShape(999.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxHeight()
-                                                    .fillMaxWidth(ramUsageFraction.coerceIn(0.05f, 1f))
-                                                    .background(accentColor, RoundedCornerShape(999.dp))
+                                            Text(
+                                                text = "SYS.MEM // $ramStatusText",
+                                                color = accentColor,
+                                                fontSize = if (sizeMode == "large") 11.sp else 9.sp,
+                                                fontFamily = wFontFamily,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = storageStatusText,
+                                                color = accentColor,
+                                                fontSize = if (sizeMode == "large") 11.sp else 9.sp,
+                                                fontFamily = wFontFamily,
+                                                fontWeight = FontWeight.Bold
                                             )
                                         }
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .height(if (sizeMode == "large") 6.dp else 4.dp)
-                                                .background(Color(0xFF141414), RoundedCornerShape(999.dp))
+                                        if (sizeMode != "compact") {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                RetroBatteryProgressBar(
+                                                    batteryPct = (ramUsageFraction * 100f).roundToInt().coerceIn(5, 100),
+                                                    barStyle = "retro_blocks",
+                                                    accentColor = accentColor,
+                                                    retro80sMode = retro80sMode,
+                                                    sizeMode = "compact",
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                RetroBatteryProgressBar(
+                                                    batteryPct = (storageUsageFraction * 100f).roundToInt().coerceIn(5, 100),
+                                                    barStyle = "retro_blocks",
+                                                    accentColor = accentColor,
+                                                    retro80sMode = retro80sMode,
+                                                    sizeMode = "compact",
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                "cyber_hud" -> {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, Color(0xFF2E2E2E), RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF060606), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxHeight()
-                                                    .fillMaxWidth(storageUsageFraction.coerceIn(0.05f, 1f))
-                                                    .background(Color(0xFF555555), RoundedCornerShape(999.dp))
+                                            Text(
+                                                text = "[$ramStatusText]",
+                                                color = Color.White,
+                                                fontSize = 10.sp,
+                                                fontFamily = wFontFamily,
+                                                fontWeight = FontWeight.Bold
                                             )
+                                            Text(
+                                                text = "[$storageStatusText]",
+                                                color = accentColor,
+                                                fontSize = 10.sp,
+                                                fontFamily = wFontFamily,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        if (sizeMode != "compact") {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                RetroBatteryProgressBar(
+                                                    batteryPct = (ramUsageFraction * 100f).roundToInt().coerceIn(5, 100),
+                                                    barStyle = "segmented_led",
+                                                    accentColor = accentColor,
+                                                    retro80sMode = retro80sMode,
+                                                    sizeMode = "compact",
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                RetroBatteryProgressBar(
+                                                    batteryPct = (storageUsageFraction * 100f).roundToInt().coerceIn(5, 100),
+                                                    barStyle = "segmented_led",
+                                                    accentColor = accentColor,
+                                                    retro80sMode = retro80sMode,
+                                                    sizeMode = "compact",
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                else -> {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
+                                            .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                            .padding(
+                                                horizontal = 12.dp,
+                                                vertical = when (sizeMode) {
+                                                    "compact" -> 5.dp
+                                                    "large" -> 10.dp
+                                                    else -> 7.dp
+                                                }
+                                            )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = ramStatusText,
+                                                color = Color.White,
+                                                fontSize = if (sizeMode == "large") 11.sp else 10.sp,
+                                                fontFamily = wFontFamily
+                                            )
+                                            Text(
+                                                text = storageStatusText,
+                                                color = Color(0xFFA3A3A3),
+                                                fontSize = if (sizeMode == "large") 11.sp else 10.sp,
+                                                fontFamily = wFontFamily
+                                            )
+                                        }
+                                        if (sizeMode != "compact") {
+                                            Spacer(modifier = Modifier.height(if (sizeMode == "large") 7.dp else 5.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(if (sizeMode == "large") 6.dp else 4.dp)
+                                                        .background(Color(0xFF141414), RoundedCornerShape(999.dp))
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxHeight()
+                                                            .fillMaxWidth(ramUsageFraction.coerceIn(0.05f, 1f))
+                                                            .background(accentColor, RoundedCornerShape(999.dp))
+                                                    )
+                                                }
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(if (sizeMode == "large") 6.dp else 4.dp)
+                                                        .background(Color(0xFF141414), RoundedCornerShape(999.dp))
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxHeight()
+                                                            .fillMaxWidth(storageUsageFraction.coerceIn(0.05f, 1f))
+                                                            .background(Color(0xFF555555), RoundedCornerShape(999.dp))
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                         "quote" -> {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .border(1.dp, Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
-                                    .background(Color(0xFF060606), RoundedCornerShape(8.dp))
-                                    .padding(
-                                        horizontal = 12.dp,
-                                        vertical = when (sizeMode) {
-                                            "compact" -> 5.dp
-                                            "large" -> 10.dp
-                                            else -> 7.dp
-                                        }
-                                    )
-                            ) {
-                                Text(
-                                    text = "“Simplify, then add lightness.”",
-                                    color = Color.White,
-                                    fontSize = if (sizeMode == "large") 13.sp else 11.sp,
-                                    fontFamily = wFontFamily,
-                                    lineHeight = 15.sp
-                                )
+                            when (wStyle) {
+                                "80s_retro" -> {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.2.dp, accentColor, RoundedCornerShape(2.dp))
+                                            .background(Color(0xFF040804), RoundedCornerShape(2.dp))
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                                    ) {
+                                        Text(
+                                            text = "C://SYS/MOTD.TXT",
+                                            color = accentColor.copy(alpha = 0.75f),
+                                            fontSize = 8.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "> “Simplify, then add lightness.” █",
+                                            color = accentColor,
+                                            fontSize = if (sizeMode == "large") 13.sp else 11.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                                "cyber_hud" -> {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, Color(0xFF282828), RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF060606), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "// LOG: “Simplify, then add lightness.”",
+                                            color = Color.White,
+                                            fontSize = if (sizeMode == "large") 12.sp else 10.sp,
+                                            fontFamily = wFontFamily
+                                        )
+                                    }
+                                }
+                                else -> {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+                                            .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                            .padding(
+                                                horizontal = 12.dp,
+                                                vertical = when (sizeMode) {
+                                                    "compact" -> 5.dp
+                                                    "large" -> 10.dp
+                                                    else -> 7.dp
+                                                }
+                                            )
+                                    ) {
+                                        Text(
+                                            text = "“Simplify, then add lightness.”",
+                                            color = Color.White,
+                                            fontSize = if (sizeMode == "large") 13.sp else 11.sp,
+                                            fontFamily = wFontFamily,
+                                            lineHeight = 15.sp
+                                        )
+                                    }
+                                }
                             }
                         }
                         "zen" -> {
                             val mm = (zenSeconds / 60).toString().padStart(2, '0')
                             val ss = (zenSeconds % 60).toString().padStart(2, '0')
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(8.dp))
-                                    .background(Color(0xFF060606), RoundedCornerShape(8.dp))
-                                    .padding(
-                                        horizontal = 12.dp,
-                                        vertical = when (sizeMode) {
-                                            "compact" -> 5.dp
-                                            "large" -> 10.dp
-                                            else -> 7.dp
+                            val zenPct = ((zenSeconds / 1500f) * 100f).roundToInt().coerceIn(1, 100)
+                            when (wStyle) {
+                                "80s_retro" -> {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.2.dp, accentColor, RoundedCornerShape(2.dp))
+                                            .background(Color(0xFF040804), RoundedCornerShape(2.dp))
+                                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "SYS.FOCUS // $mm:$ss",
+                                                color = accentColor,
+                                                fontSize = if (sizeMode == "large") 14.sp else 11.sp,
+                                                fontFamily = wFontFamily,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = if (zenActive) "[ABORT]" else "[EXEC]",
+                                                color = accentColor,
+                                                fontSize = 10.sp,
+                                                fontFamily = wFontFamily,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.combinedClickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null,
+                                                    onClick = { onToggleZen() },
+                                                    onLongClick = { onLongPressHome() }
+                                                )
+                                            )
                                         }
-                                    ),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "$mm:$ss",
-                                    color = Color.White,
-                                    fontSize = if (sizeMode == "large") 15.sp else 12.sp,
-                                    fontFamily = wFontFamily,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = if (zenActive) "STOP" else "START",
-                                    color = accentColor,
-                                    fontSize = 10.sp,
-                                    fontFamily = wFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.combinedClickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null,
-                                        onClick = { onToggleZen() },
-                                        onLongClick = { onLongPressHome() }
-                                    )
-                                )
+                                        RetroBatteryProgressBar(
+                                            batteryPct = zenPct,
+                                            barStyle = "retro_blocks",
+                                            accentColor = accentColor,
+                                            retro80sMode = retro80sMode,
+                                            sizeMode = "compact",
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                                "cyber_hud" -> {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF060606), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "⟦ FOCUS CHAMBER · $mm:$ss ⟧",
+                                            color = Color.White,
+                                            fontSize = if (sizeMode == "large") 13.sp else 11.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = if (zenActive) "HALT ■" else "ENGAGE ▶",
+                                            color = accentColor,
+                                            fontSize = 9.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.combinedClickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                                onClick = { onToggleZen() },
+                                                onLongClick = { onLongPressHome() }
+                                            )
+                                        )
+                                    }
+                                }
+                                else -> {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, Color(0xFF262626), RoundedCornerShape(8.dp))
+                                            .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                            .padding(
+                                                horizontal = 12.dp,
+                                                vertical = when (sizeMode) {
+                                                    "compact" -> 5.dp
+                                                    "large" -> 10.dp
+                                                    else -> 7.dp
+                                                }
+                                            ),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "$mm:$ss",
+                                            color = Color.White,
+                                            fontSize = if (sizeMode == "large") 15.sp else 12.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = if (zenActive) "STOP" else "START",
+                                            color = accentColor,
+                                            fontSize = 10.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.combinedClickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                                onClick = { onToggleZen() },
+                                                onLongClick = { onLongPressHome() }
+                                            )
+                                        )
+                                    }
+                                }
                             }
                         }
                         "scratchpad" -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .border(1.dp, Color(0xFF1F1F1F), RoundedCornerShape(8.dp))
-                                    .background(Color(0xFF060606), RoundedCornerShape(8.dp))
-                                    .padding(
-                                        horizontal = 12.dp,
-                                        vertical = when (sizeMode) {
-                                            "compact" -> 5.dp
-                                            "large" -> 10.dp
-                                            else -> 7.dp
-                                        }
-                                    )
-                            ) {
-                                Text(
-                                    text = "> $quickNote",
-                                    color = Color(0xFFD4D4D4),
-                                    fontSize = if (sizeMode == "large") 13.sp else 11.sp,
-                                    fontFamily = wFontFamily
-                                )
+                            when (wStyle) {
+                                "80s_retro" -> {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.2.dp, accentColor, RoundedCornerShape(2.dp))
+                                            .background(Color(0xFF040804), RoundedCornerShape(2.dp))
+                                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            text = "A:> TERM.BUF [64K RAM]",
+                                            color = accentColor.copy(alpha = 0.72f),
+                                            fontSize = 8.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "$ $quickNote █",
+                                            color = accentColor,
+                                            fontSize = if (sizeMode == "large") 13.sp else 11.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                                "cyber_hud" -> {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF060606), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = "[MEMO // LOG]: $quickNote",
+                                            color = Color.White,
+                                            fontSize = if (sizeMode == "large") 12.sp else 10.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                                else -> {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, Color(0xFF1F1F1F), RoundedCornerShape(8.dp))
+                                            .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                            .padding(
+                                                horizontal = 12.dp,
+                                                vertical = when (sizeMode) {
+                                                    "compact" -> 5.dp
+                                                    "large" -> 10.dp
+                                                    else -> 7.dp
+                                                }
+                                            )
+                                    ) {
+                                        Text(
+                                            text = "> $quickNote",
+                                            color = Color(0xFFD4D4D4),
+                                            fontSize = if (sizeMode == "large") 13.sp else 11.sp,
+                                            fontFamily = wFontFamily
+                                        )
+                                    }
+                                }
                             }
                         }
                         "globe" -> {
@@ -4575,6 +5142,14 @@ fun HomeScreenView(
                                 "max" -> 395.dp
                                 else -> 195.dp
                             }
+                            val effectiveGlobeThemeForWidget = when {
+                                retro80sMode || wStyle == "80s_retro" || wStyle == "cyber_hud" -> "wireframe"
+                                else -> globeTheme
+                            }
+                            val effectiveGlobeColorForWidget = when {
+                                retro80sMode || wStyle == "80s_retro" -> "#7CFF5B"
+                                else -> globeWireframeColor
+                            }
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -4582,8 +5157,9 @@ fun HomeScreenView(
                                 contentAlignment = Alignment.Center
                             ) {
                                 RetroFuturisticGlobeView(
-                                    globeTheme = globeTheme,
-                                    globeWireframeColor = globeWireframeColor,
+                                    globeTheme = effectiveGlobeThemeForWidget,
+                                    globeWireframeColor = effectiveGlobeColorForWidget,
+                                    widgetStyle = wStyle,
                                     axisTilt2dDeg = globeTilt2dDeg,
                                     axisRotXDeg = globeRotXDeg,
                                     axisRotYDeg = globeRotYDeg,
@@ -4735,10 +5311,18 @@ fun HomeScreenView(
                                                 } else {
                                                     app.label
                                                 }
-                                                val retroPrefix = if (retro80sMode && !editMode) "> $displayLabel" else displayLabel
+                                                val is80sApps = (retro80sMode || wStyle == "80s_retro") && !editMode
+                                                val isCyberApps = wStyle == "cyber_hud" && !editMode
+                                                val idxTag = (index + 1).toString().padStart(2, '0')
+                                                val styledAppLabel = when {
+                                                    isHighlighted && !editMode -> "▸ $displayLabel"
+                                                    is80sApps -> "> $displayLabel"
+                                                    isCyberApps -> "[$idxTag] $displayLabel"
+                                                    else -> displayLabel
+                                                }
                                                 Text(
-                                                    text = if (isHighlighted && !editMode) "▸ $displayLabel" else retroPrefix,
-                                                    color = if (isHighlighted && !editMode || retro80sMode) accentColor else if (animWave > 0.35f) Color.White else Color(0xFFF5F5F5),
+                                                    text = styledAppLabel,
+                                                    color = if ((isHighlighted && !editMode) || is80sApps) accentColor else if (animWave > 0.35f) Color.White else Color(0xFFF5F5F5),
                                                     fontSize = textSizeSp.sp,
                                                     fontFamily = wFontFamily,
                                                     maxLines = 1,
@@ -5758,6 +6342,7 @@ private fun resolveCountryAtGlobeCrosshair(latDeg: Float, lonDeg: Float): String
 fun RetroFuturisticGlobeView(
     globeTheme: String,
     globeWireframeColor: String,
+    widgetStyle: String = "default",
     axisTilt2dDeg: Float = -3f,
     axisRotXDeg: Float = 14f,
     axisRotYDeg: Float = -77f,
@@ -5978,8 +6563,9 @@ fun RetroFuturisticGlobeView(
             val w = size.width
             val h = size.height
             val cx = w * 0.5f
-            val cy = if (isInteractionUnlocked) h * 0.46f else h * 0.5f
-            val radius = (min(w, h) * (if (isInteractionUnlocked) 0.37f else 0.475f)).coerceAtLeast(32f)
+            val cy = h * 0.49f
+            // Keep globe radius constant so double-tapping into interaction mode NEVER shrinks the globe!
+            val radius = (min(w, h) * 0.445f).coerceAtLeast(36f)
 
             val effectiveYaw = currentBaseYawOffset + pose.spinYawDelta
             val cosY = cos(effectiveYaw)
@@ -6345,19 +6931,18 @@ fun RetroFuturisticGlobeView(
             //    - Light and thin intersecting Crosshair across the globe with reticle tick marks
             //    - Outer 360° Compass / Protractor Angle Measurement Scale & Degree Numbers
             //    - Live Country Name at the bottom for the exact point under the crosshair intersection!
-            if (isInteractionUnlocked) {
+            val showCompassRing = isInteractionUnlocked || widgetStyle == "80s_retro"
+            if (showCompassRing) {
                 val hudColor = if (isWireframe) wfColor else Color(0xFF7CFF5B)
-                val hudGlowColor = hudColor.copy(alpha = 0.30f)
-
                 // A. Outer 360° Compass / Azimuth Tick Marks & Degree Angle Labels (10°, 20°, 30° ... 350°)
-                val tickBaseR = radius * 1.04f
-                val minorTickLen = 3.0.dp.toPx()
-                val medTickLen = 5.5.dp.toPx()
-                val majorTickLen = 8.0.dp.toPx()
-                val labelRadius = radius * 1.185f
+                val tickBaseR = radius * 1.015f
+                val minorTickLen = 2.5.dp.toPx()
+                val medTickLen = 4.5.dp.toPx()
+                val majorTickLen = 6.5.dp.toPx()
+                val labelRadius = radius * 1.105f
                 val yawDegOffset = ((effectiveYaw * 180.0 / PI).toInt() % 360 + 360) % 360
 
-                hudDegreePaint.textSize = 7.5.dp.toPx()
+                hudDegreePaint.textSize = 7.2.dp.toPx()
                 hudDegreePaint.color = android.graphics.Color.argb(
                     220,
                     (hudColor.red * 255).toInt(),
@@ -6366,7 +6951,6 @@ fun RetroFuturisticGlobeView(
                 )
 
                 for (deg in 0 until 360 step 2) {
-                    // Angle from top (0° at top, clockwise like a compass)
                     val rad = ((deg - 90.0) * PI / 180.0).toFloat()
                     val c = cos(rad)
                     val s = sin(rad)
@@ -6386,10 +6970,9 @@ fun RetroFuturisticGlobeView(
                         color = hudColor.copy(alpha = tickAlpha),
                         start = Offset(cx + c * tickBaseR, cy + s * tickBaseR),
                         end = Offset(cx + c * (tickBaseR + tLen), cy + s * (tickBaseR + tLen)),
-                        strokeWidth = if (isMajor) 1.15.dp.toPx() else 0.75.dp.toPx()
+                        strokeWidth = if (isMajor) 1.1.dp.toPx() else 0.7.dp.toPx()
                     )
 
-                    // Degree measurement labels every 15° around the perimeter (skipping 0° & 180° where vertical crosshair ends)
                     if (deg % 15 == 0 && deg != 0 && deg != 180) {
                         val displayAngle = ((deg + yawDegOffset) % 360)
                         val lx = cx + c * labelRadius
@@ -6399,6 +6982,11 @@ fun RetroFuturisticGlobeView(
                         }
                     }
                 }
+            }
+
+            if (isInteractionUnlocked) {
+                val hudColor = if (isWireframe) wfColor else Color(0xFF7CFF5B)
+                val hudGlowColor = hudColor.copy(alpha = 0.30f)
 
                 // B. Light and Thin Intersecting Crosshair Over the Globe (with calibration reticle ticks)
                 val crossHalfSpan = radius * 1.14f
@@ -6482,7 +7070,7 @@ fun RetroFuturisticGlobeView(
                     (hudColor.green * 255).toInt(),
                     (hudColor.blue * 255).toInt()
                 )
-                val pillY = (cy + radius * 1.25f).coerceAtMost(h - 10.dp.toPx())
+                val pillY = (h - 6.dp.toPx()).coerceAtLeast(cy + radius * 0.88f)
                 val textWidth = hudCountryPaint.measureText(bottomReadout)
                 val boxW = textWidth + 20.dp.toPx()
                 val boxH = 19.dp.toPx()
@@ -7053,10 +7641,12 @@ private fun AlphabetScrubberRail(
 fun WidgetsManagerView(
     activeWidgets: List<String>,
     widgetSizes: Map<String, String>,
+    widgetStyles: Map<String, String> = emptyMap(),
     leftPageEnabled: Boolean = true,
     initialTargetLeftPage: Boolean = false,
     leftPageWidgets: List<String> = emptyList(),
     leftWidgetSizes: Map<String, String> = emptyMap(),
+    leftWidgetStyles: Map<String, String> = emptyMap(),
     accentColor: Color,
     lomoFontFamily: FontFamily,
     use24Hour: Boolean,
@@ -7073,6 +7663,8 @@ fun WidgetsManagerView(
     onChangeGlobeWireframeColor: (String) -> Unit,
     onUpdateWidgets: (List<String>) -> Unit,
     onUpdateLeftWidgets: (List<String>) -> Unit = {},
+    onSetWidgetStyle: (String, String) -> Unit = { _, _ -> },
+    onSetLeftWidgetStyle: (String, String) -> Unit = { _, _ -> },
     onCycleWidgetSize: (String) -> Unit,
     onSetWidgetSize: (String, String) -> Unit,
     onMoveWidget: (String, Int) -> Unit,
@@ -7081,7 +7673,9 @@ fun WidgetsManagerView(
     var editingLeftPage by remember { mutableStateOf(leftPageEnabled && initialTargetLeftPage) }
     val targetWidgetsList = if (leftPageEnabled && editingLeftPage) leftPageWidgets else activeWidgets
     val targetSizesMap = if (leftPageEnabled && editingLeftPage) leftWidgetSizes else widgetSizes
+    val targetStylesMap = if (leftPageEnabled && editingLeftPage) leftWidgetStyles else widgetStyles
     val onUpdateTargetWidgets: (List<String>) -> Unit = if (leftPageEnabled && editingLeftPage) onUpdateLeftWidgets else onUpdateWidgets
+    val onUpdateTargetStyle: (String, String) -> Unit = if (leftPageEnabled && editingLeftPage) onSetLeftWidgetStyle else onSetWidgetStyle
     val allWidgets = listOf(
         "clock" to "Dot-Matrix Clock, Date & Battery Bar",
         "battery_bar" to "80s Blocky Battery & Time Header",
@@ -7235,6 +7829,37 @@ fun WidgetsManagerView(
                     }
 
                     if (enabled) {
+                        val currentStyle = targetStylesMap[id] ?: if (id == "battery_bar") "80s_retro" else "default"
+                        val styleChoices = getWidgetStyleChoices(id)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "WIDGET STYLE (INCLUDES 80s RETRO)",
+                            color = Color(0xFF8A8A8A),
+                            fontSize = 9.sp,
+                            fontFamily = lomoFontFamily
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            styleChoices.forEach { (stId, stLbl) ->
+                                val isSel = currentStyle == stId
+                                Text(
+                                    text = stLbl,
+                                    color = if (isSel) Color.Black else Color.White,
+                                    fontSize = 8.sp,
+                                    fontFamily = lomoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .background(if (isSel) accentColor else Color(0xFF191919), RoundedCornerShape(4.dp))
+                                        .clickable { onUpdateTargetStyle(id, stId) }
+                                        .padding(vertical = 5.dp)
+                                )
+                            }
+                        }
 
                         if (id == "clock" || id == "battery_bar") {
                             Spacer(modifier = Modifier.height(10.dp))
@@ -8935,7 +9560,7 @@ fun WallpaperTuningRow(
 // - 8 Live Wallpapers + 36 Static Wallpapers (including Halftone, Glowing & Fade series)
 // ============================================================================
 // ============================================================================
-// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.7.0-cmf)
+// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.8.0-cmf)
 // - Pre-allocates all primitive FloatArray/IntArray buffers and a single native Paint once
 // - Zero object allocations inside step() or draw() -> 0 bytes/frame GC overhead
 // - Features >= 1,000 stars (1,200 default, up to 1,800 with density slider)
@@ -10412,6 +11037,7 @@ fun RetroSplitFlapClockWidget(
     amPmStr: String,
     dateStr: String,
     sizeMode: String,
+    widgetStyle: String = "default",
     accentColor: Color,
     lomoFontFamily: FontFamily,
     onOpenClockApp: () -> Unit,
@@ -10435,11 +11061,18 @@ fun RetroSplitFlapClockWidget(
     val paddedMin = minStr.padStart(2, '0')
     val paddedSec = secStr.padStart(2, '0')
 
+    val is80s = widgetStyle == "80s_retro"
+    val isCyber = widgetStyle == "cyber_hud"
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
-            .background(Color(0xFF060606), RoundedCornerShape(10.dp))
+            .border(
+                width = if (is80s) 1.4.dp else 1.dp,
+                color = if (is80s) accentColor else if (isCyber) accentColor.copy(alpha = 0.55f) else Color(0xFF222222),
+                shape = RoundedCornerShape(if (is80s) 2.dp else 10.dp)
+            )
+            .background(if (is80s) Color(0xFF030803) else Color(0xFF060606), RoundedCornerShape(if (is80s) 2.dp else 10.dp))
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -10448,6 +11081,31 @@ fun RetroSplitFlapClockWidget(
             )
             .padding(horizontal = 12.dp, vertical = if (sizeMode == "compact") 8.dp else 10.dp)
     ) {
+        if (is80s || isCyber) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (is80s) "SYS.CHRONO // 80s CRT DECK" else "⟦ TERMINAL CLOCK ⟧",
+                    color = accentColor,
+                    fontSize = 8.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = dateStr,
+                    color = if (is80s) accentColor else Color(0xFFA3A3A3),
+                    fontSize = 8.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -10455,10 +11113,12 @@ fun RetroSplitFlapClockWidget(
         ) {
             SplitFlapMechanicalTile(
                 valueText = paddedHour,
-                subLabel = "",
+                subLabel = if (is80s) "HR" else "",
                 tileHeight = tileHeight,
                 fontSize = digitFontSize,
-                textColor = Color.White,
+                textColor = if (is80s) accentColor else Color.White,
+                borderColor = if (is80s) accentColor.copy(alpha = 0.75f) else Color(0xFF262626),
+                sharpCorners = is80s,
                 lomoFontFamily = lomoFontFamily,
                 modifier = Modifier.weight(1f)
             )
@@ -10473,17 +11133,19 @@ fun RetroSplitFlapClockWidget(
 
             SplitFlapMechanicalTile(
                 valueText = paddedMin,
-                subLabel = "",
+                subLabel = if (is80s) "MN" else "",
                 tileHeight = tileHeight,
                 fontSize = digitFontSize,
-                textColor = Color.White,
+                textColor = if (is80s) accentColor else Color.White,
+                borderColor = if (is80s) accentColor.copy(alpha = 0.75f) else Color(0xFF262626),
+                sharpCorners = is80s,
                 lomoFontFamily = lomoFontFamily,
                 modifier = Modifier.weight(1f)
             )
 
             Text(
                 text = ":",
-                color = Color(0xFF454545),
+                color = if (is80s) accentColor else Color(0xFF454545),
                 fontSize = 18.sp,
                 fontFamily = lomoFontFamily
             )
@@ -10494,12 +11156,14 @@ fun RetroSplitFlapClockWidget(
                 tileHeight = tileHeight,
                 fontSize = (digitFontSize.value * 0.78f).sp,
                 textColor = accentColor,
+                borderColor = if (is80s) accentColor.copy(alpha = 0.75f) else Color(0xFF262626),
+                sharpCorners = is80s,
                 lomoFontFamily = lomoFontFamily,
                 modifier = Modifier.weight(0.85f)
             )
         }
 
-        if (sizeMode != "compact") {
+        if (sizeMode != "compact" && !is80s && !isCyber) {
             Spacer(modifier = Modifier.height(6.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -10523,14 +11187,17 @@ private fun SplitFlapMechanicalTile(
     tileHeight: androidx.compose.ui.unit.Dp,
     fontSize: androidx.compose.ui.unit.TextUnit,
     textColor: Color,
+    borderColor: Color = Color(0xFF262626),
+    sharpCorners: Boolean = false,
     lomoFontFamily: FontFamily,
     modifier: Modifier = Modifier
 ) {
+    val shape = RoundedCornerShape(if (sharpCorners) 2.dp else 7.dp)
     Box(
         modifier = modifier
             .height(tileHeight)
-            .border(1.dp, Color(0xFF262626), RoundedCornerShape(7.dp))
-            .background(Color(0xFF0D0D0D), RoundedCornerShape(7.dp)),
+            .border(1.dp, borderColor, shape)
+            .background(Color(0xFF0D0D0D), shape),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -10550,13 +11217,13 @@ private fun SplitFlapMechanicalTile(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .size(width = 3.dp, height = 6.dp)
-                .background(Color(0xFF2C2C2C))
+                .background(borderColor)
         )
         Box(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .size(width = 3.dp, height = 6.dp)
-                .background(Color(0xFF2C2C2C))
+                .background(borderColor)
         )
         if (subLabel.isNotEmpty()) {
             Text(
@@ -10582,6 +11249,7 @@ fun RetroAnalogChronoWidget(
     amPmStr: String,
     dateStr: String,
     sizeMode: String,
+    widgetStyle: String = "default",
     accentColor: Color,
     lomoFontFamily: FontFamily,
     widgetsActive: Boolean = true,
@@ -10596,7 +11264,6 @@ fun RetroAnalogChronoWidget(
         else -> 84.dp
     }
 
-    // Smooth sub-second live sweep for 100% accurate mechanical/quartz analog hands (respects widgetsActive)
     var liveNowMs by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(widgetsActive) {
         if (!widgetsActive) return@LaunchedEffect
@@ -10618,11 +11285,18 @@ fun RetroAnalogChronoWidget(
     val exactMin = minute + exactSec / 60f
     val exactHour = hour12 + exactMin / 60f
 
+    val is80s = widgetStyle == "80s_retro"
+    val isCyber = widgetStyle == "cyber_hud"
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
-            .background(Color(0xFF060606), RoundedCornerShape(10.dp))
+            .border(
+                width = if (is80s) 1.4.dp else 1.dp,
+                color = if (is80s) accentColor else if (isCyber) accentColor.copy(alpha = 0.55f) else Color(0xFF222222),
+                shape = RoundedCornerShape(if (is80s) 2.dp else 10.dp)
+            )
+            .background(if (is80s) Color(0xFF030803) else Color(0xFF060606), RoundedCornerShape(if (is80s) 2.dp else 10.dp))
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -10642,17 +11316,51 @@ fun RetroAnalogChronoWidget(
                 val cy = size.height / 2f
                 val radius = min(cx, cy) - 2.dp.toPx()
 
-                drawCircle(
-                    color = Color(0xFF2C2C2C),
-                    radius = radius,
-                    center = Offset(cx, cy),
-                    style = Stroke(width = 1.4.dp.toPx())
-                )
-                drawCircle(
-                    color = Color(0xFF0A0A0A),
-                    radius = radius - 1.5.dp.toPx(),
-                    center = Offset(cx, cy)
-                )
+                if (is80s) {
+                    // 80s CRT RADAR SCOPE DIAL: Concentric range rings + intersecting radar crosshairs!
+                    drawCircle(
+                        color = accentColor,
+                        radius = radius,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 1.4.dp.toPx())
+                    )
+                    drawCircle(
+                        color = accentColor.copy(alpha = 0.35f),
+                        radius = radius * 0.66f,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 0.8.dp.toPx())
+                    )
+                    drawCircle(
+                        color = accentColor.copy(alpha = 0.25f),
+                        radius = radius * 0.33f,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 0.8.dp.toPx())
+                    )
+                    drawLine(
+                        color = accentColor.copy(alpha = 0.35f),
+                        start = Offset(cx - radius, cy),
+                        end = Offset(cx + radius, cy),
+                        strokeWidth = 0.8.dp.toPx()
+                    )
+                    drawLine(
+                        color = accentColor.copy(alpha = 0.35f),
+                        start = Offset(cx, cy - radius),
+                        end = Offset(cx, cy + radius),
+                        strokeWidth = 0.8.dp.toPx()
+                    )
+                } else {
+                    drawCircle(
+                        color = if (isCyber) accentColor.copy(alpha = 0.65f) else Color(0xFF2C2C2C),
+                        radius = radius,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 1.4.dp.toPx())
+                    )
+                    drawCircle(
+                        color = Color(0xFF0A0A0A),
+                        radius = radius - 1.5.dp.toPx(),
+                        center = Offset(cx, cy)
+                    )
+                }
 
                 for (i in 0 until 60) {
                     val angleRad = Math.toRadians((i * 6 - 90).toDouble())
@@ -10667,6 +11375,7 @@ fun RetroAnalogChronoWidget(
                     val rInner = rOuter - tickLen
                     drawLine(
                         color = when {
+                            is80s -> if (isHour) accentColor else accentColor.copy(alpha = 0.35f)
                             i == 0 -> accentColor
                             isCardinal -> Color.White
                             isHour -> Color(0xFFA3A3A3)
@@ -10688,7 +11397,7 @@ fun RetroAnalogChronoWidget(
                 // Hour hand
                 val hourAngle = Math.toRadians((exactHour * 30f - 90f).toDouble())
                 drawLine(
-                    color = Color.White,
+                    color = if (is80s) accentColor else Color.White,
                     start = Offset(cx, cy),
                     end = Offset(
                         cx + (radius * 0.50f * cos(hourAngle)).toFloat(),
@@ -10701,7 +11410,7 @@ fun RetroAnalogChronoWidget(
                 // Minute hand
                 val minAngle = Math.toRadians((exactMin * 6f - 90f).toDouble())
                 drawLine(
-                    color = Color(0xFFE5E5E5),
+                    color = if (is80s) accentColor else Color(0xFFE5E5E5),
                     start = Offset(cx, cy),
                     end = Offset(
                         cx + (radius * 0.74f * cos(minAngle)).toFloat(),
@@ -10739,13 +11448,22 @@ fun RetroAnalogChronoWidget(
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
+            if (is80s || isCyber) {
+                Text(
+                    text = if (is80s) "RADAR.CHRONO // 80s" else "AVIONICS // UTC-SYNC",
+                    color = accentColor,
+                    fontSize = 8.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+            }
             Row(
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 Text(
                     text = "${hourStr.padStart(2, '0')}:${minStr.padStart(2, '0')}:${secStr.padStart(2, '0')}",
-                    color = Color.White,
+                    color = if (is80s) accentColor else Color.White,
                     fontSize = when (sizeMode) {
                         "xlarge" -> 26.sp
                         "large" -> 22.sp
@@ -10768,7 +11486,7 @@ fun RetroAnalogChronoWidget(
             }
             Text(
                 text = dateStr,
-                color = Color(0xFF8A8A8A),
+                color = if (is80s) accentColor.copy(alpha = 0.8f) else Color(0xFF8A8A8A),
                 fontSize = 10.sp,
                 fontFamily = lomoFontFamily
             )
@@ -10776,15 +11494,11 @@ fun RetroAnalogChronoWidget(
     }
 }
 
-// ============================================================================
-// IMPROVED INTERACTIVE PRECISION CHRONOGRAPH WIDGET ("precision_chrono")
-// Dual sub-dial vector chronograph (60s sweep + 30m register + 1/10s dial)
-// with tactile RUN/PAUSE and LAP/RST controls & 120Hz frame-accurate stopwatch
-// ============================================================================
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PrecisionChronographWidget(
     sizeMode: String,
+    widgetStyle: String = "default",
     accentColor: Color,
     lomoFontFamily: FontFamily,
     widgetsActive: Boolean = true,
@@ -10823,16 +11537,22 @@ fun PrecisionChronographWidget(
     val centis = ((displayElapsedMs % 1000L) / 10L).toInt()
     val formattedChrono = String.format(Locale.US, "%02d:%02d.%02d", mins, secs, centis)
 
+    val is80s = widgetStyle == "80s_retro"
+    val isCyber = widgetStyle == "cyber_hud"
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFF242424), RoundedCornerShape(10.dp))
-            .background(Color(0xFF060606), RoundedCornerShape(10.dp))
+            .border(
+                width = if (is80s) 1.4.dp else 1.dp,
+                color = if (is80s) accentColor else if (isCyber) accentColor.copy(alpha = 0.55f) else Color(0xFF242424),
+                shape = RoundedCornerShape(if (is80s) 2.dp else 10.dp)
+            )
+            .background(if (is80s) Color(0xFF030803) else Color(0xFF060606), RoundedCornerShape(if (is80s) 2.dp else 10.dp))
             .padding(horizontal = 14.dp, vertical = if (sizeMode == "compact") 8.dp else 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Dual Sub-Dial Precision Vector Chronograph Face
         Box(
             modifier = Modifier
                 .size(dialSize)
@@ -10858,9 +11578,8 @@ fun PrecisionChronographWidget(
                 val cy = size.height / 2f
                 val radius = min(cx, cy) - 2.dp.toPx()
 
-                // Outer tachymeter bezel
                 drawCircle(
-                    color = Color(0xFF2E2E2E),
+                    color = if (is80s) accentColor else Color(0xFF2E2E2E),
                     radius = radius,
                     center = Offset(cx, cy),
                     style = Stroke(width = 1.4.dp.toPx())
@@ -10871,7 +11590,6 @@ fun PrecisionChronographWidget(
                     center = Offset(cx, cy)
                 )
 
-                // 60 precision ticks
                 for (i in 0 until 60) {
                     val angleRad = Math.toRadians((i * 6 - 90).toDouble())
                     val isFive = i % 5 == 0
@@ -10879,7 +11597,11 @@ fun PrecisionChronographWidget(
                     val rOut = radius * 0.92f
                     val rIn = rOut - tickLen
                     drawLine(
-                        color = if (i == 0) accentColor else if (isFive) Color.White else Color(0xFF333333),
+                        color = if (is80s) {
+                            if (isFive) accentColor else accentColor.copy(alpha = 0.35f)
+                        } else {
+                            if (i == 0) accentColor else if (isFive) Color.White else Color(0xFF333333)
+                        },
                         start = Offset(
                             cx + (rIn * cos(angleRad)).toFloat(),
                             cy + (rIn * sin(angleRad)).toFloat()
@@ -10893,18 +11615,17 @@ fun PrecisionChronographWidget(
                     )
                 }
 
-                // Upper sub-register (30-minute accumulator)
                 val subR = radius * 0.24f
                 val topSubCenter = Offset(cx, cy - radius * 0.36f)
                 drawCircle(
-                    color = Color(0xFF262626),
+                    color = if (is80s) accentColor.copy(alpha = 0.55f) else Color(0xFF262626),
                     radius = subR,
                     center = topSubCenter,
                     style = Stroke(width = 1.dp.toPx())
                 )
                 val minSubAngle = Math.toRadians((((totalSec / 60f) % 30f) * 12f - 90f).toDouble())
                 drawLine(
-                    color = Color.White,
+                    color = if (is80s) accentColor else Color.White,
                     start = topSubCenter,
                     end = Offset(
                         topSubCenter.x + (subR * 0.78f * cos(minSubAngle)).toFloat(),
@@ -10914,10 +11635,9 @@ fun PrecisionChronographWidget(
                     cap = StrokeCap.Round
                 )
 
-                // Lower sub-register (1/10s high-speed sweep)
                 val botSubCenter = Offset(cx, cy + radius * 0.36f)
                 drawCircle(
-                    color = Color(0xFF262626),
+                    color = if (is80s) accentColor.copy(alpha = 0.55f) else Color(0xFF262626),
                     radius = subR,
                     center = botSubCenter,
                     style = Stroke(width = 1.dp.toPx())
@@ -10934,7 +11654,6 @@ fun PrecisionChronographWidget(
                     cap = StrokeCap.Round
                 )
 
-                // Main 60s chronograph sweep hand
                 val mainSecAngle = Math.toRadians(((totalSec % 60f) * 6f - 90f).toDouble())
                 drawLine(
                     color = accentColor,
@@ -10950,22 +11669,30 @@ fun PrecisionChronographWidget(
                     cap = StrokeCap.Round
                 )
 
-                drawCircle(color = Color.White, radius = 2.8.dp.toPx(), center = Offset(cx, cy))
+                drawCircle(color = if (is80s) accentColor else Color.White, radius = 2.8.dp.toPx(), center = Offset(cx, cy))
                 drawCircle(color = accentColor, radius = 1.2.dp.toPx(), center = Offset(cx, cy))
             }
         }
 
         Spacer(modifier = Modifier.width(14.dp))
 
-        // Right side: Digital centisecond readout + Tactile RUN/LAP/RST controls
         Column(
             modifier = Modifier.weight(1f),
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            if (is80s || isCyber) {
+                Text(
+                    text = if (is80s) "LAB.TIMER // 80s CRT" else "TELEMETRY // SPLIT",
+                    color = accentColor,
+                    fontSize = 8.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+            }
             Text(
                 text = formattedChrono,
-                color = Color.White,
+                color = if (is80s) accentColor else Color.White,
                 fontSize = when (sizeMode) {
                     "xlarge" -> 26.sp
                     "large" -> 22.sp
@@ -10982,7 +11709,7 @@ fun PrecisionChronographWidget(
                 val lc = ((lastLapMs!! % 1000L) / 10L).toInt()
                 Text(
                     text = String.format(Locale.US, "LAP %02d:%02d.%02d", lm, ls, lc),
-                    color = Color(0xFF737373),
+                    color = if (is80s) accentColor.copy(alpha = 0.78f) else Color(0xFF737373),
                     fontSize = 9.sp,
                     fontFamily = lomoFontFamily
                 )
@@ -10991,19 +11718,19 @@ fun PrecisionChronographWidget(
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     text = if (running) "PAUSE" else "START",
-                    color = if (running) Color.Black else Color.White,
+                    color = if (running) Color.Black else if (is80s) accentColor else Color.White,
                     fontSize = 9.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
                         .background(
                             if (running) accentColor else Color(0xFF171717),
-                            RoundedCornerShape(5.dp)
+                            RoundedCornerShape(if (is80s) 2.dp else 5.dp)
                         )
                         .border(
                             1.dp,
-                            if (running) accentColor else Color(0xFF2E2E2E),
-                            RoundedCornerShape(5.dp)
+                            if (running || is80s) accentColor else Color(0xFF2E2E2E),
+                            RoundedCornerShape(if (is80s) 2.dp else 5.dp)
                         )
                         .clickable {
                             onTick()
@@ -11020,13 +11747,13 @@ fun PrecisionChronographWidget(
 
                 Text(
                     text = if (running) "LAP" else "RESET",
-                    color = Color(0xFFA3A3A3),
+                    color = if (is80s) accentColor else Color(0xFFA3A3A3),
                     fontSize = 9.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
-                        .border(1.dp, Color(0xFF282828), RoundedCornerShape(5.dp))
-                        .background(Color(0xFF101010), RoundedCornerShape(5.dp))
+                        .border(1.dp, if (is80s) accentColor.copy(alpha = 0.7f) else Color(0xFF282828), RoundedCornerShape(if (is80s) 2.dp else 5.dp))
+                        .background(Color(0xFF101010), RoundedCornerShape(if (is80s) 2.dp else 5.dp))
                         .clickable {
                             onTick()
                             if (running) {
@@ -11046,12 +11773,13 @@ fun PrecisionChronographWidget(
 
 // ============================================================================
 // ACCURATE DOT-MATRIX MONTH CALENDAR WIDGET ("retro_calendar")
-// Live Calendar.getInstance() · Minimal header · Resizable
+// Includes "80s_retro" (80s CRT Grid Table with full cell dividers), "default", and "cyber_hud"!
 // ============================================================================
 @Composable
 fun RetroDotMatrixCalendarWidget(
     currentTimeMillis: Long,
     sizeMode: String,
+    widgetStyle: String = "default",
     accentColor: Color,
     lomoFontFamily: FontFamily
 ) {
@@ -11076,12 +11804,18 @@ fun RetroDotMatrixCalendarWidget(
 
     val totalCells = ((leadingBlanks + daysInMonth + 6) / 7) * 7
     val dayHeaders = listOf("MO", "TU", "WE", "TH", "FR", "SA", "SU")
+    val is80s = widgetStyle == "80s_retro"
+    val isCyber = widgetStyle == "cyber_hud"
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
-            .background(Color(0xFF050505), RoundedCornerShape(10.dp))
+            .border(
+                width = if (is80s) 1.4.dp else 1.dp,
+                color = if (is80s) accentColor else if (isCyber) accentColor.copy(alpha = 0.55f) else Color(0xFF222222),
+                shape = RoundedCornerShape(if (is80s) 2.dp else 10.dp)
+            )
+            .background(if (is80s) Color(0xFF030803) else Color(0xFF050505), RoundedCornerShape(if (is80s) 2.dp else 10.dp))
             .padding(horizontal = 12.dp, vertical = if (sizeMode == "compact") 8.dp else 12.dp)
     ) {
         Row(
@@ -11090,8 +11824,8 @@ fun RetroDotMatrixCalendarWidget(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = monthTitle,
-                color = Color.White,
+                text = if (is80s) "CRT.CAL // $monthTitle" else monthTitle,
+                color = if (is80s) accentColor else Color.White,
                 fontSize = if (sizeMode == "large") 13.sp else 11.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold
@@ -11111,7 +11845,7 @@ fun RetroDotMatrixCalendarWidget(
             dayHeaders.forEachIndexed { idx, dName ->
                 Text(
                     text = dName,
-                    color = if (idx >= 5) accentColor.copy(alpha = 0.85f) else Color(0xFF737373),
+                    color = if (is80s) accentColor else if (idx >= 5) accentColor.copy(alpha = 0.85f) else Color(0xFF737373),
                     fontSize = 9.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
@@ -11126,12 +11860,12 @@ fun RetroDotMatrixCalendarWidget(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(Color(0xFF1A1A1A))
+                .background(if (is80s) accentColor.copy(alpha = 0.75f) else Color(0xFF1A1A1A))
         )
         Spacer(modifier = Modifier.height(6.dp))
 
         val rows = (0 until totalCells).chunked(7)
-        Column(verticalArrangement = Arrangement.spacedBy(if (sizeMode == "large") 6.dp else 3.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(if (is80s) 0.dp else if (sizeMode == "large") 6.dp else 3.dp)) {
             rows.forEach { weekCells ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -11142,14 +11876,25 @@ fun RetroDotMatrixCalendarWidget(
                         val isValidDay = dayNum in 1..daysInMonth
                         val isToday = isValidDay && dayNum == todayDay
                         val isWeekend = colIdx >= 5
+                        val rawNumStr = dayNum.toString().padStart(2, '0')
+                        val cellText = when {
+                            !isValidDay -> if (is80s) "  " else "··"
+                            isCyber && isToday -> "[$rawNumStr]"
+                            else -> rawNumStr
+                        }
 
                         Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .height(if (sizeMode == "large") 26.dp else if (sizeMode == "compact") 18.dp else 21.dp)
                                 .then(
+                                    if (is80s) {
+                                        Modifier.border(0.6.dp, accentColor.copy(alpha = 0.45f))
+                                    } else Modifier
+                                )
+                                .then(
                                     if (isToday) {
-                                        Modifier.background(accentColor, RoundedCornerShape(4.dp))
+                                        Modifier.background(accentColor, RoundedCornerShape(if (is80s) 0.dp else 4.dp))
                                     } else {
                                         Modifier
                                     }
@@ -11157,16 +11902,17 @@ fun RetroDotMatrixCalendarWidget(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = if (isValidDay) dayNum.toString().padStart(2, '0') else "··",
+                                text = cellText,
                                 color = when {
                                     isToday -> Color.Black
                                     !isValidDay -> Color(0xFF222222)
+                                    is80s -> accentColor
                                     isWeekend -> Color(0xFFA3A3A3)
                                     else -> Color.White
                                 },
                                 fontSize = if (sizeMode == "large") 11.sp else 10.sp,
                                 fontFamily = lomoFontFamily,
-                                fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal
+                                fontWeight = if (isToday || is80s) FontWeight.Bold else FontWeight.Normal
                             )
                         }
                     }
@@ -11178,13 +11924,18 @@ fun RetroDotMatrixCalendarWidget(
 
 // ============================================================================
 // 7-DAY TIMELINE STRIP + EXACT MONTH DAYS PROGRESS BLOCKS ("week_strip")
-// Renders the 7-day Monday-Sunday strip AND the exact number of days in the
-// current month (28/29, 30, or 31) as thin vertical progress blocks!
+// Includes:
+// - "80s_retro": Exact 4-column x 2-row bordered 80s CRT calendar grid from top-right of reference image!
+// - "default": 7-Day centered strip (today in middle slot) + Month days block bar
+// - "cyber_hud": Bracketed tactical 7-day timeline ruler
 // ============================================================================
 @Composable
 fun RetroWeekTimelineStripWidget(
     currentTimeMillis: Long,
     sizeMode: String,
+    widgetStyle: String = "default",
+    timeHeaderStr: String = "",
+    batteryPct: Int = 86,
     accentColor: Color,
     lomoFontFamily: FontFamily
 ) {
@@ -11192,11 +11943,121 @@ fun RetroWeekTimelineStripWidget(
         Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
     }
     val todayDayOfMonth = cal.get(Calendar.DAY_OF_MONTH)
-    val todayYear = cal.get(Calendar.YEAR)
-    val todayDayOfYear = cal.get(Calendar.DAY_OF_YEAR)
-    val daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH) // Exact 28, 29, 30, or 31 days!
+    val daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
     val shortMonth = remember(currentTimeMillis / 60_000L) {
         SimpleDateFormat("MMM", Locale.ENGLISH).format(cal.time).uppercase(Locale.ENGLISH)
+    }
+    val shortDow = remember(currentTimeMillis / 60_000L) {
+        SimpleDateFormat("EEE", Locale.ENGLISH).format(cal.time).uppercase(Locale.ENGLISH)
+    }
+
+    if (widgetStyle == "80s_retro") {
+        // EXACT 80s 4x2 BORDERED CRT CALENDAR BOX FROM REFERENCE IMAGE (Top-Right of 1000059659.jpg!)
+        val eightDays = remember(currentTimeMillis / 60_000L) {
+            val temp = Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
+            temp.add(Calendar.DAY_OF_MONTH, -4)
+            (-4..3).map { offset ->
+                val dow = temp.get(Calendar.DAY_OF_WEEK)
+                val lbl = when (dow) {
+                    Calendar.MONDAY -> "MO"
+                    Calendar.TUESDAY -> "TU"
+                    Calendar.WEDNESDAY -> "WE"
+                    Calendar.THURSDAY -> "TH"
+                    Calendar.FRIDAY -> "FR"
+                    Calendar.SATURDAY -> "SA"
+                    else -> "SU"
+                }
+                val dNum = temp.get(Calendar.DAY_OF_MONTH)
+                val isToday = offset == 0
+                temp.add(Calendar.DAY_OF_MONTH, 1)
+                Triple(lbl, dNum, isToday)
+            }
+        }
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (timeHeaderStr.isNotEmpty()) "$timeHeaderStr $shortDow - $batteryPct%" else "$shortDow · $shortMonth ${todayDayOfMonth.toString().padStart(2, '0')}",
+                    color = accentColor,
+                    fontSize = if (sizeMode == "large") 12.sp else 10.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "$shortMonth ${todayDayOfMonth.toString().padStart(2, '0')}/$daysInMonth",
+                    color = accentColor,
+                    fontSize = 9.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // 4-Column x 2-Row Crisp Bordered 80s CRT Table Grid
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.4.dp, accentColor, RoundedCornerShape(2.dp))
+                    .background(Color(0xFF030803), RoundedCornerShape(2.dp))
+            ) {
+                eightDays.chunked(4).forEachIndexed { rIdx, rowItems ->
+                    if (rIdx > 0) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.2.dp)
+                                .background(accentColor)
+                        )
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Min)
+                    ) {
+                        rowItems.forEachIndexed { cIdx, (dayLbl, dayNum, isToday) ->
+                            if (cIdx > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(1.2.dp)
+                                        .fillMaxHeight()
+                                        .background(accentColor)
+                                )
+                            }
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(if (isToday) accentColor else Color.Transparent)
+                                    .padding(vertical = if (sizeMode == "large") 8.dp else 5.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    text = dayLbl,
+                                    color = if (isToday) Color.Black else accentColor,
+                                    fontSize = if (sizeMode == "large") 12.sp else 10.sp,
+                                    fontFamily = lomoFontFamily,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = dayNum.toString().padStart(2, '0'),
+                                    color = if (isToday) Color.Black else accentColor,
+                                    fontSize = if (sizeMode == "large") 14.sp else 12.sp,
+                                    fontFamily = lomoFontFamily,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return
     }
 
     // Center the current date in the middle of the 7-day strip (3 days before today, TODAY in center, 3 days after today)
@@ -11221,14 +12082,15 @@ fun RetroWeekTimelineStripWidget(
         }
     }
 
+    val isCyber = widgetStyle == "cyber_hud"
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
+            .border(1.dp, if (isCyber) accentColor.copy(alpha = 0.55f) else Color(0xFF222222), RoundedCornerShape(10.dp))
             .background(Color(0xFF060606), RoundedCornerShape(10.dp))
             .padding(horizontal = 12.dp, vertical = if (sizeMode == "compact") 8.dp else 10.dp)
     ) {
-        // 7-Day Monday-Sunday Strip
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -11240,11 +12102,13 @@ fun RetroWeekTimelineStripWidget(
                         .border(
                             1.dp,
                             if (isToday) accentColor else Color(0xFF1F1F1F),
-                            RoundedCornerShape(6.dp)
+                            RoundedCornerShape(if (isCyber) 2.dp else 6.dp)
                         )
                         .background(
-                            if (isToday) accentColor.copy(alpha = 0.16f) else Color(0xFF0C0C0C),
-                            RoundedCornerShape(6.dp)
+                            if (isToday) {
+                                if (isCyber) accentColor else accentColor.copy(alpha = 0.16f)
+                            } else Color(0xFF0C0C0C),
+                            RoundedCornerShape(if (isCyber) 2.dp else 6.dp)
                         )
                         .padding(vertical = if (sizeMode == "large") 8.dp else if (sizeMode == "compact") 4.dp else 6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -11252,14 +12116,16 @@ fun RetroWeekTimelineStripWidget(
                 ) {
                     Text(
                         text = dayLbl,
-                        color = if (isToday) accentColor else Color(0xFF737373),
+                        color = if (isToday) {
+                            if (isCyber) Color.Black else accentColor
+                        } else Color(0xFF737373),
                         fontSize = 8.sp,
                         fontFamily = lomoFontFamily,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = dayNum.toString().padStart(2, '0'),
-                        color = Color.White,
+                        color = if (isToday && isCyber) Color.Black else Color.White,
                         fontSize = if (sizeMode == "large") 14.sp else 12.sp,
                         fontFamily = lomoFontFamily,
                         fontWeight = FontWeight.Bold
@@ -11270,7 +12136,6 @@ fun RetroWeekTimelineStripWidget(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Exact Month Days Thin Progress Blocks (28/29, 30, or 31 blocks)
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -11327,12 +12192,13 @@ fun RetroWeekTimelineStripWidget(
 
 // ============================================================================
 // 365-DAY DOT-MATRIX YEAR PROGRESS WIDGET ("year_matrix")
-// Leap-year accurate (365 or 366 dots) · Minimalist · Resizable
+// Includes "80s_retro" (80s CRT square memory sector blocks), "default" (365 dots), and "cyber_hud" (sector bars)!
 // ============================================================================
 @Composable
 fun RetroYearDotMatrixWidget(
     currentTimeMillis: Long,
     sizeMode: String,
+    widgetStyle: String = "default",
     accentColor: Color,
     lomoFontFamily: FontFamily
 ) {
@@ -11341,7 +12207,8 @@ fun RetroYearDotMatrixWidget(
     }
     val yearNum = cal.get(Calendar.YEAR)
     val dayOfYear = cal.get(Calendar.DAY_OF_YEAR)
-    val totalDaysInYear = cal.getActualMaximum(Calendar.DAY_OF_YEAR) // 365 or 366
+    val totalDaysInYear = cal.getActualMaximum(Calendar.DAY_OF_YEAR)
+    val yearPct = ((dayOfYear.toFloat() / totalDaysInYear.toFloat()) * 100f).roundToInt()
 
     val canvasHeight = when (sizeMode) {
         "compact" -> 44.dp
@@ -11349,11 +12216,18 @@ fun RetroYearDotMatrixWidget(
         else -> 62.dp
     }
 
+    val is80s = widgetStyle == "80s_retro"
+    val isCyber = widgetStyle == "cyber_hud"
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
-            .background(Color(0xFF060606), RoundedCornerShape(10.dp))
+            .border(
+                width = if (is80s) 1.4.dp else 1.dp,
+                color = if (is80s) accentColor else if (isCyber) accentColor.copy(alpha = 0.55f) else Color(0xFF222222),
+                shape = RoundedCornerShape(if (is80s) 2.dp else 10.dp)
+            )
+            .background(if (is80s) Color(0xFF030803) else Color(0xFF060606), RoundedCornerShape(if (is80s) 2.dp else 10.dp))
             .padding(horizontal = 12.dp, vertical = if (sizeMode == "compact") 8.dp else 10.dp)
     ) {
         Row(
@@ -11362,14 +12236,14 @@ fun RetroYearDotMatrixWidget(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = yearNum.toString(),
-                color = Color.White,
+                text = if (is80s) "SYS.YR // $yearNum SECTORS" else if (isCyber) "⟦ YEAR MATRIX $yearNum ⟧" else yearNum.toString(),
+                color = if (is80s) accentColor else Color.White,
                 fontSize = 11.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = "$dayOfYear / $totalDaysInYear",
+                text = "$dayOfYear / $totalDaysInYear ($yearPct%)",
                 color = accentColor,
                 fontSize = 9.sp,
                 fontFamily = lomoFontFamily,
@@ -11396,16 +12270,31 @@ fun RetroYearDotMatrixWidget(
                 val r = idx / cols
                 val cx = c * cellW + cellW * 0.5f
                 val cy = r * cellH + cellH * 0.5f
-                val col = when {
-                    d == dayOfYear -> accentColor
-                    d < dayOfYear -> Color.White.copy(alpha = 0.78f)
-                    else -> Color(0xFF222222)
+                if (is80s) {
+                    val bw = (cellW * 0.72f).coerceAtLeast(2f)
+                    val bh = (cellH * 0.72f).coerceAtLeast(2f)
+                    val alpha = when {
+                        d == dayOfYear -> 1f
+                        d < dayOfYear -> 0.82f
+                        else -> 0.16f
+                    }
+                    drawRect(
+                        color = accentColor.copy(alpha = alpha),
+                        topLeft = Offset(cx - bw * 0.5f, cy - bh * 0.5f),
+                        size = Size(bw, bh)
+                    )
+                } else {
+                    val col = when {
+                        d == dayOfYear -> accentColor
+                        d < dayOfYear -> Color.White.copy(alpha = 0.78f)
+                        else -> Color(0xFF222222)
+                    }
+                    drawCircle(
+                        color = col,
+                        radius = if (d == dayOfYear) dotR * 1.35f else dotR,
+                        center = Offset(cx, cy)
+                    )
                 }
-                drawCircle(
-                    color = col,
-                    radius = if (d == dayOfYear) dotR * 1.35f else dotR,
-                    center = Offset(cx, cy)
-                )
             }
         }
     }
