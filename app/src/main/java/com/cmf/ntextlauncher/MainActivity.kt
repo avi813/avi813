@@ -135,8 +135,14 @@ import android.graphics.BitmapFactory
 import android.graphics.drawable.ColorDrawable
 import android.view.WindowManager
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import android.graphics.BlendMode as AndroidBlendMode
+import android.graphics.ColorMatrix as AndroidColorMatrix
+import android.graphics.ColorMatrixColorFilter as AndroidColorMatrixColorFilter
+import android.graphics.Paint as AndroidPaint
 import android.graphics.RenderEffect as AndroidRenderEffect
 import android.graphics.Shader as AndroidShader
+import kotlin.math.asin
+import kotlin.math.atan2
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.asImageBitmap
@@ -367,17 +373,22 @@ enum class PrebuiltFont(
 }
 
 // ============================================================================
-// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.6.1-cmf)
+// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.7.0-cmf)
 // Calculates exact vertical height of active widgets + pinned Home apps (and scale)
 // to prevent overflow/scrolling and trigger the "NO SPACE LEFT" popup when full.
 // ============================================================================
 private fun estimateSingleWidgetHeightDp(widgetId: String, sizeMode: String): Float = when (widgetId) {
     "clock" -> when (sizeMode) {
         "compact" -> 28f
-        "large" -> 98f
-        "xlarge" -> 118f
-        "max" -> 142f
-        else -> 76f
+        "large" -> 108f
+        "xlarge" -> 128f
+        "max" -> 152f
+        else -> 84f
+    }
+    "battery_bar" -> when (sizeMode) {
+        "compact" -> 42f
+        "large" -> 68f
+        else -> 54f
     }
     "retro_flip_clock" -> when (sizeMode) {
         "compact" -> 54f
@@ -457,7 +468,7 @@ private fun estimatePinnedAppsHeightDp(pinnedCount: Int, textSizeSp: Int): Float
 }
 
 // ============================================================================
-// iOS PHYSICAL RUBBER-BAND SPRING SCALE-FADE POPUP ENGINE (Nocturnaa v4.6.1-cmf)
+// iOS PHYSICAL RUBBER-BAND SPRING SCALE-FADE POPUP ENGINE (Nocturnaa v4.7.0-cmf)
 // - Starts slightly smaller (scale = 0.80f) and rapidly expands to full size (1.00f)
 //   while fading in from transparent (0f -> 1f) as the background simultaneously dims.
 // - Uses an underdamped physical rubber-band spring (dampingRatio = 0.62f, stiffness = 440f)
@@ -902,6 +913,10 @@ fun NTextLauncherApp(
     var drawerBgIntensity by remember { mutableStateOf(prefs.getInt("drawer_bg_intensity", 65)) }
     // Option to toggle whether Live Wallpapers and Widgets pause when an app is opened
     var pauseWhenAppOpen by remember { mutableStateOf(prefs.getBoolean("pause_when_app_open", true)) }
+    // 80s CRT Green Phosphor Theme (Overrides all colors & widgets with glowing 80s light-green phosphor & edge bloom)
+    var retro80sMode by remember { mutableStateOf(prefs.getBoolean("retro_80s_green_mode", false)) }
+    // Battery Progress Bar Style ("retro_blocks", "segmented_led", "pill", "chevron", "ruler_ticks")
+    var batteryBarStyle by remember { mutableStateOf(prefs.getString("battery_bar_style", "retro_blocks") ?: "retro_blocks") }
     val appLifecycleOwner = LocalLifecycleOwner.current
     var isLauncherInForeground by remember { mutableStateOf(true) }
     DisposableEffect(appLifecycleOwner) {
@@ -1290,8 +1305,8 @@ fun NTextLauncherApp(
         }
     }
 
-    val accentColor = remember(accentHex) {
-        resolveLauncherAccentColor(accentHex)
+    val accentColor = remember(accentHex, retro80sMode) {
+        if (retro80sMode) Color(0xFF7CFF5B) else resolveLauncherAccentColor(accentHex)
     }
     val prebuiltFont = remember(fontId) { PrebuiltFont.fromId(fontId) }
     val selectedFont = remember(prebuiltFont, lomoFontFamily) {
@@ -1837,10 +1852,66 @@ fun NTextLauncherApp(
     }
 
     // Root Surface with Full-Bleed Edge-to-Edge Wallpaper Engine + Universal Wallpaper Dimmer
+    // When retro80sMode is ON, applies a hardware-accelerated 80s CRT Green Phosphor ColorMatrix + Edge Glow Bloom across everything!
+    val retro80sRenderEffect = remember(retro80sMode) {
+        if (retro80sMode && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                // 1. Sharp 80s Light-Green Phosphor ColorMatrix (maps all colors/whites/grays to glowing 80s green #7CFF5B)
+                val sharpMatrix = AndroidColorMatrix(
+                    floatArrayOf(
+                        0.15f, 0.30f, 0.08f, 0f, 2f,
+                        0.34f, 0.68f, 0.18f, 0f, 10f,
+                        0.11f, 0.22f, 0.06f, 0f, 2f,
+                        0f,    0f,    0f,    1f, 0f
+                    )
+                )
+                val sharpEffect = AndroidRenderEffect.createColorFilterEffect(
+                    AndroidColorMatrixColorFilter(sharpMatrix)
+                )
+                // 2. Soft 80s CRT Edge Phosphor Bloom (blurs bright edges & screens them over the crisp image)
+                val bloomMatrix = AndroidColorMatrix(
+                    floatArrayOf(
+                        0.08f, 0.16f, 0.04f, 0f, 0f,
+                        0.24f, 0.48f, 0.12f, 0f, 0f,
+                        0.06f, 0.13f, 0.03f, 0f, 0f,
+                        0f,    0f,    0f,    1f, 0f
+                    )
+                )
+                val blurEffect = AndroidRenderEffect.createBlurEffect(
+                    13f,
+                    13f,
+                    AndroidShader.TileMode.CLAMP
+                )
+                val bloomEffect = AndroidRenderEffect.createChainEffect(
+                    blurEffect,
+                    AndroidRenderEffect.createColorFilterEffect(AndroidColorMatrixColorFilter(bloomMatrix))
+                )
+                AndroidRenderEffect.createBlendModeEffect(
+                    bloomEffect,
+                    sharpEffect,
+                    AndroidBlendMode.SCREEN
+                ).asComposeRenderEffect()
+            } catch (_: Exception) {
+                null
+            }
+        } else null
+    }
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (wallpaperPreset == "system_wallpaper") Color.Transparent else Color.Black)
+            .background(
+                when {
+                    wallpaperPreset == "system_wallpaper" -> Color.Transparent
+                    retro80sMode -> Color(0xFF020902)
+                    else -> Color.Black
+                }
+            )
+            .graphicsLayer {
+                if (retro80sRenderEffect != null) {
+                    renderEffect = retro80sRenderEffect
+                }
+            }
     ) {
         val density = LocalDensity.current
         val screenWidthPx = with(density) { maxWidth.toPx().coerceAtLeast(1f) }
@@ -2123,8 +2194,14 @@ fun NTextLauncherApp(
                                         textAlign = textAlign,
                                         textSizeSp = textSizeSp,
                                         waveScrubMode = waveScrubMode,
-                                        globeTheme = globeTheme,
-                                        globeWireframeColor = globeWireframeColor,
+                                        retro80sMode = retro80sMode,
+                                        batteryBarStyle = batteryBarStyle,
+                                        onChangeBatteryBarStyle = { style ->
+                                            batteryBarStyle = style
+                                            prefs.edit().putString("battery_bar_style", style).apply()
+                                        },
+                                        globeTheme = if (retro80sMode) "wireframe" else globeTheme,
+                                        globeWireframeColor = if (retro80sMode) "#7CFF5B" else globeWireframeColor,
                                         globeTilt2dDeg = globeTilt2dDeg,
                                         globeRotXDeg = globeRotXDeg,
                                         globeRotYDeg = globeRotYDeg,
@@ -2223,8 +2300,14 @@ fun NTextLauncherApp(
                                     textAlign = textAlign,
                                     textSizeSp = textSizeSp,
                                     waveScrubMode = waveScrubMode,
-                                    globeTheme = globeTheme,
-                                    globeWireframeColor = globeWireframeColor,
+                                    retro80sMode = retro80sMode,
+                                    batteryBarStyle = batteryBarStyle,
+                                    onChangeBatteryBarStyle = { style ->
+                                        batteryBarStyle = style
+                                        prefs.edit().putString("battery_bar_style", style).apply()
+                                    },
+                                    globeTheme = if (retro80sMode) "wireframe" else globeTheme,
+                                    globeWireframeColor = if (retro80sMode) "#7CFF5B" else globeWireframeColor,
                                     globeTilt2dDeg = globeTilt2dDeg,
                                     globeRotXDeg = globeRotXDeg,
                                     globeRotYDeg = globeRotYDeg,
@@ -2352,6 +2435,11 @@ fun NTextLauncherApp(
                             accentColor = accentColor,
                             lomoFontFamily = selectedFont,
                             use24Hour = use24Hour,
+                            batteryBarStyle = batteryBarStyle,
+                            onChangeBatteryBarStyle = { style ->
+                                batteryBarStyle = style
+                                prefs.edit().putString("battery_bar_style", style).apply()
+                            },
                             customPinnedOrderEnabled = customPinnedOrderEnabled,
                             quickNote = quickNote,
                             globeTheme = globeTheme,
@@ -2398,6 +2486,8 @@ fun NTextLauncherApp(
                             use24Hour = use24Hour,
                             hideAndroidBar = hideAndroidBar,
                             enableLeftPage = enableLeftPage,
+                            retro80sMode = retro80sMode,
+                            batteryBarStyle = batteryBarStyle,
                             pauseWhenAppOpen = pauseWhenAppOpen,
                             customPinnedOrderEnabled = customPinnedOrderEnabled,
                             waveScrubMode = waveScrubMode,
@@ -2479,6 +2569,14 @@ fun NTextLauncherApp(
                             onToggleLeftPage = {
                                 enableLeftPage = !enableLeftPage
                                 prefs.edit().putBoolean("enable_left_page", enableLeftPage).apply()
+                            },
+                            onToggleRetro80sMode = {
+                                retro80sMode = !retro80sMode
+                                prefs.edit().putBoolean("retro_80s_green_mode", retro80sMode).apply()
+                            },
+                            onChangeBatteryBarStyle = { style ->
+                                batteryBarStyle = style
+                                prefs.edit().putString("battery_bar_style", style).apply()
                             },
                             onTogglePauseWhenAppOpen = {
                                 pauseWhenAppOpen = !pauseWhenAppOpen
@@ -2976,6 +3074,314 @@ fun NTextLauncherApp(
                 }
             }
         }
+
+        // 80s CRT Monitor Phosphor Edge Glow, Scanlines & Bezel Vignette Overlay (Pass-through touches)
+        if (retro80sMode) {
+            Retro80sCrtScreenEdgeGlowOverlay()
+        }
+    }
+}
+
+// ============================================================================
+// 80s CRT GREEN PHOSPHOR MONITOR EDGE GLOW & MULTI-STYLE BATTERY PROGRESS BAR
+// ============================================================================
+@Composable
+fun Retro80sCrtScreenEdgeGlowOverlay() {
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val w = size.width
+        val h = size.height
+        val phosphorGreen = Color(0xFF7CFF5B)
+
+        // 1. Subtle Horizontal 80s CRT Phosphor Scanlines (every 3.dp)
+        val scanStep = 3.dp.toPx().coerceAtLeast(2f)
+        var y = 0f
+        while (y < h) {
+            drawLine(
+                color = Color(0xFF001400).copy(alpha = 0.22f),
+                start = Offset(0f, y),
+                end = Offset(w, y),
+                strokeWidth = 1f
+            )
+            y += scanStep
+        }
+
+        // 2. Glowing 80s CRT Phosphor Inner Bezel Edge Halo (Top, Bottom, Left, Right)
+        val edgeGlowThickness = 28.dp.toPx()
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    phosphorGreen.copy(alpha = 0.22f),
+                    phosphorGreen.copy(alpha = 0.06f),
+                    Color.Transparent
+                ),
+                startY = 0f,
+                endY = edgeGlowThickness
+            ),
+            size = Size(w, edgeGlowThickness)
+        )
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    phosphorGreen.copy(alpha = 0.06f),
+                    phosphorGreen.copy(alpha = 0.22f)
+                ),
+                startY = h - edgeGlowThickness,
+                endY = h
+            ),
+            topLeft = Offset(0f, h - edgeGlowThickness),
+            size = Size(w, edgeGlowThickness)
+        )
+        drawRect(
+            brush = Brush.horizontalGradient(
+                colors = listOf(
+                    phosphorGreen.copy(alpha = 0.20f),
+                    phosphorGreen.copy(alpha = 0.05f),
+                    Color.Transparent
+                ),
+                startX = 0f,
+                endX = edgeGlowThickness
+            ),
+            size = Size(edgeGlowThickness, h)
+        )
+        drawRect(
+            brush = Brush.horizontalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    phosphorGreen.copy(alpha = 0.05f),
+                    phosphorGreen.copy(alpha = 0.20f)
+                ),
+                startX = w - edgeGlowThickness,
+                endX = w
+            ),
+            topLeft = Offset(w - edgeGlowThickness, 0f),
+            size = Size(edgeGlowThickness, h)
+        )
+
+        // 3. Razor-thin glowing phosphor outer frame line around the CRT tube perimeter
+        val inset = 2.dp.toPx()
+        drawRoundRect(
+            color = phosphorGreen.copy(alpha = 0.36f),
+            topLeft = Offset(inset, inset),
+            size = Size(w - inset * 2f, h - inset * 2f),
+            cornerRadius = CornerRadius(18.dp.toPx(), 18.dp.toPx()),
+            style = Stroke(width = 1.2.dp.toPx())
+        )
+    }
+}
+
+val BATTERY_BAR_STYLES: List<Pair<String, String>> = listOf(
+    "retro_blocks" to "80s BLOCKY",
+    "segmented_led" to "LED CELLS",
+    "pill" to "SMOOTH PILL",
+    "chevron" to "CHEVRON",
+    "ruler_ticks" to "TICKS"
+)
+
+@Composable
+fun RetroBatteryProgressBar(
+    batteryPct: Int,
+    barStyle: String,
+    accentColor: Color,
+    retro80sMode: Boolean = false,
+    sizeMode: String = "standard",
+    modifier: Modifier = Modifier
+) {
+    val pct = batteryPct.coerceIn(1, 100)
+    val frac = (pct / 100f).coerceIn(0.02f, 1f)
+    val activeColor = if (retro80sMode) Color(0xFF7CFF5B) else accentColor
+    val barHeight = when (barStyle) {
+        "retro_blocks" -> when (sizeMode) {
+            "max" -> 28.dp
+            "xlarge" -> 24.dp
+            "large" -> 22.dp
+            "compact" -> 14.dp
+            else -> 19.dp
+        }
+        "segmented_led", "chevron", "ruler_ticks" -> when (sizeMode) {
+            "max" -> 18.dp
+            "xlarge" -> 16.dp
+            "large" -> 14.dp
+            "compact" -> 10.dp
+            else -> 12.dp
+        }
+        else -> when (sizeMode) {
+            "max" -> 10.dp
+            "xlarge" -> 9.dp
+            "large" -> 8.dp
+            else -> 6.dp
+        }
+    }
+
+    Canvas(
+        modifier = modifier
+            .height(barHeight)
+    ) {
+        val w = size.width
+        val h = size.height
+
+        when (barStyle) {
+            "retro_blocks" -> {
+                // Exact 80s CRT Blocky Progress Bar from reference image:
+                // Crisp outer rectangular frame + 18 discrete vertical blocks + 80s dot-dithered stipple on partial/unfilled blocks!
+                val borderStroke = 1.35.dp.toPx()
+                // Outer phosphor glow stroke
+                drawRect(
+                    color = activeColor.copy(alpha = 0.28f),
+                    topLeft = Offset(0f, 0f),
+                    size = Size(w, h),
+                    style = Stroke(width = borderStroke * 2.4f)
+                )
+                // Crisp outer frame
+                drawRect(
+                    color = activeColor.copy(alpha = 0.92f),
+                    topLeft = Offset(borderStroke * 0.5f, borderStroke * 0.5f),
+                    size = Size(w - borderStroke, h - borderStroke),
+                    style = Stroke(width = borderStroke)
+                )
+
+                val pad = 3.2.dp.toPx()
+                val innerW = (w - pad * 2f).coerceAtLeast(10f)
+                val innerH = (h - pad * 2f).coerceAtLeast(4f)
+                val totalBlocks = 18
+                val gap = 2.4.dp.toPx()
+                val blockW = ((innerW - gap * (totalBlocks - 1)) / totalBlocks).coerceAtLeast(2f)
+                val exactBlocks = frac * totalBlocks
+                val fullBlocks = exactBlocks.toInt()
+                val partialFrac = exactBlocks - fullBlocks
+
+                for (i in 0 until totalBlocks) {
+                    val bx = pad + i * (blockW + gap)
+                    val by = pad
+                    if (i < fullBlocks) {
+                        // Soft outer block bloom
+                        drawRect(
+                            color = activeColor.copy(alpha = 0.30f),
+                            topLeft = Offset(bx - 1f, by - 1f),
+                            size = Size(blockW + 2f, innerH + 2f)
+                        )
+                        // Solid glowing 80s phosphor block
+                        drawRect(
+                            color = activeColor,
+                            topLeft = Offset(bx, by),
+                            size = Size(blockW, innerH)
+                        )
+                    } else {
+                        // 80s Dot-Dithered Stipple Pattern inside partial & unfilled blocks (exact match to reference image!)
+                        val isTransitionBlock = (i == fullBlocks && partialFrac > 0.08f)
+                        val dotAlpha = when {
+                            isTransitionBlock -> 0.78f
+                            i == fullBlocks + 1 -> 0.42f
+                            i < totalBlocks - 1 -> 0.25f
+                            else -> 0.12f
+                        }
+                        val cols = 3
+                        val rows = 6
+                        val cellW = blockW / cols
+                        val cellH = innerH / rows
+                        val dotR = (min(cellW, cellH) * 0.34f).coerceAtLeast(0.75f)
+                        for (r in 0 until rows) {
+                            for (c in 0 until cols) {
+                                // Checkerboard / halftone dither pattern
+                                val drawDot = if (isTransitionBlock) {
+                                    true
+                                } else {
+                                    (r + c) % 2 == 0
+                                }
+                                if (drawDot) {
+                                    drawCircle(
+                                        color = activeColor.copy(alpha = dotAlpha),
+                                        radius = dotR,
+                                        center = Offset(
+                                            bx + (c + 0.5f) * cellW,
+                                            by + (r + 0.5f) * cellH
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            "segmented_led" -> {
+                val totalCells = 12
+                val gap = 3.dp.toPx()
+                val cellW = ((w - gap * (totalCells - 1)) / totalCells).coerceAtLeast(2f)
+                val litCells = (frac * totalCells).roundToInt().coerceIn(1, totalCells)
+                for (i in 0 until totalCells) {
+                    val cx0 = i * (cellW + gap)
+                    val isLit = i < litCells
+                    drawRoundRect(
+                        color = if (isLit) activeColor else activeColor.copy(alpha = 0.14f),
+                        topLeft = Offset(cx0, 0f),
+                        size = Size(cellW, h),
+                        cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
+                    )
+                }
+            }
+
+            "chevron" -> {
+                val totalCells = 14
+                val gap = 3.dp.toPx()
+                val slant = h * 0.38f
+                val cellW = ((w - slant - gap * (totalCells - 1)) / totalCells).coerceAtLeast(2f)
+                val litCells = (frac * totalCells).roundToInt().coerceIn(1, totalCells)
+                val path = Path()
+                for (i in 0 until totalCells) {
+                    val x0 = i * (cellW + gap)
+                    path.reset()
+                    path.moveTo(x0 + slant, 0f)
+                    path.lineTo(x0 + slant + cellW, 0f)
+                    path.lineTo(x0 + cellW, h)
+                    path.lineTo(x0, h)
+                    path.close()
+                    drawPath(
+                        path = path,
+                        color = if (i < litCells) activeColor else activeColor.copy(alpha = 0.15f)
+                    )
+                }
+            }
+
+            "ruler_ticks" -> {
+                val totalTicks = 32
+                val step = w / totalTicks
+                val litTicks = (frac * totalTicks).roundToInt().coerceIn(1, totalTicks)
+                for (i in 0..totalTicks) {
+                    val tx = (i * step).coerceIn(0f, w)
+                    val isMajor = i % 4 == 0
+                    val tickH = if (isMajor) h else h * 0.58f
+                    val y0 = (h - tickH) * 0.5f
+                    val isLit = i <= litTicks
+                    drawLine(
+                        color = if (isLit) activeColor else activeColor.copy(alpha = 0.22f),
+                        start = Offset(tx, y0),
+                        end = Offset(tx, y0 + tickH),
+                        strokeWidth = if (isMajor) 1.8.dp.toPx() else 1.1.dp.toPx()
+                    )
+                }
+            }
+
+            else -> { // "pill" (Smooth Pill)
+                val r = h * 0.5f
+                drawRoundRect(
+                    color = Color(0xFF141414),
+                    size = Size(w, h),
+                    cornerRadius = CornerRadius(r, r)
+                )
+                drawRoundRect(
+                    color = activeColor.copy(alpha = 0.35f),
+                    size = Size(w, h),
+                    cornerRadius = CornerRadius(r, r),
+                    style = Stroke(width = 1.dp.toPx())
+                )
+                drawRoundRect(
+                    color = activeColor,
+                    size = Size((w * frac).coerceAtLeast(h), h),
+                    cornerRadius = CornerRadius(r, r)
+                )
+            }
+        }
     }
 }
 
@@ -3046,6 +3452,9 @@ fun HomeScreenView(
     textAlign: TextAlign,
     textSizeSp: Int,
     waveScrubMode: String,
+    retro80sMode: Boolean = false,
+    batteryBarStyle: String = "retro_blocks",
+    onChangeBatteryBarStyle: (String) -> Unit = {},
     globeTheme: String,
     globeWireframeColor: String,
     globeTilt2dDeg: Float,
@@ -3309,6 +3718,55 @@ fun HomeScreenView(
                                         .clickable { onRemoveWidget(widgetId) }
                                         .padding(horizontal = 7.dp, vertical = 2.dp)
                                 )
+                            }
+
+                            // Battery Progress Bar Style Selector in Edit Mode (for Clock & Battery Bar widgets)
+                            if (widgetId == "clock" || widgetId == "battery_bar") {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, Color(0xFF262626), RoundedCornerShape(5.dp))
+                                        .background(Color(0xFF101010), RoundedCornerShape(5.dp))
+                                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "BATTERY BAR STYLE",
+                                        color = Color(0xFF8A8A8A),
+                                        fontSize = 8.sp,
+                                        fontFamily = selectedFont,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        BATTERY_BAR_STYLES.forEach { (stId, stLbl) ->
+                                            val isSt = batteryBarStyle == stId
+                                            Text(
+                                                text = stLbl,
+                                                color = if (isSt) Color.Black else Color.White,
+                                                fontSize = 7.sp,
+                                                fontFamily = selectedFont,
+                                                fontWeight = FontWeight.Bold,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .border(
+                                                        1.dp,
+                                                        if (isSt) accentColor else Color(0xFF282828),
+                                                        RoundedCornerShape(4.dp)
+                                                    )
+                                                    .background(
+                                                        if (isSt) accentColor else Color(0xFF151515),
+                                                        RoundedCornerShape(4.dp)
+                                                    )
+                                                    .clickable { onChangeBatteryBarStyle(stId) }
+                                                    .padding(vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
 
                             // Row 2: Collapsible Per-Widget Font Style Menu (14 Fonts for all widgets with text)
@@ -3658,20 +4116,14 @@ fun HomeScreenView(
                                                 fontFamily = wFontFamily,
                                                 letterSpacing = 0.8.sp
                                             )
-                                            Box(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .height(barHeight)
-                                                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(999.dp))
-                                                    .background(Color(0xFF141414), RoundedCornerShape(999.dp))
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxHeight()
-                                                        .fillMaxWidth((batteryPct / 100f).coerceIn(0.03f, 1f))
-                                                        .background(accentColor, RoundedCornerShape(999.dp))
-                                                )
-                                            }
+                                            RetroBatteryProgressBar(
+                                                batteryPct = batteryPct,
+                                                barStyle = batteryBarStyle,
+                                                accentColor = accentColor,
+                                                retro80sMode = retro80sMode,
+                                                sizeMode = sizeMode,
+                                                modifier = Modifier.weight(1f)
+                                            )
                                             if (isCharging) {
                                                 Text(
                                                     text = "⚡",
@@ -3771,20 +4223,14 @@ fun HomeScreenView(
                                                 fontFamily = wFontFamily,
                                                 letterSpacing = 0.8.sp
                                             )
-                                            Box(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .height(6.dp)
-                                                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(999.dp))
-                                                    .background(Color(0xFF141414), RoundedCornerShape(999.dp))
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxHeight()
-                                                        .fillMaxWidth((batteryPct / 100f).coerceIn(0.03f, 1f))
-                                                        .background(accentColor, RoundedCornerShape(999.dp))
-                                                )
-                                            }
+                                            RetroBatteryProgressBar(
+                                                batteryPct = batteryPct,
+                                                barStyle = batteryBarStyle,
+                                                accentColor = accentColor,
+                                                retro80sMode = retro80sMode,
+                                                sizeMode = sizeMode,
+                                                modifier = Modifier.weight(1f)
+                                            )
                                             if (isCharging) {
                                                 Text(
                                                     text = "⚡",
@@ -3796,6 +4242,61 @@ fun HomeScreenView(
                                         }
                                     }
                                 }
+                            }
+                        }
+                        "battery_bar" -> {
+                            // Dedicated 80s CRT Blocky Battery & Time Header Widget (Matches top-left of reference image!)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onClick = { onOpenClockApp() },
+                                        onLongClick = { onLongPressHome() }
+                                    ),
+                                verticalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                val headerSp = when (sizeMode) {
+                                    "large" -> 14.sp
+                                    "compact" -> 10.sp
+                                    else -> 12.sp
+                                }
+                                val timePart = if (currentAmPmStr.isNotEmpty()) {
+                                    "$currentHourStr:$currentMinStr $currentAmPmStr"
+                                } else {
+                                    "$currentHourStr:$currentMinStr"
+                                }
+                                val dateClean = currentDateStr.replace("·", "-")
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "$timePart $dateClean",
+                                        color = Color.White,
+                                        fontSize = headerSp,
+                                        fontFamily = wFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.8.sp
+                                    )
+                                    Text(
+                                        text = if (isCharging) "$batteryPct% ⚡" else "$batteryPct%",
+                                        color = accentColor,
+                                        fontSize = headerSp,
+                                        fontFamily = wFontFamily,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                RetroBatteryProgressBar(
+                                    batteryPct = batteryPct,
+                                    barStyle = batteryBarStyle,
+                                    accentColor = accentColor,
+                                    retro80sMode = retro80sMode,
+                                    sizeMode = sizeMode,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
                         }
                         "retro_flip_clock" -> {
@@ -4234,9 +4735,10 @@ fun HomeScreenView(
                                                 } else {
                                                     app.label
                                                 }
+                                                val retroPrefix = if (retro80sMode && !editMode) "> $displayLabel" else displayLabel
                                                 Text(
-                                                    text = if (isHighlighted && !editMode) "▸ $displayLabel" else displayLabel,
-                                                    color = if (isHighlighted && !editMode) accentColor else if (animWave > 0.35f) Color.White else Color(0xFFF5F5F5),
+                                                    text = if (isHighlighted && !editMode) "▸ $displayLabel" else retroPrefix,
+                                                    color = if (isHighlighted && !editMode || retro80sMode) accentColor else if (animWave > 0.35f) Color.White else Color(0xFFF5F5F5),
                                                     fontSize = textSizeSp.sp,
                                                     fontFamily = wFontFamily,
                                                     maxLines = 1,
@@ -5029,6 +5531,229 @@ fun GlobeAxisControlRow(
     }
 }
 
+// ============================================================================
+// 155+ WORLD COUNTRIES GEOGRAPHIC COORDINATE DATABASE FOR GLOBE CROSSHAIR HUD
+// Resolves the exact country under the center crosshair intersection (cx, cy)!
+// ============================================================================
+private class CountryGeoEntry(
+    val name: String,
+    val minLat: Float,
+    val maxLat: Float,
+    val minLon: Float,
+    val maxLon: Float,
+    val centerLat: Float,
+    val centerLon: Float
+)
+
+private val WORLD_COUNTRIES_GEO_DB: Array<CountryGeoEntry> = arrayOf(
+    // North & Central America & Caribbean
+    CountryGeoEntry("CANADA", 42.0f, 83.0f, -141.0f, -52.6f, 58.0f, -102.0f),
+    CountryGeoEntry("UNITED STATES", 24.5f, 49.4f, -124.8f, -66.9f, 38.5f, -97.5f),
+    CountryGeoEntry("UNITED STATES (ALASKA)", 54.0f, 71.4f, -168.0f, -141.0f, 64.0f, -152.0f),
+    CountryGeoEntry("GREENLAND", 59.8f, 83.6f, -73.0f, -12.0f, 72.0f, -40.0f),
+    CountryGeoEntry("MEXICO", 14.5f, 32.7f, -117.1f, -86.7f, 23.6f, -102.5f),
+    CountryGeoEntry("GUATEMALA", 13.7f, 17.8f, -92.2f, -88.2f, 15.8f, -90.2f),
+    CountryGeoEntry("HONDURAS", 13.0f, 16.5f, -89.4f, -83.1f, 14.8f, -86.2f),
+    CountryGeoEntry("NICARAGUA", 10.7f, 15.0f, -87.7f, -83.1f, 12.9f, -85.2f),
+    CountryGeoEntry("COSTA RICA", 8.0f, 11.2f, -85.9f, -82.6f, 9.9f, -84.1f),
+    CountryGeoEntry("PANAMA", 7.2f, 9.6f, -83.0f, -77.2f, 8.5f, -80.1f),
+    CountryGeoEntry("CUBA", 19.8f, 23.3f, -85.0f, -74.1f, 21.5f, -79.5f),
+    CountryGeoEntry("JAMAICA", 17.7f, 18.6f, -78.4f, -76.2f, 18.1f, -77.3f),
+    CountryGeoEntry("HAITI", 18.0f, 20.1f, -74.5f, -71.6f, 19.0f, -72.5f),
+    CountryGeoEntry("DOMINICAN REPUBLIC", 17.5f, 20.0f, -72.0f, -68.3f, 18.8f, -70.2f),
+    // South America
+    CountryGeoEntry("COLOMBIA", -4.2f, 12.5f, -79.0f, -66.9f, 4.6f, -74.1f),
+    CountryGeoEntry("VENEZUELA", 0.6f, 12.2f, -73.4f, -59.8f, 7.1f, -66.2f),
+    CountryGeoEntry("GUYANA", 1.2f, 8.6f, -61.4f, -56.5f, 5.0f, -58.9f),
+    CountryGeoEntry("SURINAME", 1.8f, 6.0f, -58.1f, -54.0f, 4.0f, -56.0f),
+    CountryGeoEntry("ECUADOR", -5.0f, 1.5f, -81.1f, -75.2f, -1.8f, -78.2f),
+    CountryGeoEntry("PERU", -18.4f, -0.0f, -81.3f, -68.7f, -9.2f, -75.0f),
+    CountryGeoEntry("BRAZIL", -33.7f, 5.3f, -74.0f, -34.8f, -12.0f, -52.0f),
+    CountryGeoEntry("BOLIVIA", -22.9f, -9.7f, -69.6f, -57.5f, -16.3f, -63.6f),
+    CountryGeoEntry("PARAGUAY", -27.6f, -19.3f, -62.6f, -54.3f, -23.4f, -58.4f),
+    CountryGeoEntry("URUGUAY", -35.0f, -30.1f, -58.4f, -53.1f, -32.5f, -55.8f),
+    CountryGeoEntry("CHILE", -55.9f, -17.5f, -75.6f, -66.9f, -35.7f, -71.5f),
+    CountryGeoEntry("ARGENTINA", -55.1f, -21.8f, -73.6f, -53.6f, -36.5f, -64.0f),
+    // Europe
+    CountryGeoEntry("ICELAND", 63.3f, 66.6f, -24.5f, -13.5f, 65.0f, -19.0f),
+    CountryGeoEntry("IRELAND", 51.4f, 55.4f, -10.5f, -6.0f, 53.3f, -8.2f),
+    CountryGeoEntry("UNITED KINGDOM", 49.9f, 58.7f, -8.2f, 1.8f, 54.0f, -2.5f),
+    CountryGeoEntry("PORTUGAL", 36.9f, 42.2f, -9.5f, -6.2f, 39.5f, -8.0f),
+    CountryGeoEntry("SPAIN", 36.0f, 43.8f, -9.3f, 3.3f, 40.2f, -3.7f),
+    CountryGeoEntry("FRANCE", 41.3f, 51.1f, -4.8f, 8.2f, 46.6f, 2.4f),
+    CountryGeoEntry("BELGIUM", 49.5f, 51.5f, 2.5f, 6.4f, 50.6f, 4.6f),
+    CountryGeoEntry("NETHERLANDS", 50.8f, 53.5f, 3.4f, 7.2f, 52.2f, 5.5f),
+    CountryGeoEntry("SWITZERLAND", 45.8f, 47.8f, 6.0f, 10.5f, 46.8f, 8.2f),
+    CountryGeoEntry("ITALY", 36.6f, 47.1f, 6.6f, 18.5f, 42.5f, 12.6f),
+    CountryGeoEntry("GERMANY", 47.3f, 55.1f, 5.9f, 15.0f, 51.2f, 10.4f),
+    CountryGeoEntry("DENMARK", 54.5f, 57.8f, 8.1f, 12.7f, 56.1f, 10.0f),
+    CountryGeoEntry("NORWAY", 58.0f, 71.2f, 4.6f, 31.1f, 62.5f, 10.5f),
+    CountryGeoEntry("SWEDEN", 55.3f, 69.1f, 11.1f, 24.2f, 62.0f, 16.0f),
+    CountryGeoEntry("FINLAND", 59.8f, 70.1f, 20.5f, 31.6f, 64.5f, 26.0f),
+    CountryGeoEntry("ESTONIA", 57.5f, 59.7f, 21.8f, 28.2f, 58.6f, 25.0f),
+    CountryGeoEntry("LATVIA", 55.7f, 58.1f, 21.0f, 28.2f, 56.9f, 24.6f),
+    CountryGeoEntry("LITHUANIA", 53.9f, 56.5f, 21.0f, 26.8f, 55.2f, 23.9f),
+    CountryGeoEntry("POLAND", 49.0f, 54.8f, 14.1f, 24.1f, 52.0f, 19.1f),
+    CountryGeoEntry("CZECHIA", 48.5f, 51.1f, 12.1f, 18.9f, 49.8f, 15.5f),
+    CountryGeoEntry("AUSTRIA", 46.4f, 49.0f, 9.5f, 17.2f, 47.7f, 14.0f),
+    CountryGeoEntry("SLOVAKIA", 47.7f, 49.6f, 16.8f, 22.6f, 48.7f, 19.7f),
+    CountryGeoEntry("HUNGARY", 45.7f, 48.6f, 16.1f, 22.9f, 47.2f, 19.5f),
+    CountryGeoEntry("ROMANIA", 43.6f, 48.3f, 20.3f, 29.7f, 45.9f, 25.0f),
+    CountryGeoEntry("BULGARIA", 41.2f, 44.2f, 22.4f, 28.6f, 42.7f, 25.5f),
+    CountryGeoEntry("GREECE", 35.0f, 41.7f, 19.4f, 28.2f, 38.5f, 23.0f),
+    CountryGeoEntry("SERBIA", 42.2f, 46.2f, 18.8f, 23.0f, 44.2f, 20.9f),
+    CountryGeoEntry("CROATIA", 42.4f, 46.6f, 13.5f, 19.4f, 45.1f, 16.0f),
+    CountryGeoEntry("BELARUS", 51.3f, 56.2f, 23.2f, 32.8f, 53.7f, 28.0f),
+    CountryGeoEntry("UKRAINE", 44.4f, 52.4f, 22.1f, 40.2f, 48.8f, 31.4f),
+    CountryGeoEntry("RUSSIA", 41.2f, 77.7f, 28.0f, 180.0f, 61.5f, 95.0f),
+    // Africa
+    CountryGeoEntry("MOROCCO", 27.7f, 35.9f, -13.2f, -1.0f, 31.8f, -6.5f),
+    CountryGeoEntry("WESTERN SAHARA", 20.8f, 27.7f, -17.1f, -8.7f, 24.2f, -13.0f),
+    CountryGeoEntry("ALGERIA", 19.0f, 37.1f, -8.7f, 12.0f, 28.0f, 2.6f),
+    CountryGeoEntry("TUNISIA", 30.2f, 37.5f, 7.5f, 11.6f, 34.0f, 9.5f),
+    CountryGeoEntry("LIBYA", 19.5f, 33.2f, 9.4f, 25.2f, 26.8f, 17.2f),
+    CountryGeoEntry("EGYPT", 22.0f, 31.7f, 24.7f, 36.9f, 26.8f, 30.8f),
+    CountryGeoEntry("MAURITANIA", 14.7f, 27.3f, -17.1f, -4.8f, 20.5f, -10.5f),
+    CountryGeoEntry("MALI", 10.1f, 25.0f, -12.2f, 4.2f, 17.5f, -3.5f),
+    CountryGeoEntry("NIGER", 11.7f, 23.5f, 0.2f, 16.0f, 17.6f, 8.1f),
+    CountryGeoEntry("CHAD", 7.4f, 23.5f, 13.5f, 24.0f, 15.4f, 18.7f),
+    CountryGeoEntry("SUDAN", 8.7f, 22.0f, 21.8f, 38.6f, 15.5f, 30.2f),
+    CountryGeoEntry("SOUTH SUDAN", 3.5f, 12.2f, 24.1f, 35.9f, 7.5f, 30.0f),
+    CountryGeoEntry("ERITREA", 12.4f, 18.0f, 36.4f, 43.1f, 15.2f, 39.8f),
+    CountryGeoEntry("ETHIOPIA", 3.4f, 14.9f, 33.0f, 48.0f, 9.1f, 40.5f),
+    CountryGeoEntry("SOMALIA", -1.7f, 12.0f, 41.0f, 51.4f, 5.2f, 46.2f),
+    CountryGeoEntry("SENEGAL", 12.3f, 16.7f, -17.5f, -11.4f, 14.5f, -14.5f),
+    CountryGeoEntry("GUINEA", 7.2f, 12.7f, -15.1f, -7.6f, 10.4f, -11.0f),
+    CountryGeoEntry("COTE D'IVOIRE", 4.3f, 10.7f, -8.6f, -2.5f, 7.5f, -5.5f),
+    CountryGeoEntry("GHANA", 4.7f, 11.2f, -3.3f, 1.2f, 7.9f, -1.0f),
+    CountryGeoEntry("BURKINA FASO", 9.4f, 15.1f, -5.5f, 2.4f, 12.2f, -1.6f),
+    CountryGeoEntry("NIGERIA", 4.3f, 13.9f, 2.7f, 14.7f, 9.1f, 8.7f),
+    CountryGeoEntry("CAMEROON", 1.7f, 13.1f, 8.5f, 16.2f, 6.0f, 12.5f),
+    CountryGeoEntry("CENTRAL AFRICAN REP.", 2.2f, 11.0f, 14.4f, 27.5f, 6.6f, 20.9f),
+    CountryGeoEntry("GABON", -4.0f, 2.3f, 8.7f, 14.5f, -0.8f, 11.6f),
+    CountryGeoEntry("CONGO", -5.0f, 3.7f, 11.2f, 18.6f, -0.7f, 15.2f),
+    CountryGeoEntry("DR CONGO", -13.5f, 5.4f, 12.2f, 31.3f, -4.0f, 23.5f),
+    CountryGeoEntry("UGANDA", -1.5f, 4.2f, 29.6f, 35.0f, 1.4f, 32.3f),
+    CountryGeoEntry("KENYA", -4.7f, 5.0f, 33.9f, 41.9f, 0.2f, 37.9f),
+    CountryGeoEntry("TANZANIA", -11.7f, -1.0f, 29.3f, 40.4f, -6.4f, 34.9f),
+    CountryGeoEntry("ANGOLA", -18.0f, -4.4f, 11.7f, 24.1f, -11.2f, 17.9f),
+    CountryGeoEntry("ZAMBIA", -18.1f, -8.2f, 22.0f, 33.7f, -13.1f, 27.8f),
+    CountryGeoEntry("MALAWI", -17.1f, -9.4f, 32.7f, 35.9f, -13.3f, 34.3f),
+    CountryGeoEntry("MOZAMBIQUE", -26.9f, -10.5f, 30.2f, 40.8f, -18.7f, 35.5f),
+    CountryGeoEntry("ZIMBABWE", -22.4f, -15.6f, 25.2f, 33.1f, -19.0f, 29.2f),
+    CountryGeoEntry("NAMIBIA", -29.0f, -17.0f, 11.7f, 25.3f, -22.6f, 17.1f),
+    CountryGeoEntry("BOTSWANA", -26.9f, -17.8f, 20.0f, 29.4f, -22.3f, 24.7f),
+    CountryGeoEntry("SOUTH AFRICA", -34.8f, -22.1f, 16.5f, 32.9f, -29.0f, 24.5f),
+    CountryGeoEntry("MADAGASCAR", -25.6f, -12.0f, 43.2f, 50.5f, -19.0f, 46.8f),
+    // Middle East & Asia
+    CountryGeoEntry("TURKEY", 35.8f, 42.1f, 26.0f, 44.8f, 39.0f, 35.2f),
+    CountryGeoEntry("SYRIA", 32.3f, 37.3f, 35.7f, 42.4f, 35.0f, 38.5f),
+    CountryGeoEntry("IRAQ", 29.1f, 37.4f, 38.8f, 48.6f, 33.2f, 43.7f),
+    CountryGeoEntry("JORDAN", 29.2f, 33.4f, 35.0f, 39.3f, 31.2f, 36.8f),
+    CountryGeoEntry("ISRAEL", 29.5f, 33.3f, 34.2f, 35.9f, 31.5f, 35.0f),
+    CountryGeoEntry("SAUDI ARABIA", 16.4f, 32.2f, 34.5f, 55.7f, 24.0f, 45.0f),
+    CountryGeoEntry("YEMEN", 12.1f, 19.0f, 42.5f, 54.5f, 15.6f, 48.5f),
+    CountryGeoEntry("OMAN", 16.6f, 26.4f, 52.0f, 59.8f, 21.0f, 57.0f),
+    CountryGeoEntry("UAE", 22.6f, 26.1f, 51.5f, 56.4f, 24.4f, 54.4f),
+    CountryGeoEntry("IRAN", 25.1f, 39.8f, 44.0f, 63.3f, 32.4f, 53.7f),
+    CountryGeoEntry("GEORGIA", 41.0f, 43.6f, 40.0f, 46.7f, 42.3f, 43.4f),
+    CountryGeoEntry("AZERBAIJAN", 38.4f, 41.9f, 44.8f, 50.4f, 40.1f, 47.6f),
+    CountryGeoEntry("KAZAKHSTAN", 40.6f, 55.4f, 46.5f, 87.3f, 48.0f, 67.0f),
+    CountryGeoEntry("UZBEKISTAN", 37.2f, 45.6f, 56.0f, 73.1f, 41.4f, 64.6f),
+    CountryGeoEntry("TURKMENISTAN", 35.1f, 42.8f, 52.4f, 66.7f, 39.0f, 59.6f),
+    CountryGeoEntry("KYRGYZSTAN", 39.2f, 43.3f, 69.3f, 80.3f, 41.2f, 74.8f),
+    CountryGeoEntry("TAJIKISTAN", 36.7f, 41.0f, 67.4f, 75.1f, 38.9f, 71.3f),
+    CountryGeoEntry("AFGHANISTAN", 29.4f, 38.5f, 60.5f, 74.9f, 33.9f, 67.7f),
+    CountryGeoEntry("PAKISTAN", 23.7f, 37.1f, 60.9f, 77.8f, 30.4f, 69.3f),
+    CountryGeoEntry("INDIA", 6.7f, 35.7f, 68.1f, 97.4f, 22.0f, 79.0f),
+    CountryGeoEntry("SRI LANKA", 5.9f, 9.9f, 79.6f, 81.9f, 7.9f, 80.8f),
+    CountryGeoEntry("NEPAL", 26.3f, 30.4f, 80.1f, 88.2f, 28.4f, 84.1f),
+    CountryGeoEntry("BHUTAN", 26.7f, 28.3f, 88.7f, 92.1f, 27.5f, 90.4f),
+    CountryGeoEntry("BANGLADESH", 20.7f, 26.6f, 88.0f, 92.7f, 23.7f, 90.4f),
+    CountryGeoEntry("MYANMAR", 9.8f, 28.5f, 92.2f, 101.2f, 21.0f, 96.5f),
+    CountryGeoEntry("THAILAND", 5.6f, 20.5f, 97.3f, 105.6f, 15.0f, 101.0f),
+    CountryGeoEntry("LAOS", 13.9f, 22.5f, 100.1f, 107.7f, 18.2f, 103.9f),
+    CountryGeoEntry("CAMBODIA", 10.4f, 14.7f, 102.3f, 107.6f, 12.6f, 105.0f),
+    CountryGeoEntry("VIETNAM", 8.5f, 23.4f, 102.1f, 109.5f, 16.0f, 107.8f),
+    CountryGeoEntry("MALAYSIA", 0.9f, 7.4f, 99.6f, 119.3f, 4.2f, 109.5f),
+    CountryGeoEntry("INDONESIA", -11.0f, 6.0f, 95.0f, 141.0f, -2.5f, 118.0f),
+    CountryGeoEntry("PHILIPPINES", 4.6f, 21.1f, 116.9f, 126.6f, 12.9f, 121.8f),
+    CountryGeoEntry("MONGOLIA", 41.6f, 52.1f, 87.7f, 119.9f, 46.9f, 103.8f),
+    CountryGeoEntry("CHINA", 18.2f, 53.6f, 73.5f, 134.8f, 35.9f, 104.2f),
+    CountryGeoEntry("TAIWAN", 21.9f, 25.3f, 120.0f, 122.0f, 23.7f, 121.0f),
+    CountryGeoEntry("NORTH KOREA", 37.7f, 43.0f, 124.2f, 130.7f, 40.0f, 127.0f),
+    CountryGeoEntry("SOUTH KOREA", 33.1f, 38.6f, 125.8f, 129.6f, 36.2f, 127.8f),
+    CountryGeoEntry("JAPAN", 30.0f, 45.5f, 129.5f, 145.8f, 36.5f, 138.2f),
+    // Oceania & Polar
+    CountryGeoEntry("PAPUA NEW GUINEA", -11.7f, -1.3f, 141.0f, 156.0f, -6.3f, 147.0f),
+    CountryGeoEntry("AUSTRALIA", -43.6f, -10.7f, 113.2f, 153.6f, -25.3f, 133.8f),
+    CountryGeoEntry("NEW ZEALAND", -47.3f, -34.4f, 166.4f, 178.6f, -41.5f, 172.5f),
+    CountryGeoEntry("ANTARCTICA", -90.0f, -62.0f, -180.0f, 180.0f, -78.0f, 0.0f)
+)
+
+private fun isLatLonInsideLandPolygon(lat: Float, lon: Float): Boolean {
+    for (pIdx in WORLD_SPHERE_POLYGONS_3D.indices) {
+        val pts = WORLD_SPHERE_POLYGONS_3D[pIdx].latLonPairs
+        val n = pts.size
+        if (n < 3) continue
+        var inside = false
+        var j = n - 1
+        for (i in 0 until n) {
+            val yi = pts[i].first
+            val xi = pts[i].second
+            val yj = pts[j].first
+            val xj = pts[j].second
+            if (abs(xi - xj) < 120f) {
+                val intersect = ((yi > lat) != (yj > lat)) &&
+                    (lon < (xj - xi) * (lat - yi) / ((yj - yi).let { if (abs(it) < 1e-5f) 1e-5f else it }) + xi)
+                if (intersect) inside = !inside
+            }
+            j = i
+        }
+        if (inside) return true
+    }
+    return false
+}
+
+private fun resolveCountryAtGlobeCrosshair(latDeg: Float, lonDeg: Float): String {
+    val onLand = isLatLonInsideLandPolygon(latDeg, lonDeg)
+    val margin = if (onLand) 2.5f else 0.8f
+    var bestName: String? = null
+    var bestScore = Float.MAX_VALUE
+
+    for (entry in WORLD_COUNTRIES_GEO_DB) {
+        if (latDeg >= entry.minLat - margin &&
+            latDeg <= entry.maxLat + margin &&
+            lonDeg >= entry.minLon - margin &&
+            lonDeg <= entry.maxLon + margin
+        ) {
+            val dLat = latDeg - entry.centerLat
+            val dLon = (lonDeg - entry.centerLon) * cos((latDeg * PI / 180.0).toFloat())
+            val distSq = dLat * dLat + dLon * dLon
+            val boxSpan = (entry.maxLat - entry.minLat) * (entry.maxLon - entry.minLon)
+            // Favor tighter country bounding boxes and closer centers so smaller countries win over huge neighbors
+            val score = distSq + boxSpan * 0.035f
+            if (score < bestScore) {
+                bestScore = score
+                bestName = entry.name
+            }
+        }
+    }
+
+    if (bestName != null && (onLand || bestScore < 42f)) {
+        return bestName
+    }
+
+    // If over open ocean, return the specific Ocean/Sea name
+    return when {
+        latDeg < -60f -> "ANTARCTIC / SOUTHERN OCEAN"
+        latDeg > 66f -> "ARCTIC OCEAN"
+        lonDeg in 20f..115f && latDeg < 25f -> "INDIAN OCEAN"
+        lonDeg in -75f..20f -> if (latDeg >= 0f) "NORTH ATLANTIC OCEAN" else "SOUTH ATLANTIC OCEAN"
+        else -> if (latDeg >= 0f) "NORTH PACIFIC OCEAN" else "SOUTH PACIFIC OCEAN"
+    }
+}
+
 @Composable
 fun RetroFuturisticGlobeView(
     globeTheme: String,
@@ -5061,6 +5786,22 @@ fun RetroFuturisticGlobeView(
     val sharedRz = remember { FloatArray(2048) }
     val sharedFillPath = remember { Path() }
     val sharedBorderPath = remember { Path() }
+
+    // Reusable native Paint for 120Hz zero-allocation compass degree labels & bottom country HUD readout
+    val hudDegreePaint = remember {
+        AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            textAlign = AndroidPaint.Align.CENTER
+            typeface = Typeface.MONOSPACE
+            isFakeBoldText = true
+        }
+    }
+    val hudCountryPaint = remember {
+        AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            textAlign = AndroidPaint.Align.CENTER
+            typeface = Typeface.MONOSPACE
+            isFakeBoldText = true
+        }
+    }
 
     LaunchedEffect(targetRollRad) {
         pose.roll = targetRollRad
@@ -5135,6 +5876,7 @@ fun RetroFuturisticGlobeView(
 
     val wfColor = remember(globeWireframeColor) {
         when (globeWireframeColor.uppercase(Locale.US)) {
+            "#7CFF5B" -> Color(0xFF7CFF5B)
             "#00FF66" -> Color(0xFF00FF66)
             "#00E5FF" -> Color(0xFF00E5FF)
             "#FFFFFF" -> Color(0xFFFFFFFF)
@@ -5236,8 +5978,8 @@ fun RetroFuturisticGlobeView(
             val w = size.width
             val h = size.height
             val cx = w * 0.5f
-            val cy = h * 0.5f
-            val radius = (min(w, h) * 0.492f).coerceAtLeast(36f)
+            val cy = if (isInteractionUnlocked) h * 0.46f else h * 0.5f
+            val radius = (min(w, h) * (if (isInteractionUnlocked) 0.37f else 0.475f)).coerceAtLeast(32f)
 
             val effectiveYaw = currentBaseYawOffset + pose.spinYawDelta
             val cosY = cos(effectiveYaw)
@@ -5422,6 +6164,8 @@ fun RetroFuturisticGlobeView(
             val holoStrokeOuter = Stroke(width = 1.85.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
             val holoStrokeInner = Stroke(width = 0.92.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
             val wfStroke = Stroke(width = 1.15.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            val triMeshColor = if (isWireframe) wfColor.copy(alpha = 0.32f) else Color(0xFF42FF8C).copy(alpha = 0.26f)
+            val triStrokePx = 0.55.dp.toPx()
 
             for (polyIdx in WORLD_SPHERE_POLYGONS_3D.indices) {
                 val poly3d = WORLD_SPHERE_POLYGONS_3D[polyIdx]
@@ -5499,6 +6243,31 @@ fun RetroFuturisticGlobeView(
                     }
                 }
 
+                // Triangulated Geodesic Land Mesh Chords (Matches the 80s triangulated continent mesh in the reference image!)
+                if (n >= 12) {
+                    val stride = (n / 18).coerceAtLeast(3)
+                    var idxA = 0
+                    while (idxA < n) {
+                        val idxB = (idxA + stride * 3) % n
+                        if (sharedRz[idxA] > 0.05f && sharedRz[idxB] > 0.05f) {
+                            val ax = sharedRx[idxA]
+                            val ay = sharedRy[idxA]
+                            val bx = sharedRx[idxB]
+                            val by = sharedRy[idxB]
+                            val chordDist = hypot(ax - bx, ay - by)
+                            if (chordDist < 0.42f) {
+                                drawLine(
+                                    color = triMeshColor,
+                                    start = Offset(cx + ax * radius, cy + ay * radius),
+                                    end = Offset(cx + bx * radius, cy + by * radius),
+                                    strokeWidth = triStrokePx
+                                )
+                            }
+                        }
+                        idxA += stride
+                    }
+                }
+
                 sharedBorderPath.reset()
                 var penDown = false
                 for (i in 0 until n) {
@@ -5563,14 +6332,180 @@ fun RetroFuturisticGlobeView(
                 color = rimGlowColor,
                 radius = radius,
                 center = Offset(cx, cy),
-                style = Stroke(width = if (isInteractionUnlocked) 4.5.dp.toPx() else 3.2.dp.toPx())
+                style = Stroke(width = if (isInteractionUnlocked) 4.0.dp.toPx() else 3.2.dp.toPx())
             )
             drawCircle(
                 color = rimCoreColor,
                 radius = radius,
                 center = Offset(cx, cy),
-                style = Stroke(width = if (isInteractionUnlocked) 1.85.dp.toPx() else 1.15.dp.toPx())
+                style = Stroke(width = if (isInteractionUnlocked) 1.5.dp.toPx() else 1.15.dp.toPx())
             )
+
+            // 6. TACTICAL 80s TARGETING HUD ON DOUBLE-TAP ACTIVATION (isInteractionUnlocked):
+            //    - Light and thin intersecting Crosshair across the globe with reticle tick marks
+            //    - Outer 360° Compass / Protractor Angle Measurement Scale & Degree Numbers
+            //    - Live Country Name at the bottom for the exact point under the crosshair intersection!
+            if (isInteractionUnlocked) {
+                val hudColor = if (isWireframe) wfColor else Color(0xFF7CFF5B)
+                val hudGlowColor = hudColor.copy(alpha = 0.30f)
+
+                // A. Outer 360° Compass / Azimuth Tick Marks & Degree Angle Labels (10°, 20°, 30° ... 350°)
+                val tickBaseR = radius * 1.04f
+                val minorTickLen = 3.0.dp.toPx()
+                val medTickLen = 5.5.dp.toPx()
+                val majorTickLen = 8.0.dp.toPx()
+                val labelRadius = radius * 1.185f
+                val yawDegOffset = ((effectiveYaw * 180.0 / PI).toInt() % 360 + 360) % 360
+
+                hudDegreePaint.textSize = 7.5.dp.toPx()
+                hudDegreePaint.color = android.graphics.Color.argb(
+                    220,
+                    (hudColor.red * 255).toInt(),
+                    (hudColor.green * 255).toInt(),
+                    (hudColor.blue * 255).toInt()
+                )
+
+                for (deg in 0 until 360 step 2) {
+                    // Angle from top (0° at top, clockwise like a compass)
+                    val rad = ((deg - 90.0) * PI / 180.0).toFloat()
+                    val c = cos(rad)
+                    val s = sin(rad)
+                    val isMajor = deg % 30 == 0
+                    val isMed = deg % 10 == 0
+                    val tLen = when {
+                        isMajor -> majorTickLen
+                        isMed -> medTickLen
+                        else -> minorTickLen
+                    }
+                    val tickAlpha = when {
+                        isMajor -> 0.90f
+                        isMed -> 0.72f
+                        else -> 0.38f
+                    }
+                    drawLine(
+                        color = hudColor.copy(alpha = tickAlpha),
+                        start = Offset(cx + c * tickBaseR, cy + s * tickBaseR),
+                        end = Offset(cx + c * (tickBaseR + tLen), cy + s * (tickBaseR + tLen)),
+                        strokeWidth = if (isMajor) 1.15.dp.toPx() else 0.75.dp.toPx()
+                    )
+
+                    // Degree measurement labels every 15° around the perimeter (skipping 0° & 180° where vertical crosshair ends)
+                    if (deg % 15 == 0 && deg != 0 && deg != 180) {
+                        val displayAngle = ((deg + yawDegOffset) % 360)
+                        val lx = cx + c * labelRadius
+                        val ly = cy + s * labelRadius + (hudDegreePaint.textSize * 0.35f)
+                        drawIntoCanvas { canvas ->
+                            canvas.nativeCanvas.drawText("${displayAngle}°", lx, ly, hudDegreePaint)
+                        }
+                    }
+                }
+
+                // B. Light and Thin Intersecting Crosshair Over the Globe (with calibration reticle ticks)
+                val crossHalfSpan = radius * 1.14f
+                val crossCoreStroke = 0.85.dp.toPx()
+                val crossGlowStroke = 2.6.dp.toPx()
+
+                // Soft phosphor glow halo behind the crosshair
+                drawLine(
+                    color = hudGlowColor,
+                    start = Offset(cx - crossHalfSpan, cy),
+                    end = Offset(cx + crossHalfSpan, cy),
+                    strokeWidth = crossGlowStroke
+                )
+                drawLine(
+                    color = hudGlowColor,
+                    start = Offset(cx, cy - crossHalfSpan),
+                    end = Offset(cx, cy + crossHalfSpan),
+                    strokeWidth = crossGlowStroke
+                )
+
+                // Crisp thin horizontal & vertical crosshair lines intersecting at (cx, cy)
+                drawLine(
+                    color = hudColor.copy(alpha = 0.92f),
+                    start = Offset(cx - crossHalfSpan, cy),
+                    end = Offset(cx + crossHalfSpan, cy),
+                    strokeWidth = crossCoreStroke
+                )
+                drawLine(
+                    color = hudColor.copy(alpha = 0.92f),
+                    start = Offset(cx, cy - crossHalfSpan),
+                    end = Offset(cx, cy + crossHalfSpan),
+                    strokeWidth = crossCoreStroke
+                )
+
+                // Reticle calibration tick marks along both axes (matching the reference image!)
+                val reticleTickHalf = 4.2.dp.toPx()
+                val reticleFractions = floatArrayOf(-0.62f, -0.32f, 0.32f, 0.62f)
+                for (rf in reticleFractions) {
+                    val offsetPx = rf * radius
+                    // Horizontal tick on vertical crosshair line
+                    drawLine(
+                        color = hudColor.copy(alpha = 0.88f),
+                        start = Offset(cx - reticleTickHalf, cy + offsetPx),
+                        end = Offset(cx + reticleTickHalf, cy + offsetPx),
+                        strokeWidth = crossCoreStroke
+                    )
+                    // Vertical tick on horizontal crosshair line
+                    drawLine(
+                        color = hudColor.copy(alpha = 0.88f),
+                        start = Offset(cx + offsetPx, cy - reticleTickHalf),
+                        end = Offset(cx + offsetPx, cy + reticleTickHalf),
+                        strokeWidth = crossCoreStroke
+                    )
+                }
+
+                // Center intersection micro-ring
+                drawCircle(
+                    color = hudColor,
+                    radius = 2.2.dp.toPx(),
+                    center = Offset(cx, cy),
+                    style = Stroke(width = 0.85.dp.toPx())
+                )
+
+                // C. Exact Country Name at the Bottom of the Globe for the Point Under the Crosshair Intersection!
+                val centerLatDeg = (-(pose.pitch * 180.0 / PI).toFloat()).coerceIn(-90f, 90f)
+                var centerLonDeg = ((-effectiveYaw * 180.0 / PI).toFloat()) % 360f
+                if (centerLonDeg > 180f) centerLonDeg -= 360f
+                if (centerLonDeg < -180f) centerLonDeg += 360f
+
+                val countryName = resolveCountryAtGlobeCrosshair(centerLatDeg, centerLonDeg)
+                val latHem = if (centerLatDeg >= 0f) "N" else "S"
+                val lonHem = if (centerLonDeg >= 0f) "E" else "W"
+                val latInt = abs(centerLatDeg).roundToInt()
+                val lonInt = abs(centerLonDeg).roundToInt()
+                val bottomReadout = "⌖ $countryName  [${latInt}°$latHem ${lonInt}°$lonHem]"
+
+                hudCountryPaint.textSize = 10.5.dp.toPx()
+                hudCountryPaint.color = android.graphics.Color.argb(
+                    255,
+                    (hudColor.red * 255).toInt(),
+                    (hudColor.green * 255).toInt(),
+                    (hudColor.blue * 255).toInt()
+                )
+                val pillY = (cy + radius * 1.25f).coerceAtMost(h - 10.dp.toPx())
+                val textWidth = hudCountryPaint.measureText(bottomReadout)
+                val boxW = textWidth + 20.dp.toPx()
+                val boxH = 19.dp.toPx()
+                val boxLeft = cx - boxW * 0.5f
+                val boxTop = pillY - boxH * 0.74f
+
+                drawRoundRect(
+                    color = Color(0xFF050A05).copy(alpha = 0.90f),
+                    topLeft = Offset(boxLeft, boxTop),
+                    size = Size(boxW, boxH),
+                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+                )
+                drawRoundRect(
+                    color = hudColor.copy(alpha = 0.78f),
+                    topLeft = Offset(boxLeft, boxTop),
+                    size = Size(boxW, boxH),
+                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                    style = Stroke(width = 1.dp.toPx())
+                )
+                drawIntoCanvas { canvas ->
+                    canvas.nativeCanvas.drawText(bottomReadout, cx, pillY, hudCountryPaint)
+                }
+            }
         }
     }
 }
@@ -6125,6 +7060,8 @@ fun WidgetsManagerView(
     accentColor: Color,
     lomoFontFamily: FontFamily,
     use24Hour: Boolean,
+    batteryBarStyle: String = "retro_blocks",
+    onChangeBatteryBarStyle: (String) -> Unit = {},
     customPinnedOrderEnabled: Boolean = true,
     quickNote: String,
     globeTheme: String,
@@ -6147,6 +7084,7 @@ fun WidgetsManagerView(
     val onUpdateTargetWidgets: (List<String>) -> Unit = if (leftPageEnabled && editingLeftPage) onUpdateLeftWidgets else onUpdateWidgets
     val allWidgets = listOf(
         "clock" to "Dot-Matrix Clock, Date & Battery Bar",
+        "battery_bar" to "80s Blocky Battery & Time Header",
         "week_strip" to "7-Day Strip & Month Days Block Bar",
         "pinned_apps" to "Pinned Home Apps List (Unified Widget)",
         "retro_calendar" to "Dot-Matrix Month Calendar Grid",
@@ -6298,7 +7236,39 @@ fun WidgetsManagerView(
 
                     if (enabled) {
 
-                        if (id == "clock" || id == "retro_flip_clock" || id == "analog_chrono") {
+                        if (id == "clock" || id == "battery_bar") {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "BATTERY PROGRESS BAR STYLE",
+                                color = Color(0xFF8A8A8A),
+                                fontSize = 9.sp,
+                                fontFamily = lomoFontFamily
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                BATTERY_BAR_STYLES.forEach { (stId, stLbl) ->
+                                    val isSel = batteryBarStyle == stId
+                                    Text(
+                                        text = stLbl,
+                                        color = if (isSel) Color.Black else Color.White,
+                                        fontSize = 8.sp,
+                                        fontFamily = lomoFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .background(if (isSel) accentColor else Color(0xFF191919), RoundedCornerShape(4.dp))
+                                            .clickable { onChangeBatteryBarStyle(stId) }
+                                            .padding(vertical = 5.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (id == "clock" || id == "battery_bar" || id == "retro_flip_clock" || id == "analog_chrono") {
                             Spacer(modifier = Modifier.height(10.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -6497,6 +7467,8 @@ fun LauncherSettingsView(
     use24Hour: Boolean,
     hideAndroidBar: Boolean,
     enableLeftPage: Boolean = true,
+    retro80sMode: Boolean = false,
+    batteryBarStyle: String = "retro_blocks",
     pauseWhenAppOpen: Boolean = true,
     customPinnedOrderEnabled: Boolean = true,
     waveScrubMode: String,
@@ -6522,6 +7494,8 @@ fun LauncherSettingsView(
     onToggle24h: () -> Unit,
     onToggleAndroidBar: () -> Unit,
     onToggleLeftPage: () -> Unit = {},
+    onToggleRetro80sMode: () -> Unit = {},
+    onChangeBatteryBarStyle: (String) -> Unit = {},
     onTogglePauseWhenAppOpen: () -> Unit = {},
     onToggleCustomPinnedOrder: () -> Unit = {},
     onChangeWaveMode: (String) -> Unit,
@@ -6670,6 +7644,13 @@ fun LauncherSettingsView(
                     actionLabel = "CHOOSE HOME",
                     lomoFontFamily = launcherFont,
                     onClick = onRequestDefaultHomeRole
+                )
+                SettingCard(
+                    title = "80s CRT Green Phosphor Theme",
+                    subtitle = "Override all colors, accents & widgets with glowing 80s light-green phosphor and CRT edge glow",
+                    actionLabel = if (retro80sMode) "80s CRT (ON)" else "STANDARD (OFF)",
+                    lomoFontFamily = launcherFont,
+                    onClick = onToggleRetro80sMode
                 )
                 SettingCard(
                     title = "Additional Left Home Page",
@@ -6891,6 +7872,44 @@ fun LauncherSettingsView(
                     lomoFontFamily = launcherFont,
                     onClick = onToggleCustomPinnedOrder
                 )
+
+                // Battery Progress Bar Style Selector (Blocky 80s, LED Cells, Smooth Pill, Chevron, Ticks)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
+                        .background(Color(0xFF070707), RoundedCornerShape(10.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "BATTERY PROGRESS BAR STYLE",
+                        color = Color(0xFF8A8A8A),
+                        fontSize = 9.sp,
+                        fontFamily = launcherFont
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        BATTERY_BAR_STYLES.forEach { (stId, stLbl) ->
+                            val sel = batteryBarStyle == stId
+                            Text(
+                                text = stLbl,
+                                color = if (sel) Color.Black else Color.White,
+                                fontSize = 8.sp,
+                                fontFamily = launcherFont,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(if (sel) accentColor else Color(0xFF161616), RoundedCornerShape(6.dp))
+                                    .clickable { onChangeBatteryBarStyle(stId) }
+                                    .padding(vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -7916,7 +8935,7 @@ fun WallpaperTuningRow(
 // - 8 Live Wallpapers + 36 Static Wallpapers (including Halftone, Glowing & Fade series)
 // ============================================================================
 // ============================================================================
-// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.6.1-cmf)
+// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.7.0-cmf)
 // - Pre-allocates all primitive FloatArray/IntArray buffers and a single native Paint once
 // - Zero object allocations inside step() or draw() -> 0 bytes/frame GC overhead
 // - Features >= 1,000 stars (1,200 default, up to 1,800 with density slider)
