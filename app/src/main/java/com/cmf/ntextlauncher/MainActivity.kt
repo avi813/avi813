@@ -3409,6 +3409,7 @@ fun QuickMenuButton(
     }
 }
 
+@Composable
 fun Retro80sCrtScreenEdgeGlowOverlay() {
     // Subtle 80s CRT horizontal phosphor scanlines across the display — NO glowing around the edges of the phone screen!
     Canvas(modifier = Modifier.fillMaxSize()) {
