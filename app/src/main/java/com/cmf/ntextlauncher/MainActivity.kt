@@ -373,7 +373,7 @@ enum class PrebuiltFont(
 }
 
 // ============================================================================
-// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.9.0-cmf)
+// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.9.1-cmf)
 // Calculates exact vertical height of active widgets + pinned Home apps (and scale)
 // to prevent overflow/scrolling and trigger the "NO SPACE LEFT" popup when full.
 // ============================================================================
@@ -468,7 +468,7 @@ private fun estimatePinnedAppsHeightDp(pinnedCount: Int, textSizeSp: Int): Float
 }
 
 // ============================================================================
-// iOS PHYSICAL RUBBER-BAND SPRING SCALE-FADE POPUP ENGINE (Nocturnaa v4.9.0-cmf)
+// iOS PHYSICAL RUBBER-BAND SPRING SCALE-FADE POPUP ENGINE (Nocturnaa v4.9.1-cmf)
 // - Starts slightly smaller (scale = 0.80f) and rapidly expands to full size (1.00f)
 //   while fading in from transparent (0f -> 1f) as the background simultaneously dims.
 // - Uses an underdamped physical rubber-band spring (dampingRatio = 0.62f, stiffness = 440f)
@@ -3636,6 +3636,251 @@ fun QuickMenuButton(
 }
 
 // ============================================================================
+// 80s CRT GREEN/AMBER PHOSPHOR SCANLINES & MULTI-STYLE BATTERY PROGRESS BAR
+// ============================================================================
+@Composable
+fun Retro80sCrtScreenEdgeGlowOverlay() {
+    // Subtle 80s CRT horizontal phosphor scanlines across the display — NO glowing around the edges of the phone screen!
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val w = size.width
+        val h = size.height
+        val scanStep = 3.dp.toPx().coerceAtLeast(2f)
+        var y = 0f
+        while (y < h) {
+            drawLine(
+                color = Color(0xFF001400).copy(alpha = 0.20f),
+                start = Offset(0f, y),
+                end = Offset(w, y),
+                strokeWidth = 1f
+            )
+            y += scanStep
+        }
+    }
+}
+
+fun getWidgetStyleChoices(widgetId: String): List<Pair<String, String>> = when (widgetId) {
+    "clock" -> listOf("80s_retro" to "80s RETRO", "default" to "MODERN DOT", "cyber_hud" to "TACTICAL HUD")
+    "battery_bar" -> listOf("80s_retro" to "80s RETRO", "default" to "CLEAN BAR", "cyber_hud" to "CELL DIAG")
+    "week_strip" -> listOf("80s_retro" to "80s 4x2 GRID", "default" to "7-DAY STRIP", "cyber_hud" to "TIMELINE")
+    "retro_calendar" -> listOf("80s_retro" to "80s CRT TABLE", "default" to "DOT MATRIX", "cyber_hud" to "BRACKET [DD]")
+    "year_matrix" -> listOf("80s_retro" to "80s BLOCKS", "default" to "365 DOTS", "cyber_hud" to "12 MONTHS")
+    "retro_flip_clock" -> listOf("80s_retro" to "80s CRT DECK", "default" to "SPLIT-FLAP", "cyber_hud" to "TERMINAL")
+    "analog_chrono" -> listOf("80s_retro" to "80s RADAR", "default" to "WATCH DIAL", "cyber_hud" to "AVIONICS")
+    "precision_chrono" -> listOf("80s_retro" to "80s LAB CRT", "default" to "SPLIT-LAP", "cyber_hud" to "TELEMETRY")
+    "globe" -> listOf("80s_retro" to "80s VECTOR", "default" to "CRT HOLO", "cyber_hud" to "WIREFRAME")
+    "torch" -> listOf("80s_retro" to "80s SWITCH", "default" to "CLEAN PILL", "cyber_hud" to "ARMED HUD")
+    "storage" -> listOf("80s_retro" to "80s MEM BANK", "default" to "DUAL BARS", "cyber_hud" to "LED SECTORS")
+    "zen" -> listOf("80s_retro" to "80s DECK", "default" to "MINIMAL", "cyber_hud" to "CHAMBER")
+    "quote" -> listOf("80s_retro" to "80s MOTD", "default" to "EDITORIAL", "cyber_hud" to "LOG STREAM")
+    "scratchpad" -> listOf("80s_retro" to "80s DOS A:>", "default" to "MINIMAL >", "cyber_hud" to "MEMO LOG")
+    "pinned_apps" -> listOf("80s_retro" to "80s > PROMPT", "default" to "CLEAN LIST", "cyber_hud" to "[01] INDEXED")
+    else -> listOf("80s_retro" to "80s RETRO", "default" to "DEFAULT", "cyber_hud" to "CYBER HUD")
+}
+
+val BATTERY_BAR_STYLES: List<Pair<String, String>> = listOf(
+    "retro_blocks" to "80s BLOCKY",
+    "segmented_led" to "LED CELLS",
+    "pill" to "SMOOTH PILL",
+    "chevron" to "CHEVRON",
+    "ruler_ticks" to "TICKS"
+)
+
+@Composable
+fun RetroBatteryProgressBar(
+    batteryPct: Int,
+    barStyle: String,
+    accentColor: Color,
+    retro80sMode: Boolean = false,
+    sizeMode: String = "standard",
+    modifier: Modifier = Modifier
+) {
+    val pct = batteryPct.coerceIn(1, 100)
+    val frac = (pct / 100f).coerceIn(0.02f, 1f)
+    val activeColor = accentColor
+    val barHeight = when (barStyle) {
+        "retro_blocks" -> when (sizeMode) {
+            "max" -> 28.dp
+            "xlarge" -> 24.dp
+            "large" -> 22.dp
+            "compact" -> 14.dp
+            else -> 19.dp
+        }
+        "segmented_led", "chevron", "ruler_ticks" -> when (sizeMode) {
+            "max" -> 18.dp
+            "xlarge" -> 16.dp
+            "large" -> 14.dp
+            "compact" -> 10.dp
+            else -> 12.dp
+        }
+        else -> when (sizeMode) {
+            "max" -> 10.dp
+            "xlarge" -> 9.dp
+            "large" -> 8.dp
+            else -> 6.dp
+        }
+    }
+
+    Canvas(
+        modifier = modifier
+            .height(barHeight)
+    ) {
+        val w = size.width
+        val h = size.height
+
+        when (barStyle) {
+            "retro_blocks" -> {
+                val borderStroke = 1.35.dp.toPx()
+                drawRect(
+                    color = activeColor.copy(alpha = 0.28f),
+                    topLeft = Offset(0f, 0f),
+                    size = Size(w, h),
+                    style = Stroke(width = borderStroke * 2.4f)
+                )
+                drawRect(
+                    color = activeColor.copy(alpha = 0.92f),
+                    topLeft = Offset(borderStroke * 0.5f, borderStroke * 0.5f),
+                    size = Size(w - borderStroke, h - borderStroke),
+                    style = Stroke(width = borderStroke)
+                )
+
+                val pad = 3.2.dp.toPx()
+                val innerW = (w - pad * 2f).coerceAtLeast(10f)
+                val innerH = (h - pad * 2f).coerceAtLeast(4f)
+                val totalBlocks = 18
+                val gap = 2.4.dp.toPx()
+                val blockW = ((innerW - gap * (totalBlocks - 1)) / totalBlocks).coerceAtLeast(2f)
+                val exactBlocks = frac * totalBlocks
+                val fullBlocks = exactBlocks.toInt()
+                val partialFrac = exactBlocks - fullBlocks
+
+                for (i in 0 until totalBlocks) {
+                    val bx = pad + i * (blockW + gap)
+                    val by = pad
+                    if (i < fullBlocks) {
+                        drawRect(
+                            color = activeColor.copy(alpha = 0.30f),
+                            topLeft = Offset(bx - 1f, by - 1f),
+                            size = Size(blockW + 2f, innerH + 2f)
+                        )
+                        drawRect(
+                            color = activeColor,
+                            topLeft = Offset(bx, by),
+                            size = Size(blockW, innerH)
+                        )
+                    } else {
+                        val isTransitionBlock = (i == fullBlocks && partialFrac > 0.08f)
+                        val dotAlpha = when {
+                            isTransitionBlock -> 0.78f
+                            i == fullBlocks + 1 -> 0.42f
+                            i < totalBlocks - 1 -> 0.25f
+                            else -> 0.12f
+                        }
+                        val cols = 3
+                        val rows = 6
+                        val cellW = blockW / cols
+                        val cellH = innerH / rows
+                        val dotR = (min(cellW, cellH) * 0.34f).coerceAtLeast(0.75f)
+                        for (r in 0 until rows) {
+                            for (c in 0 until cols) {
+                                val drawDot = if (isTransitionBlock) true else (r + c) % 2 == 0
+                                if (drawDot) {
+                                    drawCircle(
+                                        color = activeColor.copy(alpha = dotAlpha),
+                                        radius = dotR,
+                                        center = Offset(
+                                            bx + (c + 0.5f) * cellW,
+                                            by + (r + 0.5f) * cellH
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            "segmented_led" -> {
+                val totalCells = 12
+                val gap = 3.dp.toPx()
+                val cellW = ((w - gap * (totalCells - 1)) / totalCells).coerceAtLeast(2f)
+                val litCells = (frac * totalCells).roundToInt().coerceIn(1, totalCells)
+                for (i in 0 until totalCells) {
+                    val cx0 = i * (cellW + gap)
+                    val isLit = i < litCells
+                    drawRoundRect(
+                        color = if (isLit) activeColor else activeColor.copy(alpha = 0.14f),
+                        topLeft = Offset(cx0, 0f),
+                        size = Size(cellW, h),
+                        cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
+                    )
+                }
+            }
+
+            "chevron" -> {
+                val totalCells = 14
+                val gap = 3.dp.toPx()
+                val slant = h * 0.38f
+                val cellW = ((w - slant - gap * (totalCells - 1)) / totalCells).coerceAtLeast(2f)
+                val litCells = (frac * totalCells).roundToInt().coerceIn(1, totalCells)
+                val path = Path()
+                for (i in 0 until totalCells) {
+                    val x0 = i * (cellW + gap)
+                    path.reset()
+                    path.moveTo(x0 + slant, 0f)
+                    path.lineTo(x0 + slant + cellW, 0f)
+                    path.lineTo(x0 + cellW, h)
+                    path.lineTo(x0, h)
+                    path.close()
+                    drawPath(
+                        path = path,
+                        color = if (i < litCells) activeColor else activeColor.copy(alpha = 0.15f)
+                    )
+                }
+            }
+
+            "ruler_ticks" -> {
+                val totalTicks = 32
+                val step = w / totalTicks
+                val litTicks = (frac * totalTicks).roundToInt().coerceIn(1, totalTicks)
+                for (i in 0..totalTicks) {
+                    val tx = (i * step).coerceIn(0f, w)
+                    val isMajor = i % 4 == 0
+                    val tickH = if (isMajor) h else h * 0.58f
+                    val y0 = (h - tickH) * 0.5f
+                    val isLit = i <= litTicks
+                    drawLine(
+                        color = if (isLit) activeColor else activeColor.copy(alpha = 0.22f),
+                        start = Offset(tx, y0),
+                        end = Offset(tx, y0 + tickH),
+                        strokeWidth = if (isMajor) 1.8.dp.toPx() else 1.1.dp.toPx()
+                    )
+                }
+            }
+
+            else -> {
+                val r = h * 0.5f
+                drawRoundRect(
+                    color = Color(0xFF141414),
+                    size = Size(w, h),
+                    cornerRadius = CornerRadius(r, r)
+                )
+                drawRoundRect(
+                    color = activeColor.copy(alpha = 0.35f),
+                    size = Size(w, h),
+                    cornerRadius = CornerRadius(r, r),
+                    style = Stroke(width = 1.dp.toPx())
+                )
+                drawRoundRect(
+                    color = activeColor,
+                    size = Size((w * frac).coerceAtLeast(h), h),
+                    cornerRadius = CornerRadius(r, r)
+                )
+            }
+        }
+    }
+}
+
+// ============================================================================
 // HOME SCREEN (EXACT PROTOTYPE WIDGETS SETUP + LOMO PIXEL APPS + NO BOTTOM DOCK)
 // ============================================================================
 @OptIn(ExperimentalFoundationApi::class)
@@ -3671,8 +3916,6 @@ fun HomeScreenView(
     textSizeSp: Int,
     waveScrubMode: String,
     retro80sMode: Boolean = false,
-    retro80sColorTheme: String = "green",
-    onChangeRetro80sColorTheme: (String) -> Unit = {},
     batteryBarStyle: String = "retro_blocks",
     onChangeBatteryBarStyle: (String) -> Unit = {},
     globeTheme: String,
@@ -7481,7 +7724,7 @@ fun AppDrawerView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "DIR C:\APPS\*.*  //  PROGRAM DIRECTORY",
+                        text = "DIR C:/APPS/*.*  //  PROGRAM DIRECTORY",
                         color = Color.Black,
                         fontSize = 10.sp,
                         fontFamily = lomoFontFamily,
@@ -7511,7 +7754,7 @@ fun AppDrawerView(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (is80sDrawer) "C:\APPS\> " else "/ ",
+                    text = if (is80sDrawer) "C:/APPS/> " else "/ ",
                     color = accentColor,
                     fontSize = if (is80sDrawer) 11.sp else 13.sp,
                     fontFamily = lomoFontFamily,
@@ -8401,6 +8644,8 @@ fun LauncherSettingsView(
     hideAndroidBar: Boolean,
     enableLeftPage: Boolean = true,
     retro80sMode: Boolean = false,
+    retro80sColorTheme: String = "green",
+    onChangeRetro80sColorTheme: (String) -> Unit = {},
     batteryBarStyle: String = "retro_blocks",
     pauseWhenAppOpen: Boolean = true,
     customPinnedOrderEnabled: Boolean = true,
@@ -10029,7 +10274,7 @@ fun WallpaperTuningRow(
 // - 8 Live Wallpapers + 36 Static Wallpapers (including Halftone, Glowing & Fade series)
 // ============================================================================
 // ============================================================================
-// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.9.0-cmf)
+// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.9.1-cmf)
 // - Pre-allocates all primitive FloatArray/IntArray buffers and a single native Paint once
 // - Zero object allocations inside step() or draw() -> 0 bytes/frame GC overhead
 // - Features >= 1,000 stars (1,200 default, up to 1,800 with density slider)
