@@ -2221,6 +2221,7 @@ fun NTextLauncherApp(
             modifier = Modifier.fillMaxSize()
         ) {
             if (editMode && currentView == LauncherView.HOME_AND_DRAWER && isDrawerNearClosed) {
+                val topBtnShape = RoundedCornerShape(if (retro80sMode) 0.dp else 4.dp)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2247,33 +2248,44 @@ fun NTextLauncherApp(
                         ) {
                             Text(
                                 text = "◀ LEFT PAGE",
-                                color = if (isOnLeftPage) Color.Black else Color.White,
+                                color = if (isOnLeftPage) Color.Black else if (retro80sMode) accentColor else Color.White,
                                 fontSize = 9.sp,
                                 fontFamily = selectedFont,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier
-                                    .background(if (isOnLeftPage) accentColor else Color(0xFF1A1A1A), RoundedCornerShape(4.dp))
+                                    .border(
+                                        1.dp,
+                                        if (isOnLeftPage) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF282828),
+                                        topBtnShape
+                                    )
+                                    .background(if (isOnLeftPage) accentColor else if (retro80sMode) Color(0xFF080808) else Color(0xFF1A1A1A), topBtnShape)
                                     .clickable { animateLeftPageTo(1f) }
                                     .padding(horizontal = 7.dp, vertical = 3.dp)
                             )
                             Text(
                                 text = "MAIN PAGE ▶",
-                                color = if (!isOnLeftPage) Color.Black else Color.White,
+                                color = if (!isOnLeftPage) Color.Black else if (retro80sMode) accentColor else Color.White,
                                 fontSize = 9.sp,
                                 fontFamily = selectedFont,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier
-                                    .background(if (!isOnLeftPage) accentColor else Color(0xFF1A1A1A), RoundedCornerShape(4.dp))
+                                    .border(
+                                        1.dp,
+                                        if (!isOnLeftPage) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF282828),
+                                        topBtnShape
+                                    )
+                                    .background(if (!isOnLeftPage) accentColor else if (retro80sMode) Color(0xFF080808) else Color(0xFF1A1A1A), topBtnShape)
                                     .clickable { animateLeftPageTo(0f) }
                                     .padding(horizontal = 7.dp, vertical = 3.dp)
                             )
                         }
                     } else {
                         Text(
-                            text = "EDIT MODE: CUSTOMIZE SIZE, FONT & ORDER",
+                            text = "EDIT MODE",
                             color = accentColor,
                             fontSize = 10.sp,
-                            fontFamily = selectedFont
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                     Text(
@@ -2283,7 +2295,7 @@ fun NTextLauncherApp(
                         fontFamily = selectedFont,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier
-                            .background(Color.White, RoundedCornerShape(4.dp))
+                            .background(if (retro80sMode) accentColor else Color.White, topBtnShape)
                             .clickable { editMode = false }
                             .padding(horizontal = 8.dp, vertical = 3.dp)
                     )
@@ -2944,7 +2956,7 @@ fun NTextLauncherApp(
 
         // ====================================================================
         // FLUID SPRING-ANIMATED LONG-TAP HOME SCREEN "ACTIONS" MENU
-        // Automatically switches to 80s IBM CRT Terminal Window when retro80sMode is ON!
+        // Clean title & buttons; styled with sharp Old School borders when retro80sMode is ON
         // ====================================================================
         val quickMenuProgress by rememberIosPopupProgress(
             isVisible = showHomeQuickMenu,
@@ -2968,7 +2980,7 @@ fun NTextLauncherApp(
                         .fillMaxWidth()
                         .iosPopupWindowLayer(progress = quickMenuProgress, initialScale = 0.80f)
                         .border(
-                            if (retro80sMode) 1.6.dp else 1.dp,
+                            if (retro80sMode) 1.5.dp else 1.dp,
                             if (retro80sMode) accentColor else Color(0xFF2E2E2E),
                             modalShape
                         )
@@ -2977,201 +2989,96 @@ fun NTextLauncherApp(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) { /* consume inside modal */ }
-                        .padding(if (retro80sMode) 0.dp else 18.dp),
-                    verticalArrangement = Arrangement.spacedBy(if (retro80sMode) 0.dp else 10.dp)
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    if (retro80sMode) {
-                        // 80s IBM / QBasic Inverted Top Menu Bar
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(accentColor)
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "SYS.INT 10h // QUICK SCREEN MENU",
-                                color = Color.Black,
-                                fontSize = 11.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "<ESC=EXIT>",
-                                color = Color.Black,
-                                fontSize = 10.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.clickable { showHomeQuickMenu = false }
-                            )
-                        }
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "╔══╣ SELECT SYSTEM COMMAND ╠══╗",
-                                color = accentColor,
-                                fontSize = 10.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                            QuickMenuButton(
-                                label = "F1: Widget Manager (80s Profile)",
-                                badge = "<WIDGETS>",
-                                accentColor = accentColor,
-                                lomoFontFamily = selectedFont,
-                                onClick = {
-                                    showHomeQuickMenu = false
-                                    currentView = LauncherView.WIDGETS
-                                }
-                            )
-                            QuickMenuButton(
-                                label = if (editMode) "F2: Exit Layout Edit Mode" else "F2: Edit Mode (80s Layout)",
-                                badge = "<EDIT>",
-                                accentColor = accentColor,
-                                lomoFontFamily = selectedFont,
-                                onClick = {
-                                    showHomeQuickMenu = false
-                                    editMode = !editMode
-                                }
-                            )
-                            QuickMenuButton(
-                                label = "F3: Nocturnaa BIOS Setup",
-                                badge = "<SETUP>",
-                                accentColor = accentColor,
-                                lomoFontFamily = selectedFont,
-                                onClick = {
-                                    showHomeQuickMenu = false
-                                    currentView = LauncherView.SETTINGS
-                                }
-                            )
-                            QuickMenuButton(
-                                label = "F4: Android System Config",
-                                badge = "<OS.CFG>",
-                                accentColor = accentColor,
-                                lomoFontFamily = selectedFont,
-                                onClick = {
-                                    showHomeQuickMenu = false
-                                    try {
-                                        context.startActivity(Intent(Settings.ACTION_SETTINGS))
-                                    } catch (_: Exception) {
-                                    }
-                                }
-                            )
-                        }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(accentColor)
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "<TAP=EXEC> <OUTSIDE=ABORT>",
-                                color = Color.Black,
-                                fontSize = 9.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "CRT:80x25 OK",
-                                color = Color.Black,
-                                fontSize = 9.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Actions",
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "DONE",
-                                color = Color.Black,
-                                fontSize = 10.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier
-                                    .background(Color.White, RoundedCornerShape(6.dp))
-                                    .clickable { showHomeQuickMenu = false }
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                            )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(Color(0xFF1F1F1F))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Actions",
+                            color = if (retro80sMode) accentColor else Color.White,
+                            fontSize = 16.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold
                         )
-
-                        QuickMenuButton(
-                            label = "Widget Manager",
-                            badge = "WIDGETS",
-                            accentColor = accentColor,
-                            lomoFontFamily = selectedFont,
-                            onClick = {
-                                showHomeQuickMenu = false
-                                currentView = LauncherView.WIDGETS
-                            }
-                        )
-
-                        QuickMenuButton(
-                            label = if (editMode) "Exit Edit Mode" else "Edit Mode",
-                            badge = "EDIT",
-                            accentColor = accentColor,
-                            lomoFontFamily = selectedFont,
-                            onClick = {
-                                showHomeQuickMenu = false
-                                editMode = !editMode
-                            }
-                        )
-
-                        QuickMenuButton(
-                            label = "Nocturnaa Settings",
-                            badge = "NOCTURNAA",
-                            accentColor = accentColor,
-                            lomoFontFamily = selectedFont,
-                            onClick = {
-                                showHomeQuickMenu = false
-                                currentView = LauncherView.SETTINGS
-                            }
-                        )
-
-                        QuickMenuButton(
-                            label = "Phone Settings",
-                            badge = "SYSTEM",
-                            accentColor = accentColor,
-                            lomoFontFamily = selectedFont,
-                            onClick = {
-                                showHomeQuickMenu = false
-                                try {
-                                    context.startActivity(Intent(Settings.ACTION_SETTINGS))
-                                } catch (_: Exception) {
-                                }
-                            }
+                        Text(
+                            text = "DONE",
+                            color = Color.Black,
+                            fontSize = 10.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .background(
+                                    if (retro80sMode) accentColor else Color.White,
+                                    RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
+                                )
+                                .clickable { showHomeQuickMenu = false }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF1F1F1F))
+                    )
+
+                    QuickMenuButton(
+                        label = if (retro80sMode) "Widget Configuration" else "Widget Manager",
+                        badge = "",
+                        accentColor = accentColor,
+                        lomoFontFamily = selectedFont,
+                        onClick = {
+                            showHomeQuickMenu = false
+                            currentView = LauncherView.WIDGETS
+                        }
+                    )
+
+                    QuickMenuButton(
+                        label = if (editMode) "Exit Edit Mode" else "Edit Mode",
+                        badge = "",
+                        accentColor = accentColor,
+                        lomoFontFamily = selectedFont,
+                        onClick = {
+                            showHomeQuickMenu = false
+                            editMode = !editMode
+                        }
+                    )
+
+                    QuickMenuButton(
+                        label = if (retro80sMode) "Nocturna Configuration" else "Nocturnaa Settings",
+                        badge = "",
+                        accentColor = accentColor,
+                        lomoFontFamily = selectedFont,
+                        onClick = {
+                            showHomeQuickMenu = false
+                            currentView = LauncherView.SETTINGS
+                        }
+                    )
+
+                    QuickMenuButton(
+                        label = "Phone Settings",
+                        badge = "",
+                        accentColor = accentColor,
+                        lomoFontFamily = selectedFont,
+                        onClick = {
+                            showHomeQuickMenu = false
+                            try {
+                                context.startActivity(Intent(Settings.ACTION_SETTINGS))
+                            } catch (_: Exception) {
+                            }
+                        }
+                    )
                 }
             }
         }
 
         // ====================================================================
         // FLUID SPRING-ANIMATED LONG-PRESS APP CONTEXT MENU MODAL
-        // Automatically switches to 80s IBM CRT Process Dialog when retro80sMode is ON!
         // ====================================================================
         var lastContextMenuTarget by remember { mutableStateOf<Pair<AppEntry, Boolean>?>(null) }
         if (contextMenuTarget != null) {
@@ -3197,15 +3104,11 @@ fun NTextLauncherApp(
                 val appModalShape = RoundedCornerShape(if (retro80sMode) 0.dp else 16.dp)
                 val currentlyPinned = pinnedPackages.contains(targetApp.packageName)
                 val pinActionLabel = if (isFromHome || currentlyPinned) {
-                    if (retro80sMode) "> UNPIN FROM HOME SCREEN" else "Remove from Pinned Apps"
+                    "Remove from Pinned Apps"
                 } else {
-                    if (retro80sMode) "> PIN TO HOME SCREEN" else "Add to Home Screen"
+                    "Add to Home Screen"
                 }
-                val pinActionSymbol = if (isFromHome || currentlyPinned) {
-                    if (retro80sMode) "< - UNPIN >" else "−"
-                } else {
-                    if (retro80sMode) "< + PIN >" else "+"
-                }
+                val pinActionSymbol = if (isFromHome || currentlyPinned) "−" else "+"
 
                 val onPinToggleClick: () -> Unit = {
                     if (isFromHome || currentlyPinned) {
@@ -3245,7 +3148,7 @@ fun NTextLauncherApp(
                         .fillMaxWidth()
                         .iosPopupWindowLayer(progress = appMenuProgress, initialScale = 0.80f)
                         .border(
-                            if (retro80sMode) 1.6.dp else 1.dp,
+                            if (retro80sMode) 1.5.dp else 1.dp,
                             if (retro80sMode) accentColor else Color(0xFF333333),
                             appModalShape
                         )
@@ -3254,209 +3157,127 @@ fun NTextLauncherApp(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) { /* consume inside modal */ }
-                        .padding(if (retro80sMode) 0.dp else 18.dp),
-                    verticalArrangement = Arrangement.spacedBy(if (retro80sMode) 0.dp else 10.dp)
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    if (retro80sMode) {
-                        Row(
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = targetApp.label,
+                            color = if (retro80sMode) accentColor else Color.White,
+                            fontSize = 16.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f).padding(end = 8.dp)
+                        )
+                        Text(
+                            text = "DONE",
+                            color = Color.Black,
+                            fontSize = 10.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold,
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .background(accentColor)
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "EXEC.PROC // ${targetApp.label.uppercase(Locale.US)}",
-                                color = Color.Black,
-                                fontSize = 11.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f).padding(end = 8.dp)
-                            )
-                            Text(
-                                text = "<ESC>",
-                                color = Color.Black,
-                                fontSize = 10.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.clickable { contextMenuTarget = null }
-                            )
-                        }
+                                .background(
+                                    if (retro80sMode) accentColor else Color.White,
+                                    RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
+                                )
+                                .clickable { contextMenuTarget = null }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
                     }
 
-                    Column(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(if (retro80sMode) 14.dp else 0.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                            .height(1.dp)
+                            .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF1F1F1F))
+                    )
+
+                    val rowShape = RoundedCornerShape(if (retro80sMode) 0.dp else 10.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, if (retro80sMode) accentColor else Color(0xFF262626), rowShape)
+                            .background(Color.Black, rowShape)
+                            .clickable { onPinToggleClick() }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (!retro80sMode) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                    Text(
-                                        text = targetApp.label,
-                                        color = Color.White,
-                                        fontSize = 18.sp,
-                                        fontFamily = selectedFont,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = targetApp.packageName,
-                                        color = Color(0xFF737373),
-                                        fontSize = 10.sp,
-                                        fontFamily = selectedFont,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                Text(
-                                    text = "DONE",
-                                    color = Color.Black,
-                                    fontSize = 10.sp,
-                                    fontFamily = selectedFont,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier
-                                        .background(Color.White, RoundedCornerShape(6.dp))
-                                        .clickable { contextMenuTarget = null }
-                                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                                )
+                        Text(
+                            text = pinActionLabel,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontFamily = selectedFont
+                        )
+                        Text(
+                            text = pinActionSymbol,
+                            color = accentColor,
+                            fontSize = 15.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, if (retro80sMode) accentColor else Color(0xFF262626), rowShape)
+                            .background(Color.Black, rowShape)
+                            .clickable {
+                                val pkg = targetApp.packageName
+                                contextMenuTarget = null
+                                openAppInfo(pkg)
                             }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "App Info",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontFamily = selectedFont
+                        )
+                        Text(
+                            text = "↗",
+                            color = accentColor,
+                            fontSize = 13.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
 
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(1.dp)
-                                    .background(Color(0xFF1F1F1F))
-                            )
-                        } else {
-                            Text(
-                                text = "PKG_ADDR: ${targetApp.packageName}",
-                                color = accentColor,
-                                fontSize = 9.sp,
-                                fontFamily = selectedFont,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        val rowShape = RoundedCornerShape(if (retro80sMode) 0.dp else 10.dp)
+                    if (!targetApp.isSystemApp) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .border(1.dp, if (retro80sMode) accentColor else Color(0xFF262626), rowShape)
-                                .background(Color.Black, rowShape)
-                                .clickable { onPinToggleClick() }
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = pinActionLabel,
-                                color = Color.White,
-                                fontSize = if (retro80sMode) 12.sp else 14.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = if (retro80sMode) FontWeight.Bold else FontWeight.Normal
-                            )
-                            Text(
-                                text = pinActionSymbol,
-                                color = accentColor,
-                                fontSize = if (retro80sMode) 11.sp else 16.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(1.dp, if (retro80sMode) accentColor else Color(0xFF262626), rowShape)
-                                .background(Color.Black, rowShape)
+                                .border(1.dp, if (retro80sMode) accentColor else Color(0xFF451A1A), rowShape)
+                                .background(if (retro80sMode) Color.Black else Color(0xFF140707), rowShape)
                                 .clickable {
                                     val pkg = targetApp.packageName
                                     contextMenuTarget = null
-                                    openAppInfo(pkg)
+                                    onRequestSystemUninstall(pkg)
                                 }
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = if (retro80sMode) "> INSPECT APPLICATION INFO" else "App Info",
-                                color = Color.White,
-                                fontSize = if (retro80sMode) 12.sp else 14.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = if (retro80sMode) FontWeight.Bold else FontWeight.Normal
+                                text = "Uninstall App",
+                                color = if (retro80sMode) accentColor else Color(0xFFF87171),
+                                fontSize = 13.sp,
+                                fontFamily = selectedFont
                             )
                             Text(
-                                text = if (retro80sMode) "< ? INFO >" else "INFO ↗",
-                                color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
-                                fontSize = 10.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        if (!targetApp.isSystemApp) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .border(1.dp, if (retro80sMode) accentColor else Color(0xFF451A1A), rowShape)
-                                    .background(if (retro80sMode) Color.Black else Color(0xFF140707), rowShape)
-                                    .clickable {
-                                        val pkg = targetApp.packageName
-                                        contextMenuTarget = null
-                                        onRequestSystemUninstall(pkg)
-                                    }
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = if (retro80sMode) "> PURGE / UNINSTALL BINARY" else "Uninstall App",
-                                    color = if (retro80sMode) accentColor else Color(0xFFF87171),
-                                    fontSize = if (retro80sMode) 12.sp else 14.sp,
-                                    fontFamily = selectedFont,
-                                    fontWeight = if (retro80sMode) FontWeight.Bold else FontWeight.Normal
-                                )
-                                Text(
-                                    text = if (retro80sMode) "< × DEL >" else "DEL ×",
-                                    color = if (retro80sMode) accentColor else Color(0xFFF87171),
-                                    fontSize = 10.sp,
-                                    fontFamily = selectedFont,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-
-                    if (retro80sMode) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(accentColor)
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "<TAP=EXEC> <ESC=CANCEL>",
-                                color = Color.Black,
-                                fontSize = 9.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "DOS.INT 21h",
-                                color = Color.Black,
-                                fontSize = 9.sp,
+                                text = "×",
+                                color = if (retro80sMode) accentColor else Color(0xFFF87171),
+                                fontSize = 14.sp,
                                 fontFamily = selectedFont,
                                 fontWeight = FontWeight.Bold
                             )
@@ -3468,7 +3289,6 @@ fun NTextLauncherApp(
 
         // ====================================================================
         // "NO SPACE LEFT" BOUNDARY POPUP MODAL
-        // Automatically switches to 80s BIOS Overflow Alert when retro80sMode is ON!
         // ====================================================================
         val noSpaceProgress by rememberIosPopupProgress(
             isVisible = showNoSpacePopup,
@@ -3491,101 +3311,60 @@ fun NTextLauncherApp(
                     modifier = Modifier
                         .fillMaxWidth()
                         .iosPopupWindowLayer(progress = noSpaceProgress, initialScale = 0.80f)
-                        .border(if (retro80sMode) 1.6.dp else 1.dp, accentColor, alertShape)
+                        .border(if (retro80sMode) 1.5.dp else 1.dp, accentColor, alertShape)
                         .background(if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A), alertShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) { /* consume inside modal */ }
-                        .padding(if (retro80sMode) 0.dp else 18.dp),
-                    verticalArrangement = Arrangement.spacedBy(if (retro80sMode) 0.dp else 12.dp)
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (retro80sMode) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(accentColor)
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "ERR 0x1F // SCREEN BUFFER OVERFLOW",
-                                color = Color.Black,
-                                fontSize = 11.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "[!]",
-                                color = Color.Black,
-                                fontSize = 11.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
+                    Text(
+                        text = "No Space Left",
+                        color = accentColor,
+                        fontSize = 15.sp,
+                        fontFamily = selectedFont,
+                        fontWeight = FontWeight.Bold
+                    )
 
-                    Column(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(if (retro80sMode) 14.dp else 0.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                            .height(1.dp)
+                            .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF222222))
+                    )
+
+                    Text(
+                        text = noSpacePopupMessage,
+                        color = Color(0xFFE5E5E5),
+                        fontSize = 12.sp,
+                        fontFamily = selectedFont,
+                        lineHeight = 17.sp
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, accentColor, RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp))
+                            .background(if (retro80sMode) accentColor else Color(0xFF141414), RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp))
+                            .clickable { showNoSpacePopup = false }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        if (!retro80sMode) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.Start,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "NO SPACE LEFT",
-                                    color = accentColor,
-                                    fontSize = 15.sp,
-                                    fontFamily = selectedFont,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(1.dp)
-                                    .background(Color(0xFF222222))
-                            )
-                        }
-
                         Text(
-                            text = if (retro80sMode) "> $noSpacePopupMessage" else noSpacePopupMessage,
-                            color = Color(0xFFE5E5E5),
-                            fontSize = 12.sp,
+                            text = "OK",
+                            color = if (retro80sMode) Color.Black else Color.White,
+                            fontSize = 11.sp,
                             fontFamily = selectedFont,
-                            lineHeight = 17.sp
+                            fontWeight = FontWeight.Bold
                         )
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(1.dp, accentColor, RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp))
-                                .background(if (retro80sMode) accentColor else Color(0xFF141414), RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp))
-                                .clickable { showNoSpacePopup = false }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (retro80sMode) "< OK / ACKNOWLEDGE >" else "OK",
-                                color = if (retro80sMode) Color.Black else Color.White,
-                                fontSize = 11.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
                     }
                 }
             }
         }
 
-        // 80s CRT Monitor Phosphor Scanlines Overlay (Pass-through touches)
+        // Old School Phosphor Scanlines Overlay (Pass-through touches)
         if (retro80sMode) {
             Retro80sCrtScreenEdgeGlowOverlay()
         }
@@ -3598,7 +3377,7 @@ fun QuickMenuButton(
     label: String,
     badge: String,
     accentColor: Color,
-    lomoFontFamily: FontFamily,
+    lomoFontFamily: FontFamily = FontFamily.Monospace,
     onClick: () -> Unit
 ) {
     val is80s = LocalRetro80sMode.current
@@ -3609,36 +3388,27 @@ fun QuickMenuButton(
             .border(1.dp, if (is80s) accentColor else Color(0xFF262626), shape)
             .background(Color.Black, shape)
             .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = if (is80s) 10.dp else 12.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = if (is80s) "> $label" else label,
+            text = label,
             color = Color.White,
-            fontSize = if (is80s) 12.sp else 14.sp,
+            fontSize = 13.sp,
             fontFamily = lomoFontFamily,
             fontWeight = if (is80s) FontWeight.Bold else FontWeight.Normal
         )
         Text(
-            text = badge,
-            color = if (is80s) Color.Black else accentColor,
-            fontSize = 10.sp,
+            text = if (is80s) "[+]" else "▸",
+            color = accentColor,
+            fontSize = 12.sp,
             fontFamily = lomoFontFamily,
-            fontWeight = FontWeight.Bold,
-            modifier = if (is80s) {
-                Modifier
-                    .background(accentColor)
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            } else Modifier
+            fontWeight = FontWeight.Bold
         )
     }
 }
 
-// ============================================================================
-// 80s CRT GREEN/AMBER PHOSPHOR SCANLINES & MULTI-STYLE BATTERY PROGRESS BAR
-// ============================================================================
-@Composable
 fun Retro80sCrtScreenEdgeGlowOverlay() {
     // Subtle 80s CRT horizontal phosphor scanlines across the display — NO glowing around the edges of the phone screen!
     Canvas(modifier = Modifier.fillMaxSize()) {
@@ -3659,26 +3429,26 @@ fun Retro80sCrtScreenEdgeGlowOverlay() {
 }
 
 fun getWidgetStyleChoices(widgetId: String): List<Pair<String, String>> = when (widgetId) {
-    "clock" -> listOf("80s_retro" to "80s RETRO", "default" to "MODERN DOT", "cyber_hud" to "TACTICAL HUD")
-    "battery_bar" -> listOf("80s_retro" to "80s RETRO", "default" to "CLEAN BAR", "cyber_hud" to "CELL DIAG")
-    "week_strip" -> listOf("80s_retro" to "80s 4x2 GRID", "default" to "7-DAY STRIP", "cyber_hud" to "TIMELINE")
-    "retro_calendar" -> listOf("80s_retro" to "80s CRT TABLE", "default" to "DOT MATRIX", "cyber_hud" to "BRACKET [DD]")
-    "year_matrix" -> listOf("80s_retro" to "80s BLOCKS", "default" to "365 DOTS", "cyber_hud" to "12 MONTHS")
-    "retro_flip_clock" -> listOf("80s_retro" to "80s CRT DECK", "default" to "SPLIT-FLAP", "cyber_hud" to "TERMINAL")
-    "analog_chrono" -> listOf("80s_retro" to "80s RADAR", "default" to "WATCH DIAL", "cyber_hud" to "AVIONICS")
-    "precision_chrono" -> listOf("80s_retro" to "80s LAB CRT", "default" to "SPLIT-LAP", "cyber_hud" to "TELEMETRY")
-    "globe" -> listOf("80s_retro" to "80s VECTOR", "default" to "CRT HOLO", "cyber_hud" to "WIREFRAME")
-    "torch" -> listOf("80s_retro" to "80s SWITCH", "default" to "CLEAN PILL", "cyber_hud" to "ARMED HUD")
-    "storage" -> listOf("80s_retro" to "80s MEM BANK", "default" to "DUAL BARS", "cyber_hud" to "LED SECTORS")
-    "zen" -> listOf("80s_retro" to "80s DECK", "default" to "MINIMAL", "cyber_hud" to "CHAMBER")
-    "quote" -> listOf("80s_retro" to "80s MOTD", "default" to "EDITORIAL", "cyber_hud" to "LOG STREAM")
-    "scratchpad" -> listOf("80s_retro" to "80s DOS A:>", "default" to "MINIMAL >", "cyber_hud" to "MEMO LOG")
-    "pinned_apps" -> listOf("80s_retro" to "80s > PROMPT", "default" to "CLEAN LIST", "cyber_hud" to "[01] INDEXED")
-    else -> listOf("80s_retro" to "80s RETRO", "default" to "DEFAULT", "cyber_hud" to "CYBER HUD")
+    "clock" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "MODERN DOT", "cyber_hud" to "TACTICAL HUD")
+    "battery_bar" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "CLEAN BAR", "cyber_hud" to "CELL DIAG")
+    "week_strip" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "7-DAY STRIP", "cyber_hud" to "TIMELINE")
+    "retro_calendar" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "DOT MATRIX", "cyber_hud" to "BRACKET [DD]")
+    "year_matrix" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "365 DOTS", "cyber_hud" to "12 MONTHS")
+    "retro_flip_clock" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "SPLIT-FLAP", "cyber_hud" to "TERMINAL")
+    "analog_chrono" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "WATCH DIAL", "cyber_hud" to "AVIONICS")
+    "precision_chrono" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "SPLIT-LAP", "cyber_hud" to "TELEMETRY")
+    "globe" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "HOLO GLOBE", "cyber_hud" to "WIREFRAME")
+    "torch" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "CLEAN PILL", "cyber_hud" to "ARMED HUD")
+    "storage" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "DUAL BARS", "cyber_hud" to "LED SECTORS")
+    "zen" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "MINIMAL", "cyber_hud" to "CHAMBER")
+    "quote" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "EDITORIAL", "cyber_hud" to "LOG STREAM")
+    "scratchpad" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "MINIMAL >", "cyber_hud" to "MEMO LOG")
+    "pinned_apps" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "CLEAN LIST", "cyber_hud" to "[01] INDEXED")
+    else -> listOf("80s_retro" to "OLD SCHOOL", "default" to "DEFAULT", "cyber_hud" to "CYBER HUD")
 }
 
 val BATTERY_BAR_STYLES: List<Pair<String, String>> = listOf(
-    "retro_blocks" to "80s BLOCKY",
+    "retro_blocks" to "OLD SCHOOL",
     "segmented_led" to "LED CELLS",
     "pill" to "SMOOTH PILL",
     "chevron" to "CHEVRON",
@@ -4066,9 +3836,17 @@ fun HomeScreenView(
                     )
                     .then(
                         if (editMode) {
+                            val outerEditShape = RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp)
                             Modifier
-                                .border(1.dp, Color(0xFF383838), RoundedCornerShape(8.dp))
-                                .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
+                                .border(
+                                    if (retro80sMode) 1.4.dp else 1.dp,
+                                    if (retro80sMode) accentColor else Color(0xFF383838),
+                                    outerEditShape
+                                )
+                                .background(
+                                    if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A),
+                                    outerEditShape
+                                )
                                 .padding(8.dp)
                         } else {
                             Modifier.combinedClickable(
@@ -4081,9 +3859,10 @@ fun HomeScreenView(
                     )
             ) {
                 Column {
-                    // Top-Anchored Edit Mode Controls: Always accessible at the top of each widget card
-                    // so increasing a widget's size (S -> M -> L -> XL -> MAX) never pushes its controls off-screen!
+                    // Top-Anchored Edit Mode Controls: Styled consistently with Old School theme when retro80sMode is ON
                     if (editMode) {
+                        val editBtnShape = RoundedCornerShape(if (retro80sMode) 0.dp else 4.dp)
+                        val editBoxShape = RoundedCornerShape(if (retro80sMode) 0.dp else 5.dp)
                         val sizeChoices = when (widgetId) {
                             "clock", "pinned_apps", "retro_flip_clock", "analog_chrono", "precision_chrono", "globe" -> listOf(
                                 "compact" to "S",
@@ -4122,13 +3901,13 @@ fun HomeScreenView(
                                     if (idx > 0) {
                                         Text(
                                             text = "↑",
-                                            color = Color(0xFFD4D4D4),
+                                            color = if (retro80sMode) accentColor else Color(0xFFD4D4D4),
                                             fontSize = 10.sp,
                                             fontFamily = selectedFont,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier
-                                                .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
-                                                .background(Color(0xFF141414), RoundedCornerShape(4.dp))
+                                                .border(1.dp, if (retro80sMode) accentColor else Color(0xFF333333), editBtnShape)
+                                                .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF141414), editBtnShape)
                                                 .clickable { onMoveWidget(widgetId, -1) }
                                                 .padding(horizontal = 7.dp, vertical = 3.dp)
                                         )
@@ -4136,35 +3915,34 @@ fun HomeScreenView(
                                     if (idx < activeWidgets.lastIndex) {
                                         Text(
                                             text = "↓",
-                                            color = Color(0xFFD4D4D4),
+                                            color = if (retro80sMode) accentColor else Color(0xFFD4D4D4),
                                             fontSize = 10.sp,
                                             fontFamily = selectedFont,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier
-                                                .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
-                                                .background(Color(0xFF141414), RoundedCornerShape(4.dp))
+                                                .border(1.dp, if (retro80sMode) accentColor else Color(0xFF333333), editBtnShape)
+                                                .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF141414), editBtnShape)
                                                 .clickable { onMoveWidget(widgetId, 1) }
                                                 .padding(horizontal = 7.dp, vertical = 3.dp)
                                         )
                                     }
-                                    // Direct S, M, L, XL, MAX Size Selector Pills
                                     sizeChoices.forEach { (szId, szLbl) ->
                                         val isSz = sizeMode == szId
                                         Text(
                                             text = szLbl,
-                                            color = if (isSz) Color.Black else Color.White,
+                                            color = if (isSz) Color.Black else if (retro80sMode) accentColor else Color.White,
                                             fontSize = 9.sp,
                                             fontFamily = selectedFont,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier
                                                 .border(
                                                     1.dp,
-                                                    if (isSz) accentColor else Color(0xFF2E2E2E),
-                                                    RoundedCornerShape(4.dp)
+                                                    if (isSz) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF2E2E2E),
+                                                    editBtnShape
                                                 )
                                                 .background(
-                                                    if (isSz) accentColor else Color(0xFF151515),
-                                                    RoundedCornerShape(4.dp)
+                                                    if (isSz) accentColor else if (retro80sMode) Color(0xFF080808) else Color(0xFF151515),
+                                                    editBtnShape
                                                 )
                                                 .clickable { onSetWidgetSize(widgetId, szId) }
                                                 .padding(horizontal = 6.dp, vertical = 3.dp)
@@ -4174,31 +3952,35 @@ fun HomeScreenView(
 
                                 Text(
                                     text = "×",
-                                    color = Color(0xFFEF4444),
+                                    color = if (retro80sMode) accentColor else Color(0xFFEF4444),
                                     fontSize = 11.sp,
                                     fontFamily = selectedFont,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier
-                                        .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                                        .background(Color(0xFF1A0808), RoundedCornerShape(4.dp))
+                                        .border(1.dp, if (retro80sMode) accentColor else Color(0xFFEF4444).copy(alpha = 0.5f), editBtnShape)
+                                        .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF1A0808), editBtnShape)
                                         .clickable { onRemoveWidget(widgetId) }
                                         .padding(horizontal = 7.dp, vertical = 2.dp)
                                 )
                             }
 
-                            // Per-Widget Visual Style Selector (Every widget has an 80s Retro style + Default + Cyber/HUD!)
+                            // Per-Widget Visual Style Selector (Old School + Default + Cyber/HUD)
                             val styleChoices = remember(widgetId) { getWidgetStyleChoices(widgetId) }
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(5.dp))
-                                    .background(Color(0xFF101010), RoundedCornerShape(5.dp))
+                                    .border(
+                                        1.dp,
+                                        if (retro80sMode) accentColor.copy(alpha = 0.65f) else Color(0xFF262626),
+                                        editBoxShape
+                                    )
+                                    .background(if (retro80sMode) Color(0xFF060606) else Color(0xFF101010), editBoxShape)
                                     .padding(horizontal = 8.dp, vertical = 5.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = "WIDGET STYLE (INCLUDES 80s RETRO)",
-                                    color = Color(0xFF8A8A8A),
+                                    text = "STYLE",
+                                    color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
                                     fontSize = 8.sp,
                                     fontFamily = selectedFont,
                                     fontWeight = FontWeight.Bold
@@ -4211,7 +3993,7 @@ fun HomeScreenView(
                                         val isSt = rawWStyle == stId
                                         Text(
                                             text = stLbl,
-                                            color = if (isSt) Color.Black else Color.White,
+                                            color = if (isSt) Color.Black else if (retro80sMode) accentColor else Color.White,
                                             fontSize = 8.sp,
                                             fontFamily = selectedFont,
                                             fontWeight = FontWeight.Bold,
@@ -4220,12 +4002,12 @@ fun HomeScreenView(
                                                 .weight(1f)
                                                 .border(
                                                     1.dp,
-                                                    if (isSt) accentColor else Color(0xFF282828),
-                                                    RoundedCornerShape(4.dp)
+                                                    if (isSt) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                                    editBtnShape
                                                 )
                                                 .background(
-                                                    if (isSt) accentColor else Color(0xFF151515),
-                                                    RoundedCornerShape(4.dp)
+                                                    if (isSt) accentColor else if (retro80sMode) Color(0xFF080808) else Color(0xFF151515),
+                                                    editBtnShape
                                                 )
                                                 .clickable { onSetWidgetStyle(widgetId, stId) }
                                                 .padding(vertical = 4.dp)
@@ -4239,14 +4021,18 @@ fun HomeScreenView(
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .border(1.dp, Color(0xFF262626), RoundedCornerShape(5.dp))
-                                        .background(Color(0xFF101010), RoundedCornerShape(5.dp))
+                                        .border(
+                                            1.dp,
+                                            if (retro80sMode) accentColor.copy(alpha = 0.65f) else Color(0xFF262626),
+                                            editBoxShape
+                                        )
+                                        .background(if (retro80sMode) Color(0xFF060606) else Color(0xFF101010), editBoxShape)
                                         .padding(horizontal = 8.dp, vertical = 5.dp),
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Text(
                                         text = "BATTERY BAR STYLE",
-                                        color = Color(0xFF8A8A8A),
+                                        color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
                                         fontSize = 8.sp,
                                         fontFamily = selectedFont,
                                         fontWeight = FontWeight.Bold
@@ -4259,7 +4045,7 @@ fun HomeScreenView(
                                             val isSt = batteryBarStyle == stId
                                             Text(
                                                 text = stLbl,
-                                                color = if (isSt) Color.Black else Color.White,
+                                                color = if (isSt) Color.Black else if (retro80sMode) accentColor else Color.White,
                                                 fontSize = 7.sp,
                                                 fontFamily = selectedFont,
                                                 fontWeight = FontWeight.Bold,
@@ -4268,12 +4054,12 @@ fun HomeScreenView(
                                                     .weight(1f)
                                                     .border(
                                                         1.dp,
-                                                        if (isSt) accentColor else Color(0xFF282828),
-                                                        RoundedCornerShape(4.dp)
+                                                        if (isSt) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                                        editBtnShape
                                                     )
                                                     .background(
-                                                        if (isSt) accentColor else Color(0xFF151515),
-                                                        RoundedCornerShape(4.dp)
+                                                        if (isSt) accentColor else if (retro80sMode) Color(0xFF080808) else Color(0xFF151515),
+                                                        editBtnShape
                                                     )
                                                     .clickable { onChangeBatteryBarStyle(stId) }
                                                     .padding(vertical = 4.dp)
@@ -4283,7 +4069,7 @@ fun HomeScreenView(
                                 }
                             }
 
-                            // Row 2: Collapsible Per-Widget Font Style Menu (14 Fonts for all widgets with text)
+                            // Row 2: Collapsible Per-Widget Font Style Menu
                             if (widgetId != "globe") {
                                 Column(
                                     modifier = Modifier.fillMaxWidth(),
@@ -4294,10 +4080,10 @@ fun HomeScreenView(
                                             .fillMaxWidth()
                                             .border(
                                                 1.dp,
-                                                if (isWidgetFontMenuExpanded) accentColor.copy(alpha = 0.6f) else Color(0xFF282828),
-                                                RoundedCornerShape(5.dp)
+                                                if (retro80sMode) accentColor.copy(alpha = 0.65f) else if (isWidgetFontMenuExpanded) accentColor.copy(alpha = 0.6f) else Color(0xFF282828),
+                                                editBoxShape
                                             )
-                                            .background(Color(0xFF111111), RoundedCornerShape(5.dp))
+                                            .background(if (retro80sMode) Color(0xFF060606) else Color(0xFF111111), editBoxShape)
                                             .clickable {
                                                 expandedFontWidgetIds = if (isWidgetFontMenuExpanded) {
                                                     expandedFontWidgetIds - widgetId
@@ -4305,7 +4091,7 @@ fun HomeScreenView(
                                                     expandedFontWidgetIds + widgetId
                                                 }
                                             }
-                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                            .padding(horizontal = 8.dp, vertical = 5.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -4315,12 +4101,13 @@ fun HomeScreenView(
                                         ) {
                                             Text(
                                                 text = "FONT",
-                                                color = Color(0xFF8A8A8A),
+                                                color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
                                                 fontSize = 8.sp,
-                                                fontFamily = selectedFont
+                                                fontFamily = selectedFont,
+                                                fontWeight = FontWeight.Bold
                                             )
                                             Text(
-                                                text = activeWidgetFont.shortLabel + " · " + activeWidgetFont.displayName.substringBefore(" ("),
+                                                text = activeWidgetFont.displayName.substringBefore(" ("),
                                                 color = Color.White,
                                                 fontSize = 9.sp,
                                                 fontFamily = wFontFamily,
@@ -4328,9 +4115,13 @@ fun HomeScreenView(
                                             )
                                         }
                                         Text(
-                                            text = if (isWidgetFontMenuExpanded) "HIDE ▲" else "${allWidgetFonts.size} FONTS ▼",
+                                            text = if (retro80sMode) {
+                                                if (isWidgetFontMenuExpanded) "[-]" else "[+]"
+                                            } else {
+                                                if (isWidgetFontMenuExpanded) "▾" else "▸"
+                                            },
                                             color = accentColor,
-                                            fontSize = 8.sp,
+                                            fontSize = 10.sp,
                                             fontFamily = selectedFont,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -4358,7 +4149,7 @@ fun HomeScreenView(
                                                         val previewFamily = f.resolveFontFamily(lomoFontFamily)
                                                         Text(
                                                             text = f.shortLabel,
-                                                            color = if (isF) Color.Black else Color(0xFFD4D4D4),
+                                                            color = if (isF) Color.Black else if (retro80sMode) accentColor else Color(0xFFD4D4D4),
                                                             fontSize = 8.sp,
                                                             fontFamily = previewFamily,
                                                             fontWeight = if (isF) FontWeight.Bold else FontWeight.Normal,
@@ -4367,12 +4158,12 @@ fun HomeScreenView(
                                                                 .weight(1f)
                                                                 .border(
                                                                     1.dp,
-                                                                    if (isF) Color.White else Color(0xFF282828),
-                                                                    RoundedCornerShape(4.dp)
+                                                                    if (isF) (if (retro80sMode) accentColor else Color.White) else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                                                    editBtnShape
                                                                 )
                                                                 .background(
-                                                                    if (isF) Color.White else Color(0xFF121212),
-                                                                    RoundedCornerShape(4.dp)
+                                                                    if (isF) (if (retro80sMode) accentColor else Color.White) else if (retro80sMode) Color(0xFF080808) else Color(0xFF121212),
+                                                                    editBtnShape
                                                                 )
                                                                 .clickable { onSetWidgetFont(widgetId, f.id) }
                                                                 .padding(vertical = 4.dp)
@@ -4391,8 +4182,12 @@ fun HomeScreenView(
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .border(1.dp, Color(0xFF262626), RoundedCornerShape(6.dp))
-                                        .background(Color(0xFF101010), RoundedCornerShape(6.dp))
+                                        .border(
+                                            1.dp,
+                                            if (retro80sMode) accentColor.copy(alpha = 0.65f) else Color(0xFF262626),
+                                            editBoxShape
+                                        )
+                                        .background(if (retro80sMode) Color(0xFF060606) else Color(0xFF101010), editBoxShape)
                                         .padding(horizontal = 8.dp, vertical = 6.dp),
                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
@@ -4402,21 +4197,21 @@ fun HomeScreenView(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "GLOBE AXIS TILT & ROTATION",
-                                            color = Color(0xFFA3A3A3),
+                                            text = "GLOBE AXIS",
+                                            color = if (retro80sMode) accentColor else Color(0xFFA3A3A3),
                                             fontSize = 8.sp,
                                             fontFamily = selectedFont,
                                             fontWeight = FontWeight.Bold
                                         )
                                         Text(
-                                            text = "RESET AXIS",
+                                            text = "RESET",
                                             color = accentColor,
                                             fontSize = 8.sp,
                                             fontFamily = selectedFont,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier
-                                                .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                                                .background(Color(0xFF181818), RoundedCornerShape(4.dp))
+                                                .border(1.dp, accentColor.copy(alpha = 0.6f), editBtnShape)
+                                                .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF181818), editBtnShape)
                                                 .clickable {
                                                     onChangeGlobeTilt2d(-3f)
                                                     onChangeGlobeRotX(14f)
@@ -4426,7 +4221,6 @@ fun HomeScreenView(
                                         )
                                     }
 
-                                    // X-Axis (2D Screen-Plane Axial Tilt: tilts the globe's spin axis sideways -180° to +180°)
                                     GlobeAxisControlRow(
                                         axisLabel = "X-AXIS (TILT)",
                                         degreeValue = globeTilt2dDeg,
@@ -4438,7 +4232,6 @@ fun HomeScreenView(
                                         onChangeDeg = onChangeGlobeTilt2d
                                     )
 
-                                    // Y-Axis Rotation Control (-180° to +180° Yaw / Longitude)
                                     GlobeAxisControlRow(
                                         axisLabel = "Y-AXIS (SPIN)",
                                         degreeValue = globeRotYDeg,
@@ -4450,7 +4243,6 @@ fun HomeScreenView(
                                         onChangeDeg = onChangeGlobeRotY
                                     )
 
-                                    // Polar Inclination Control (-85° to +85° North/South Pitch)
                                     GlobeAxisControlRow(
                                         axisLabel = "POLAR (NOD)",
                                         degreeValue = globeRotXDeg,
@@ -4468,7 +4260,7 @@ fun HomeScreenView(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(1.dp)
-                                    .background(Color(0xFF1F1F1F))
+                                    .background(if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF1F1F1F))
                             )
                         }
                     }
@@ -5678,14 +5470,14 @@ fun HomeScreenView(
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Text(
-                                                    text = "PINNED APPS WIDGET (${pinnedApps.size} APPS · ${textSizeSp}SP)",
-                                                    color = Color(0xFFA3A3A3),
+                                                    text = "PINNED APPS",
+                                                    color = if (retro80sMode) accentColor else Color(0xFFA3A3A3),
                                                     fontSize = 8.sp,
                                                     fontFamily = selectedFont,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                                 Text(
-                                                    text = if (customPinnedOrderEnabled) "SEQUENCE: CUSTOM (↑/↓)" else "SEQUENCE: A–Z AUTO",
+                                                    text = if (customPinnedOrderEnabled) "CUSTOM (↑/↓)" else "A–Z AUTO",
                                                     color = if (customPinnedOrderEnabled) accentColor else Color(0xFF737373),
                                                     fontSize = 8.sp,
                                                     fontFamily = selectedFont,
@@ -5788,6 +5580,7 @@ fun HomeScreenView(
 
                                                 // In Edit Mode: Customize sequence of pinned apps via ↑ / ↓ buttons (when enabled in settings) + unpin (×)
                                                 if (editMode) {
+                                                    val pinBtnShape = RoundedCornerShape(if (retro80sMode) 0.dp else 4.dp)
                                                     Row(
                                                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                                                         verticalAlignment = Alignment.CenterVertically
@@ -5796,13 +5589,13 @@ fun HomeScreenView(
                                                             if (index > 0) {
                                                                 Text(
                                                                     text = "↑",
-                                                                    color = Color.White,
+                                                                    color = if (retro80sMode) accentColor else Color.White,
                                                                     fontSize = 10.sp,
                                                                     fontFamily = selectedFont,
                                                                     fontWeight = FontWeight.Bold,
                                                                     modifier = Modifier
-                                                                        .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
-                                                                        .background(Color(0xFF161616), RoundedCornerShape(4.dp))
+                                                                        .border(1.dp, if (retro80sMode) accentColor else Color(0xFF333333), pinBtnShape)
+                                                                        .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF161616), pinBtnShape)
                                                                         .clickable { onMovePinnedApp(app.packageName, -1) }
                                                                         .padding(horizontal = 7.dp, vertical = 3.dp)
                                                                 )
@@ -5810,13 +5603,13 @@ fun HomeScreenView(
                                                             if (index < pinnedApps.lastIndex) {
                                                                 Text(
                                                                     text = "↓",
-                                                                    color = Color.White,
+                                                                    color = if (retro80sMode) accentColor else Color.White,
                                                                     fontSize = 10.sp,
                                                                     fontFamily = selectedFont,
                                                                     fontWeight = FontWeight.Bold,
                                                                     modifier = Modifier
-                                                                        .border(1.dp, Color(0xFF333333), RoundedCornerShape(4.dp))
-                                                                        .background(Color(0xFF161616), RoundedCornerShape(4.dp))
+                                                                        .border(1.dp, if (retro80sMode) accentColor else Color(0xFF333333), pinBtnShape)
+                                                                        .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF161616), pinBtnShape)
                                                                         .clickable { onMovePinnedApp(app.packageName, 1) }
                                                                         .padding(horizontal = 7.dp, vertical = 3.dp)
                                                                 )
@@ -5824,13 +5617,13 @@ fun HomeScreenView(
                                                         }
                                                         Text(
                                                             text = "×",
-                                                            color = Color(0xFFEF4444),
+                                                            color = if (retro80sMode) accentColor else Color(0xFFEF4444),
                                                             fontSize = 10.sp,
                                                             fontFamily = selectedFont,
                                                             fontWeight = FontWeight.Bold,
                                                             modifier = Modifier
-                                                                .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.45f), RoundedCornerShape(4.dp))
-                                                                .background(Color(0xFF180808), RoundedCornerShape(4.dp))
+                                                                .border(1.dp, if (retro80sMode) accentColor else Color(0xFFEF4444).copy(alpha = 0.45f), pinBtnShape)
+                                                                .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF180808), pinBtnShape)
                                                                 .clickable { onUnpinApp(app.packageName) }
                                                                 .padding(horizontal = 6.dp, vertical = 3.dp)
                                                         )
@@ -6487,6 +6280,9 @@ fun GlobeAxisControlRow(
     fontFamily: FontFamily,
     onChangeDeg: (Float) -> Unit
 ) {
+    val is80s = LocalRetro80sMode.current
+    val btnShape = RoundedCornerShape(if (is80s) 0.dp else 4.dp)
+    val trackShape = RoundedCornerShape(if (is80s) 0.dp else 999.dp)
     val currentOnChange by rememberUpdatedState(onChangeDeg)
     val span = (maxDeg - minDeg).coerceAtLeast(1f)
     val fraction = ((degreeValue - minDeg) / span).coerceIn(0f, 1f)
@@ -6500,7 +6296,7 @@ fun GlobeAxisControlRow(
     ) {
         Text(
             text = "$axisLabel $formattedDeg",
-            color = Color.White,
+            color = if (is80s) accentColor else Color.White,
             fontSize = 8.sp,
             fontFamily = fontFamily,
             modifier = Modifier.width(88.dp)
@@ -6508,13 +6304,13 @@ fun GlobeAxisControlRow(
 
         Text(
             text = "−",
-            color = Color(0xFFD4D4D4),
+            color = if (is80s) accentColor else Color(0xFFD4D4D4),
             fontSize = 10.sp,
             fontFamily = fontFamily,
             fontWeight = FontWeight.Bold,
             modifier = Modifier
-                .border(1.dp, Color(0xFF303030), RoundedCornerShape(4.dp))
-                .background(Color(0xFF181818), RoundedCornerShape(4.dp))
+                .border(1.dp, if (is80s) accentColor else Color(0xFF303030), btnShape)
+                .background(if (is80s) Color(0xFF080808) else Color(0xFF181818), btnShape)
                 .clickable { currentOnChange((degreeValue - stepDeg).coerceIn(minDeg, maxDeg)) }
                 .padding(horizontal = 6.dp, vertical = 2.dp)
         )
@@ -6544,27 +6340,27 @@ fun GlobeAxisControlRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(6.dp)
-                    .border(1.dp, Color(0xFF2E2E2E), RoundedCornerShape(999.dp))
-                    .background(Color(0xFF161616), RoundedCornerShape(999.dp))
+                    .border(1.dp, if (is80s) accentColor.copy(alpha = 0.55f) else Color(0xFF2E2E2E), trackShape)
+                    .background(if (is80s) Color(0xFF060606) else Color(0xFF161616), trackShape)
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
                         .fillMaxWidth(fraction)
-                        .background(accentColor, RoundedCornerShape(999.dp))
+                        .background(accentColor, trackShape)
                 )
             }
         }
 
         Text(
             text = "+",
-            color = Color(0xFFD4D4D4),
+            color = if (is80s) accentColor else Color(0xFFD4D4D4),
             fontSize = 10.sp,
             fontFamily = fontFamily,
             fontWeight = FontWeight.Bold,
             modifier = Modifier
-                .border(1.dp, Color(0xFF303030), RoundedCornerShape(4.dp))
-                .background(Color(0xFF181818), RoundedCornerShape(4.dp))
+                .border(1.dp, if (is80s) accentColor else Color(0xFF303030), btnShape)
+                .background(if (is80s) Color(0xFF080808) else Color(0xFF181818), btnShape)
                 .clickable { currentOnChange((degreeValue + stepDeg).coerceIn(minDeg, maxDeg)) }
                 .padding(horizontal = 6.dp, vertical = 2.dp)
         )
@@ -7714,32 +7510,6 @@ fun AppDrawerView(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             val is80sDrawer = LocalRetro80sMode.current
-            if (is80sDrawer) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(accentColor)
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "DIR C:/APPS/*.*  //  PROGRAM DIRECTORY",
-                        color = Color.Black,
-                        fontSize = 10.sp,
-                        fontFamily = lomoFontFamily,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "${filteredApps.size} FILES",
-                        color = Color.Black,
-                        fontSize = 9.sp,
-                        fontFamily = lomoFontFamily,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-            }
             // Search Input Bar
             Row(
                 modifier = Modifier
@@ -7754,7 +7524,7 @@ fun AppDrawerView(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (is80sDrawer) "C:/APPS/> " else "/ ",
+                    text = if (is80sDrawer) "> " else "/ ",
                     color = accentColor,
                     fontSize = if (is80sDrawer) 11.sp else 13.sp,
                     fontFamily = lomoFontFamily,
@@ -8158,6 +7928,9 @@ fun WidgetsManagerView(
     onMoveWidget: (String, Int) -> Unit,
     onBack: () -> Unit
 ) {
+    val is80sWm = LocalRetro80sMode.current
+    val wmBtnShape = RoundedCornerShape(if (is80sWm) 0.dp else 4.dp)
+    val wmPillShape = RoundedCornerShape(if (is80sWm) 0.dp else 6.dp)
     var editingLeftPage by remember { mutableStateOf(leftPageEnabled && initialTargetLeftPage) }
     val targetWidgetsList = if (leftPageEnabled && editingLeftPage) leftPageWidgets else activeWidgets
     val targetSizesMap = if (leftPageEnabled && editingLeftPage) leftWidgetSizes else widgetSizes
@@ -8166,9 +7939,9 @@ fun WidgetsManagerView(
     val onUpdateTargetStyle: (String, String) -> Unit = if (leftPageEnabled && editingLeftPage) onSetLeftWidgetStyle else onSetWidgetStyle
     val allWidgets = listOf(
         "clock" to "Dot-Matrix Clock, Date & Battery Bar",
-        "battery_bar" to "80s Blocky Battery & Time Header",
+        "battery_bar" to "Old School Blocky Battery & Time Header",
         "week_strip" to "7-Day Strip & Month Days Block Bar",
-        "pinned_apps" to "Pinned Home Apps List (Unified Widget)",
+        "pinned_apps" to "Pinned Home Apps List",
         "retro_calendar" to "Dot-Matrix Month Calendar Grid",
         "year_matrix" to "365-Day Dot-Matrix Year Progress",
         "retro_flip_clock" to "Split-Flap Mechanical Clock",
@@ -8202,121 +7975,60 @@ fun WidgetsManagerView(
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        val is80sWm = LocalRetro80sMode.current
-        if (is80sWm) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(accentColor)
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "File  Edit  Widgets  Profile:80s_CRT",
-                        color = Color.Black,
-                        fontSize = 10.sp,
-                        fontFamily = lomoFontFamily,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "<ESC=DONE>",
-                        color = Color.Black,
-                        fontSize = 10.sp,
-                        fontFamily = lomoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable { onBack() }
-                    )
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.4.dp, accentColor)
-                        .background(Color(0xFF050505))
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "╔═╣ 80s CRT WIDGET PROFILE (INDEPENDENT) ╠═╗",
-                            color = accentColor,
-                            fontSize = 11.sp,
-                            fontFamily = lomoFontFamily,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Widget sizes, order & styles here are separate from Regular Mode",
-                            color = Color(0xFFA3A3A3),
-                            fontSize = 9.sp,
-                            fontFamily = lomoFontFamily
-                        )
-                    }
-                }
-            }
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "WIDGET MANAGER",
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontFamily = lomoFontFamily,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "100% offline widgets · Add/remove & configure (resize, font & order in Edit Mode)",
-                        color = Color(0xFF737373),
-                        fontSize = 10.sp,
-                        fontFamily = lomoFontFamily
-                    )
-                }
-                Text(
-                    text = "DONE",
-                    color = Color.Black,
-                    fontSize = 11.sp,
-                    fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .background(Color.White, RoundedCornerShape(6.dp))
-                        .clickable { onBack() }
-                        .padding(horizontal = 10.dp, vertical = 5.dp)
-                )
-            }
+        // Clean Window Header: only Title + DONE button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (is80sWm) "Widget Configuration" else "Widget Manager",
+                color = if (is80sWm) accentColor else Color.White,
+                fontSize = 16.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "DONE",
+                color = Color.Black,
+                fontSize = 11.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .background(if (is80sWm) accentColor else Color.White, wmPillShape)
+                    .clickable { onBack() }
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            )
         }
 
         if (leftPageEnabled) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, Color(0xFF282828), RoundedCornerShape(8.dp))
-                    .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
+                    .border(
+                        1.dp,
+                        if (is80sWm) accentColor else Color(0xFF282828),
+                        RoundedCornerShape(if (is80sWm) 0.dp else 8.dp)
+                    )
+                    .background(Color(0xFF0A0A0A), RoundedCornerShape(if (is80sWm) 0.dp else 8.dp))
                     .padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 listOf(
-                    false to "MAIN PAGE (${activeWidgets.size} ACTIVE)",
-                    true to "LEFT PAGE (${leftPageWidgets.size} ACTIVE)"
+                    false to "MAIN PAGE",
+                    true to "LEFT PAGE"
                 ).forEach { (isLeft, tabLabel) ->
                     val selected = editingLeftPage == isLeft
                     Text(
                         text = tabLabel,
-                        color = if (selected) Color.Black else Color.White,
+                        color = if (selected) Color.Black else if (is80sWm) accentColor else Color.White,
                         fontSize = 10.sp,
                         fontFamily = lomoFontFamily,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
                         modifier = Modifier
                             .weight(1f)
-                            .background(if (selected) accentColor else Color(0xFF141414), RoundedCornerShape(6.dp))
+                            .background(if (selected) accentColor else Color(0xFF141414), wmPillShape)
                             .clickable { editingLeftPage = isLeft }
                             .padding(vertical = 7.dp)
                     )
@@ -8331,19 +8043,16 @@ fun WidgetsManagerView(
         ) {
             items(allWidgets) { (id, title) ->
                 val enabled = targetWidgetsList.contains(id)
-                val currentSize = targetSizesMap[id] ?: "standard"
-                val idx = targetWidgetsList.indexOf(id)
-
                 val wmCardShape = RoundedCornerShape(if (is80sWm) 0.dp else 12.dp)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .border(
                             if (is80sWm) 1.4.dp else 1.dp,
-                            if (is80sWm) (if (enabled) accentColor else Color(0xFF282828)) else (if (enabled) Color(0xFF333333) else Color(0xFF1A1A1A)),
+                            if (is80sWm) (if (enabled) accentColor else accentColor.copy(alpha = 0.4f)) else (if (enabled) Color(0xFF333333) else Color(0xFF1A1A1A)),
                             wmCardShape
                         )
-                        .background(if (enabled) Color(0xFF0A0A0A) else Color(0xFF040404), wmCardShape)
+                        .background(if (enabled) Color(0xFF080808) else Color(0xFF040404), wmCardShape)
                         .padding(14.dp)
                 ) {
                     Row(
@@ -8361,15 +8070,15 @@ fun WidgetsManagerView(
                         )
                         Text(
                             text = if (enabled) "ACTIVE [×]" else "+ ADD",
-                            color = if (enabled) accentColor else Color(0xFF8A8A8A),
+                            color = if (enabled) accentColor else if (is80sWm) accentColor.copy(alpha = 0.7f) else Color(0xFF8A8A8A),
                             fontSize = 11.sp,
                             fontFamily = lomoFontFamily,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier
                                 .border(
                                     1.dp,
-                                    if (enabled) accentColor.copy(alpha = 0.5f) else Color(0xFF262626),
-                                    RoundedCornerShape(6.dp)
+                                    if (enabled) accentColor else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF262626),
+                                    wmPillShape
                                 )
                                 .clickable {
                                     val next = if (enabled) targetWidgetsList - id else targetWidgetsList + id
@@ -8384,8 +8093,8 @@ fun WidgetsManagerView(
                         val styleChoices = getWidgetStyleChoices(id)
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = "WIDGET STYLE (INCLUDES 80s RETRO)",
-                            color = Color(0xFF8A8A8A),
+                            text = "STYLE",
+                            color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
                             fontSize = 9.sp,
                             fontFamily = lomoFontFamily
                         )
@@ -8398,14 +8107,19 @@ fun WidgetsManagerView(
                                 val isSel = currentStyle == stId
                                 Text(
                                     text = stLbl,
-                                    color = if (isSel) Color.Black else Color.White,
+                                    color = if (isSel) Color.Black else if (is80sWm) accentColor else Color.White,
                                     fontSize = 8.sp,
                                     fontFamily = lomoFontFamily,
                                     fontWeight = FontWeight.Bold,
                                     textAlign = TextAlign.Center,
                                     modifier = Modifier
                                         .weight(1f)
-                                        .background(if (isSel) accentColor else Color(0xFF191919), RoundedCornerShape(4.dp))
+                                        .border(
+                                            1.dp,
+                                            if (isSel) accentColor else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                            wmBtnShape
+                                        )
+                                        .background(if (isSel) accentColor else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
                                         .clickable { onUpdateTargetStyle(id, stId) }
                                         .padding(vertical = 5.dp)
                                 )
@@ -8415,8 +8129,8 @@ fun WidgetsManagerView(
                         if (id == "clock" || id == "battery_bar") {
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "BATTERY PROGRESS BAR STYLE",
-                                color = Color(0xFF8A8A8A),
+                                text = "BATTERY BAR STYLE",
+                                color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
                                 fontSize = 9.sp,
                                 fontFamily = lomoFontFamily
                             )
@@ -8429,14 +8143,19 @@ fun WidgetsManagerView(
                                     val isSel = batteryBarStyle == stId
                                     Text(
                                         text = stLbl,
-                                        color = if (isSel) Color.Black else Color.White,
+                                        color = if (isSel) Color.Black else if (is80sWm) accentColor else Color.White,
                                         fontSize = 8.sp,
                                         fontFamily = lomoFontFamily,
                                         fontWeight = FontWeight.Bold,
                                         textAlign = TextAlign.Center,
                                         modifier = Modifier
                                             .weight(1f)
-                                            .background(if (isSel) accentColor else Color(0xFF191919), RoundedCornerShape(4.dp))
+                                            .border(
+                                                1.dp,
+                                                if (isSel) accentColor else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                                wmBtnShape
+                                            )
+                                            .background(if (isSel) accentColor else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
                                             .clickable { onChangeBatteryBarStyle(stId) }
                                             .padding(vertical = 5.dp)
                                     )
@@ -8453,21 +8172,27 @@ fun WidgetsManagerView(
                             ) {
                                 Text(
                                     text = "CLOCK FORMAT",
-                                    color = Color(0xFF8A8A8A),
+                                    color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
                                     fontSize = 9.sp,
                                     fontFamily = lomoFontFamily
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     listOf(false to "12H", true to "24H").forEach { (is24, lbl) ->
                                         val sel = use24Hour == is24
+                                        val activeBg = if (is80sWm) accentColor else Color.White
                                         Text(
                                             text = lbl,
-                                            color = if (sel) Color.Black else Color.White,
+                                            color = if (sel) Color.Black else if (is80sWm) accentColor else Color.White,
                                             fontSize = 9.sp,
                                             fontFamily = lomoFontFamily,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier
-                                                .background(if (sel) Color.White else Color(0xFF191919), RoundedCornerShape(4.dp))
+                                                .border(
+                                                    1.dp,
+                                                    if (sel) activeBg else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                                    wmBtnShape
+                                                )
+                                                .background(if (sel) activeBg else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
                                                 .clickable { if (use24Hour != is24) onToggle24h() }
                                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                                         )
@@ -8480,25 +8205,31 @@ fun WidgetsManagerView(
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
                                 text = "VISUAL THEME",
-                                color = Color(0xFF8A8A8A),
+                                color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
                                 fontSize = 9.sp,
                                 fontFamily = lomoFontFamily
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 listOf(
-                                    "retro_holo" to "CRT HOLOGRAM (GRN/BLU)",
+                                    "retro_holo" to "HOLOGRAM (GRN/BLU)",
                                     "wireframe" to "MONOCHROME VECTOR"
                                 ).forEach { (tId, tLabel) ->
                                     val isSel = globeTheme == tId
+                                    val activeBg = if (is80sWm) accentColor else Color.White
                                     Text(
                                         text = tLabel,
-                                        color = if (isSel) Color.Black else Color.White,
+                                        color = if (isSel) Color.Black else if (is80sWm) accentColor else Color.White,
                                         fontSize = 9.sp,
                                         fontFamily = lomoFontFamily,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier
-                                            .background(if (isSel) Color.White else Color(0xFF191919), RoundedCornerShape(4.dp))
+                                            .border(
+                                                1.dp,
+                                                if (isSel) activeBg else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                                wmBtnShape
+                                            )
+                                            .background(if (isSel) activeBg else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
                                             .clickable { onChangeGlobeTheme(tId) }
                                             .padding(horizontal = 8.dp, vertical = 5.dp)
                                     )
@@ -8508,8 +8239,8 @@ fun WidgetsManagerView(
                             if (globeTheme == "wireframe") {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    text = "PHOSPHOR / VECTOR COLOR",
-                                    color = Color(0xFF8A8A8A),
+                                    text = "VECTOR COLOR",
+                                    color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
                                     fontSize = 9.sp,
                                     fontFamily = lomoFontFamily
                                 )
@@ -8542,17 +8273,17 @@ fun WidgetsManagerView(
                                             modifier = Modifier
                                                 .border(
                                                     width = if (selected) 1.5.dp else 1.dp,
-                                                    color = if (selected) Color.White else Color(0xFF262626),
-                                                    shape = RoundedCornerShape(6.dp)
+                                                    color = if (selected) (if (is80sWm) accentColor else Color.White) else if (is80sWm) accentColor.copy(alpha = 0.4f) else Color(0xFF262626),
+                                                    shape = wmPillShape
                                                 )
-                                                .background(Color(0xFF111111), RoundedCornerShape(6.dp))
+                                                .background(Color(0xFF111111), wmPillShape)
                                                 .clickable { onChangeGlobeWireframeColor(hex) }
                                                 .padding(horizontal = 6.dp, vertical = 4.dp)
                                         ) {
                                             Box(
                                                 modifier = Modifier
                                                     .size(10.dp)
-                                                    .background(swatchColor, CircleShape)
+                                                    .background(swatchColor, if (is80sWm) RoundedCornerShape(0.dp) else CircleShape)
                                             )
                                             Spacer(modifier = Modifier.height(2.dp))
                                             Text(
@@ -8575,22 +8306,28 @@ fun WidgetsManagerView(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "CUSTOMIZE SEQUENCE IN EDIT MODE",
-                                    color = Color(0xFF8A8A8A),
+                                    text = "SEQUENCE ORDER",
+                                    color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
                                     fontSize = 9.sp,
                                     fontFamily = lomoFontFamily
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     listOf(true to "CUSTOM (↑/↓)", false to "A–Z AUTO").forEach { (isCust, lbl) ->
                                         val sel = customPinnedOrderEnabled == isCust
+                                        val activeBg = if (is80sWm) accentColor else Color.White
                                         Text(
                                             text = lbl,
-                                            color = if (sel) Color.Black else Color.White,
+                                            color = if (sel) Color.Black else if (is80sWm) accentColor else Color.White,
                                             fontSize = 9.sp,
                                             fontFamily = lomoFontFamily,
                                             fontWeight = FontWeight.Bold,
                                             modifier = Modifier
-                                                .background(if (sel) Color.White else Color(0xFF191919), RoundedCornerShape(4.dp))
+                                                .border(
+                                                    1.dp,
+                                                    if (sel) activeBg else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                                    wmBtnShape
+                                                )
+                                                .background(if (sel) activeBg else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
                                                 .clickable { if (customPinnedOrderEnabled != isCust) onToggleCustomPinnedOrder() }
                                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                                         )
@@ -8613,8 +8350,8 @@ fun WidgetsManagerView(
                                 cursorBrush = SolidColor(accentColor),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(6.dp))
-                                    .background(Color(0xFF111111), RoundedCornerShape(6.dp))
+                                    .border(1.dp, if (is80sWm) accentColor else Color(0xFF262626), wmPillShape)
+                                    .background(Color(0xFF111111), wmPillShape)
                                     .padding(horizontal = 10.dp, vertical = 7.dp)
                             )
                         }
@@ -8626,12 +8363,10 @@ fun WidgetsManagerView(
 }
 
 // ============================================================================
-// PREMIUM LAUNCHER SETTINGS WITH COLLAPSIBLE ACCORDION MENUS (v3.1.0-cmf)
-// - Section 02: Home App Font Size + App Drawer App Name Scale (Slider + Presets)
-// - Section 03: "Wallpapers and Settings" with Universal Wallpaper Dimmer (0%-90% for
-//   Live, Static & Third-Party/User Wallpapers) + 3 Separate Collapsible Sub-Sections:
-//   (1) Live Wallpapers, (2) Static Wallpapers, (3) User Wallpapers
-// - Section 04: App Drawer Traverse Curved Horizontal Wave Slider (0%-200%)
+// CLEAN LAUNCHER SETTINGS WITH COLLAPSIBLE ACCORDION MENUS (v5.0.0-cmf)
+// - Header title: "Nocturnaa Settings" (Regular) / "Nocturna Configuration" (Old School)
+// - Collapsible menus show ONLY the section title and small theme-specific icon
+// - Every inner card, button & slider follows the Old School theme consistently
 // ============================================================================
 @Composable
 fun LauncherSettingsView(
@@ -8700,16 +8435,18 @@ fun LauncherSettingsView(
     var expandedWallpaper by remember { mutableStateOf(false) }
     var expandedMotion by remember { mutableStateOf(false) }
 
-    // Separate collapsible sub-sections inside "Wallpapers and Settings"
     var expandedLiveWallpapers by remember { mutableStateOf(false) }
     var expandedStaticWallpapers by remember { mutableStateOf(false) }
     var expandedUserWallpapers by remember { mutableStateOf(false) }
 
     val accentColor = resolveLauncherAccentColor(accentHex)
+    val innerCardShape = RoundedCornerShape(if (retro80sMode) 0.dp else 10.dp)
+    val innerSubCardShape = RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp)
+    val innerBtnShape = RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
+    val innerCardBorderColor = if (retro80sMode) accentColor.copy(alpha = 0.75f) else Color(0xFF222222)
 
-    // 8 Minimal, Full-Screen AMOLED Live Wallpapers (including Glowing & Halftone Wave Live Wallpapers)
     val liveWallpaperOptions = listOf(
-        Triple("live_crt_scanlines", "80s CRT SCANLINES", "Faint CRT Scanlines & Beam"),
+        Triple("live_crt_scanlines", "OLD SCHOOL SCANLINES", "Faint Scanlines & Refresh Beam"),
         Triple("live_starfield_3d", "3D STARFIELD", "1,200-Star 3D Night Sky"),
         Triple("live_constellation", "ORBITAL NODES", "Full-Screen Drifting Stars"),
         Triple("live_embers", "DEEP EMBERS", "Full-Screen Rising Dust"),
@@ -8721,7 +8458,6 @@ fun LauncherSettingsView(
         Triple("live_halftone_pulse", "HALFTONE WAVE", "Glowing Halftone Pulse")
     )
 
-    // 36 Full-Screen Static AMOLED Wallpapers (Original 24 + 12 New Halftone, Glowing & Fade Wallpapers)
     val staticWallpaperOptions = listOf(
         Triple("oled", "PURE AMOLED", "True #000000"),
         Triple("dots", "DOT MATRIX", "Full-Screen Dot Grid"),
@@ -8748,30 +8484,30 @@ fun LauncherSettingsView(
         Triple("static_vinyl", "MICRO GROOVES", "Full-Screen Fine Arcs"),
         Triple("static_bauhaus", "BAUHAUS GEO", "Full-Screen Line Balance"),
         Triple("static_horizon_lines", "SCANLINE FADE", "Full-Screen Scanlines"),
-        Triple("static_glyph_arcs", "GLYPH STRIPS", "Segmented Light Arcs"),
-        Triple("static_polar", "POLAR RADAR", "Full-Screen Range Rings"),
-        Triple("static_diagonal_hatch", "CARBON WEAVE", "Fine 45° Micro Hatch"),
-        Triple("static_golden_spiral", "GOLDEN RATIO", "Fibonacci Subdivision"),
-        Triple("static_sine_interference", "MOIRÉ WAVES", "Full-Screen Sine Phase"),
-        Triple("static_corner_frame", "VIEWFINDER", "Rule-of-Thirds & Frame"),
-        Triple("static_hex_honeycomb", "HEX MATRIX", "Full-Screen Hex Mesh"),
-        Triple("static_constellation_fixed", "DEEP SKY ATLAS", "Full-Screen Star Mesh"),
-        Triple("static_vertical_flutes", "MONOLITH RIBS", "Full-Height Fine Rules"),
-        Triple("static_zen_enso", "ZEN CIRCLE", "Tapered Ring & Aura"),
-        Triple("static_micro_plus", "SWISS PLUS GRID", "Full-Screen + Markers")
+        Triple("static_glyph_arcs", "GLYPH ARCS", "Segmented Light Rings"),
+        Triple("static_polar", "POLAR RADAR", "360° Azimuth Dial"),
+        Triple("static_diagonal_hatch", "FINE HATCH", "45° Precision Lines"),
+        Triple("static_golden_spiral", "FIBONACCI RATIO", "Golden Section Arc"),
+        Triple("static_sine_interference", "MOIRÉ WAVES", "Harmonic Sine Field"),
+        Triple("static_corner_frame", "VIEWFINDER", "Rule-of-Thirds & Corners"),
+        Triple("static_hex_honeycomb", "HEX LATTICE", "Full-Screen Honeycomb"),
+        Triple("static_constellation_fixed", "DEEP SKY MAP", "Fixed Star Lines"),
+        Triple("static_vertical_flutes", "ARCHITECTURAL", "Vertical Pinstripes"),
+        Triple("static_zen_enso", "ZEN CIRCLE", "Minimalist Open Ring"),
+        Triple("static_micro_plus", "SWISS CROSSES", "Full-Screen + Matrix")
     )
 
-    val normBgIntensity = (settingsBgIntensity.coerceIn(0, 100) / 100f)
-    val settingsRootBgColor = when (settingsBgMode) {
-        "transparent" -> Color.Black.copy(alpha = (1f - normBgIntensity * 0.92f).coerceIn(0.06f, 0.96f))
-        "blurry" -> Color(0xFF050505).copy(alpha = (0.76f - normBgIntensity * 0.56f).coerceIn(0.18f, 0.82f))
+    val normBg = (settingsBgIntensity.coerceIn(0, 100) / 100f)
+    val rootBgColor = when (settingsBgMode) {
+        "transparent" -> Color.Black.copy(alpha = (1f - normBg * 0.90f).coerceIn(0.08f, 0.96f))
+        "blurry" -> Color(0xFF060606).copy(alpha = (0.78f - normBg * 0.52f).coerceIn(0.20f, 0.82f))
         else -> Color.Black
     }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(settingsRootBgColor)
+            .background(rootBgColor)
             .windowInsetsPadding(WindowInsets.statusBars)
             .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
             .windowInsetsPadding(WindowInsets.navigationBars)
@@ -8779,106 +8515,41 @@ fun LauncherSettingsView(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
+        // Clean Settings Header: ONLY "Nocturnaa Settings" (Regular) or "Nocturna Configuration" (Old School) + DONE
         item {
-            if (retro80sMode) {
-                // Authentic 80s IBM / DOS QBasic Top Menu Bar + Box-Drawn Header (matches reference image!)
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(accentColor)
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "File  Edit  View  Search  Run  Options",
-                            color = Color.Black,
-                            fontSize = 10.sp,
-                            fontFamily = launcherFont,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "<ESC=DONE>",
-                            color = Color.Black,
-                            fontSize = 10.sp,
-                            fontFamily = launcherFont,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.clickable { onBack() }
-                        )
-                    }
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.4.dp, accentColor)
-                            .background(Color(0xFF050505))
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = "╔══╣ NOCTURNAA // 80s CRT SYSTEM SETUP ╠══╗",
-                            color = accentColor,
-                            fontSize = 12.sp,
-                            fontFamily = launcherFont,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "<QuickSCREEN>   <Details>   <Widgets>",
-                                color = Color.White,
-                                fontSize = 9.sp,
-                                fontFamily = launcherFont
-                            )
-                            Text(
-                                text = if (retro80sColorTheme == "amber") "CRT: P3 AMBER" else "CRT: P1 GREEN",
-                                color = accentColor,
-                                fontSize = 9.sp,
-                                fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "NOCTURNAA SETTINGS",
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontFamily = launcherFont,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "DONE",
-                        color = Color.Black,
-                        fontSize = 11.sp,
-                        fontFamily = launcherFont,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .background(Color.White, RoundedCornerShape(6.dp))
-                            .clickable { onBack() }
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
-                    )
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (retro80sMode) "Nocturna Configuration" else "Nocturnaa Settings",
+                    color = if (retro80sMode) accentColor else Color.White,
+                    fontSize = 16.sp,
+                    fontFamily = launcherFont,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "DONE",
+                    color = Color.Black,
+                    fontSize = 11.sp,
+                    fontFamily = launcherFont,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .background(if (retro80sMode) accentColor else Color.White, innerBtnShape)
+                        .clickable { onBack() }
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                )
             }
         }
 
+        // SECTION 01
         item {
             CollapsibleSettingsSection(
                 indexTag = "01",
                 title = "System & Home Integration",
-                subtitle = "Default launcher role & Android status bar",
-                badge = if (hideAndroidBar) "IMMERSIVE" else "STANDARD",
+                subtitle = "",
+                badge = "",
                 expanded = expandedSystem,
                 accentColor = accentColor,
                 lomoFontFamily = launcherFont,
@@ -8886,34 +8557,30 @@ fun LauncherSettingsView(
             ) {
                 SettingCard(
                     title = "Default Home Launcher",
-                    subtitle = "Set Nocturnaa as your primary Android 14 Home App",
+                    subtitle = "",
                     actionLabel = "CHOOSE HOME",
                     lomoFontFamily = launcherFont,
                     onClick = onRequestDefaultHomeRole
                 )
                 SettingCard(
-                    title = "80s CRT Phosphor Mode",
-                    subtitle = "Enable dedicated 80s CRT UI, independent widget sizes/layout, and glowing phosphor bloom",
-                    actionLabel = if (retro80sMode) "80s CRT (ON)" else "STANDARD (OFF)",
+                    title = "Old School Mode",
+                    subtitle = "",
+                    actionLabel = if (retro80sMode) "ON" else "OFF",
                     lomoFontFamily = launcherFont,
                     onClick = onToggleRetro80sMode
                 )
-                // 80s CRT Phosphor Color Theme Selector (P1 Light Green vs P3 Glowy Amber-Orange from IBM Monitor!)
+                // Old School Color Theme Selector (Green Phosphor vs Amber Orange)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(
-                            if (retro80sMode) 1.4.dp else 1.dp,
-                            if (retro80sMode) accentColor else Color(0xFF242424),
-                            RoundedCornerShape(if (retro80sMode) 0.dp else 10.dp)
-                        )
-                        .background(Color(0xFF050505), RoundedCornerShape(if (retro80sMode) 0.dp else 10.dp))
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
+                        .background(Color(0xFF050505), innerCardShape)
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "80s CRT PHOSPHOR COLOR THEME",
-                        color = Color(0xFF8A8A8A),
+                        text = "OLD SCHOOL COLOR THEME",
+                        color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
                         fontSize = 9.sp,
                         fontFamily = launcherFont,
                         fontWeight = FontWeight.Bold
@@ -8923,13 +8590,14 @@ fun LauncherSettingsView(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         listOf(
-                            "green" to "P1 GREEN PHOSPHOR",
-                            "amber" to "P3 AMBER ORANGE"
+                            "green" to "GREEN PHOSPHOR",
+                            "amber" to "AMBER ORANGE"
                         ).forEach { (thId, thLbl) ->
                             val isSel = retro80sColorTheme == thId
+                            val activeBg = if (retro80sMode) accentColor else Color.White
                             Text(
-                                text = if (retro80sMode && isSel) "< $thLbl >" else thLbl,
-                                color = if (isSel) Color.Black else Color.White,
+                                text = thLbl,
+                                color = if (isSel) Color.Black else if (retro80sMode) accentColor else Color.White,
                                 fontSize = 9.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
@@ -8938,12 +8606,12 @@ fun LauncherSettingsView(
                                     .weight(1f)
                                     .border(
                                         1.dp,
-                                        if (isSel) Color.White else Color(0xFF282828),
-                                        RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
+                                        if (isSel) activeBg else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                        innerBtnShape
                                     )
                                     .background(
-                                        if (isSel) Color.White else Color(0xFF141414),
-                                        RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
+                                        if (isSel) activeBg else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF141414),
+                                        innerBtnShape
                                     )
                                     .clickable { onChangeRetro80sColorTheme(thId) }
                                     .padding(vertical = 7.dp)
@@ -8953,28 +8621,28 @@ fun LauncherSettingsView(
                 }
                 SettingCard(
                     title = "Additional Left Home Page",
-                    subtitle = "Swipe right on the Home Screen to slide to the additional page on the left (pure horizontal slide, no fade)",
-                    actionLabel = if (enableLeftPage) "ENABLED (ON)" else "DISABLED (OFF)",
+                    subtitle = "",
+                    actionLabel = if (enableLeftPage) "ON" else "OFF",
                     lomoFontFamily = launcherFont,
                     onClick = onToggleLeftPage
                 )
                 SettingCard(
                     title = "Hide Android Status Bar",
-                    subtitle = "Swipe down on Home Screen anytime to view notifications",
-                    actionLabel = if (hideAndroidBar) "HIDDEN (ON)" else "SHOWN (OFF)",
+                    subtitle = "",
+                    actionLabel = if (hideAndroidBar) "ON" else "OFF",
                     lomoFontFamily = launcherFont,
                     onClick = onToggleAndroidBar
                 )
                 SettingCard(
-                    title = "Pause Live Wallpapers & Widgets in Apps",
-                    subtitle = "Turn ON to pause live wallpapers and widgets when an app is open, or OFF to keep everything running",
-                    actionLabel = if (pauseWhenAppOpen) "PAUSED (ON)" else "RUNNING (OFF)",
+                    title = "Pause Wallpapers & Widgets in Apps",
+                    subtitle = "",
+                    actionLabel = if (pauseWhenAppOpen) "ON" else "OFF",
                     lomoFontFamily = launcherFont,
                     onClick = onTogglePauseWhenAppOpen
                 )
 
-                // Settings Menu Background Style (Opaque, Transparent, Blurry) + Intensity Slider
                 SettingsBackdropControlCard(
+                    cardTitle = "SETTINGS BACKGROUND",
                     settingsBgMode = settingsBgMode,
                     settingsBgIntensity = settingsBgIntensity,
                     accentColor = accentColor,
@@ -8985,13 +8653,14 @@ fun LauncherSettingsView(
             }
         }
 
+        // SECTION 02
         item {
             val activeFontName = PrebuiltFont.fromId(fontId).displayName.substringBefore(" (")
             CollapsibleSettingsSection(
                 indexTag = "02",
                 title = "Typography & Layout",
-                subtitle = "Typeface, Home app text scale, clock format & alignment",
-                badge = "${textSizeSp}SP · ${textAlignMode.uppercase(Locale.US)}",
+                subtitle = "",
+                badge = "",
                 expanded = expandedTypography,
                 accentColor = accentColor,
                 lomoFontFamily = launcherFont,
@@ -9000,12 +8669,8 @@ fun LauncherSettingsView(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(
-                            1.dp,
-                            if (expandedFontMenu) accentColor.copy(alpha = 0.45f) else Color(0xFF222222),
-                            RoundedCornerShape(10.dp)
-                        )
-                        .background(Color(0xFF070707), RoundedCornerShape(10.dp))
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
+                        .background(Color(0xFF070707), innerCardShape)
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -9018,10 +8683,11 @@ fun LauncherSettingsView(
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = "LAUNCHER FONT MENU (COLLAPSIBLE)",
-                                color = Color(0xFF8A8A8A),
+                                text = "LAUNCHER FONT",
+                                color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
                                 fontSize = 9.sp,
-                                fontFamily = launcherFont
+                                fontFamily = launcherFont,
+                                fontWeight = FontWeight.Bold
                             )
                             Text(
                                 text = activeFontName,
@@ -9032,15 +8698,15 @@ fun LauncherSettingsView(
                             )
                         }
                         Text(
-                            text = if (expandedFontMenu) "HIDE ▲" else "${PrebuiltFont.values().size} FONTS ▼",
+                            text = if (retro80sMode) {
+                                if (expandedFontMenu) "[-]" else "[+]"
+                            } else {
+                                if (expandedFontMenu) "▾" else "▸"
+                            },
                             color = accentColor,
-                            fontSize = 9.sp,
+                            fontSize = if (retro80sMode) 11.sp else 14.sp,
                             fontFamily = launcherFont,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .border(1.dp, accentColor.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
-                                .background(Color(0xFF121212), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                            fontWeight = FontWeight.Bold
                         )
                     }
 
@@ -9062,40 +8728,35 @@ fun LauncherSettingsView(
                                         .fillMaxWidth()
                                         .border(
                                             1.dp,
-                                            if (selected) accentColor.copy(alpha = 0.6f) else Color(0xFF171717),
-                                            RoundedCornerShape(8.dp)
+                                            if (selected) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.35f) else Color(0xFF171717),
+                                            innerSubCardShape
                                         )
                                         .background(
                                             if (selected) Color(0xFF121212) else Color.Transparent,
-                                            RoundedCornerShape(8.dp)
+                                            innerSubCardShape
                                         )
                                         .clickable { onChangeFont(f.id) }
                                         .padding(horizontal = 10.dp, vertical = 8.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                                    ) {
-                                        Text(
-                                            text = f.displayName,
-                                            color = Color.White,
-                                            fontSize = 13.sp,
-                                            fontFamily = f.resolveFontFamily(lomoFontFamily)
-                                        )
-                                        Text(
-                                            text = "TAG: ${f.shortLabel}" + if (f.uppercaseHome) " · ALL-CAPS" else "",
-                                            color = Color(0xFF737373),
-                                            fontSize = 8.sp,
-                                            fontFamily = launcherFont
-                                        )
-                                    }
                                     Text(
-                                        text = if (selected) "●" else "○",
+                                        text = f.displayName.substringBefore(" ("),
+                                        color = if (selected && retro80sMode) accentColor else Color.White,
+                                        fontSize = 12.sp,
+                                        fontFamily = f.resolveFontFamily(lomoFontFamily),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        text = if (retro80sMode) {
+                                            if (selected) "[×]" else "[ ]"
+                                        } else {
+                                            if (selected) "●" else "○"
+                                        },
                                         color = if (selected) accentColor else Color(0xFF525252),
                                         fontSize = 10.sp,
-                                        fontFamily = launcherFont
+                                        fontFamily = launcherFont,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
@@ -9107,16 +8768,17 @@ fun LauncherSettingsView(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
-                        .background(Color(0xFF070707), RoundedCornerShape(10.dp))
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
+                        .background(Color(0xFF070707), innerCardShape)
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "HOME SCREEN APP FONT SIZE (${textSizeSp} SP)",
-                        color = Color(0xFF8A8A8A),
+                        text = "HOME APP FONT SIZE",
+                        color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
                         fontSize = 9.sp,
-                        fontFamily = launcherFont
+                        fontFamily = launcherFont,
+                        fontWeight = FontWeight.Bold
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -9124,16 +8786,22 @@ fun LauncherSettingsView(
                     ) {
                         listOf(16, 18, 20, 22, 24).forEach { spVal ->
                             val sel = textSizeSp == spVal
+                            val activeBg = if (retro80sMode) accentColor else Color.White
                             Text(
                                 text = "${spVal}SP",
-                                color = if (sel) Color.Black else Color.White,
+                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color.White,
                                 fontSize = 10.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .background(if (sel) Color.White else Color(0xFF161616), RoundedCornerShape(6.dp))
+                                    .border(
+                                        1.dp,
+                                        if (sel) activeBg else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
+                                        innerBtnShape
+                                    )
+                                    .background(if (sel) activeBg else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
                                     .clickable { onChangeTextSize(spVal) }
                                     .padding(vertical = 6.dp)
                             )
@@ -9143,7 +8811,7 @@ fun LauncherSettingsView(
 
                 SettingCard(
                     title = "Clock Time Format",
-                    subtitle = "Switch between 12-Hour (AM/PM) and 24-Hour time (tapping Clock opens Clock app)",
+                    subtitle = "",
                     actionLabel = if (use24Hour) "24-HOUR" else "12-HOUR",
                     lomoFontFamily = launcherFont,
                     onClick = onToggle24h
@@ -9151,7 +8819,7 @@ fun LauncherSettingsView(
 
                 SettingCard(
                     title = "Home Text Alignment",
-                    subtitle = "Left, Center, or Right aligned apps",
+                    subtitle = "",
                     actionLabel = textAlignMode.uppercase(Locale.US),
                     lomoFontFamily = launcherFont,
                     onClick = {
@@ -9165,27 +8833,28 @@ fun LauncherSettingsView(
                 )
 
                 SettingCard(
-                    title = "Customize Pinned Apps Sequence in Edit Mode",
-                    subtitle = "Enable ↑ / ↓ buttons on pinned apps inside the Pinned Apps widget during Edit Mode to customize their sequence",
-                    actionLabel = if (customPinnedOrderEnabled) "CUSTOM (ON)" else "A-Z AUTO (OFF)",
+                    title = "Custom Pinned Apps Order",
+                    subtitle = "",
+                    actionLabel = if (customPinnedOrderEnabled) "ON" else "OFF",
                     lomoFontFamily = launcherFont,
                     onClick = onToggleCustomPinnedOrder
                 )
 
-                // Battery Progress Bar Style Selector (Blocky 80s, LED Cells, Smooth Pill, Chevron, Ticks)
+                // Battery Progress Bar Style Selector
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
-                        .background(Color(0xFF070707), RoundedCornerShape(10.dp))
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
+                        .background(Color(0xFF070707), innerCardShape)
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "BATTERY PROGRESS BAR STYLE",
-                        color = Color(0xFF8A8A8A),
+                        text = "BATTERY BAR STYLE",
+                        color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
                         fontSize = 9.sp,
-                        fontFamily = launcherFont
+                        fontFamily = launcherFont,
+                        fontWeight = FontWeight.Bold
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -9195,14 +8864,19 @@ fun LauncherSettingsView(
                             val sel = batteryBarStyle == stId
                             Text(
                                 text = stLbl,
-                                color = if (sel) Color.Black else Color.White,
+                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color.White,
                                 fontSize = 8.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .background(if (sel) accentColor else Color(0xFF161616), RoundedCornerShape(6.dp))
+                                    .border(
+                                        1.dp,
+                                        if (sel) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
+                                        innerBtnShape
+                                    )
+                                    .background(if (sel) accentColor else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
                                     .clickable { onChangeBatteryBarStyle(stId) }
                                     .padding(vertical = 6.dp)
                             )
@@ -9212,33 +8886,29 @@ fun LauncherSettingsView(
             }
         }
 
-        // ====================================================================
-        // SECTION 03: "Wallpapers and Settings"
-        // Includes Universal Wallpaper Dimmer (0%-90% for Live, Static & User/Third-Party)
-        // + 3 Separate Collapsible Sections: Live Wallpapers, Static Wallpapers, User Wallpapers
-        // ====================================================================
+        // SECTION 03: Wallpapers and Settings
         item {
             CollapsibleSettingsSection(
                 indexTag = "03",
                 title = "Wallpapers and Settings",
-                subtitle = "Wallpaper dimmer, live, static & user wallpapers, accent colors",
-                badge = "DIM ${wallpaperDimPercent}%",
+                subtitle = "",
+                badge = "",
                 expanded = expandedWallpaper,
                 accentColor = accentColor,
                 lomoFontFamily = launcherFont,
                 onToggle = { expandedWallpaper = !expandedWallpaper }
             ) {
-                // 0. UNIVERSAL WALLPAPER DIMMER (Works on Live, Static & User/Third-Party Wallpapers)
+                // 0. Universal Wallpaper Dimmer
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, Color(0xFF262626), RoundedCornerShape(10.dp))
-                        .background(Color(0xFF070707), RoundedCornerShape(10.dp))
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
+                        .background(Color(0xFF070707), innerCardShape)
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     MinimalistSliderRow(
-                        label = "UNIVERSAL WALLPAPER DIMMER (LIVE / STATIC / 3RD-PARTY)",
+                        label = "WALLPAPER DIMMER",
                         valueText = "${wallpaperDimPercent}%",
                         fraction = (wallpaperDimPercent / 90f).coerceIn(0f, 1f),
                         accentColor = accentColor,
@@ -9258,14 +8928,19 @@ fun LauncherSettingsView(
                             val sel = wallpaperDimPercent == dimVal
                             Text(
                                 text = "${dimVal}%",
-                                color = if (sel) Color.Black else Color(0xFFD4D4D4),
+                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color(0xFFD4D4D4),
                                 fontSize = 9.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .background(if (sel) accentColor else Color(0xFF151515), RoundedCornerShape(6.dp))
+                                    .border(
+                                        1.dp,
+                                        if (sel) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
+                                        innerBtnShape
+                                    )
+                                    .background(if (sel) accentColor else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF151515), innerBtnShape)
                                     .clickable { onChangeWallpaperDim(dimVal) }
                                     .padding(vertical = 5.dp)
                             )
@@ -9273,11 +8948,11 @@ fun LauncherSettingsView(
                     }
                 }
 
-                // 1. COLLAPSIBLE SUB-SECTION: LIVE WALLPAPERS
+                // 1. Live Wallpapers
                 CollapsibleSubSection(
                     title = "Live Wallpapers",
-                    subtitle = "8 minimal full-screen AMOLED live animations & tuning lab",
-                    badge = if (wallpaperPreset.startsWith("live_")) "ACTIVE" else "${liveWallpaperOptions.size} STYLES",
+                    subtitle = "",
+                    badge = "",
                     expanded = expandedLiveWallpapers,
                     accentColor = accentColor,
                     lomoFontFamily = launcherFont,
@@ -9288,22 +8963,22 @@ fun LauncherSettingsView(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            rowItems.forEach { (id, title, desc) ->
+                            rowItems.forEach { (id, title, _) ->
                                 val active = wallpaperPreset == id
                                 Column(
                                     modifier = Modifier
                                         .weight(1f)
                                         .border(
                                             1.dp,
-                                            if (active) accentColor else Color(0xFF242424),
-                                            RoundedCornerShape(8.dp)
+                                            if (active) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.4f) else Color(0xFF242424),
+                                            innerSubCardShape
                                         )
                                         .background(
-                                            if (active) Color(0xFF161616) else Color(0xFF0C0C0C),
-                                            RoundedCornerShape(8.dp)
+                                            if (active) Color(0xFF141414) else Color(0xFF0A0A0A),
+                                            innerSubCardShape
                                         )
                                         .clickable { onChangeWallpaperPreset(id) }
-                                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                                        .padding(horizontal = 10.dp, vertical = 10.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -9312,7 +8987,7 @@ fun LauncherSettingsView(
                                     ) {
                                         Text(
                                             text = title,
-                                            color = if (active) Color.White else Color(0xFFD4D4D4),
+                                            color = if (active) (if (retro80sMode) accentColor else Color.White) else Color(0xFFD4D4D4),
                                             fontSize = 10.sp,
                                             fontFamily = launcherFont,
                                             fontWeight = FontWeight.Bold
@@ -9322,29 +8997,21 @@ fun LauncherSettingsView(
                                                 .size(6.dp)
                                                 .background(
                                                     if (active) accentColor else Color(0xFF383838),
-                                                    CircleShape
+                                                    if (retro80sMode) RoundedCornerShape(0.dp) else CircleShape
                                                 )
                                         )
                                     }
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = desc,
-                                        color = Color(0xFF737373),
-                                        fontSize = 8.sp,
-                                        fontFamily = launcherFont
-                                    )
                                 }
                             }
                         }
                     }
 
-                    // Interactive Live Wallpaper Tuning Variables Lab
                     Spacer(modifier = Modifier.height(4.dp))
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, Color(0xFF242424), RoundedCornerShape(8.dp))
-                            .background(Color(0xFF0B0B0B), RoundedCornerShape(8.dp))
+                            .border(1.dp, innerCardBorderColor, innerSubCardShape)
+                            .background(Color(0xFF090909), innerSubCardShape)
                             .padding(10.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -9354,28 +9021,28 @@ fun LauncherSettingsView(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "LIVE WALLPAPER TUNING VARIABLES",
+                                text = "LIVE WALLPAPER TUNING",
                                 color = accentColor,
                                 fontSize = 9.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "RESET [1.0x]",
-                                color = Color(0xFFA3A3A3),
+                                text = "RESET",
+                                color = if (retro80sMode) accentColor else Color(0xFFA3A3A3),
                                 fontSize = 8.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier
-                                    .border(1.dp, Color(0xFF2E2E2E), RoundedCornerShape(4.dp))
-                                    .background(Color(0xFF141414), RoundedCornerShape(4.dp))
+                                    .border(1.dp, if (retro80sMode) accentColor else Color(0xFF2E2E2E), innerBtnShape)
+                                    .background(Color(0xFF121212), innerBtnShape)
                                     .clickable { onResetWpTuning() }
-                                    .padding(horizontal = 6.dp, vertical = 3.dp)
+                                    .padding(horizontal = 7.dp, vertical = 3.dp)
                             )
                         }
 
                         WallpaperTuningRow(
-                            label = "MOTION SPEED",
+                            label = "SPEED",
                             currentValue = wpSpeed,
                             options = listOf(0.25f to "0.25x", 0.5f to "0.5x", 1.0f to "1.0x", 1.5f to "1.5x", 2.2f to "2.2x"),
                             accentColor = accentColor,
@@ -9384,7 +9051,7 @@ fun LauncherSettingsView(
                         )
 
                         WallpaperTuningRow(
-                            label = "ELEMENT DENSITY",
+                            label = "DENSITY",
                             currentValue = wpDensity,
                             options = listOf(0.5f to "0.5x", 0.75f to "0.75x", 1.0f to "1.0x", 1.35f to "1.35x", 1.75f to "1.75x"),
                             accentColor = accentColor,
@@ -9393,7 +9060,7 @@ fun LauncherSettingsView(
                         )
 
                         WallpaperTuningRow(
-                            label = "GLOW / OPACITY",
+                            label = "OPACITY",
                             currentValue = wpOpacity,
                             options = listOf(0.4f to "40%", 0.7f to "70%", 1.0f to "100%", 1.35f to "135%", 1.75f to "175%"),
                             accentColor = accentColor,
@@ -9402,7 +9069,7 @@ fun LauncherSettingsView(
                         )
 
                         WallpaperTuningRow(
-                            label = "SCALE / REACH",
+                            label = "SCALE",
                             currentValue = wpScale,
                             options = listOf(0.65f to "0.65x", 0.85f to "0.85x", 1.0f to "1.0x", 1.25f to "1.25x", 1.5f to "1.5x"),
                             accentColor = accentColor,
@@ -9412,11 +9079,11 @@ fun LauncherSettingsView(
                     }
                 }
 
-                // 2. COLLAPSIBLE SUB-SECTION: STATIC WALLPAPERS
+                // 2. Static Wallpapers
                 CollapsibleSubSection(
                     title = "Static Wallpapers",
-                    subtitle = "36 full-screen AMOLED backdrops (halftone, glowing, fade & geometric)",
-                    badge = if (!wallpaperPreset.startsWith("live_") && wallpaperPreset != "system_wallpaper" && wallpaperPreset != "user_image") "ACTIVE" else "${staticWallpaperOptions.size} STYLES",
+                    subtitle = "",
+                    badge = "",
                     expanded = expandedStaticWallpapers,
                     accentColor = accentColor,
                     lomoFontFamily = launcherFont,
@@ -9427,22 +9094,22 @@ fun LauncherSettingsView(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            rowItems.forEach { (id, title, desc) ->
+                            rowItems.forEach { (id, title, _) ->
                                 val active = wallpaperPreset == id
                                 Column(
                                     modifier = Modifier
                                         .weight(1f)
                                         .border(
                                             1.dp,
-                                            if (active) Color.White else Color(0xFF242424),
-                                            RoundedCornerShape(8.dp)
+                                            if (active) (if (retro80sMode) accentColor else Color.White) else if (retro80sMode) accentColor.copy(alpha = 0.4f) else Color(0xFF242424),
+                                            innerSubCardShape
                                         )
                                         .background(
-                                            if (active) Color(0xFF161616) else Color(0xFF0C0C0C),
-                                            RoundedCornerShape(8.dp)
+                                            if (active) Color(0xFF141414) else Color(0xFF0A0A0A),
+                                            innerSubCardShape
                                         )
                                         .clickable { onChangeWallpaperPreset(id) }
-                                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                                        .padding(horizontal = 10.dp, vertical = 10.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -9451,7 +9118,7 @@ fun LauncherSettingsView(
                                     ) {
                                         Text(
                                             text = title,
-                                            color = if (active) Color.White else Color(0xFFD4D4D4),
+                                            color = if (active) (if (retro80sMode) accentColor else Color.White) else Color(0xFFD4D4D4),
                                             fontSize = 10.sp,
                                             fontFamily = launcherFont,
                                             fontWeight = FontWeight.Bold
@@ -9460,80 +9127,70 @@ fun LauncherSettingsView(
                                             Box(
                                                 modifier = Modifier
                                                     .size(6.dp)
-                                                    .background(accentColor, CircleShape)
+                                                    .background(
+                                                        accentColor,
+                                                        if (retro80sMode) RoundedCornerShape(0.dp) else CircleShape
+                                                    )
                                             )
                                         }
                                     }
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = desc,
-                                        color = Color(0xFF737373),
-                                        fontSize = 8.sp,
-                                        fontFamily = launcherFont
-                                    )
                                 }
                             }
                         }
                     }
                 }
 
-                // 3. COLLAPSIBLE SUB-SECTION: USER WALLPAPERS (Custom Gallery Photo & System / Third-Party Wallpapers)
+                // 3. User Wallpapers
                 CollapsibleSubSection(
                     title = "User Wallpapers",
-                    subtitle = "Custom gallery photos & third-party / system live or static wallpapers",
-                    badge = if (wallpaperPreset == "system_wallpaper" || wallpaperPreset == "user_image") "ACTIVE" else "CUSTOM",
+                    subtitle = "",
+                    badge = "",
                     expanded = expandedUserWallpapers,
                     accentColor = accentColor,
                     lomoFontFamily = launcherFont,
                     onToggle = { expandedUserWallpapers = !expandedUserWallpapers }
                 ) {
                     SettingCard(
-                        title = "Import Custom Photo from Gallery",
-                        subtitle = if (wallpaperPreset == "user_image") {
-                            "ACTIVE · Full-screen custom image with ${wallpaperDimPercent}% dimmer"
-                        } else if (hasCustomUserImage) {
-                            "Pick a new image from device storage (dimmer supported)"
-                        } else {
-                            "Choose any image from your phone to use as a full-screen wallpaper"
-                        },
-                        actionLabel = if (wallpaperPreset == "user_image") "CHANGE PHOTO" else "PICK PHOTO",
+                        title = "Import Photo from Gallery",
+                        subtitle = "",
+                        actionLabel = if (wallpaperPreset == "user_image") "CHANGE" else "PICK",
                         lomoFontFamily = launcherFont,
                         onClick = onPickCustomWallpaperImage
                     )
 
                     if (hasCustomUserImage && wallpaperPreset != "user_image") {
                         SettingCard(
-                            title = "Activate Saved Custom Photo",
-                            subtitle = "Switch back to your previously imported custom wallpaper",
-                            actionLabel = "USE SAVED",
+                            title = "Use Saved Custom Photo",
+                            subtitle = "",
+                            actionLabel = "APPLY",
                             lomoFontFamily = launcherFont,
                             onClick = { onChangeWallpaperPreset("user_image") }
                         )
                     }
 
                     SettingCard(
-                        title = "System / Third-Party Wallpaper Picker",
-                        subtitle = "Pick a wallpaper from Android or any 3rd-party wallpaper app",
-                        actionLabel = "OPEN PICKER",
+                        title = "System Wallpaper Picker",
+                        subtitle = "",
+                        actionLabel = "OPEN",
                         lomoFontFamily = launcherFont,
                         onClick = onOpenSystemWallpaperPicker
                     )
 
                     SettingCard(
-                        title = "Use Active System / Third-Party Wallpaper",
-                        subtitle = "Display your current system wallpaper behind the launcher with ${wallpaperDimPercent}% dimmer",
-                        actionLabel = if (wallpaperPreset == "system_wallpaper") "ACTIVE (ON)" else "ENABLE",
+                        title = "Use System Wallpaper",
+                        subtitle = "",
+                        actionLabel = if (wallpaperPreset == "system_wallpaper") "ON" else "ENABLE",
                         lomoFontFamily = launcherFont,
                         onClick = { onChangeWallpaperPreset("system_wallpaper") }
                     )
                 }
 
-                // 4. Expanded 10-Swatch AMOLED Accent Color Picker
+                // 4. Accent Color Picker
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
-                        .background(Color(0xFF070707), RoundedCornerShape(10.dp))
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
+                        .background(Color(0xFF070707), innerCardShape)
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -9543,10 +9200,11 @@ fun LauncherSettingsView(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "LAUNCHER ACCENT COLOR (10 PALETTES)",
-                            color = Color(0xFF8A8A8A),
+                            text = "ACCENT COLOR",
+                            color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
                             fontSize = 9.sp,
-                            fontFamily = launcherFont
+                            fontFamily = launcherFont,
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = accentHex,
@@ -9570,12 +9228,12 @@ fun LauncherSettingsView(
                                         .weight(1f)
                                         .border(
                                             width = if (isSel) 1.5.dp else 1.dp,
-                                            color = if (isSel) Color.White else Color(0xFF242424),
-                                            shape = RoundedCornerShape(8.dp)
+                                            color = if (isSel) (if (retro80sMode) accentColor else Color.White) else if (retro80sMode) accentColor.copy(alpha = 0.4f) else Color(0xFF242424),
+                                            shape = innerSubCardShape
                                         )
                                         .background(
                                             if (isSel) Color(0xFF181818) else Color(0xFF0D0D0D),
-                                            RoundedCornerShape(8.dp)
+                                            innerSubCardShape
                                         )
                                         .clickable { onChangeAccent(hex) }
                                         .padding(vertical = 7.dp),
@@ -9585,7 +9243,7 @@ fun LauncherSettingsView(
                                     Box(
                                         modifier = Modifier
                                             .size(12.dp)
-                                            .background(swatchCol, CircleShape)
+                                            .background(swatchCol, if (retro80sMode) RoundedCornerShape(0.dp) else CircleShape)
                                     )
                                     Text(
                                         text = label,
@@ -9602,33 +9260,30 @@ fun LauncherSettingsView(
             }
         }
 
-        // ====================================================================
-        // SECTION 04: "App Drawer Settings"
-        // Houses App Drawer App Name Scale + Alphabet Scroller Curved Horizontal Wave Slider
-        // ====================================================================
+        // SECTION 04: App Drawer Settings
         item {
             val wavePct = (drawerWaveIntensity * 100f).roundToInt()
             CollapsibleSettingsSection(
                 indexTag = "04",
                 title = "App Drawer Settings",
-                subtitle = "App drawer app name scale & alphabet scroller wave",
-                badge = "${drawerTextSizeSp}SP · ${wavePct}%",
+                subtitle = "",
+                badge = "",
                 expanded = expandedMotion,
                 accentColor = accentColor,
                 lomoFontFamily = launcherFont,
                 onToggle = { expandedMotion = !expandedMotion }
             ) {
-                // 1. App Drawer App Name Scale (Shifted here from Typography & Layout)
+                // 1. App Drawer App Name Scale
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
-                        .background(Color(0xFF070707), RoundedCornerShape(10.dp))
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
+                        .background(Color(0xFF070707), innerCardShape)
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     MinimalistSliderRow(
-                        label = "APP DRAWER APP NAME SCALE",
+                        label = "APP DRAWER TEXT SIZE",
                         valueText = "${drawerTextSizeSp} SP",
                         fraction = ((drawerTextSizeSp - 12f) / 14f).coerceIn(0f, 1f),
                         accentColor = accentColor,
@@ -9648,14 +9303,19 @@ fun LauncherSettingsView(
                             val sel = drawerTextSizeSp == spVal
                             Text(
                                 text = "${spVal}",
-                                color = if (sel) Color.Black else Color.White,
+                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color.White,
                                 fontSize = 9.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .background(if (sel) accentColor else Color(0xFF161616), RoundedCornerShape(6.dp))
+                                    .border(
+                                        1.dp,
+                                        if (sel) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
+                                        innerBtnShape
+                                    )
+                                    .background(if (sel) accentColor else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
                                     .clickable { onChangeDrawerTextSize(spVal) }
                                     .padding(vertical = 5.dp)
                             )
@@ -9663,17 +9323,17 @@ fun LauncherSettingsView(
                     }
                 }
 
-                // 2. Alphabet Scroller Curved Horizontal Wave Slider
+                // 2. Alphabet Scroller Wave Slider
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
-                        .background(Color(0xFF070707), RoundedCornerShape(10.dp))
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
+                        .background(Color(0xFF070707), innerCardShape)
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     MinimalistSliderRow(
-                        label = "ALPHABET SCROLLER CURVED WAVE",
+                        label = "ALPHABET SCROLLER WAVE",
                         valueText = "${wavePct}%",
                         fraction = (drawerWaveIntensity / 2.0f).coerceIn(0f, 1f),
                         accentColor = accentColor,
@@ -9691,14 +9351,19 @@ fun LauncherSettingsView(
                             val sel = abs(drawerWaveIntensity - wVal) < 0.08f
                             Text(
                                 text = wLbl,
-                                color = if (sel) Color.Black else Color.White,
+                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color.White,
                                 fontSize = 9.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .background(if (sel) accentColor else Color(0xFF161616), RoundedCornerShape(6.dp))
+                                    .border(
+                                        1.dp,
+                                        if (sel) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
+                                        innerBtnShape
+                                    )
+                                    .background(if (sel) accentColor else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
                                     .clickable { onChangeDrawerWaveIntensity(wVal) }
                                     .padding(vertical = 5.dp)
                             )
@@ -9706,9 +9371,9 @@ fun LauncherSettingsView(
                     }
                 }
 
-                // 3. App Drawer Background Style (Opaque, Transparent, Blurry) + Level Slider (0%-100%)
+                // 3. App Drawer Background Style
                 SettingsBackdropControlCard(
-                    cardTitle = "APP DRAWER BACKGROUND STYLE",
+                    cardTitle = "APP DRAWER BACKGROUND",
                     settingsBgMode = drawerBgMode,
                     settingsBgIntensity = drawerBgIntensity,
                     accentColor = accentColor,
@@ -9724,23 +9389,25 @@ fun LauncherSettingsView(
 @Composable
 fun CollapsibleSubSection(
     title: String,
-    subtitle: String,
-    badge: String,
+    subtitle: String = "",
+    badge: String = "",
     expanded: Boolean,
     accentColor: Color,
     lomoFontFamily: FontFamily,
     onToggle: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val is80s = LocalRetro80sMode.current
+    val subShape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .border(
-                width = 1.dp,
-                color = if (expanded) accentColor.copy(alpha = 0.55f) else Color(0xFF222222),
-                shape = RoundedCornerShape(10.dp)
+                width = if (is80s) 1.2.dp else 1.dp,
+                color = if (is80s) accentColor.copy(alpha = 0.75f) else (if (expanded) accentColor.copy(alpha = 0.55f) else Color(0xFF222222)),
+                shape = subShape
             )
-            .background(Color(0xFF070707), RoundedCornerShape(10.dp))
+            .background(Color(0xFF070707), subShape)
     ) {
         Row(
             modifier = Modifier
@@ -9750,45 +9417,26 @@ fun CollapsibleSubSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Text(
-                    text = title,
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = subtitle,
-                    color = Color(0xFF737373),
-                    fontSize = 9.sp,
-                    fontFamily = lomoFontFamily
-                )
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = badge,
-                    color = if (badge == "ACTIVE") Color.Black else Color(0xFFA3A3A3),
-                    fontSize = 8.sp,
-                    fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .background(
-                            if (badge == "ACTIVE") accentColor else Color(0xFF171717),
-                            RoundedCornerShape(4.dp)
-                        )
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
-                )
-                Text(
-                    text = if (expanded) "▾" else "▸",
-                    color = if (expanded) accentColor else Color(0xFF737373),
-                    fontSize = 13.sp,
-                    fontFamily = lomoFontFamily
-                )
-            }
+            Text(
+                text = if (is80s) title.uppercase(Locale.US) else title,
+                color = if (is80s) accentColor else Color.White,
+                fontSize = 13.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f).padding(end = 8.dp)
+            )
+            // Only the small theme-specific expand/collapse icon shows on the right
+            Text(
+                text = if (is80s) {
+                    if (expanded) "[-]" else "[+]"
+                } else {
+                    if (expanded) "▾" else "▸"
+                },
+                color = if (expanded || is80s) accentColor else Color(0xFF737373),
+                fontSize = if (is80s) 11.sp else 13.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
         }
 
         AnimatedVisibility(
@@ -9806,7 +9454,7 @@ fun CollapsibleSubSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(1.dp)
-                        .background(Color(0xFF1A1A1A))
+                        .background(if (is80s) accentColor.copy(alpha = 0.4f) else Color(0xFF1A1A1A))
                 )
                 content()
             }
@@ -9823,6 +9471,7 @@ fun MinimalistSliderRow(
     lomoFontFamily: FontFamily = FontFamily.Monospace,
     onFractionChange: (Float) -> Unit
 ) {
+    val is80s = LocalRetro80sMode.current
     val currentOnChange by rememberUpdatedState(onFractionChange)
     val clamped = fraction.coerceIn(0f, 1f)
 
@@ -9834,7 +9483,7 @@ fun MinimalistSliderRow(
         ) {
             Text(
                 text = label,
-                color = Color(0xFF9E9E9E),
+                color = if (is80s) accentColor else Color(0xFF9E9E9E),
                 fontSize = 9.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold
@@ -9868,25 +9517,31 @@ fun MinimalistSliderRow(
             contentAlignment = Alignment.Center
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val trackH = 4.dp.toPx()
+                val trackH = if (is80s) 6.dp.toPx() else 4.dp.toPx()
                 val cy = size.height * 0.5f
                 val thumbX = (clamped * size.width).coerceIn(6.dp.toPx(), size.width - 6.dp.toPx())
+                val cornerR = if (is80s) CornerRadius.Zero else CornerRadius(trackH * 0.5f, trackH * 0.5f)
 
-                // Inactive background track
                 drawRoundRect(
-                    color = Color(0xFF222222),
+                    color = if (is80s) Color(0xFF0A0A0A) else Color(0xFF222222),
                     topLeft = Offset(0f, cy - trackH * 0.5f),
                     size = Size(size.width, trackH),
-                    cornerRadius = CornerRadius(trackH * 0.5f, trackH * 0.5f)
+                    cornerRadius = cornerR
                 )
-                // Active filled track
+                if (is80s) {
+                    drawRect(
+                        color = accentColor.copy(alpha = 0.5f),
+                        topLeft = Offset(0f, cy - trackH * 0.5f),
+                        size = Size(size.width, trackH),
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+                }
                 drawRoundRect(
                     color = accentColor,
                     topLeft = Offset(0f, cy - trackH * 0.5f),
                     size = Size(thumbX, trackH),
-                    cornerRadius = CornerRadius(trackH * 0.5f, trackH * 0.5f)
+                    cornerRadius = cornerR
                 )
-                // Minimalist blocky thumb with pure black center & thin accent stroke
                 val thumbSize = 12.dp.toPx()
                 drawRect(
                     color = Color.Black,
@@ -9906,7 +9561,7 @@ fun MinimalistSliderRow(
 
 @Composable
 fun SettingsBackdropControlCard(
-    cardTitle: String = "NOCTURNAA SETTINGS BACKGROUND STYLE",
+    cardTitle: String = "SETTINGS BACKGROUND",
     settingsBgMode: String,
     settingsBgIntensity: Int,
     accentColor: Color,
@@ -9914,11 +9569,16 @@ fun SettingsBackdropControlCard(
     onChangeMode: (String) -> Unit,
     onChangeIntensity: (Int) -> Unit
 ) {
+    val is80s = LocalRetro80sMode.current
+    val cardShape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
+    val btnShape = RoundedCornerShape(if (is80s) 0.dp else 6.dp)
+    val pctShape = RoundedCornerShape(if (is80s) 0.dp else 5.dp)
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFF282828), RoundedCornerShape(10.dp))
-            .background(Color(0xFF070707).copy(alpha = 0.82f), RoundedCornerShape(10.dp))
+            .border(1.dp, if (is80s) accentColor.copy(alpha = 0.75f) else Color(0xFF282828), cardShape)
+            .background(Color(0xFF070707).copy(alpha = 0.82f), cardShape)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -9929,7 +9589,7 @@ fun SettingsBackdropControlCard(
         ) {
             Text(
                 text = cardTitle,
-                color = Color(0xFF9E9E9E),
+                color = if (is80s) accentColor else Color(0xFF9E9E9E),
                 fontSize = 9.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold
@@ -9955,7 +9615,7 @@ fun SettingsBackdropControlCard(
                 val selected = settingsBgMode == modeId
                 Text(
                     text = modeLabel,
-                    color = if (selected) Color.Black else Color.White,
+                    color = if (selected) Color.Black else if (is80s) accentColor else Color.White,
                     fontSize = 9.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
@@ -9964,12 +9624,12 @@ fun SettingsBackdropControlCard(
                         .weight(1f)
                         .border(
                             1.dp,
-                            if (selected) accentColor else Color(0xFF262626),
-                            RoundedCornerShape(6.dp)
+                            if (selected) accentColor else if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF262626),
+                            btnShape
                         )
                         .background(
-                            if (selected) accentColor else Color(0xFF141414),
-                            RoundedCornerShape(6.dp)
+                            if (selected) accentColor else if (is80s) Color(0xFF0A0A0A) else Color(0xFF141414),
+                            btnShape
                         )
                         .clickable { onChangeMode(modeId) }
                         .padding(vertical = 6.dp)
@@ -9978,9 +9638,9 @@ fun SettingsBackdropControlCard(
         }
 
         val sliderLabel = when (settingsBgMode) {
-            "transparent" -> "TRANSPARENCY LEVEL"
-            "blurry" -> "BLURRINESS / FROST INTENSITY"
-            else -> "TRANSPARENCY / BLURRINESS"
+            "transparent" -> "TRANSPARENCY"
+            "blurry" -> "BLUR INTENSITY"
+            else -> "INTENSITY"
         }
 
         MinimalistSliderRow(
@@ -10005,14 +9665,19 @@ fun SettingsBackdropControlCard(
                 val sel = settingsBgIntensity == pctVal
                 Text(
                     text = "${pctVal}%",
-                    color = if (sel) Color.Black else Color(0xFFD4D4D4),
+                    color = if (sel) Color.Black else if (is80s) accentColor else Color(0xFFD4D4D4),
                     fontSize = 8.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .weight(1f)
-                        .background(if (sel) accentColor else Color(0xFF151515), RoundedCornerShape(5.dp))
+                        .border(
+                            1.dp,
+                            if (sel) accentColor else if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
+                            pctShape
+                        )
+                        .background(if (sel) accentColor else if (is80s) Color(0xFF0A0A0A) else Color(0xFF151515), pctShape)
                         .clickable { onChangeIntensity(pctVal) }
                         .padding(vertical = 4.dp)
                 )
@@ -10025,8 +9690,8 @@ fun SettingsBackdropControlCard(
 fun CollapsibleSettingsSection(
     indexTag: String,
     title: String,
-    subtitle: String,
-    badge: String,
+    subtitle: String = "",
+    badge: String = "",
     expanded: Boolean,
     accentColor: Color,
     lomoFontFamily: FontFamily,
@@ -10045,93 +9710,50 @@ fun CollapsibleSettingsSection(
             )
             .background(if (is80s) Color(0xFF040404) else Color(0xFF0A0A0A).copy(alpha = 0.72f), secShape)
     ) {
-        if (is80s && expanded) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onToggle() }
+                .padding(horizontal = 14.dp, vertical = 13.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(accentColor)
-                    .clickable { onToggle() }
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "╔═╣ $indexTag // ${title.uppercase(Locale.US)} ╠═╗",
-                    color = Color.Black,
-                    fontSize = 10.sp,
+                    text = if (is80s) "[$indexTag]" else indexTag,
+                    color = accentColor,
+                    fontSize = 11.sp,
                     fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = if (is80s) Modifier else Modifier
+                        .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
                 )
                 Text(
-                    text = "[- COLLAPSE]",
-                    color = Color.Black,
-                    fontSize = 9.sp,
+                    text = if (is80s) title.uppercase(Locale.US) else title,
+                    color = if (is80s) accentColor else Color.White,
+                    fontSize = if (is80s) 13.sp else 14.sp,
                     fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
                 )
             }
-        } else {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onToggle() }
-                    .padding(horizontal = 14.dp, vertical = if (is80s) 11.dp else 14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = if (is80s) "[$indexTag]" else indexTag,
-                        color = accentColor,
-                        fontSize = 11.sp,
-                        fontFamily = lomoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        modifier = if (is80s) Modifier else Modifier
-                            .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = if (is80s) title.uppercase(Locale.US) else title,
-                            color = Color.White,
-                            fontSize = if (is80s) 13.sp else 14.sp,
-                            fontFamily = lomoFontFamily,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = subtitle,
-                            color = Color(0xFF737373),
-                            fontSize = 10.sp,
-                            fontFamily = lomoFontFamily
-                        )
-                    }
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = if (is80s) "<$badge>" else badge,
-                        color = if (is80s) accentColor else Color(0xFFA3A3A3),
-                        fontSize = 9.sp,
-                        fontFamily = lomoFontFamily,
-                        modifier = Modifier
-                            .background(Color(0xFF171717), RoundedCornerShape(if (is80s) 0.dp else 4.dp))
-                            .padding(horizontal = 6.dp, vertical = 3.dp)
-                    )
-                    Text(
-                        text = if (is80s) "[+]" else if (expanded) "▾" else "▸",
-                        color = if (expanded || is80s) accentColor else Color(0xFF737373),
-                        fontSize = if (is80s) 11.sp else 14.sp,
-                        fontFamily = lomoFontFamily,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+            // Only the small theme-specific icon shows on the right
+            Text(
+                text = if (is80s) {
+                    if (expanded) "[-]" else "[+]"
+                } else {
+                    if (expanded) "▾" else "▸"
+                },
+                color = if (expanded || is80s) accentColor else Color(0xFF737373),
+                fontSize = if (is80s) 11.sp else 14.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
         }
 
         AnimatedVisibility(
@@ -10142,17 +9764,15 @@ fun CollapsibleSettingsSection(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 14.dp, end = 14.dp, top = if (is80s) 10.dp else 0.dp, bottom = 14.dp),
+                    .padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                if (!is80s) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(Color(0xFF1C1C1C))
-                    )
-                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF1C1C1C))
+                )
                 content()
             }
         }
@@ -10162,42 +9782,41 @@ fun CollapsibleSettingsSection(
 @Composable
 fun SettingCard(
     title: String,
-    subtitle: String,
+    subtitle: String = "",
     actionLabel: String,
     lomoFontFamily: FontFamily,
     onClick: () -> Unit
 ) {
     val is80s = LocalRetro80sMode.current
+    val thCol = if (LocalRetro80sColorTheme.current == "amber") Color(0xFFFF8800) else Color(0xFF7CFF5B)
     val cardShape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, if (is80s) Color(0xFF4A4A4A) else Color(0xFF242424), cardShape)
+            .border(1.dp, if (is80s) thCol.copy(alpha = 0.75f) else Color(0xFF242424), cardShape)
             .background(Color(0xFF050505), cardShape)
             .clickable { onClick() }
-            .padding(12.dp),
+            .padding(horizontal = 12.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-            Text(
-                text = if (is80s) "> $title" else title,
-                color = Color.White,
-                fontSize = if (is80s) 12.sp else 13.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = if (is80s) FontWeight.Bold else FontWeight.Normal
-            )
-            Text(text = subtitle, color = Color(0xFF737373), fontSize = 10.sp, fontFamily = lomoFontFamily)
-        }
         Text(
-            text = if (is80s) "< $actionLabel >" else actionLabel,
+            text = title,
+            color = Color.White,
+            fontSize = 12.sp,
+            fontFamily = lomoFontFamily,
+            fontWeight = if (is80s) FontWeight.Bold else FontWeight.Normal,
+            modifier = Modifier.weight(1f).padding(end = 8.dp)
+        )
+        Text(
+            text = actionLabel,
             color = Color.Black,
             fontSize = 10.sp,
             fontFamily = lomoFontFamily,
             fontWeight = FontWeight.Bold,
             modifier = Modifier
-                .background(Color.White, RoundedCornerShape(if (is80s) 0.dp else 6.dp))
-                .padding(horizontal = 8.dp, vertical = 5.dp)
+                .background(if (is80s) thCol else Color.White, RoundedCornerShape(if (is80s) 0.dp else 6.dp))
+                .padding(horizontal = 9.dp, vertical = 5.dp)
         )
     }
 }
@@ -10214,6 +9833,8 @@ fun WallpaperTuningRow(
     lomoFontFamily: FontFamily = FontFamily.Monospace,
     onSelect: (Float) -> Unit
 ) {
+    val is80s = LocalRetro80sMode.current
+    val btnShape = RoundedCornerShape(if (is80s) 0.dp else 5.dp)
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -10222,9 +9843,10 @@ fun WallpaperTuningRow(
         ) {
             Text(
                 text = label,
-                color = Color(0xFF9E9E9E),
+                color = if (is80s) accentColor else Color(0xFF9E9E9E),
                 fontSize = 8.sp,
-                fontFamily = lomoFontFamily
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
             )
             val activeLabel = options.minByOrNull { abs(it.first - currentValue) }?.second ?: "${currentValue}x"
             Text(
@@ -10243,7 +9865,7 @@ fun WallpaperTuningRow(
                 val selected = abs(currentValue - value) < 0.04f
                 Text(
                     text = textLabel,
-                    color = if (selected) Color.Black else Color(0xFFD4D4D4),
+                    color = if (selected) Color.Black else if (is80s) accentColor else Color(0xFFD4D4D4),
                     fontSize = 8.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
@@ -10252,12 +9874,12 @@ fun WallpaperTuningRow(
                         .weight(1f)
                         .border(
                             1.dp,
-                            if (selected) accentColor else Color(0xFF242424),
-                            RoundedCornerShape(5.dp)
+                            if (selected) accentColor else if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
+                            btnShape
                         )
                         .background(
-                            if (selected) accentColor else Color(0xFF121212),
-                            RoundedCornerShape(5.dp)
+                            if (selected) accentColor else if (is80s) Color(0xFF0A0A0A) else Color(0xFF121212),
+                            btnShape
                         )
                         .clickable { onSelect(value) }
                         .padding(vertical = 4.dp)
@@ -11859,7 +11481,7 @@ fun RetroSplitFlapClockWidget(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (is80s) "SYS.CHRONO // 80s CRT DECK" else "⟦ TERMINAL CLOCK ⟧",
+                    text = if (is80s) "OLD SCHOOL // CHRONO" else "⟦ TERMINAL CLOCK ⟧",
                     color = accentColor,
                     fontSize = 8.sp,
                     fontFamily = lomoFontFamily,
@@ -12219,7 +11841,7 @@ fun RetroAnalogChronoWidget(
         ) {
             if (is80s || isCyber) {
                 Text(
-                    text = if (is80s) "RADAR.CHRONO // 80s" else "AVIONICS // UTC-SYNC",
+                    text = if (is80s) "OLD SCHOOL // RADAR" else "AVIONICS // UTC-SYNC",
                     color = accentColor,
                     fontSize = 8.sp,
                     fontFamily = lomoFontFamily,
@@ -12452,7 +12074,7 @@ fun PrecisionChronographWidget(
         ) {
             if (is80s || isCyber) {
                 Text(
-                    text = if (is80s) "LAB.TIMER // 80s CRT" else "TELEMETRY // SPLIT",
+                    text = if (is80s) "OLD SCHOOL // TIMER" else "TELEMETRY // SPLIT",
                     color = accentColor,
                     fontSize = 8.sp,
                     fontFamily = lomoFontFamily,
@@ -12593,7 +12215,7 @@ fun RetroDotMatrixCalendarWidget(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = if (is80s) "CRT.CAL // $monthTitle" else monthTitle,
+                text = if (is80s) monthTitle else monthTitle,
                 color = if (is80s) accentColor else Color.White,
                 fontSize = if (sizeMode == "large") 13.sp else 11.sp,
                 fontFamily = lomoFontFamily,
@@ -13005,7 +12627,7 @@ fun RetroYearDotMatrixWidget(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = if (is80s) "SYS.YR // $yearNum SECTORS" else if (isCyber) "⟦ YEAR MATRIX $yearNum ⟧" else yearNum.toString(),
+                text = if (is80s) "$yearNum SECTORS" else if (isCyber) "⟦ YEAR MATRIX $yearNum ⟧" else yearNum.toString(),
                 color = if (is80s) accentColor else Color.White,
                 fontSize = 11.sp,
                 fontFamily = lomoFontFamily,
