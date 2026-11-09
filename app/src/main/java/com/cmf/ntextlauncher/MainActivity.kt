@@ -1,5 +1,7 @@
 package com.cmf.ntextlauncher
 
+import android.annotation.SuppressLint
+
 import android.app.Activity
 import android.app.ActivityManager
 import android.app.WallpaperManager
@@ -24,6 +26,7 @@ import android.os.SystemClock
 import android.provider.AlarmClock
 import android.provider.Settings
 import android.view.HapticFeedbackConstants
+import android.view.ViewTreeObserver
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -69,7 +72,9 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -318,7 +323,40 @@ fun Modifier.iosPopupWindowLayer(
 }
 
 
+@SuppressLint("WrongConstant", "PrivateApi")
+fun expandNotificationsPanel(context: Context, view: android.view.View? = null) {
+    try {
+        val window = (context as? Activity)?.window
+        if (window != null && view != null) {
+            WindowCompat.getInsetsController(window, view).show(WindowInsetsCompat.Type.statusBars())
+        }
+    } catch (_: Exception) {
+    }
+    try {
+        val statusBarService = context.getSystemService("statusbar") ?: return
+        val statusBarManager = Class.forName("android.app.StatusBarManager")
+        val expandMethod = try {
+            statusBarManager.getMethod("expandNotificationsPanel")
+        } catch (_: NoSuchMethodException) {
+            statusBarManager.getMethod("expand")
+        }
+        expandMethod.isAccessible = true
+        expandMethod.invoke(statusBarService)
+    } catch (_: Exception) {
+        try {
+            val statusBarService = context.getSystemService("statusbar") ?: return
+            val fallbackMethod = statusBarService.javaClass.getMethod("expandNotificationsPanel")
+            fallbackMethod.isAccessible = true
+            fallbackMethod.invoke(statusBarService)
+        } catch (_: Exception) {
+        }
+    }
+}
+
+
 class MainActivity : ComponentActivity() {
+    private var homeIntentTrigger by mutableStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -342,16 +380,22 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = Color.Black
                 ) {
-                    NTextLauncherApp()
+                    NTextLauncherApp(homeIntentTrigger = homeIntentTrigger)
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        homeIntentTrigger++
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun NTextLauncherApp() {
+fun NTextLauncherApp(homeIntentTrigger: Int = 0) {
     val context = LocalContext.current
     val view = LocalView.current
     val density = LocalDensity.current
@@ -597,9 +641,9 @@ fun NTextLauncherApp() {
     }
     val widgetsActive = !pauseWhenAppOpen || isLauncherResumed
 
-    // Status Bar Visibility
-    LaunchedEffect(hideAndroidBar) {
-        val window = (context as? Activity)?.window ?: return@LaunchedEffect
+    // Status Bar Visibility & Auto-Restore After Notification Shade Closes
+    fun applyStatusBarPolicy() {
+        val window = (context as? Activity)?.window ?: return
         val controller = WindowCompat.getInsetsController(window, view)
         if (hideAndroidBar) {
             controller.hide(WindowInsetsCompat.Type.statusBars())
@@ -607,6 +651,25 @@ fun NTextLauncherApp() {
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         } else {
             controller.show(WindowInsetsCompat.Type.statusBars())
+        }
+    }
+
+    LaunchedEffect(hideAndroidBar, isLauncherResumed) {
+        applyStatusBarPolicy()
+    }
+
+    DisposableEffect(view, hideAndroidBar) {
+        val focusListener = ViewTreeObserver.OnWindowFocusChangeListener { hasFocus ->
+            if (hasFocus) {
+                applyStatusBarPolicy()
+            }
+        }
+        view.viewTreeObserver.addOnWindowFocusChangeListener(focusListener)
+        onDispose {
+            try {
+                view.viewTreeObserver.removeOnWindowFocusChangeListener(focusListener)
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -999,8 +1062,22 @@ fun NTextLauncherApp() {
     val isDrawerNearClosed = drawerProgress < 0.04f
     val isOnLeftPage = enableLeftPage && leftPageProgress > 0.5f
 
-    // Back Handler
-    DisposableEffect(currentView, editMode, showHomeQuickMenu, contextMenuTarget, drawerProgress, leftPageProgress) {
+    // Reset to Main Home Screen when Home button/gesture is triggered while already in Launcher
+    LaunchedEffect(homeIntentTrigger) {
+        if (homeIntentTrigger > 0) {
+            contextMenuTarget = null
+            showHomeQuickMenu = false
+            showNoSpacePopup = false
+            editMode = false
+            isGlobeInteractionUnlocked = false
+            currentView = LauncherView.HOME_AND_DRAWER
+            if (drawerProgress > 0.01f) animateDrawerTo(0f)
+            if (leftPageProgress > 0.01f) animateLeftPageTo(0f)
+        }
+    }
+
+    // Back Handler (registered once on context; reads live MutableState values without 60fps re-registration)
+    DisposableEffect(context) {
         val activity = context as? ComponentActivity
         val callback = object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -1010,8 +1087,9 @@ fun NTextLauncherApp() {
                     showNoSpacePopup -> showNoSpacePopup = false
                     currentView != LauncherView.HOME_AND_DRAWER -> currentView = LauncherView.HOME_AND_DRAWER
                     editMode -> editMode = false
-                    drawerProgress > 0.05f -> animateDrawerTo(0f)
-                    leftPageProgress > 0.05f -> animateLeftPageTo(0f)
+                    isGlobeInteractionUnlocked -> isGlobeInteractionUnlocked = false
+                    drawerProgress > 0.02f -> animateDrawerTo(0f)
+                    leftPageProgress > 0.02f -> animateLeftPageTo(0f)
                 }
             }
         }
@@ -1199,54 +1277,130 @@ fun NTextLauncherApp() {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     when (currentView) {
                         LauncherView.HOME_AND_DRAWER -> {
+                            val touchSlopPx = with(density) { 10.dp.toPx() }
+                            val notifSwipeThresholdPx = with(density) { 26.dp.toPx() }
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .pointerInput(enableLeftPage, isDrawerNearClosed, isGlobeInteractionUnlocked) {
-                                        if (!isDrawerNearClosed || isGlobeInteractionUnlocked) return@pointerInput
-                                        var totalDx = 0f
-                                        var totalDy = 0f
-                                        detectDragGestures(
-                                            onDragStart = {
-                                                totalDx = 0f
-                                                totalDy = 0f
-                                            },
-                                            onDrag = { change, dragAmount ->
-                                                totalDx += dragAmount.x
-                                                totalDy += dragAmount.y
-                                                if (abs(totalDx) > abs(totalDy) * 1.15f && enableLeftPage) {
-                                                    change.consume()
-                                                    val deltaFrac = dragAmount.x / screenWidthPx
-                                                    leftPageProgress = (leftPageProgress + deltaFrac).coerceIn(0f, 1f)
-                                                } else if (abs(totalDy) > abs(totalDx) * 1.15f && totalDy < -12f) {
-                                                    change.consume()
-                                                    val deltaFrac = -dragAmount.y / (screenHeightPx * 0.55f)
-                                                    drawerProgress = (drawerProgress + deltaFrac).coerceIn(0f, 1f)
+                                    .pointerInput(Unit) {
+                                        awaitEachGesture {
+                                            val down = awaitFirstDown(
+                                                requireUnconsumed = false,
+                                                pass = PointerEventPass.Initial
+                                            )
+                                            val startPos = down.position
+                                            var prevPos = startPos
+                                            val startDrawer = drawerProgress
+                                            val startLeft = leftPageProgress
+                                            var totalDx = 0f
+                                            var totalDy = 0f
+                                            var lastDeltaX = 0f
+                                            var lastDeltaY = 0f
+                                            // 0 = undecided, 1 = vertical (App Drawer / Notification Shade), 2 = horizontal (Left Page), -1 = child widget gesture
+                                            var lockedAxis = 0
+                                            var notifTriggered = false
+
+                                            try {
+                                                while (true) {
+                                                    val event = awaitPointerEvent(PointerEventPass.Main)
+                                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                                        ?: event.changes.firstOrNull()
+                                                        ?: break
+                                                    if (!change.pressed) break
+
+                                                    // If a child drag/scroll widget (Right-Side Dots Scroller, unlocked 3D Globe,
+                                                    // Edit Mode verticalScroll, or App Drawer LazyColumn) consumed the movement,
+                                                    // let that child own the gesture.
+                                                    if (lockedAxis == 0 && change.isConsumed && change.positionChange() != Offset.Zero) {
+                                                        lockedAxis = -1
+                                                    }
+                                                    if (lockedAxis == -1) continue
+
+                                                    val curPos = change.position
+                                                    val stepDx = curPos.x - prevPos.x
+                                                    val stepDy = curPos.y - prevPos.y
+                                                    prevPos = curPos
+                                                    totalDx = curPos.x - startPos.x
+                                                    totalDy = curPos.y - startPos.y
+                                                    if (abs(stepDx) > 0.1f) lastDeltaX = stepDx
+                                                    if (abs(stepDy) > 0.1f) lastDeltaY = stepDy
+
+                                                    if (lockedAxis == 0) {
+                                                        if (editMode) {
+                                                            if (enableLeftPage && abs(totalDx) > touchSlopPx && abs(totalDx) > abs(totalDy) * 1.15f) {
+                                                                lockedAxis = 2
+                                                                change.consume()
+                                                            }
+                                                        } else if (startDrawer < 0.5f) {
+                                                            if (abs(totalDy) > touchSlopPx && abs(totalDy) >= abs(totalDx) * 1.05f) {
+                                                                lockedAxis = 1
+                                                                change.consume()
+                                                            } else if (enableLeftPage && abs(totalDx) > touchSlopPx && abs(totalDx) > abs(totalDy) * 1.05f) {
+                                                                lockedAxis = 2
+                                                                change.consume()
+                                                            }
+                                                        } else {
+                                                            // App Drawer is open: allow downward drag on non-scrollable header/search areas to close drawer
+                                                            if (totalDy > touchSlopPx && abs(totalDy) > abs(totalDx) * 1.15f) {
+                                                                lockedAxis = 1
+                                                                change.consume()
+                                                            }
+                                                        }
+                                                    }
+
+                                                    if (lockedAxis == 1) {
+                                                        change.consume()
+                                                        if (startDrawer >= 0.5f) {
+                                                            val deltaFrac = totalDy / (screenHeightPx * 0.52f)
+                                                            drawerProgress = (startDrawer - deltaFrac).coerceIn(0f, 1f)
+                                                        } else if (totalDy < 0f || drawerProgress > 0.001f) {
+                                                            // Swipe UP on Home Screen -> smoothly open App Drawer
+                                                            val upDist = (-totalDy).coerceAtLeast(0f)
+                                                            drawerProgress = (startDrawer + upDist / (screenHeightPx * 0.46f)).coerceIn(0f, 1f)
+                                                        } else if (totalDy >= notifSwipeThresholdPx && !notifTriggered && drawerProgress < 0.02f) {
+                                                            // Swipe DOWN on Home Screen -> expand Android Notification Shade
+                                                            notifTriggered = true
+                                                            performWaveTick()
+                                                            expandNotificationsPanel(context, view)
+                                                        }
+                                                    } else if (lockedAxis == 2) {
+                                                        change.consume()
+                                                        val deltaFrac = totalDx / (screenWidthPx * 0.85f)
+                                                        leftPageProgress = (startLeft + deltaFrac).coerceIn(0f, 1f)
+                                                    }
                                                 }
-                                            },
-                                            onDragEnd = {
-                                                if (drawerProgress > 0.02f) {
-                                                    animateDrawerTo(if (drawerProgress > 0.22f) 1f else 0f)
-                                                } else if (enableLeftPage) {
-                                                    val target = when {
-                                                        totalDx > 95f -> 1f
-                                                        totalDx < -95f -> 0f
+                                            } finally {
+                                                if (lockedAxis == 1) {
+                                                    if (startDrawer >= 0.5f) {
+                                                        val shouldClose = drawerProgress < 0.82f || lastDeltaY > 2.5f
+                                                        animateDrawerTo(if (shouldClose) 0f else 1f)
+                                                    } else if (drawerProgress > 0.001f) {
+                                                        val shouldOpen = drawerProgress > 0.15f || lastDeltaY < -2.2f
+                                                        animateDrawerTo(if (shouldOpen) 1f else 0f)
+                                                    }
+                                                } else if (lockedAxis == 2) {
+                                                    val targetLeft = when {
+                                                        lastDeltaX > 2.2f || totalDx > screenWidthPx * 0.18f -> 1f
+                                                        lastDeltaX < -2.2f || totalDx < -screenWidthPx * 0.18f -> 0f
                                                         leftPageProgress >= 0.5f -> 1f
                                                         else -> 0f
                                                     }
-                                                    animateLeftPageTo(target)
+                                                    animateLeftPageTo(targetLeft)
                                                 }
                                             }
-                                        )
+                                        }
                                     }
                             ) {
-                                // Additional Left Page (Pure Horizontal Slide, ZERO Fade!)
+                                // Additional Left Page (Pure Horizontal Slide with Physical Offset Hit-Box!)
                                 if (enableLeftPage && leftPageProgress > 0.001f) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .graphicsLayer {
-                                                translationX = (-1f + leftPageProgress) * screenWidthPx
+                                            .offset {
+                                                IntOffset(
+                                                    x = ((-1f + leftPageProgress) * screenWidthPx).roundToInt(),
+                                                    y = 0
+                                                )
                                             }
                                     ) {
                                         HomeScreenView(
@@ -1371,13 +1525,16 @@ fun NTextLauncherApp() {
                                     }
                                 }
 
-                                // Main Home Screen Page (Pure Horizontal Slide, ZERO Fade!)
+                                // Main Home Screen Page (Pure Horizontal Slide with Physical Offset Hit-Box!)
                                 if (leftPageProgress < 0.999f) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .graphicsLayer {
-                                                translationX = leftPageProgress * screenWidthPx
+                                            .offset {
+                                                IntOffset(
+                                                    x = (leftPageProgress * screenWidthPx).roundToInt(),
+                                                    y = 0
+                                                )
                                             }
                                     ) {
                                         HomeScreenView(
@@ -1502,13 +1659,18 @@ fun NTextLauncherApp() {
                                     }
                                 }
 
-                                // App Drawer Overlay
+                                // App Drawer Overlay (Physical Offset Hit-Box so it never blocks Home Screen when closed/closing!)
                                 if (drawerProgress > 0.001f) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
+                                            .offset {
+                                                IntOffset(
+                                                    x = 0,
+                                                    y = ((1f - drawerProgress) * screenHeightPx).roundToInt()
+                                                )
+                                            }
                                             .graphicsLayer {
-                                                translationY = (1f - drawerProgress) * screenHeightPx
                                                 alpha = (drawerProgress * 1.35f).coerceIn(0f, 1f)
                                             }
                                     ) {
@@ -1526,11 +1688,11 @@ fun NTextLauncherApp() {
                                             drawerBgIntensity = drawerBgIntensity,
                                             isDrawerOpenNow = drawerProgress > 0.85f,
                                             onDragDelta = { dy ->
-                                                val deltaFrac = dy / (screenHeightPx * 0.55f)
+                                                val deltaFrac = dy / (screenHeightPx * 0.52f)
                                                 drawerProgress = (drawerProgress - deltaFrac).coerceIn(0f, 1f)
                                             },
                                             onSettle = { pulledPx ->
-                                                animateDrawerTo(if (pulledPx > 95f) 0f else 1f)
+                                                animateDrawerTo(if (pulledPx > 75f || drawerProgress < 0.82f) 0f else 1f)
                                             },
                                             onLaunchApp = { pkg ->
                                                 animateDrawerTo(0f)
@@ -2686,12 +2848,7 @@ fun HomeScreenView(
                                     )
                                     .padding(8.dp)
                             } else {
-                                Modifier.combinedClickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                    onClick = {},
-                                    onLongClick = { onLongPressHome() }
-                                )
+                                Modifier
                             }
                         )
                 ) {
@@ -5269,30 +5426,22 @@ fun RetroFuturisticGlobeView(
                 if (!anyFront) continue
 
                 val lambert = (nx1 * -0.25f + ny2 * -0.25f + rnz * 0.93f).coerceIn(0f, 1f)
-                sharedFillPath.reset()
-                var started = false
+                // Only fill polygon interior when all vertices are on or near the visible hemisphere,
+                // or clip cleanly along the horizon limb arc so no chord ever cuts across the globe!
+                var allFront = true
                 for (i in 0 until n) {
-                    val rx = sharedRx[i]
-                    val ry = sharedRy[i]
-                    val rz = sharedRz[i]
-                    val px: Float
-                    val py: Float
-                    if (rz >= 0f) {
-                        px = cx + rx * radius
-                        py = cy + ry * radius
-                    } else {
-                        val normXY = hypot(rx, ry).coerceAtLeast(1e-4f)
-                        px = cx + (rx / normXY) * radius * 0.996f
-                        py = cy + (ry / normXY) * radius * 0.996f
-                    }
-                    if (!started) {
-                        sharedFillPath.moveTo(px, py)
-                        started = true
-                    } else {
-                        sharedFillPath.lineTo(px, py)
+                    if (sharedRz[i] < -0.05f) {
+                        allFront = false
+                        break
                     }
                 }
-                if (started) {
+                if (allFront) {
+                    sharedFillPath.reset()
+                    for (i in 0 until n) {
+                        val px = cx + sharedRx[i] * radius
+                        val py = cy + sharedRy[i] * radius
+                        if (i == 0) sharedFillPath.moveTo(px, py) else sharedFillPath.lineTo(px, py)
+                    }
                     sharedFillPath.close()
                     if (!isWireframe) {
                         val landAlpha = (0.38f + 0.24f * lambert).coerceIn(0.32f, 0.64f)
@@ -6115,16 +6264,6 @@ fun WidgetsManagerView(
             .windowInsetsPadding(WindowInsets.statusBars)
             .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
             .windowInsetsPadding(WindowInsets.navigationBars)
-            .pointerInput(Unit) {
-                var totalDy = 0f
-                detectVerticalDragGestures(
-                    onDragStart = { totalDy = 0f },
-                    onVerticalDrag = { _, dragAmount -> totalDy += dragAmount },
-                    onDragEnd = {
-                        if (totalDy < -85f) onBack()
-                    }
-                )
-            }
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -9302,10 +9441,8 @@ fun RetroWeekTimelineStripWidget(
                 }
             }
         }
-        return
-    }
-
-    val weekDays = remember(currentTimeMillis / 60_000L) {
+    } else {
+        val weekDays = remember(currentTimeMillis / 60_000L) {
         val temp = Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
         temp.add(Calendar.DAY_OF_MONTH, -3)
         (-3..3).map { offset ->
@@ -9418,6 +9555,7 @@ fun RetroWeekTimelineStripWidget(
                 fontWeight = FontWeight.Bold
             )
         }
+    }
     }
 }
 
