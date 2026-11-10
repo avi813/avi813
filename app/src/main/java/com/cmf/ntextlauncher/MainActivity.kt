@@ -8440,7 +8440,12 @@ fun LauncherSettingsView(
     var expandedStaticWallpapers by remember { mutableStateOf(false) }
     var expandedUserWallpapers by remember { mutableStateOf(false) }
 
-    val accentColor = resolveLauncherAccentColor(accentHex)
+    val accentColor = if (retro80sMode) Color.White else resolveLauncherAccentColor(accentHex)
+    val settingsGlowStyle = if (retro80sMode) {
+        TextStyle(shadow = Shadow(color = Color.White.copy(alpha = 0.55f), offset = Offset.Zero, blurRadius = 6f))
+    } else {
+        TextStyle.Default
+    }
     val innerCardShape = RoundedCornerShape(if (retro80sMode) 0.dp else 10.dp)
     val innerSubCardShape = RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp)
     val innerBtnShape = RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
@@ -8528,7 +8533,8 @@ fun LauncherSettingsView(
                     color = if (retro80sMode) accentColor else Color.White,
                     fontSize = 16.sp,
                     fontFamily = launcherFont,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    style = settingsGlowStyle
                 )
                 Text(
                     text = "DONE",
@@ -9399,6 +9405,7 @@ fun CollapsibleSubSection(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val is80s = LocalRetro80sMode.current
+    val subGlowStyle = if (is80s) TextStyle(shadow = Shadow(color = Color.White.copy(alpha = 0.55f), offset = Offset.Zero, blurRadius = 6f)) else TextStyle.Default
     val subShape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
     Column(
         modifier = Modifier
@@ -9424,6 +9431,7 @@ fun CollapsibleSubSection(
                 fontSize = 13.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold,
+                style = subGlowStyle,
                 modifier = Modifier.weight(1f).padding(end = 8.dp)
             )
             // Only the small theme-specific expand/collapse icon shows on the right
@@ -9436,7 +9444,8 @@ fun CollapsibleSubSection(
                 color = if (expanded || is80s) accentColor else Color(0xFF737373),
                 fontSize = if (is80s) 11.sp else 13.sp,
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                style = subGlowStyle
             )
         }
 
@@ -9700,6 +9709,7 @@ fun CollapsibleSettingsSection(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val is80s = LocalRetro80sMode.current
+    val secGlowStyle = if (is80s) TextStyle(shadow = Shadow(color = Color.White.copy(alpha = 0.55f), offset = Offset.Zero, blurRadius = 6f)) else TextStyle.Default
     val secShape = RoundedCornerShape(if (is80s) 0.dp else 14.dp)
     Column(
         modifier = Modifier
@@ -9730,6 +9740,7 @@ fun CollapsibleSettingsSection(
                     fontSize = 11.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
+                    style = secGlowStyle,
                     modifier = if (is80s) Modifier else Modifier
                         .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(4.dp))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
@@ -9740,6 +9751,7 @@ fun CollapsibleSettingsSection(
                     fontSize = if (is80s) 13.sp else 14.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
+                    style = secGlowStyle,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -9753,7 +9765,8 @@ fun CollapsibleSettingsSection(
                 color = if (expanded || is80s) accentColor else Color(0xFF737373),
                 fontSize = if (is80s) 11.sp else 14.sp,
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                style = secGlowStyle
             )
         }
 
@@ -9789,7 +9802,8 @@ fun SettingCard(
     onClick: () -> Unit
 ) {
     val is80s = LocalRetro80sMode.current
-    val thCol = if (LocalRetro80sColorTheme.current == "amber") Color(0xFFFF8800) else Color(0xFF7CFF5B)
+    val thCol = if (is80s) Color.White else if (LocalRetro80sColorTheme.current == "amber") Color(0xFFFF8800) else Color(0xFF7CFF5B)
+    val scGlowStyle = if (is80s) TextStyle(shadow = Shadow(color = Color.White.copy(alpha = 0.55f), offset = Offset.Zero, blurRadius = 6f)) else TextStyle.Default
     val cardShape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
     Row(
         modifier = Modifier
@@ -9807,6 +9821,7 @@ fun SettingCard(
             fontSize = 12.sp,
             fontFamily = lomoFontFamily,
             fontWeight = if (is80s) FontWeight.Bold else FontWeight.Normal,
+            style = scGlowStyle,
             modifier = Modifier.weight(1f).padding(end = 8.dp)
         )
         Text(
