@@ -1,7 +1,5 @@
 package com.cmf.ntextlauncher
 
-import android.annotation.SuppressLint
-
 import android.app.Activity
 import android.app.ActivityManager
 import android.app.WallpaperManager
@@ -33,6 +31,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -60,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -130,46 +130,44 @@ val LocalRetro80sMode = compositionLocalOf { false }
 val LocalRetro80sColorTheme = compositionLocalOf { "green" }
 
 @Composable
-fun rememberRetroPrimaryColor(fallbackAccent: Color = Color(0xFFB4FFA3)): Color {
+fun rememberRetroPrimaryColor(fallbackAccent: Color = Color(0xFF9EFF78)): Color {
     val isRetro = LocalRetro80sMode.current
     val theme = LocalRetro80sColorTheme.current
     return when {
         !isRetro -> fallbackAccent
-        theme == "holomap" -> Color(0xFF66FFFF) // High-Luminance Glowing Cyan Core
-        theme == "amber" -> Color(0xFFFFD56B)   // High-Luminance Glowing Amber Core
-        else -> Color(0xFFB4FFA3)               // High-Luminance Glowing Green Phosphor Core
+        theme == "holomap" -> Color(0xFF26FFFF) // Bright Glowing Cyan
+        theme == "amber" -> Color(0xFFFFB830)   // Bright Glowing Amber
+        else -> Color(0xFF9EFF78)               // Bright Glowing Green Phosphor
     }
 }
 
 @Composable
-fun rememberRetroSecondaryColor(fallbackAccent: Color = Color(0xFFB4FFA3)): Color {
+fun rememberRetroSecondaryColor(fallbackAccent: Color = Color(0xFF9EFF78)): Color {
     val isRetro = LocalRetro80sMode.current
     val theme = LocalRetro80sColorTheme.current
     return when {
         !isRetro -> fallbackAccent
-        theme == "holomap" -> Color(0xFFFF5232) // High-Luminance Glowing Red-Orange Core
-        theme == "amber" -> Color(0xFFFFD56B)   // High-Luminance Glowing Amber Core
-        else -> Color(0xFFB4FFA3)               // High-Luminance Glowing Green Phosphor Core
+        theme == "holomap" -> Color(0xFFFF3B14) // Bright Glowing Red-Orange
+        theme == "amber" -> Color(0xFFFFB830)   // Bright Glowing Amber
+        else -> Color(0xFF9EFF78)               // Bright Glowing Green Phosphor
     }
 }
 
 @Composable
 fun glowTextStyle(
     color: Color,
-    blurRadius: Float = 8f
+    blurRadius: Float = 20f
 ): TextStyle {
     val isRetro = LocalRetro80sMode.current
     val theme = LocalRetro80sColorTheme.current
     if (!isRetro) return TextStyle.Default
     val haloColor = when {
         color == Color.Black || color.alpha < 0.2f -> Color.Transparent
-        theme == "holomap" && color.red > color.blue -> Color(0xFFFF2200)
+        theme == "holomap" && color.red > color.blue -> Color(0xFFFF1E00)
         theme == "holomap" -> Color(0xFF00E5FF)
-        theme == "amber" -> Color(0xFFFF9100)
+        theme == "amber" -> Color(0xFFFF8800)
         else -> Color(0xFF39FF14)
     }
-    // Tight 7f..10f radius concentrates Gaussian shadow energy directly around thin 1px pixel-font strokes
-    val effectiveRadius = (blurRadius * 0.42f).coerceIn(6.5f, 11.5f)
     return if (haloColor == Color.Transparent) {
         TextStyle.Default
     } else {
@@ -177,42 +175,9 @@ fun glowTextStyle(
             shadow = Shadow(
                 color = haloColor,
                 offset = Offset.Zero,
-                blurRadius = effectiveRadius
+                blurRadius = blurRadius
             )
         )
-    }
-}
-
-fun Modifier.retroPhosphorBloom(enabled: Boolean = true, passes: Int = 2): Modifier = if (!enabled) {
-    this
-} else {
-    this.drawWithContent {
-        for (i in 0 until passes.coerceIn(1, 3)) {
-            drawContent()
-        }
-    }
-}
-
-@SuppressLint("WrongConstant", "PrivateApi")
-fun expandNotificationsPanel(context: Context) {
-    try {
-        val statusBarService = context.getSystemService("statusbar") ?: return
-        val statusBarManager = Class.forName("android.app.StatusBarManager")
-        val expandMethod = try {
-            statusBarManager.getMethod("expandNotificationsPanel")
-        } catch (_: NoSuchMethodException) {
-            statusBarManager.getMethod("expand")
-        }
-        expandMethod.isAccessible = true
-        expandMethod.invoke(statusBarService)
-    } catch (_: Exception) {
-        try {
-            val statusBarService = context.getSystemService("statusbar") ?: return
-            val fallback = statusBarService.javaClass.getMethod("expandNotificationsPanel")
-            fallback.isAccessible = true
-            fallback.invoke(statusBarService)
-        } catch (_: Exception) {
-        }
     }
 }
 
@@ -599,17 +564,17 @@ fun NTextLauncherApp() {
     // - In "green": Glowing Green Phosphor (#9EFF78)
     val accentColor = remember(accentHex, retro80sMode, retro80sColorTheme) {
         when {
-            retro80sMode && retro80sColorTheme == "holomap" -> Color(0xFF66FFFF)
-            retro80sMode && retro80sColorTheme == "amber" -> Color(0xFFFFD56B)
-            retro80sMode -> Color(0xFFB4FFA3)
+            retro80sMode && retro80sColorTheme == "holomap" -> Color(0xFF26FFFF)
+            retro80sMode && retro80sColorTheme == "amber" -> Color(0xFFFFB830)
+            retro80sMode -> Color(0xFF9EFF78)
             else -> resolveLauncherAccentColor(accentHex)
         }
     }
     val secondaryRetroColor = remember(accentHex, retro80sMode, retro80sColorTheme) {
         when {
-            retro80sMode && retro80sColorTheme == "holomap" -> Color(0xFFFF5232)
-            retro80sMode && retro80sColorTheme == "amber" -> Color(0xFFFFD56B)
-            retro80sMode -> Color(0xFFB4FFA3)
+            retro80sMode && retro80sColorTheme == "holomap" -> Color(0xFFFF3B14)
+            retro80sMode && retro80sColorTheme == "amber" -> Color(0xFFFFB830)
+            retro80sMode -> Color(0xFF9EFF78)
             else -> resolveLauncherAccentColor(accentHex)
         }
     }
@@ -1233,68 +1198,40 @@ fun NTextLauncherApp() {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .pointerInput(enableLeftPage, isGlobeInteractionUnlocked) {
-                                        if (isGlobeInteractionUnlocked) return@pointerInput
+                                    .pointerInput(enableLeftPage, isDrawerNearClosed, isGlobeInteractionUnlocked) {
+                                        if (!isDrawerNearClosed || isGlobeInteractionUnlocked) return@pointerInput
                                         var totalDx = 0f
                                         var totalDy = 0f
-                                        var gestureMode = 0 // 0 = undecided, 1 = vertical, 2 = horizontal
-                                        var notifTriggered = false
                                         detectDragGestures(
                                             onDragStart = {
                                                 totalDx = 0f
                                                 totalDy = 0f
-                                                gestureMode = 0
-                                                notifTriggered = false
                                             },
                                             onDrag = { change, dragAmount ->
-                                                if (drawerProgress > 0.85f) return@detectDragGestures
                                                 totalDx += dragAmount.x
                                                 totalDy += dragAmount.y
-                                                if (gestureMode == 0) {
-                                                    if (abs(totalDx) > abs(totalDy) * 1.15f && abs(totalDx) > 10f && enableLeftPage && drawerProgress < 0.05f) {
-                                                        gestureMode = 2
-                                                    } else if (abs(totalDy) > abs(totalDx) * 1.15f && abs(totalDy) > 10f) {
-                                                        gestureMode = 1
-                                                    }
-                                                }
-                                                if (gestureMode == 2 && enableLeftPage) {
+                                                if (abs(totalDx) > abs(totalDy) * 1.15f && enableLeftPage) {
                                                     change.consume()
                                                     val deltaFrac = dragAmount.x / screenWidthPx
                                                     leftPageProgress = (leftPageProgress + deltaFrac).coerceIn(0f, 1f)
-                                                } else if (gestureMode == 1) {
+                                                } else if (abs(totalDy) > abs(totalDx) * 1.15f && totalDy < -12f) {
                                                     change.consume()
-                                                    if (totalDy < -10f || drawerProgress > 0.005f) {
-                                                        val deltaFrac = -dragAmount.y / (screenHeightPx * 0.52f)
-                                                        drawerProgress = (drawerProgress + deltaFrac).coerceIn(0f, 1f)
-                                                    } else if (totalDy > 42f && drawerProgress < 0.02f && !notifTriggered) {
-                                                        notifTriggered = true
-                                                        performWaveTick()
-                                                        expandNotificationsPanel(context)
-                                                    }
+                                                    val deltaFrac = -dragAmount.y / (screenHeightPx * 0.55f)
+                                                    drawerProgress = (drawerProgress + deltaFrac).coerceIn(0f, 1f)
                                                 }
                                             },
                                             onDragEnd = {
-                                                if (gestureMode == 1 && drawerProgress > 0.005f) {
-                                                    animateDrawerTo(if (drawerProgress > 0.18f || totalDy < -85f) 1f else 0f)
-                                                } else if (gestureMode == 2 && enableLeftPage) {
+                                                if (drawerProgress > 0.02f) {
+                                                    animateDrawerTo(if (drawerProgress > 0.22f) 1f else 0f)
+                                                } else if (enableLeftPage) {
                                                     val target = when {
-                                                        totalDx > 85f -> 1f
-                                                        totalDx < -85f -> 0f
+                                                        totalDx > 95f -> 1f
+                                                        totalDx < -95f -> 0f
                                                         leftPageProgress >= 0.5f -> 1f
                                                         else -> 0f
                                                     }
                                                     animateLeftPageTo(target)
                                                 }
-                                                gestureMode = 0
-                                            },
-                                            onDragCancel = {
-                                                if (drawerProgress > 0.005f && drawerProgress < 0.99f) {
-                                                    animateDrawerTo(if (drawerProgress > 0.22f) 1f else 0f)
-                                                }
-                                                if (enableLeftPage && leftPageProgress > 0.005f && leftPageProgress < 0.99f) {
-                                                    animateLeftPageTo(if (leftPageProgress >= 0.5f) 1f else 0f)
-                                                }
-                                                gestureMode = 0
                                             }
                                         )
                                     }
@@ -2711,9 +2648,6 @@ fun HomeScreenView(
             verticalArrangement = Arrangement.spacedBy(if (editMode) 10.dp else 6.dp)
         ) {
             activeWidgets.forEach { widgetId ->
-                if (widgetId == "pinned_apps" && !editMode && activeWidgets.size > 1) {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
                 val sizeMode = widgetSizes[widgetId] ?: "standard"
                 val wFontId = widgetFonts[widgetId] ?: "lomo_pixel"
                 val wPrebuiltFont = remember(wFontId) { PrebuiltFont.fromId(wFontId) }
@@ -3021,17 +2955,13 @@ fun HomeScreenView(
                                                     style = glowTextStyle(secondaryCol, 12f)
                                                 )
                                             }
-                                            Text(
-                                                text = if (retro80sMode) {
-                                                    if (isWidgetFontMenuExpanded) "[-]" else "[+]"
-                                                } else {
-                                                    if (isWidgetFontMenuExpanded) "▾" else "▸"
-                                                },
-                                                color = secondaryCol,
-                                                fontSize = 10.sp,
-                                                fontFamily = selectedFont,
-                                                fontWeight = FontWeight.Bold,
-                                                style = glowTextStyle(secondaryCol, 12f)
+                                            CollapsibleTriangleIndicator(
+                                                expanded = isWidgetFontMenuExpanded,
+                                                is80s = retro80sMode,
+                                                accentColor = secondaryCol,
+                                                secondaryCol = secondaryCol,
+                                                lomoFontFamily = selectedFont,
+                                                triangleSizeDp = 9.dp
                                             )
                                         }
 
@@ -6124,7 +6054,16 @@ fun WidgetsManagerView(
             .windowInsetsPadding(WindowInsets.statusBars)
             .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
             .windowInsetsPadding(WindowInsets.navigationBars)
-            .retroPhosphorBloom(enabled = is80sWm, passes = 2)
+            .pointerInput(Unit) {
+                var totalDy = 0f
+                detectVerticalDragGestures(
+                    onDragStart = { totalDy = 0f },
+                    onVerticalDrag = { _, dragAmount -> totalDy += dragAmount },
+                    onDragEnd = {
+                        if (totalDy < -85f) onBack()
+                    }
+                )
+            }
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -6483,6 +6422,98 @@ fun WidgetsManagerView(
     }
 }
 
+
+@Composable
+fun settingsGlowTextStyle(
+    color: Color,
+    blurRadius: Float = 8.5f
+): TextStyle {
+    val isRetro = LocalRetro80sMode.current
+    val theme = LocalRetro80sColorTheme.current
+    if (!isRetro) return TextStyle.Default
+    val haloColor = when {
+        color == Color.Black || color.alpha < 0.2f -> Color.Transparent
+        theme == "holomap" && color.red > color.blue -> Color(0xFFFF2200)
+        theme == "holomap" -> Color(0xFF00E5FF)
+        theme == "amber" -> Color(0xFFFF9100)
+        else -> Color(0xFF39FF14)
+    }
+    val tightRadius = (blurRadius * 0.45f).coerceIn(6.5f, 10.5f)
+    return if (haloColor == Color.Transparent) {
+        TextStyle.Default
+    } else {
+        TextStyle(
+            shadow = Shadow(
+                color = haloColor,
+                offset = Offset.Zero,
+                blurRadius = tightRadius
+            )
+        )
+    }
+}
+
+fun Modifier.settingsRetroTextGlow(enabled: Boolean, passes: Int = 3): Modifier = if (!enabled) {
+    this
+} else {
+    this.drawWithContent {
+        val count = passes.coerceIn(1, 3)
+        for (i in 0 until count) {
+            drawContent()
+        }
+    }
+}
+
+@Composable
+fun CollapsibleTriangleIndicator(
+    expanded: Boolean,
+    is80s: Boolean,
+    accentColor: Color,
+    secondaryCol: Color,
+    lomoFontFamily: FontFamily,
+    triangleSizeDp: Dp = 11.dp
+) {
+    if (is80s) {
+        Text(
+            text = if (expanded) "[-]" else "[+]",
+            color = secondaryCol,
+            fontSize = 11.sp,
+            fontFamily = lomoFontFamily,
+            fontWeight = FontWeight.Bold,
+            style = settingsGlowTextStyle(secondaryCol, 18f),
+            modifier = Modifier.settingsRetroTextGlow(true)
+        )
+    } else {
+        val rotationDeg by animateFloatAsState(
+            targetValue = if (expanded) 90f else 0f,
+            animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
+            label = "collapsibleTriangleRotation"
+        )
+        val triColor by animateColorAsState(
+            targetValue = if (expanded) accentColor else Color(0xFF737373),
+            animationSpec = tween(durationMillis = 200),
+            label = "collapsibleTriangleColor"
+        )
+        Box(
+            modifier = Modifier.size(triangleSizeDp + 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.size(triangleSizeDp)) {
+                val w = size.width
+                val h = size.height
+                rotate(degrees = rotationDeg, pivot = Offset(w * 0.5f, h * 0.5f)) {
+                    val path = Path().apply {
+                        moveTo(w * 0.22f, h * 0.14f)
+                        lineTo(w * 0.84f, h * 0.50f)
+                        lineTo(w * 0.22f, h * 0.86f)
+                        close()
+                    }
+                    drawPath(path = path, color = triColor)
+                }
+            }
+        }
+    }
+}
+
 // ============================================================================
 // CLEAN & GLOWING LAUNCHER SETTINGS WITH COLLAPSIBLE ACCORDION MENUS (v5.1.0-cmf)
 // - Every text element & border genuinely glows in Old School & Red/Cyan Holomap modes
@@ -6634,7 +6665,7 @@ fun LauncherSettingsView(
             .windowInsetsPadding(WindowInsets.statusBars)
             .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
             .windowInsetsPadding(WindowInsets.navigationBars)
-            .retroPhosphorBloom(enabled = retro80sMode, passes = 3)
+            .settingsRetroTextGlow(enabled = retro80sMode, passes = 3)
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
@@ -6652,7 +6683,7 @@ fun LauncherSettingsView(
                     fontSize = 16.sp,
                     fontFamily = launcherFont,
                     fontWeight = FontWeight.Bold,
-                    style = glowTextStyle(primaryCol, 22f)
+                    style = settingsGlowTextStyle(primaryCol, 22f)
                 )
                 Text(
                     text = "DONE",
@@ -6711,7 +6742,7 @@ fun LauncherSettingsView(
                         fontSize = 9.sp,
                         fontFamily = launcherFont,
                         fontWeight = FontWeight.Bold,
-                        style = glowTextStyle(primaryCol, 16f)
+                        style = settingsGlowTextStyle(primaryCol, 16f)
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -6731,7 +6762,7 @@ fun LauncherSettingsView(
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
-                                style = if (isSel) TextStyle.Default else glowTextStyle(primaryCol, 14f),
+                                style = if (isSel) TextStyle.Default else settingsGlowTextStyle(primaryCol, 14f),
                                 modifier = Modifier
                                     .weight(1f)
                                     .border(
@@ -6813,7 +6844,7 @@ fun LauncherSettingsView(
                                 fontSize = 9.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
-                                style = glowTextStyle(primaryCol, 16f)
+                                style = settingsGlowTextStyle(primaryCol, 16f)
                             )
                             Text(
                                 text = activeFontName,
@@ -6821,20 +6852,15 @@ fun LauncherSettingsView(
                                 fontSize = 13.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
-                                style = glowTextStyle(secondaryCol, 16f)
+                                style = settingsGlowTextStyle(secondaryCol, 16f)
                             )
                         }
-                        Text(
-                            text = if (retro80sMode) {
-                                if (expandedFontMenu) "[-]" else "[+]"
-                            } else {
-                                if (expandedFontMenu) "▾" else "▸"
-                            },
-                            color = secondaryCol,
-                            fontSize = if (retro80sMode) 11.sp else 14.sp,
-                            fontFamily = launcherFont,
-                            fontWeight = FontWeight.Bold,
-                            style = glowTextStyle(secondaryCol, 16f)
+                        CollapsibleTriangleIndicator(
+                            expanded = expandedFontMenu,
+                            is80s = retro80sMode,
+                            accentColor = secondaryCol,
+                            secondaryCol = secondaryCol,
+                            lomoFontFamily = launcherFont
                         )
                     }
 
@@ -6878,7 +6904,7 @@ fun LauncherSettingsView(
                                         color = rowTextCol,
                                         fontSize = 12.sp,
                                         fontFamily = f.resolveFontFamily(lomoFontFamily),
-                                        style = glowTextStyle(rowTextCol, 14f),
+                                        style = settingsGlowTextStyle(rowTextCol, 14f),
                                         modifier = Modifier.weight(1f)
                                     )
                                     Text(
@@ -6891,7 +6917,7 @@ fun LauncherSettingsView(
                                         fontSize = 10.sp,
                                         fontFamily = launcherFont,
                                         fontWeight = FontWeight.Bold,
-                                        style = glowTextStyle(if (selected) secondaryCol else primaryCol, 14f)
+                                        style = settingsGlowTextStyle(if (selected) secondaryCol else primaryCol, 14f)
                                     )
                                 }
                             }
@@ -6914,7 +6940,7 @@ fun LauncherSettingsView(
                         fontSize = 9.sp,
                         fontFamily = launcherFont,
                         fontWeight = FontWeight.Bold,
-                        style = glowTextStyle(primaryCol, 16f)
+                        style = settingsGlowTextStyle(primaryCol, 16f)
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -6930,7 +6956,7 @@ fun LauncherSettingsView(
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
-                                style = if (sel) TextStyle.Default else glowTextStyle(primaryCol, 14f),
+                                style = if (sel) TextStyle.Default else settingsGlowTextStyle(primaryCol, 14f),
                                 modifier = Modifier
                                     .weight(1f)
                                     .border(
@@ -7021,7 +7047,7 @@ fun LauncherSettingsView(
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
-                                style = if (sel) TextStyle.Default else glowTextStyle(primaryCol, 14f),
+                                style = if (sel) TextStyle.Default else settingsGlowTextStyle(primaryCol, 14f),
                                 modifier = Modifier
                                     .weight(1f)
                                     .border(
@@ -7084,7 +7110,7 @@ fun LauncherSettingsView(
                                             fontSize = 10.sp,
                                             fontFamily = launcherFont,
                                             fontWeight = FontWeight.Bold,
-                                            style = glowTextStyle(wCol, 14f)
+                                            style = settingsGlowTextStyle(wCol, 14f)
                                         )
                                         Box(
                                             modifier = Modifier
@@ -7123,7 +7149,7 @@ fun LauncherSettingsView(
                                 fontSize = 9.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
-                                style = glowTextStyle(primaryCol, 16f)
+                                style = settingsGlowTextStyle(primaryCol, 16f)
                             )
                             Text(
                                 text = "RESET",
@@ -7131,7 +7157,7 @@ fun LauncherSettingsView(
                                 fontSize = 8.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
-                                style = glowTextStyle(secondaryCol, 14f),
+                                style = settingsGlowTextStyle(secondaryCol, 14f),
                                 modifier = Modifier
                                     .border(1.dp, if (retro80sMode) secondaryCol else Color(0xFF2E2E2E), innerBtnShape)
                                     .background(Color(0xFF121212), innerBtnShape)
@@ -7225,7 +7251,7 @@ fun LauncherSettingsView(
                                             fontSize = 10.sp,
                                             fontFamily = launcherFont,
                                             fontWeight = FontWeight.Bold,
-                                            style = glowTextStyle(wCol, 14f)
+                                            style = settingsGlowTextStyle(wCol, 14f)
                                         )
                                         if (active) {
                                             Box(
@@ -7303,7 +7329,7 @@ fun LauncherSettingsView(
                             fontSize = 9.sp,
                             fontFamily = launcherFont,
                             fontWeight = FontWeight.Bold,
-                            style = glowTextStyle(primaryCol, 16f)
+                            style = settingsGlowTextStyle(primaryCol, 16f)
                         )
                         Text(
                             text = accentHex,
@@ -7311,7 +7337,7 @@ fun LauncherSettingsView(
                             fontSize = 9.sp,
                             fontFamily = launcherFont,
                             fontWeight = FontWeight.Bold,
-                            style = glowTextStyle(secondaryCol, 16f)
+                            style = settingsGlowTextStyle(secondaryCol, 16f)
                         )
                     }
 
@@ -7351,7 +7377,7 @@ fun LauncherSettingsView(
                                         fontSize = 8.sp,
                                         fontFamily = launcherFont,
                                         fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                                        style = glowTextStyle(if (isSel) secondaryCol else primaryCol, 12f)
+                                        style = settingsGlowTextStyle(if (isSel) secondaryCol else primaryCol, 12f)
                                     )
                                 }
                             }
@@ -7407,7 +7433,7 @@ fun LauncherSettingsView(
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
-                                style = if (sel) TextStyle.Default else glowTextStyle(primaryCol, 14f),
+                                style = if (sel) TextStyle.Default else settingsGlowTextStyle(primaryCol, 14f),
                                 modifier = Modifier
                                     .weight(1f)
                                     .border(
@@ -7456,7 +7482,7 @@ fun LauncherSettingsView(
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
-                                style = if (sel) TextStyle.Default else glowTextStyle(primaryCol, 14f),
+                                style = if (sel) TextStyle.Default else settingsGlowTextStyle(primaryCol, 14f),
                                 modifier = Modifier
                                     .weight(1f)
                                     .border(
@@ -7527,20 +7553,16 @@ fun CollapsibleSubSection(
                 fontSize = 13.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold,
-                style = glowTextStyle(accentColor, 20f),
+                style = settingsGlowTextStyle(accentColor, 20f),
                 modifier = Modifier.weight(1f).padding(end = 8.dp)
             )
-            Text(
-                text = if (is80s) {
-                    if (expanded) "[-]" else "[+]"
-                } else {
-                    if (expanded) "▾" else "▸"
-                },
-                color = if (is80s) secondaryCol else if (expanded) accentColor else Color(0xFF737373),
-                fontSize = if (is80s) 11.sp else 13.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = glowTextStyle(secondaryCol, 20f)
+            CollapsibleTriangleIndicator(
+                expanded = expanded,
+                is80s = is80s,
+                accentColor = accentColor,
+                secondaryCol = secondaryCol,
+                lomoFontFamily = lomoFontFamily,
+                triangleSizeDp = 10.dp
             )
         }
 
@@ -7593,7 +7615,7 @@ fun MinimalistSliderRow(
                 fontSize = 9.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold,
-                style = glowTextStyle(accentColor, 16f)
+                style = settingsGlowTextStyle(accentColor, 16f)
             )
             Text(
                 text = if (is80s) "[$valueText]" else valueText,
@@ -7601,7 +7623,7 @@ fun MinimalistSliderRow(
                 fontSize = 10.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold,
-                style = glowTextStyle(secondaryCol, 16f)
+                style = settingsGlowTextStyle(secondaryCol, 16f)
             )
         }
 
@@ -7702,7 +7724,7 @@ fun SettingsBackdropControlCard(
                 fontSize = 9.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold,
-                style = glowTextStyle(accentColor, 16f)
+                style = settingsGlowTextStyle(accentColor, 16f)
             )
             Text(
                 text = settingsBgMode.uppercase(Locale.US),
@@ -7710,7 +7732,7 @@ fun SettingsBackdropControlCard(
                 fontSize = 9.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold,
-                style = glowTextStyle(secondaryCol, 16f)
+                style = settingsGlowTextStyle(secondaryCol, 16f)
             )
         }
 
@@ -7731,7 +7753,7 @@ fun SettingsBackdropControlCard(
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
-                    style = if (selected) TextStyle.Default else glowTextStyle(accentColor, 14f),
+                    style = if (selected) TextStyle.Default else settingsGlowTextStyle(accentColor, 14f),
                     modifier = Modifier
                         .weight(1f)
                         .border(
@@ -7782,7 +7804,7 @@ fun SettingsBackdropControlCard(
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
-                    style = if (sel) TextStyle.Default else glowTextStyle(accentColor, 12f),
+                    style = if (sel) TextStyle.Default else settingsGlowTextStyle(accentColor, 12f),
                     modifier = Modifier
                         .weight(1f)
                         .border(
@@ -7845,7 +7867,7 @@ fun CollapsibleSettingsSection(
                     fontSize = 11.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
-                    style = glowTextStyle(accentColor, 20f),
+                    style = settingsGlowTextStyle(accentColor, 20f),
                     modifier = if (is80s) Modifier else Modifier
                         .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(4.dp))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
@@ -7856,21 +7878,17 @@ fun CollapsibleSettingsSection(
                     fontSize = if (is80s) 13.sp else 14.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
-                    style = glowTextStyle(accentColor, 20f),
+                    style = settingsGlowTextStyle(accentColor, 20f),
                     modifier = Modifier.weight(1f)
                 )
             }
-            Text(
-                text = if (is80s) {
-                    if (expanded) "[-]" else "[+]"
-                } else {
-                    if (expanded) "▾" else "▸"
-                },
-                color = if (is80s) secondaryCol else if (expanded) accentColor else Color(0xFF737373),
-                fontSize = if (is80s) 11.sp else 14.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = glowTextStyle(secondaryCol, 20f)
+            CollapsibleTriangleIndicator(
+                expanded = expanded,
+                is80s = is80s,
+                accentColor = accentColor,
+                secondaryCol = secondaryCol,
+                lomoFontFamily = lomoFontFamily,
+                triangleSizeDp = 11.dp
             )
         }
 
@@ -7931,7 +7949,7 @@ fun SettingCard(
             fontSize = 12.sp,
             fontFamily = lomoFontFamily,
             fontWeight = if (is80s) FontWeight.Bold else FontWeight.Normal,
-            style = glowTextStyle(primaryCol, 18f),
+            style = settingsGlowTextStyle(primaryCol, 18f),
             modifier = Modifier.weight(1f).padding(end = 8.dp)
         )
         Text(
@@ -7978,7 +7996,7 @@ fun WallpaperTuningRow(
                 fontSize = 8.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold,
-                style = glowTextStyle(accentColor, 14f)
+                style = settingsGlowTextStyle(accentColor, 14f)
             )
             val activeLabel = options.minByOrNull { abs(it.first - currentValue) }?.second ?: "${currentValue}x"
             Text(
@@ -7987,7 +8005,7 @@ fun WallpaperTuningRow(
                 fontSize = 8.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold,
-                style = glowTextStyle(secondaryCol, 14f)
+                style = settingsGlowTextStyle(secondaryCol, 14f)
             )
         }
         Row(
@@ -8003,7 +8021,7 @@ fun WallpaperTuningRow(
                     fontFamily = lomoFontFamily,
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                     textAlign = TextAlign.Center,
-                    style = if (selected) TextStyle.Default else glowTextStyle(accentColor, 12f),
+                    style = if (selected) TextStyle.Default else settingsGlowTextStyle(accentColor, 12f),
                     modifier = Modifier
                         .weight(1f)
                         .border(
