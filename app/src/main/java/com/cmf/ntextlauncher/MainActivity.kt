@@ -1,44 +1,65 @@
 package com.cmf.ntextlauncher
 
-import android.app.Activity
-import android.app.ActivityManager
-import android.app.WallpaperManager
+import android.annotation.SuppressLint
+import android.app.ActivityOptions
+import android.app.AlarmManager
 import android.app.role.RoleManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.LauncherApps
+import android.content.SharedPreferences
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
-import android.graphics.BitmapFactory
-import android.graphics.BlurMaskFilter
-import android.hardware.camera2.CameraManager
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.os.Process
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.hardware.camera2.CameraManager
+import android.app.ActivityManager
 import android.os.StatFs
-import android.os.SystemClock
-import android.provider.AlarmClock
-import android.provider.Settings
-import android.view.HapticFeedbackConstants
-import android.view.WindowManager
-import androidx.activity.ComponentActivity
-import androidx.activity.OnBackPressedCallback
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
+import android.os.Environment
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.*
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import android.provider.AlarmClock
+import android.provider.Settings
+import android.util.Base64
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.setContent
+import androidx.compose.animation.core.*
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -49,261 +70,427 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.drawscope.rotate
+import android.view.inputmethod.InputMethodManager
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import kotlin.math.exp
+import kotlin.math.min
+import kotlin.math.sin
+import kotlin.math.sqrt
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
 import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
-import kotlin.math.*
+import java.util.*
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.drawable.ColorDrawable
+import android.view.WindowManager
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import android.graphics.BlendMode as AndroidBlendMode
+import android.graphics.ColorMatrix as AndroidColorMatrix
+import android.graphics.ColorMatrixColorFilter as AndroidColorMatrixColorFilter
+import android.graphics.Paint as AndroidPaint
+import android.graphics.RenderEffect as AndroidRenderEffect
+import android.graphics.Shader as AndroidShader
+import kotlin.math.asin
+import kotlin.math.atan2
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.unit.IntSize
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 // ============================================================================
-// NOCTURNAA — ULTRA-MINIMALIST OLED TEXT LAUNCHER (v5.1.0-cmf)
-// Engineered for CMF by Nothing Phone 1 (Android 14 · API 34 · Nothing OS 2.6)
-// - 100% Offline, Zero Internet Permission, Pure #000000 AMOLED Black
-// - System-Wide Themes:
-//   1. Regular Minimalist OLED Mode
-//   2. Old School Mode (Green Phosphor #9EFF78 & Amber Orange #FFB830)
-//   3. Retro-Futuristic Mode (Glowing Cyan #26FFFF & Glowing Red #FF3B14 Holomap)
-// - True Neon Phosphor Text & Box Glow (Shadow + BlurMaskFilter outer bloom)
+// EMBEDDED LOMO WEB PIXEL TRUETYPE FONT (SLENDER 1-PIXEL STROKE 9-ROW GRID)
+// Self-contained inside MainActivity.kt so even single-file GitHub updates
+// compile with zero external resource dependencies!
 // ============================================================================
+private const val LOMO_PIXEL_TTF_B64 =
+    "AAEAAAAKAIAAAwAgT1MvMmeiavUAAAEoAAAAYGNtYXBNwt5LAAAC7AAAAHxnbHlmXaJ0EAAABBwAABRIaGVhZC8Bq6QAAACsAAAA" +
+    "NmhoZWEE2gIKAAAA5AAAACRobXR4t8AAAAAAAYgAAAFkbG9jYd+w5OQAAANoAAAAtG1heHAAYgAmAAABCAAAACBuYW1lKj423QAA" +
+    "GGQAAAFQcG9zdHNM/OUAABm0AAACpwABAAAAAQAArRVIGl8PPPUAAQPoAAAAAOcGNHIAAAAA5wY0cgAA/0AB4AKgAAAAAwACAAAA" +
+    "AAAAAAEAAAL4/xAAAAJAAAAAYAHgAAEAAAAAAAAAAAAAAAAAAABZAAEAAABZACQACAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAwIR" +
+    "AZAABQAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAAAgAAAAAAAAAAAAPz8/PwAAACAluAL4/xAAAAL4APAA" +
+    "AAAAAAAAAAHgAqAAAAAgAAAB4AAAAeAAAADAAAABgAAAAkAAAAJAAAACQAAAAMAAAAGAAAABgAAAAkAAAAJAAAABIAAAAeAAAAEg" +
+    "AAACQAAAAkAAAAJAAAACQAAAAkAAAAJAAAACQAAAAkAAAAJAAAACQAAAAkAAAAGAAAAB4AAAAeAAAAJAAAACQAAAAkAAAAJAAAAC" +
+    "QAAAAkAAAAJAAAACQAAAAkAAAAJAAAABgAAAAkAAAAJAAAACQAAAAkAAAAJAAAACQAAAAkAAAAJAAAACQAAAAkAAAAJAAAACQAAA" +
+    "AkAAAAJAAAACQAAAAkAAAAJAAAABgAAAAYAAAAJAAAACQAAAAkAAAAJAAAACQAAAAkAAAAJAAAACQAAAAkAAAAGAAAAB4AAAAeAA" +
+    "AAGAAAACQAAAAkAAAAJAAAACQAAAAkAAAAJAAAACQAAAAeAAAAJAAAACQAAAAkAAAAJAAAACQAAAAkAAAAHgAAABgAAAAeAAAAAA" +
+    "AAIAAAADAAAAFAADAAEAAAAUAAQAaAAAABYAEAADAAYAIwA6ADwAWwBdAF8AegCwALcluP//AAAAIAAlADwAPgBdAF8AYQCwALcl" +
+    "uP///+H/4P/f/97/3f/c/9v/pv+g2qAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAwAHwAxAFoAhACsALgA3QD8ASIBNwFI" +
+    "AVYBYgGBAasBvwHoAhQCKQJLAnECjQK2At0C7wMaA0gDagOOA6oDygPtBAYEHQQyBFcEbgSEBJ8E0ATgBQEFHwU9BVUFgQWnBdMF" +
+    "5QX9BhwGPAZvBpAGtAbEBtYG4gcBBxoHOgdTB3IHjweuB8cH4AgACCIINQhUCGgIhAieCLgI0gj2CRUJKglJCWsJpAnCCeMKAAoM" +
+    "CiQAAQAAAAABgAKgAAMAADERIREBgAKg/WAAAgAAAAAAYAKgAAMABwAAExEjERE1MxVgYGACoP4gAeD9YGBgAAACAAAB4AEgAqAA" +
+    "AwAHAAATMxUjJxUjNcBgYGBgAqDAwMDAAAACAAAAYAHgAqAAGwAfAAARNTM1MxUzNTMVMxUjFTMVIxUjNSMVIzUjNTM1FzUjFWBg" +
+    "YGBgYGBgYGBgYGDAYAHgYGBgYGBgwGBgYGBgYMDAwMAABAAAAAAB4AKgAA8AEwAXABsAABMzNTM1MxUjFSMVIxUjNTMFIzUzATUz" +
+    "FTczFSNgYGBgYGBgYGABgMDA/iDAwGBgASBgwMBgwGBgYMABIMDAwGAAAQAAAAAB4AKgAB8AACEjNSMVIzUzNSMVIzUzNSM1MxUz" +
+    "NSM1MxUzFSMVMxUzAeBgYMDAwGBgYGDAwMBgYGBgYGBgwMDAYMDAwGBgwGDAAAABAAAB4ABgAqAAAwAAExUjNWBgAqDAwAAFAAAA" +
+    "AAEgAqAAAwAHAAsADwATAAABIzUzBTMRIxMzFSMTIzUzFxUjNQEgYGD+4GBgYGBgYGBgYGACQGDA/uABgGD+gGBgYGAAAAIAAAAA" +
+    "ASACoAAPABMAABMjNTMVMxEjFSMVIzUzNTMDMxUjwGBgYGBgYGBgwGBgAeBgYP7gYGBgYAHgYAAAAgAAAGAB4AJAABcAGwAAASMV" +
+    "MxUjNSMVIzUzNSM1MzUjNTMVMxUzJyM1MwHgwGBgYGBgwMBgYGDAYGBgASBgYGBgYGBgYGBgYGBgAAEAAABgAeACQAALAAABIxUj" +
+    "NSM1MzUzFTMB4MBgwMBgwAEgwMBgwMAAAAIAAP+gAMAAYAADAAcAADczFSMVIzUzYGBgYGBgYGBgAAABAAABIAGAAYAAAwAAASE1" +
+    "IQGA/oABgAEgYAAAAQAAAAAAYABgAAMAADcVIzVgYGBgYAAAAgAAAAAB4AKgAA8AEwAAEzM1MzUzFSMVIxUjFSM1MwEzFSNgYGBg" +
+    "YGBgYGABIGBgASBgwMBgwGBgAkBgAAADAAAAAAHgAqAABwAXABsAACUjESM1MzUzITMRMzUzFSMVIxUhFSE1IxM1IRUB4GBgYGD+" +
+    "IGBgYGBgASD+4GBgASBgASBgYP7gYGBgYGBgAeBgYAABAGAAAAGAAqAACwAAMzUzESM1MzUzETMVYGBgYGBgYAGAYGD9wGAABAAA" +
+    "AAAB4AKgAAsAEQAVABkAADc1MzUzNTMVIxUjFQUhNTMVIQE1MxU1NSEVYGDAYGDAASD+IGABgP4gYAEgwGBgwMBgYMDAYAGAYGBg" +
+    "YGAAAAUAAAAAAeACoAALAA8AEwAXABsAACUjNSM1MzUzFSMVMyU1MxU1NSEVESE1ISE1MxUB4GDAwGBgYP4gYAEg/uABIP6AYGDA" +
+    "YMDAYMBgYGBgYP3AYGBgAAABAAAAAAHgAqAACQAAISMRIREzESERMwHgYP6AYAEgYAEgAYD+4AEgAAADAAAAAAHgAqAACwAPABMA" +
+    "ABEhFSEVIRUzFSM1IRchFSEnNTMVAeD+gAEgYGD+gGABIP7gYGACoGDAYMDAwGBgYGAAAAIAAAAAAeACoAAPABcAACUjNSEVIRUh" +
+    "NSMRMxUhFTMBNSEVMxUjNQHgYP7gASD+4GBgASBg/oABIGBgYMDAYGAB4MBgASBgYGBgAAABAAAAAAHgAqAAEQAAEzM1MzUzNSE1" +
+    "IRUjFSMVIxEjYGBgYP6AAeBgYGBgASBgYGBgwGBg/uAAAAIAAAAAAeACoAAXABsAACUjNSEVIRUhNSM1MzUjNTMVITUzFSMVMwE1" +
+    "IRUB4GD+4AEg/uBgYGBgASBgYGD+gAEgYMDAYGDAYMDAwMBgASBgYAAEAAAAAAHgAqAACwAPABMAFwAAJSM1ITUjNTMVITUzITUh" +
+    "FREhNSEhNTMVAeBg/uBgYAEgYP6AASD+4AEg/oBgYMBgwMDAYGD9wGBgYAACAGAAYADAAkAAAwAHAAATIzUzERUjNcBgYGAB4GD+" +
+    "gGBgAAAFAAAAAAGAAqAABwALABMAFwAbAAA3NTMVMxUjNScVIzU3MzUzFSMVIwEjNTMRFSM1YGBgYGBgYGBgYGABIGBgYMBgYGBg" +
+    "wGBgYGBgYP6AYAJAYGAAAAcAAAAAAYACoAADAAcACwAPABMAFwAbAAATMxUjERUjNREzFSMTIzUzExUjNRcjNTMHMxUjYGBgYGBg" +
+    "wGBgYGDAYGDAYGACQGD+gGBgAkBg/iBgASBgYMBgYGAABAAAAAAB4AKgAAMACwARABUAABE1MxU1NSEVMxUjNQczFSMVIxcVIzVg" +
+    "ASBgYMDAYGBgYAHgYGBgYGDAwMBgYGBgYAADAAAAAAHgAqAABwARABUAABEzESEVITUjEzUhFTMRIREzNRUjFTNgASD+4GBgASBg" +
+    "/uDAYGACQP4gYGAB4GBg/oABIGDAYAACAAAAAAHgAqAACwAPAAAhIxEhESMRMxUhNTMhNSEVAeBg/uBgYAEgYP6AASABIP7gAkDA" +
+    "wGBgAAEAAAAAAeACoAATAAAlIzUhFSEVIREhFTMVIzUhFSEVMwHgYP7gASD+gAGAYGD+4AEgYGDAwGACoGDAwMBgAAADAAAAAAHg" +
+    "AqAAAwALABMAACUVIzUBMxEhFSE1IxM1IRUzFSM1AeBg/oBgASD+4GBgASBgYMBgYAGA/iBgYAHgYGBgYAAAAgAAAAAB4AKgAAMA" +
+    "CwAAJSMRMyUhFSERIRUhAeBgYP4gAYD+4AEg/oBgAeBgYP4gYAABAAAAAAHgAqAACwAAISERIRUhFSEVIRUhAeD+IAHg/oABIP7g" +
+    "AYACoGDAYMAAAQAAAAAB4AKgAAkAAAEVIREjESEVIRUBgP7gYAHg/oABgGD+4AKgYMAAAwAAAAAB4AKgAAUADQAVAAAlIzUjNSEl" +
+    "MxEhFSE1IxM1IRUzFSM1AeBgwAEg/iBgASD+4GBgASBgYGDAYMD+IGBgAeBgYGBgAAABAAAAAAHgAqAACwAAISMRIREjETMRIREz" +
+    "AeBg/uBgYAEgYAEg/uACoP7gASAAAQAAAAABIAKgAAsAABMjNSEVIxEzFSE1M2BgASBgYP7gYAJAYGD+IGBgAAACAAAAAAHgAqAA" +
+    "CwAPAAABIzUhFSMRIxUjNTMhNTMVASBgASBgYMDA/uBgAkBgYP4gYGBgYAAFAAAAAAHgAqAABwAPABcAGwAfAAAhIzUjNTMVMwEz" +
+    "ETMVIxEjASMVIzUzNTM1MxUjAzMVIwHgYGBgYP4gYGBgYAGAYGBgYGBgwGBgYGBgAkD+4GD+4AHgYGBgYGD+4GAAAAEAAAAAAeAC" +
+    "oAAFAAAhIREzESEB4P4gYAGAAqD9wAAAAwAAAAAB4AKgAAcADwATAAAhIxEjNTM1MyEzFTMVIxEjASM1MwHgYGBgYP4gYGBgYAEg" +
+    "YGAB4GBgYGD+IAEgwAAAAQAAAAAB4AKgABMAACEjESM1IzUjESMRMxUzFTMVMxEzAeBgYGBgYGBgYGBgASBgYP4gAqBgYGABIAAA" +
+    "AwAAAAAB4AKgAAMACwAPAAAlIxEzITMRIRUhNSMTNSEVAeBgYP4gYAEg/uBgYAEgYAHg/iBgYAHgYGAAAQAAAAAB4AKgAA0AABEh" +
+    "FTMVIzUhFSEVIREjAYBgYP7gASD+4GACoGDAwMBg/uAABAAAAAAB4AKgAAsADwAXABsAACEjNSMVIzUzNTMVMwEzESMTNSEVMxEj" +
+    "EQMzFSMB4GBgwMBgYP4gYGBgASBgYMBgYGBgYGBgAeD+IAHgYGD+gAGA/uBgAAIAAAAAAeACoAAHABkAACEjNSM1MxUzASEVMxUj" +
+    "NSEVIRUjFSM1IxEjAeBgYGBg/iABgGBg/uABIGBgYGBgYGACQGDAwMBgYGD+4AAEAAAAAAHgAqAACwATABcAGwAAJSM1ITUjNTMV" +
+    "IRUzATUhFTMVIzURITUhITUzFQHgYP7gYGABIGD+gAEgYGD+4AEg/oBgYMBgwMBgASBgYGBg/cBgYGAAAQAAAAAB4AKgAAcAAAEV" +
+    "IxEjESM1AeDAYMACoGD9wAJAYAAAAgAAAAAB4AKgAAMACwAAJSMRMyEzESEVITUjAeBgYP4gYAEg/uBgYAJA/cBgYAAAAgAAAAAB" +
+    "4AKgAAMAEwAAETMRIwEzESMVIxUjNSM1MxUzNTNgYAGAYGBgYGBgYGACoP4gAeD+IGBgYGBgYAADAAAAAAHgAqAABwAPABMAACEj" +
+    "NSM1MxEzITMRMxUjFSMTMxUjAeBgYGBg/iBgYGBgwGBgYGAB4P4gYGABgMAABQAAAAAB4AKgABMAFwAbAB8AIwAANzUzNSM1MxUz" +
+    "NTM1MxUjFSMVIxUFIzUzATUzFREjNTMhIzUzYGBgYGBgYGBgYAEgYGD+IGBgYAEgYGDAYGBgYGDAwGBgYMDAASDAwP4gwGAABAAA" +
+    "AAAB4AKgAAcACwAPABMAABE1MxUzFSM1JTMVIwc1MxUjMxEjYGBgASBgYGBgwGBgAeDAwGBgwMBgYGD+gAAAAgAAAAAB4AKgABEA" +
+    "FwAANzUzNTM1MzUhNSEVIxUjFSMVBSE1MxUhYGBgYP6AAeBgYGABIP4gYAGAwGBgYGBgwGBgYMDAYAAAAQAAAAABIAKgAAcAADER" +
+    "IRUjETMVASDAwAKgYP4gYAABAAAAAAEgAqAABwAAEyM1IREhNTPAwAEg/uDAAkBg/WBgAAABAAD/oAHgAAAAAwAAFTUhFQHgYGBg" +
+    "AAACAAAAAAHgAeAADQARAAA3NSE1ITUhFTMRITUhNQU1MxVgASD+4AEgYP6AASD+gGDAYGBgYP6AYGBgYGAAAAEAAAAAAeACoAAN" +
+    "AAARMxUhFTMRIxEhESEVIWABIGBg/uABIP6AAqDAYP7gASD+4GAAAQAAAAAB4AHgABMAAAEjNSERITUzFSMVITUjETM1IRUzAeBg" +
+    "/uABIGBg/uBgYAEgYAEgYP7gYGBgYAEgYGAAAAEAAAAAAeACoAANAAAhITUhESERIxEzNSE1MwHg/oABIP7gYGABIGBgASD+4AEg" +
+    "YMAAAgAAAAAB4AHgAAMAEQAAExUhNSUhFTMVIRUhFSE1IxEzYAEg/uABIGD+gAEg/uBgYAGAYGBgYMBgYGABIAABAAAAAAHgAqAA" +
+    "EwAAEyM1MzUzNTMVMxUjNSMVMxUjESNgYGBgwGBgwMDAYAEgYMBgYGBgwGD+4AAAAQAA/0AB4AHgABEAAAUhNSE1ITUhESERIxEz" +
+    "NSERIwGA/uABIP7gASD+4GBgAYBgwGBgYAEg/uABIGD9wAACAAAAAAHgAqAAAwALAAABMxEjATMVIRUhESMBgGBg/oBgASD+4GAB" +
+    "gP6AAqDAYP6AAAIAAAAAASACoAAJAA0AABMjNTMRMxUhNTMTIzUzYGDAYP7gYGBgYAGAYP6AYGAB4GAABAAA/0ABIAKgAAMACQAN" +
+    "ABEAABcjNTMXESM1MxERIzUzAyM1M2BgYGBgwGBgYGBgYGBgAeBg/cACoGD8oGAAAAIAAAAAAYACoAATABcAABEzETM1MzUzFSMV" +
+    "IxUzFSM1IxUjISM1M2BgYGBgYGBgYGABgGBgAqD+gGBgYGBgYGDAYAAAAQAAAAABIAKgAAkAABMjNTMRMxUhNTNgYMBg/uBgAkBg" +
+    "/cBgYAADAAAAAAHgAeAABwANABEAACEjESM1MxUzJTMVIxEjEzMVIwHgYGBgYP4gwGBgwGBgAYBgYGBg/oABgMAAAAEAAAAAAeAB" +
+    "4AAJAAAhIxEhESMRIRUzAeBg/uBgAYBgAYD+gAHgYAABAAAAAAHgAeAADwAAJSMRIREhFSE1IxEzNSEVMwHgYP7gASD+4GBgASBg" +
+    "YAEg/uBgYAEgYGAAAAEAAP9AAeAB4AANAAAlIxEhESEVIRUjESEVMwHgYP7gASD+4GABgGBgASD+4GDAAqBgAAABAAD/QAHgAeAA" +
+    "DQAABSM1ITUhESERIxEzNSEB4GD+4AEg/uBgYAGAwMBgASD+4AEgYAAAAQAAAAAB4AHgAA8AAAEjNSMVIxEjETMVMzUzFTMB4GDA" +
+    "YGBgYMBgASBgYP7gAeBgYGAAAAQAAAAAAeAB4AAHAAsADwATAAA3NSEVMxUjNSUVIzU3IRUhASE1IWABIGBg/uBgYAGA/oABIP6A" +
+    "AYDAYGBgYMBgYGBg/oBgAAIAAAAAAYACoAALABMAABMjNTM1MxUzFSMRIyUVIxUjNTM1YGBgYMDAYAEgYGBgAYBgwMBg/uBgYGBg" +
+    "YAAAAgAAAAAB4AHgAAUACQAAISE1IREzITMRIwHg/oABIGD+IGBgYAGA/oAAAgAAAAAB4AHgAAMAEwAAETMRIwEzESMVIxUjNSM1" +
+    "MxUzNTNgYAGAYGBgYGBgYGAB4P7gASD+4GBgYGBgYAADAAAAAAHgAeAAAwAPABMAACUjETMhMxEzETMRIxUjNSMFIzUzAeBgYP4g" +
+    "YGBgYGBgAYBgYGABgP6AASD+4GBgYGAAAAgAAAAAAeAB4AAHAAsADwATABcAGwAfACMAACEjNSM1MxUzATUzFREVIzUBNTMVASM1" +
+    "MzcjNTMHIzUzFTMVIwHgYGBgYP4gYGABgGD+4GBgwGBgwGBgYGBgYGABIGBg/uBgYAEgYGD+4GBgYGBgYGAAAAIAAP9AAeAB4AAL" +
+    "AA8AAAUhNSE1ITUhETMRIwEzESMBgP7gASD+4AEgYGD+gGBgwGBgYAGA/cACQP6AAAMAAAAAAeAB4AAHAA8AEwAAISE1MzUzFSEB" +
+    "NSEVIxUjNQczFSMB4P4gYGABIP4gAeBgYGBgYGBgYAEgYGBgYGBgAAQAAAEgAYACoAADAAcACwAPAAARMxUjJSM1MxE1MxUFNTMV" +
+    "YGABIMDAYP7gwAJAwMBg/uDAwGBgYAABAGABIADAAYAAAwAAExUjNcBgAYBgYAABAAAAAAGAAqAADwAAETMVMxUzFTMVIxUjFSMV" +
+    "I2BgYGBgYGBgAqBgYGBgYGBgAAAAAAwAlgABAAAAAAABAAwAAAABAAAAAAACAAcADAABAAAAAAADABQAEwABAAAAAAAEABQAJwAB" +
+    "AAAAAAAFAAMAOwABAAAAAAAGABQAEwADAAEECQABABgAPgADAAEECQACAA4AVgADAAEECQADACgAZAADAAEECQAEACgAjAADAAEE" +
+    "CQAFAAYAtAADAAEECQAGACgAZExvbW9XZWJQaXhlbFJlZ3VsYXJMb21vV2ViUGl4ZWwtUmVndWxhckxvbW9XZWJQaXhlbCBSZWd1" +
+    "bGFyMi4wAEwAbwBtAG8AVwBlAGIAUABpAHgAZQBsAFIAZQBnAHUAbABhAHIATABvAG0AbwBXAGUAYgBQAGkAeABlAGwALQBSAGUA" +
+    "ZwB1AGwAYQByAEwAbwBtAG8AVwBlAGIAUABpAHgAZQBsACAAUgBlAGcAdQBsAGEAcgAyAC4AMAACAAAAAAAAAAAAAAAAAAAAAAAA" +
+    "AAAAAAAAAAAAAAAAAFkAAAECAQMBBAEFAQYBBwEIAQkBCgELAQwBDQEOAQ8BEAERARIBEwEUARUBFgEXARgBGQEaARsBHAEdAR4B" +
+    "HwEgASEBIgEjASQBJQEmAScBKAEpASoBKwEsAS0BLgEvATABMQEyATMBNAE1ATYBNwE4ATkBOgE7ATwBPQE+AT8BQAFBAUIBQwFE" +
+    "AUUBRgFHAUgBSQFKAUsBTAFNAU4BTwFQAVEBUgFTAVQBVQFWAVcBWAFZBGdfMzIEZ18zMwRnXzM0BGdfMzUEZ18zNwRnXzM4BGdf" +
+    "MzkEZ180MARnXzQxBGdfNDIEZ180MwRnXzQ0BGdfNDUEZ180NgRnXzQ3BGdfNDgEZ180OQRnXzUwBGdfNTEEZ181MgRnXzUzBGdf" +
+    "NTQEZ181NQRnXzU2BGdfNTcEZ181OARnXzYwBGdfNjIEZ182MwRnXzY0BGdfNjUEZ182NgRnXzY3BGdfNjgEZ182OQRnXzcwBGdf" +
+    "NzEEZ183MgRnXzczBGdfNzQEZ183NQRnXzc2BGdfNzcEZ183OARnXzc5BGdfODAEZ184MQRnXzgyBGdfODMEZ184NARnXzg1BGdf" +
+    "ODYEZ184NwRnXzg4BGdfODkEZ185MARnXzkxBGdfOTMEZ185NQRnXzk3BGdfOTgEZ185OQVnXzEwMAVnXzEwMQVnXzEwMgVnXzEw" +
+    "MwVnXzEwNAVnXzEwNQVnXzEwNgVnXzEwNwVnXzEwOAVnXzEwOQVnXzExMAVnXzExMQVnXzExMgVnXzExMwVnXzExNAVnXzExNQVn" +
+    "XzExNgVnXzExNwVnXzExOAVnXzExOQVnXzEyMAVnXzEyMQVnXzEyMgVnXzE3NgVnXzE4MwZnXzk2NTYA"
 
-val LocalRetro80sMode = compositionLocalOf { false }
-// "green" = Green Phosphor, "amber" = Amber Orange, "holomap" = Glowing Red & Cyan Retro-Futuristic
-val LocalRetro80sColorTheme = compositionLocalOf { "green" }
+private var cachedLomoFontFamily: FontFamily? = null
 
-@Composable
-fun rememberRetroPrimaryColor(fallbackAccent: Color = Color(0xFF9EFF78)): Color {
-    val isRetro = LocalRetro80sMode.current
-    val theme = LocalRetro80sColorTheme.current
-    return when {
-        !isRetro -> fallbackAccent
-        theme == "holomap" -> Color(0xFF26FFFF) // Bright Glowing Cyan
-        theme == "amber" -> Color(0xFFFFB830)   // Bright Glowing Amber
-        else -> Color(0xFF9EFF78)               // Bright Glowing Green Phosphor
-    }
-}
-
-@Composable
-fun rememberRetroSecondaryColor(fallbackAccent: Color = Color(0xFF9EFF78)): Color {
-    val isRetro = LocalRetro80sMode.current
-    val theme = LocalRetro80sColorTheme.current
-    return when {
-        !isRetro -> fallbackAccent
-        theme == "holomap" -> Color(0xFFFF3B14) // Bright Glowing Red-Orange
-        theme == "amber" -> Color(0xFFFFB830)   // Bright Glowing Amber
-        else -> Color(0xFF9EFF78)               // Bright Glowing Green Phosphor
-    }
-}
-
-@Composable
-fun glowTextStyle(
-    color: Color,
-    blurRadius: Float = 20f
-): TextStyle {
-    val isRetro = LocalRetro80sMode.current
-    val theme = LocalRetro80sColorTheme.current
-    if (!isRetro) return TextStyle.Default
-    val haloColor = when {
-        color == Color.Black || color.alpha < 0.2f -> Color.Transparent
-        theme == "holomap" && color.red > color.blue -> Color(0xFFFF1E00)
-        theme == "holomap" -> Color(0xFF00E5FF)
-        theme == "amber" -> Color(0xFFFF8800)
-        else -> Color(0xFF39FF14)
-    }
-    return if (haloColor == Color.Transparent) {
-        TextStyle.Default
-    } else {
-        TextStyle(
-            shadow = Shadow(
-                color = haloColor,
-                offset = Offset.Zero,
-                blurRadius = blurRadius
-            )
-        )
-    }
-}
-
-fun Modifier.retroNeonBorder(
-    width: Dp,
-    color: Color,
-    shape: Shape = RectangleShape,
-    glowEnabled: Boolean = false,
-    glowRadiusDp: Dp = 7.dp
-): Modifier = if (!glowEnabled) {
-    this.border(width, color, shape)
-} else {
-    this
-        .drawBehind {
-            val strokePx = width.toPx().coerceAtLeast(1f)
-            val glowPx = glowRadiusDp.toPx().coerceAtLeast(2f)
-            drawIntoCanvas { canvas ->
-                val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                    style = android.graphics.Paint.Style.STROKE
-                    strokeWidth = strokePx * 1.8f
-                    this.color = android.graphics.Color.argb(
-                        175,
-                        (color.red * 255).toInt().coerceIn(0, 255),
-                        (color.green * 255).toInt().coerceIn(0, 255),
-                        (color.blue * 255).toInt().coerceIn(0, 255)
-                    )
-                    maskFilter = BlurMaskFilter(glowPx, BlurMaskFilter.Blur.NORMAL)
-                }
-                canvas.nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
-            }
+fun getLomoPixelFontFamily(context: Context): FontFamily {
+    cachedLomoFontFamily?.let { return it }
+    return try {
+        val ttfFile = File(context.cacheDir, "lomo_web_pixel_v3.ttf")
+        if (!ttfFile.exists() || ttfFile.length() == 0L) {
+            val bytes = Base64.decode(LOMO_PIXEL_TTF_B64, Base64.DEFAULT)
+            ttfFile.writeBytes(bytes)
         }
-        .border(width, color, shape)
+        val tf = Typeface.createFromFile(ttfFile)
+        FontFamily(tf).also { cachedLomoFontFamily = it }
+    } catch (e: Exception) {
+        FontFamily.Monospace
+    }
 }
 
+// ============================================================================
+// DATA MODELS
+// ============================================================================
 data class AppEntry(
     val label: String,
     val packageName: String,
     val firstLetter: Char,
     val isPinned: Boolean = false,
+    val isHidden: Boolean = false,
     val isSystemApp: Boolean = false
 )
 
 enum class LauncherView {
-    HOME_AND_DRAWER,
-    SETTINGS,
-    WIDGETS
+    HOME_AND_DRAWER, WIDGETS, SETTINGS
 }
 
-enum class PrebuiltFont(
-    val id: String,
-    val displayName: String,
-    val shortLabel: String,
-    val uppercaseHome: Boolean
-) {
-    LOMO_PIXEL("lomo_pixel", "Lomo Pixel (5x7 Dot Matrix)", "LOMO", true),
-    NDOT("ndot", "Nothing N-Dot (All-Caps Matrix)", "NDOT", true),
-    DOT_MATRIX("dot_matrix", "Nothing Dot-Matrix (Mixed Case)", "DOT", false),
-    IBM_CRT("ibm_crt", "IBM Retro CRT (80s Terminal)", "IBM", true),
-    ARCADE_8BIT("arcade_8bit", "Arcade 8-Bit ( High Score )", "8BIT", true),
-    VCR_OSD("vcr_osd", "VCR OSD Mono ( Camcorder )", "VCR", true),
-    CASIO_LCD("casio_lcd", "Casio Digital LCD ( Quartz )", "LCD", true),
-    CYBER_TERM("cyber_term", "Cyber Terminal ( Tactical )", "CYBR", true),
-    SWISS_GROTESK("swiss_grotesk", "Swiss Grotesk ( Clean Sans )", "SWIS", false),
-    BAUHAUS_GEO("bauhaus_geo", "Bauhaus Geometric ( Caps )", "BAUH", true),
-    JETBRAINS_MONO("jetbrains_mono", "JetBrains Tech Mono ( Code )", "MONO", false),
-    SPACE_MONO("space_mono", "Space Mono ( Telemetry )", "SPCE", true),
-    EDITORIAL_SERIF("editorial_serif", "Minimal Editorial Serif", "SERF", false),
-    ULTRA_THIN("ultra_thin", "Ultra Thin Sans ( Light )", "THIN", false);
-
-    fun resolveFontFamily(lomoFontFamily: FontFamily): FontFamily = when (this) {
-        LOMO_PIXEL, NDOT, DOT_MATRIX, IBM_CRT, ARCADE_8BIT, VCR_OSD, CASIO_LCD -> lomoFontFamily
-        CYBER_TERM, JETBRAINS_MONO, SPACE_MONO -> FontFamily.Monospace
-        EDITORIAL_SERIF -> FontFamily.Serif
-        SWISS_GROTESK, BAUHAUS_GEO, ULTRA_THIN -> FontFamily.SansSerif
-    }
-
-    companion object {
-        fun fromId(id: String?): PrebuiltFont = values().firstOrNull { it.id == id } ?: LOMO_PIXEL
-    }
-}
-
-val LAUNCHER_ACCENT_PALETTE: List<Pair<String, String>> = listOf(
-    "#FF3B00" to "CMF ORG",
-    "#D71921" to "NTH RED",
-    "#FFFFFF" to "PURE WHT",
-    "#00FF66" to "CRT GRN",
-    "#00E5FF" to "CYN HUD",
-    "#FFB000" to "AMB CRT",
-    "#A855F7" to "VIOLET",
-    "#3B82F6" to "COBALT",
-    "#EC4899" to "NEON PNK",
-    "#A3A3A3" to "MONO GRY"
+private val LAUNCHER_ACCENT_PALETTE: List<Pair<String, String>> = listOf(
+    "#FF3B00" to "CMF",
+    "#FFFFFF" to "WHT",
+    "#D71921" to "RED",
+    "#00FF66" to "GRN",
+    "#00E5FF" to "CYN",
+    "#FFB000" to "AMB",
+    "#A855F7" to "VLT",
+    "#3B82F6" to "BLU",
+    "#FF2A85" to "MAG",
+    "#10B981" to "MNT"
 )
 
-fun resolveLauncherAccentColor(hex: String): Color = when (hex.uppercase(Locale.US)) {
-    "#FF3B00" -> Color(0xFFFF3B00)
-    "#D71921" -> Color(0xFFD71921)
+private fun resolveLauncherAccentColor(hex: String): Color = when (hex.uppercase(Locale.US)) {
     "#FFFFFF" -> Color(0xFFFFFFFF)
+    "#D71921" -> Color(0xFFD71921)
     "#00FF66" -> Color(0xFF00FF66)
     "#00E5FF" -> Color(0xFF00E5FF)
     "#FFB000" -> Color(0xFFFFB000)
     "#A855F7" -> Color(0xFFA855F7)
     "#3B82F6" -> Color(0xFF3B82F6)
-    "#EC4899" -> Color(0xFFEC4899)
-    "#A3A3A3" -> Color(0xFFA3A3A3)
-    "#7CFF5B", "#9EFF78" -> Color(0xFF9EFF78)
-    "#FF8800", "#FFB830" -> Color(0xFFFFB830)
-    "#26FFFF" -> Color(0xFF26FFFF)
-    "#FF3B14" -> Color(0xFFFF3B14)
+    "#FF2A85" -> Color(0xFFFF2A85)
+    "#10B981" -> Color(0xFF10B981)
     else -> Color(0xFFFF3B00)
 }
 
+enum class PrebuiltFont(
+    val id: String,
+    val shortLabel: String,
+    val displayName: String,
+    val uppercaseHome: Boolean
+) {
+    LOMO_PIXEL("dot", "PIXEL", "Lomo Web Pixel (Default · 1px Thin)", false),
+    LOMO_CAPS("ndot", "CAPS", "Lomo Web Pixel (Uppercase)", true),
+    TECH_MONO("mono", "MONO", "JetBrains Tech Mono", false),
+    SPACE_MONO("spacemono", "TECH", "Space Mono Industrial Bold", false),
+    CLEAN_SANS("sans", "SANS", "Clean Geometric Sans", false),
+    EDITORIAL("editorial", "SERIF", "Minimal Editorial Serif", false),
+    CONDENSED_SANS("condensed", "COND", "Cyber Condensed Sans", false),
+    CONDENSED_BOLD("cond_bold", "CND-B", "Industrial Condensed Caps", true),
+    ULTRA_THIN("thin", "THIN", "Ultra-Thin Hairline Sans", false),
+    LIGHT_SANS("light", "LIGHT", "Swiss Light Minimal", false),
+    SMALL_CAPS("smallcaps", "SCAPS", "Architectural Small Caps", false),
+    HEAVY_BLACK("black", "HEAVY", "Brutalist Heavy Black", false),
+    SLAB_MONO("serif_mono", "TYPE", "Typewriter Slab Mono", false),
+    SCRIPT_CURSIVE("cursive", "SCRPT", "Minimalist Script Cursive", false);
+
+    fun resolveFontFamily(lomoFamily: FontFamily): FontFamily = when (this) {
+        LOMO_PIXEL, LOMO_CAPS -> lomoFamily
+        TECH_MONO -> FontFamily.Monospace
+        SPACE_MONO -> resolveSystemTypeface("monospace", Typeface.BOLD)
+        CLEAN_SANS -> FontFamily.SansSerif
+        EDITORIAL -> FontFamily.Serif
+        CONDENSED_SANS -> resolveSystemTypeface("sans-serif-condensed", Typeface.NORMAL)
+        CONDENSED_BOLD -> resolveSystemTypeface("sans-serif-condensed", Typeface.BOLD)
+        ULTRA_THIN -> resolveSystemTypeface("sans-serif-thin", Typeface.NORMAL)
+        LIGHT_SANS -> resolveSystemTypeface("sans-serif-light", Typeface.NORMAL)
+        SMALL_CAPS -> resolveSystemTypeface("sans-serif-smallcaps", Typeface.NORMAL)
+        HEAVY_BLACK -> resolveSystemTypeface("sans-serif-black", Typeface.NORMAL)
+        SLAB_MONO -> resolveSystemTypeface("serif-monospace", Typeface.NORMAL)
+        SCRIPT_CURSIVE -> resolveSystemTypeface("cursive", Typeface.NORMAL)
+    }
+
+    companion object {
+        private val systemTypefaceCache = mutableMapOf<String, FontFamily>()
+
+        private fun resolveSystemTypeface(familyName: String, style: Int): FontFamily {
+            val key = "$familyName:$style"
+            return systemTypefaceCache.getOrPut(key) {
+                try {
+                    FontFamily(Typeface.create(familyName, style))
+                } catch (_: Exception) {
+                    FontFamily.SansSerif
+                }
+            }
+        }
+
+        fun fromId(id: String): PrebuiltFont = values().find { it.id == id } ?: LOMO_PIXEL
+    }
+}
+
+// ============================================================================
+// HOME SCREEN BOUNDARY & SPACE CALCULATOR (v4.9.1-cmf)
+// Calculates exact vertical height of active widgets + pinned Home apps (and scale)
+// to prevent overflow/scrolling and trigger the "NO SPACE LEFT" popup when full.
+// ============================================================================
+private fun estimateSingleWidgetHeightDp(widgetId: String, sizeMode: String): Float = when (widgetId) {
+    "clock" -> when (sizeMode) {
+        "compact" -> 28f
+        "large" -> 108f
+        "xlarge" -> 128f
+        "max" -> 152f
+        else -> 84f
+    }
+    "battery_bar" -> when (sizeMode) {
+        "compact" -> 42f
+        "large" -> 68f
+        else -> 54f
+    }
+    "retro_flip_clock" -> when (sizeMode) {
+        "compact" -> 54f
+        "large" -> 92f
+        "xlarge" -> 106f
+        "max" -> 122f
+        else -> 80f
+    }
+    "analog_chrono" -> when (sizeMode) {
+        "compact" -> 76f
+        "large" -> 124f
+        "xlarge" -> 146f
+        "max" -> 172f
+        else -> 102f
+    }
+    "precision_chrono" -> when (sizeMode) {
+        "compact" -> 78f
+        "large" -> 130f
+        "xlarge" -> 154f
+        "max" -> 174f
+        else -> 106f
+    }
+    "globe" -> when (sizeMode) {
+        "compact" -> 135f
+        "large" -> 265f
+        "xlarge" -> 330f
+        "max" -> 395f
+        else -> 195f
+    }
+    "week_strip" -> when (sizeMode) {
+        "compact" -> 54f
+        "large" -> 92f
+        else -> 72f
+    }
+    "retro_calendar" -> when (sizeMode) {
+        "compact" -> 122f
+        "large" -> 188f
+        else -> 154f
+    }
+    "year_matrix" -> when (sizeMode) {
+        "compact" -> 78f
+        "large" -> 124f
+        else -> 98f
+    }
+    "storage" -> when (sizeMode) {
+        "compact" -> 24f
+        "large" -> 48f
+        else -> 36f
+    }
+    "pinned_apps" -> 0f
+    else -> when (sizeMode) { // torch, zen, quote, scratchpad
+        "compact" -> 24f
+        "large" -> 40f
+        else -> 30f
+    }
+}
+
+private fun estimateWidgetsStackHeightDp(
+    widgets: List<String>,
+    sizes: Map<String, String>
+): Float {
+    if (widgets.isEmpty()) return 0f
+    var total = 0f
+    for (id in widgets) {
+        val sz = sizes[id] ?: "standard"
+        total += estimateSingleWidgetHeightDp(id, sz)
+    }
+    total += (widgets.size - 1).coerceAtLeast(0) * 10f
+    return total
+}
+
+private fun estimatePinnedAppsHeightDp(pinnedCount: Int, textSizeSp: Int): Float {
+    if (pinnedCount <= 0) return 0f
+    // Each pinned app row has 12dp vertical padding (6dp top + 6dp bottom) + tight line height (~1.12 * textSizeSp)
+    val rowHeightDp = 12f + (textSizeSp * 1.12f)
+    return pinnedCount * rowHeightDp
+}
+
+// ============================================================================
+// iOS PHYSICAL RUBBER-BAND SPRING SCALE-FADE POPUP ENGINE (Nocturnaa v4.9.1-cmf)
+// - Starts slightly smaller (scale = 0.80f) and rapidly expands to full size (1.00f)
+//   while fading in from transparent (0f -> 1f) as the background simultaneously dims.
+// - Uses an underdamped physical rubber-band spring (dampingRatio = 0.62f, stiffness = 440f)
+//   so the popup gently bounces past its native 1.00f boundaries (~1.015f-1.022f)
+//   before snapping into its crisp 1.000f resting position.
+// ============================================================================
 @Composable
-fun rememberIosPopupProgress(
-    isVisible: Boolean,
-    label: String
-): State<Float> {
+fun rememberIosPopupProgress(isVisible: Boolean, label: String = "iosPopupSpring"): State<Float> {
     return animateFloatAsState(
         targetValue = if (isVisible) 1f else 0f,
         animationSpec = if (isVisible) {
             spring(
-                dampingRatio = 0.78f,
-                stiffness = Spring.StiffnessMediumLow
+                dampingRatio = 0.62f,
+                stiffness = 440f,
+                visibilityThreshold = 0.0005f
             )
         } else {
-            tween(durationMillis = 170, easing = FastOutSlowInEasing)
+            spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = 620f,
+                visibilityThreshold = 0.0005f
+            )
         },
         label = label
     )
@@ -311,243 +498,661 @@ fun rememberIosPopupProgress(
 
 fun Modifier.iosPopupWindowLayer(
     progress: Float,
-    initialScale: Float = 0.82f
+    initialScale: Float = 0.80f
 ): Modifier = this.graphicsLayer {
-    val p = progress.coerceIn(0f, 1.08f)
-    val scale = initialScale + (1f - initialScale) * p
-    scaleX = scale
-    scaleY = scale
-    alpha = progress.coerceIn(0f, 1f)
+    // Do NOT clamp upper bound of p on scale so the rubber-band spring overshoot (> 1.0f)
+    // physically bounces the window past its native boundary before snapping to 1.0f!
+    val p = progress.coerceAtLeast(0f)
+    alpha = (p * 1.45f).coerceIn(0f, 1f)
+    val s = initialScale + (1f - initialScale) * p
+    scaleX = s
+    scaleY = s
+    transformOrigin = TransformOrigin.Center
 }
 
+// ============================================================================
+// GLOBAL COMPOSITION LOCALS FOR 80s CRT TERMINAL UI & PHOSPHOR COLOR THEME
+// Automatically switches all Settings, Popups, Menus, App Drawer & Widget Manager
+// to an authentic 80s IBM/DOS CRT Terminal UI when 80s CRT Mode is ON, and reverts
+// 100% back to normal when turned OFF!
+// ============================================================================
+val LocalRetro80sMode = compositionLocalOf { false }
+val LocalRetro80sColorTheme = compositionLocalOf { "green" } // "green" (P1 Green) or "amber" (P3 Amber/Orange)
 
+// ============================================================================
+// MAIN LAUNCHER ACTIVITY — NOCTURNAA (CMF by Nothing Phone 1 · Android 14 / Nothing OS 2.6)
+// ============================================================================
 class MainActivity : ComponentActivity() {
+
+    private lateinit var prefs: SharedPreferences
+    private var hideDefaultAndroidStatusBar by mutableStateOf(true)
+    private var packageRefreshTrigger by mutableStateOf(0)
+    private var homeIntentTrigger by mutableStateOf(0)
+    private var userWallpaperRefreshTrigger by mutableStateOf(0)
+
+    private val packageBroadcastReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            packageRefreshTrigger++
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        title = "Nocturnaa"
+        try {
+            setTaskDescription(ActivityManager.TaskDescription("Nocturnaa"))
+        } catch (_: Exception) {
+        }
+        prefs = getSharedPreferences("cmf_ntext_prefs", Context.MODE_PRIVATE)
+        hideDefaultAndroidStatusBar = prefs.getBoolean("hide_android_bar", true)
+
+        // Listen for app installs/uninstalls so the app list updates immediately
+        val pkgFilter = IntentFilter().apply {
+            addAction(Intent.ACTION_PACKAGE_ADDED)
+            addAction(Intent.ACTION_PACKAGE_REMOVED)
+            addAction(Intent.ACTION_PACKAGE_FULLY_REMOVED)
+            addAction(Intent.ACTION_PACKAGE_REPLACED)
+            addDataScheme("package")
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(packageBroadcastReceiver, pkgFilter, Context.RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(packageBroadcastReceiver, pkgFilter)
+        }
+
+        // Configure edge-to-edge WindowInsets & Lock 120Hz Display Refresh Rate on CMF Phone 1
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            window.attributes = window.attributes.apply {
-                layoutInDisplayCutoutMode =
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        enableHighRefreshRate120Hz()
+        applySystemStatusBarVisibility(hideDefaultAndroidStatusBar)
+        dismissKeyboardHard()
+
+        setContent {
+            NTextLauncherApp(
+                activity = this,
+                prefs = prefs,
+                packageRefreshTrigger = packageRefreshTrigger,
+                homeIntentTrigger = homeIntentTrigger,
+                userWallpaperRefreshTrigger = userWallpaperRefreshTrigger,
+                onDismissKeyboardHard = { dismissKeyboardHard() },
+                onToggleAndroidStatusBar = { hide ->
+                    hideDefaultAndroidStatusBar = hide
+                    prefs.edit().putBoolean("hide_android_bar", hide).apply()
+                    applySystemStatusBarVisibility(hide)
+                },
+                onExpandNotifications = { expandSystemNotificationsPanel() },
+                onRequestDefaultHomeRole = { requestDefaultHomeLauncher() },
+                onOpenSystemWallpaperPicker = { openSystemWallpaperChooser() },
+                onPickCustomWallpaperImage = { pickCustomUserWallpaperFromGallery() },
+                onRequestSystemUninstall = { pkg -> triggerSystemWideAppUninstall(pkg) }
+            )
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // Swiping up from the Android 14 navigation bar or pressing Home dispatches ACTION_MAIN / CATEGORY_HOME
+        homeIntentTrigger++
+        dismissKeyboardHard()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        enableHighRefreshRate120Hz()
+        applySystemStatusBarVisibility(hideDefaultAndroidStatusBar)
+        dismissKeyboardHard()
+    }
+
+    private fun enableHighRefreshRate120Hz() {
+        try {
+            val disp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                display
+            } else {
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay
+            }
+            val modes = disp?.supportedModes
+            val bestMode = modes?.maxWithOrNull(
+                compareBy<android.view.Display.Mode> { it.physicalWidth * it.physicalHeight }
+                    .thenBy { it.refreshRate }
+            )
+            val lp = window.attributes
+            if (bestMode != null) {
+                lp.preferredDisplayModeId = bestMode.modeId
+                lp.preferredRefreshRate = bestMode.refreshRate.coerceAtLeast(120f)
+            } else {
+                lp.preferredRefreshRate = 120f
+            }
+            window.attributes = lp
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun dismissKeyboardHard() {
+        try {
+            currentFocus?.clearFocus()
+            window.decorView.clearFocus()
+            WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.ime())
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.hideSoftInputFromWindow(window.decorView.windowToken, 0)
+        } catch (_: Exception) {
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            unregisterReceiver(packageBroadcastReceiver)
+        } catch (_: Exception) {
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applySystemStatusBarVisibility(hideStockBar: Boolean) {
+        try {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.isStatusBarContrastEnforced = false
+                window.isNavigationBarContrastEnforced = false
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                window.attributes = window.attributes.apply {
+                    layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                window.attributes = window.attributes.apply {
+                    layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (hideStockBar) {
+            controller.hide(WindowInsetsCompat.Type.statusBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.statusBars())
+        }
+    }
+
+    @SuppressLint("WrongConstant", "PrivateApi")
+    private fun expandSystemNotificationsPanel() {
+        // 1. Expand the Android System Notification Shade via StatusBarManager reflection
+        try {
+            val statusBarService = getSystemService("statusbar")
+            if (statusBarService != null) {
+                val statusBarManager = Class.forName("android.app.StatusBarManager")
+                val expandMethod = statusBarManager.getMethod("expandNotificationsPanel")
+                expandMethod.isAccessible = true
+                expandMethod.invoke(statusBarService)
+                return
+            }
+        } catch (_: Exception) {
+        }
+        // 2. Fallback if EXPAND_STATUS_BAR permission wasn't added to AndroidManifest.xml yet:
+        // temporarily reveal the system status bar so the user can see/pull notifications
+        try {
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            controller.show(WindowInsetsCompat.Type.statusBars())
+        } catch (_: Exception) {
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun triggerSystemWideAppUninstall(pkg: String) {
+        try {
+            val appInfo = packageManager.getApplicationInfo(pkg, 0)
+            val isSystemApp = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0 &&
+                (appInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0
+            if (isSystemApp) {
+                Toast.makeText(
+                    this,
+                    "System app cannot be uninstalled; opening App Info",
+                    Toast.LENGTH_SHORT
+                ).show()
+                openSystemAppDetails(pkg)
+                return
+            }
+        } catch (_: Exception) {
+        }
+
+        val hasDeletePerm = checkSelfPermission(android.Manifest.permission.REQUEST_DELETE_PACKAGES) ==
+            PackageManager.PERMISSION_GRANTED
+
+        if (hasDeletePerm) {
+            try {
+                val pkgUri = Uri.fromParts("package", pkg, null)
+                val deleteIntent = Intent(Intent.ACTION_DELETE, pkgUri).apply {
+                    putExtra(Intent.EXTRA_RETURN_RESULT, true)
+                }
+                startActivityForResult(deleteIntent, 2002)
+                return
+            } catch (_: Exception) {
             }
         }
-        setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    background = Color.Black,
-                    surface = Color.Black,
-                    primary = Color.White,
-                    onBackground = Color.White,
-                    onSurface = Color.White
-                )
-            ) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = Color.Black
-                ) {
-                    NTextLauncherApp()
+
+        // If REQUEST_DELETE_PACKAGES is missing from AndroidManifest.xml on GitHub,
+        // still try ACTION_DELETE and fall back to the system App Details screen where Uninstall lives
+        try {
+            val pkgUri = Uri.fromParts("package", pkg, null)
+            val deleteIntent = Intent(Intent.ACTION_DELETE, pkgUri)
+            startActivity(deleteIntent)
+            if (!hasDeletePerm) {
+                Toast.makeText(
+                    this,
+                    "Add REQUEST_DELETE_PACKAGES to AndroidManifest.xml if uninstall popup didn't appear",
+                    Toast.LENGTH_LONG
+                ).show()
+                openSystemAppDetails(pkg)
+            }
+        } catch (_: Exception) {
+            openSystemAppDetails(pkg)
+        }
+    }
+
+    private fun openSystemAppDetails(pkg: String) {
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", pkg, null)
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun requestDefaultHomeLauncher() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = getSystemService(RoleManager::class.java)
+            if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_HOME)) {
+                if (!roleManager.isRoleHeld(RoleManager.ROLE_HOME)) {
+                    val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME)
+                    startActivityForResult(intent, 1001)
+                    return
                 }
             }
         }
+        startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
     }
-}
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun NTextLauncherApp() {
-    val context = LocalContext.current
-    val view = LocalView.current
-    val density = LocalDensity.current
-    val configuration = LocalConfiguration.current
-    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx().coerceAtLeast(1f) }
-    val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx().coerceAtLeast(1f) }
-    val scope = rememberCoroutineScope()
-    val prefs = remember { context.getSharedPreferences("cmf_ntext_prefs", Context.MODE_PRIVATE) }
+    private fun openSystemWallpaperChooser() {
+        val intent = Intent(Intent.ACTION_SET_WALLPAPER)
+        startActivity(Intent.createChooser(intent, "Select Wallpaper"))
+    }
 
-    val lomoFontFamily = remember {
+    @Suppress("DEPRECATION")
+    private fun pickCustomUserWallpaperFromGallery() {
         try {
-            FontFamily(Font(R.font.lomo_pixel, FontWeight.Normal))
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "image/*"
+            }
+            startActivityForResult(intent, 3003)
         } catch (_: Exception) {
-            FontFamily.Monospace
+            try {
+                val fallback = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    type = "image/*"
+                }
+                startActivityForResult(Intent.createChooser(fallback, "Select Wallpaper Image"), 3003)
+            } catch (_: Exception) {
+            }
         }
     }
 
-    var currentView by remember { mutableStateOf(LauncherView.HOME_AND_DRAWER) }
-    var editMode by remember { mutableStateOf(false) }
-    var showHomeQuickMenu by remember { mutableStateOf(false) }
-    var contextMenuTarget by remember { mutableStateOf<Pair<AppEntry, Boolean>?>(null) }
-    var showNoSpacePopup by remember { mutableStateOf(false) }
-    var noSpacePopupMessage by remember { mutableStateOf("") }
-
-    fun triggerNoSpaceLeftPopup(msg: String) {
-        noSpacePopupMessage = msg
-        showNoSpacePopup = true
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 3003 && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            try {
+                // Decode with bounds check so large camera photos fit smoothly in memory
+                val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, boundsOpts)
+                }
+                var sampleSize = 1
+                val maxSide = max(boundsOpts.outWidth, boundsOpts.outHeight)
+                while (maxSide / sampleSize > 2400) {
+                    sampleSize *= 2
+                }
+                val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+                val bmp = contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, decodeOpts)
+                }
+                if (bmp != null) {
+                    val outFile = File(filesDir, "user_custom_wallpaper.jpg")
+                    outFile.outputStream().use { out ->
+                        bmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                    }
+                    prefs.edit().putString("wallpaper", "user_image").apply()
+                    userWallpaperRefreshTrigger++
+                    Toast.makeText(this, "Custom wallpaper applied", Toast.LENGTH_SHORT).show()
+                }
+            } catch (_: Exception) {
+                Toast.makeText(this, "Could not load selected image", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
+}
 
-    var fontId by remember { mutableStateOf(prefs.getString("font_id", "lomo_pixel") ?: "lomo_pixel") }
-    var textAlignMode by remember { mutableStateOf(prefs.getString("align_mode", "left") ?: "left") }
-    var accentHex by remember { mutableStateOf(prefs.getString("accent_hex", "#FF3B00") ?: "#FF3B00") }
-    var regTextSizeSp by remember { mutableStateOf(prefs.getInt("text_size_sp", 20)) }
-    var crtTextSizeSp by remember { mutableStateOf(prefs.getInt("crt80s_text_size_v1", 18)) }
-    var drawerTextSizeSp by remember { mutableStateOf(prefs.getInt("drawer_text_size_sp", 20)) }
-    var use24Hour by remember { mutableStateOf(prefs.getBoolean("use_24h", false)) }
-    var hideAndroidBar by remember { mutableStateOf(prefs.getBoolean("hide_status_bar", true)) }
+// ============================================================================
+// MAIN COMPOSABLE ROOT
+// ============================================================================
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun NTextLauncherApp(
+    activity: ComponentActivity,
+    prefs: SharedPreferences,
+    packageRefreshTrigger: Int,
+    homeIntentTrigger: Int,
+    userWallpaperRefreshTrigger: Int,
+    onDismissKeyboardHard: () -> Unit,
+    onToggleAndroidStatusBar: (Boolean) -> Unit,
+    onExpandNotifications: () -> Unit,
+    onRequestDefaultHomeRole: () -> Unit,
+    onOpenSystemWallpaperPicker: () -> Unit,
+    onPickCustomWallpaperImage: () -> Unit,
+    onRequestSystemUninstall: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val lomoFontFamily = remember { getLomoPixelFontFamily(context) }
+
+    // Navigation, Left Home Page & App Drawer State (Launcher Settings opened via Long-Tap Menu)
+    var currentView by remember { mutableStateOf(LauncherView.HOME_AND_DRAWER) }
+    val drawerProgress = remember { Animatable(0f) }
+    val isDrawerOpen by remember { derivedStateOf { drawerProgress.value > 0.5f } }
+    val isDrawerFullyOpen by remember { derivedStateOf { drawerProgress.value >= 0.995f } }
+    val isDrawerNearClosed by remember { derivedStateOf { drawerProgress.value < 0.2f } }
+    var focusDrawerSearchOnOpen by remember { mutableStateOf(false) }
+
+    // Additional Left Home Page State (0f = Main Page, 1f = Left Page; pure horizontal slide, zero fade)
     var enableLeftPage by remember { mutableStateOf(prefs.getBoolean("enable_left_page", true)) }
+    val leftPageProgress = remember { Animatable(0f) }
+    val isOnLeftPage by remember { derivedStateOf { enableLeftPage && leftPageProgress.value > 0.5f } }
 
-    // Old School Mode & Theme ("green" = Green Phosphor, "amber" = Amber Orange, "holomap" = Glowing Red & Cyan)
-    var retro80sMode by remember { mutableStateOf(prefs.getBoolean("retro_80s_green_mode", false)) }
-    var retro80sColorTheme by remember { mutableStateOf(prefs.getString("retro_80s_color_theme", "green") ?: "green") }
-    var batteryBarStyle by remember { mutableStateOf(prefs.getString("battery_bar_style", "retro_blocks") ?: "retro_blocks") }
-    var pauseWhenAppOpen by remember { mutableStateOf(prefs.getBoolean("pause_when_app_open", true)) }
-    var customPinnedOrderEnabled by remember { mutableStateOf(prefs.getBoolean("custom_pinned_order_enabled", true)) }
+    var editMode by remember { mutableStateOf(false) }
+
+    // Long-tap on Home Screen opens the Home Quick Actions Modal
+    var showHomeQuickMenu by remember { mutableStateOf(false) }
+
+    // Long-press on an App opens the App Context Menu Modal: Pair(AppEntry, isFromHomeScreen)
+    var contextMenuTarget by remember { mutableStateOf<Pair<AppEntry, Boolean>?>(null) }
+
+    // Persisted Preferences (100% Offline · Zero Internet or Unnecessary Permissions)
+    var fontId by remember { mutableStateOf(prefs.getString("font_id", "dot") ?: "dot") }
+    var textAlignMode by remember { mutableStateOf(prefs.getString("align", "left") ?: "left") }
+    var accentHex by remember { mutableStateOf(prefs.getString("accent", "#FF3B00") ?: "#FF3B00") }
+    var regTextSizeSp by remember { mutableStateOf(prefs.getInt("text_size", 20)) }
+    var crtTextSizeSp by remember { mutableStateOf(prefs.getInt("crt80s_text_size_v1", 18)) }
+    var drawerTextSizeSp by remember { mutableStateOf(prefs.getInt("drawer_text_size", 16)) }
+    var use24Hour by remember { mutableStateOf(prefs.getBoolean("use_24h_v4", false)) }
+    var hideAndroidBar by remember { mutableStateOf(prefs.getBoolean("hide_android_bar", true)) }
     var waveScrubMode by remember { mutableStateOf(prefs.getString("wave_mode", "full") ?: "full") }
     var drawerWaveIntensity by remember { mutableStateOf(prefs.getFloat("drawer_wave_intensity", 1.0f)) }
-
-    val rawSavedWp = prefs.getString("wp_preset", "oled") ?: "oled"
     var wallpaperPreset by remember {
-        mutableStateOf(if (rawSavedWp == "live_lissajous") "live_crt_scanlines" else rawSavedWp)
+        val rawWp = prefs.getString("wallpaper", "oled") ?: "oled"
+        val migratedWp = when (rawWp) {
+            "live_aurora" -> "live_embers"
+            "live_rings" -> "live_kepler"
+            "live_matrix_pulse" -> "live_starlight"
+            "live_ripples" -> "live_quantum"
+            "live_synth_grid" -> "live_lissajous"
+            else -> rawWp
+        }
+        mutableStateOf(migratedWp)
     }
-    var wallpaperDimPercent by remember { mutableStateOf(prefs.getInt("wp_dim_pct", 0)) }
+    var wallpaperDimPercent by remember { mutableStateOf(prefs.getInt("wp_dim", 0)) }
+    // Live Wallpaper Interactive Tuning Variables (Speed, Density, Glow/Opacity, Scale)
     var wpSpeed by remember { mutableStateOf(prefs.getFloat("wp_speed", 1.0f)) }
     var wpDensity by remember { mutableStateOf(prefs.getFloat("wp_density", 1.0f)) }
     var wpOpacity by remember { mutableStateOf(prefs.getFloat("wp_opacity", 1.0f)) }
     var wpScale by remember { mutableStateOf(prefs.getFloat("wp_scale", 1.0f)) }
+    // Settings Menu Background Style ("opaque", "transparent", "blurry") & Intensity (0%..100%)
     var settingsBgMode by remember { mutableStateOf(prefs.getString("settings_bg_mode", "opaque") ?: "opaque") }
-    var settingsBgIntensity by remember { mutableStateOf(prefs.getInt("settings_bg_intensity", 70)) }
+    var settingsBgIntensity by remember { mutableStateOf(prefs.getInt("settings_bg_intensity", 65)) }
+    // App Drawer Background Style ("opaque", "transparent", "blurry") & Intensity (0%..100%)
     var drawerBgMode by remember { mutableStateOf(prefs.getString("drawer_bg_mode", "opaque") ?: "opaque") }
     var drawerBgIntensity by remember { mutableStateOf(prefs.getInt("drawer_bg_intensity", 65)) }
-    var quickNote by remember { mutableStateOf(prefs.getString("quick_note", "STAY MINIMAL.") ?: "STAY MINIMAL.") }
-    var globeTheme by remember { mutableStateOf(prefs.getString("globe_theme", "retro_holo") ?: "retro_holo") }
-    var globeWireframeColor by remember { mutableStateOf(prefs.getString("globe_wf_color", "#00FF66") ?: "#00FF66") }
-    var globeTilt2dDeg by remember { mutableStateOf(prefs.getFloat("globe_tilt2d_deg", -3f)) }
-    var globeRotXDeg by remember { mutableStateOf(prefs.getFloat("globe_rotx_deg", 14f)) }
-    var globeRotYDeg by remember { mutableStateOf(prefs.getFloat("globe_roty_deg", -77f)) }
+    // Option to toggle whether Live Wallpapers and Widgets pause when an app is opened
+    var pauseWhenAppOpen by remember { mutableStateOf(prefs.getBoolean("pause_when_app_open", true)) }
+    // 80s CRT Phosphor Mode & Color Theme ("green" = P1 Light Green #7CFF5B, "amber" = P3 IBM Glowy Orange #FF8400)
+    var retro80sMode by remember { mutableStateOf(prefs.getBoolean("retro_80s_green_mode", false)) }
+    var retro80sColorTheme by remember { mutableStateOf(prefs.getString("retro_80s_color_theme", "green") ?: "green") }
+    // Battery Progress Bar Style ("retro_blocks", "segmented_led", "pill", "chevron", "ruler_ticks")
+    var batteryBarStyle by remember { mutableStateOf(prefs.getString("battery_bar_style", "retro_blocks") ?: "retro_blocks") }
+    val appLifecycleOwner = LocalLifecycleOwner.current
+    var isLauncherInForeground by remember { mutableStateOf(true) }
+    DisposableEffect(appLifecycleOwner) {
+        val obs = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME, Lifecycle.Event.ON_START -> isLauncherInForeground = true
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> isLauncherInForeground = false
+                else -> {}
+            }
+        }
+        appLifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { appLifecycleOwner.lifecycle.removeObserver(obs) }
+    }
+    val keepRunningInBackground = !pauseWhenAppOpen
+    val shouldRunWidgetsAndWallpapers = isLauncherInForeground || keepRunningInBackground
 
-    // 1. REGULAR MODE WIDGET PROFILE
+    // Sync wallpaperPreset when user imports a custom image from gallery
+    LaunchedEffect(userWallpaperRefreshTrigger) {
+        if (userWallpaperRefreshTrigger > 0) {
+            wallpaperPreset = prefs.getString("wallpaper", "user_image") ?: "user_image"
+        }
+    }
+
+    // Toggle Android Window FLAG_SHOW_WALLPAPER when "system_wallpaper" (Third-Party / System Wallpaper) is active
+    LaunchedEffect(wallpaperPreset) {
+        try {
+            if (wallpaperPreset == "system_wallpaper") {
+                activity.window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+                activity.window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+            } else {
+                activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+                activity.window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.BLACK))
+            }
+        } catch (_: Exception) {
+        }
+    }
+    var globeTheme by remember { mutableStateOf(prefs.getString("globe_theme", "retro_holo") ?: "retro_holo") }
+    var globeWireframeColor by remember { mutableStateOf(prefs.getString("globe_wf_color", "#FF3B00") ?: "#FF3B00") }
+    var globeTilt2dDeg by remember { mutableStateOf(prefs.getFloat("globe_tilt_2d_deg", -3f)) }
+    var globeRotXDeg by remember { mutableStateOf(prefs.getFloat("globe_rot_x_deg", 14f)) }
+    var globeRotYDeg by remember { mutableStateOf(prefs.getFloat("globe_rot_y_deg", -77f)) }
+
+    // ========================================================================
+    // DUAL INDEPENDENT WIDGET PROFILES:
+    // 1. REGULAR MODE WIDGET PROFILE (regActiveWidgets, regWidgetSizes, regWidgetFonts, regWidgetStyles)
+    // 2. 80s CRT MODE WIDGET PROFILE (crtActiveWidgets, crtWidgetSizes, crtWidgetFonts, crtWidgetStyles)
+    // Changing widget sizes, order, styles, or fonts in one mode NEVER affects the other mode!
+    // ========================================================================
     var regActiveWidgets by remember {
-        val saved = prefs.getString("widgets_order_v2", "clock,week_strip,pinned_apps") ?: "clock,week_strip,pinned_apps"
-        mutableStateOf(saved.split(",").map { it.trim() }.filter { it.isNotEmpty() }.distinct())
+        val savedV9 = prefs.getString("widgets_order_v9", null)
+        val rawList = if (savedV9 != null) {
+            savedV9.split(",")
+        } else {
+            val v8 = (prefs.getString("widgets_order_v8", "clock,week_strip") ?: "clock,week_strip").split(",")
+            if (v8.contains("pinned_apps")) v8 else v8 + "pinned_apps"
+        }
+        mutableStateOf(
+            rawList.filter {
+                it.isNotBlank() && it != "telemetry" && it != "blackhole" && it != "weather" && it != "pedometer" && it != "crt_world_map"
+            }
+        )
     }
     var regWidgetSizes by remember {
-        val raw = prefs.getString("widget_sizes_v2", "clock:standard,week_strip:standard,pinned_apps:standard") ?: ""
-        val map = raw.split(",").mapNotNull { pair ->
-            val parts = pair.split(":")
-            if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+        val saved = prefs.getString(
+            "widget_sizes_v7",
+            "clock:standard,battery_bar:standard,week_strip:standard,pinned_apps:large,retro_calendar:standard,year_matrix:standard,retro_flip_clock:standard,analog_chrono:standard,precision_chrono:standard,globe:standard,torch:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard"
+        ) ?: ""
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
         }.toMap()
         mutableStateOf(map)
     }
     var regWidgetFonts by remember {
-        val raw = prefs.getString("widget_fonts_v1", "") ?: ""
-        val map = raw.split(",").mapNotNull { pair ->
-            val parts = pair.split(":")
-            if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+        val saved = prefs.getString(
+            "widget_fonts_v1",
+            "clock:dot,battery_bar:dot,week_strip:dot,pinned_apps:dot,retro_calendar:dot,year_matrix:dot,retro_flip_clock:dot,analog_chrono:dot,precision_chrono:dot,torch:dot,storage:dot,quote:dot,scratchpad:dot,zen:dot"
+        ) ?: ""
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
         }.toMap()
         mutableStateOf(map)
     }
     var regWidgetStyles by remember {
-        val raw = prefs.getString(
+        val saved = prefs.getString(
             "widget_styles_v1",
-            "clock:default,battery_bar:80s_retro,week_strip:default,pinned_apps:default"
+            "clock:default,battery_bar:80s_retro,week_strip:default,pinned_apps:default,retro_calendar:default,year_matrix:default,retro_flip_clock:default,analog_chrono:default,precision_chrono:default,globe:default,torch:default,storage:default,quote:default,scratchpad:default,zen:default"
         ) ?: ""
-        val map = raw.split(",").mapNotNull { pair ->
-            val parts = pair.split(":")
-            if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
         }.toMap()
         mutableStateOf(map)
     }
     var regLeftPageWidgets by remember {
-        val saved = prefs.getString("left_widgets_order_v1", "retro_calendar,storage,scratchpad,torch,zen") ?: "retro_calendar,storage,scratchpad,torch,zen"
-        mutableStateOf(saved.split(",").map { it.trim() }.filter { it.isNotEmpty() }.distinct())
+        val saved = prefs.getString("left_widgets_order_v1", "retro_calendar,storage,scratchpad,torch,zen")
+            ?: "retro_calendar,storage,scratchpad,torch,zen"
+        mutableStateOf(
+            saved.split(",").filter {
+                it.isNotBlank() && it != "telemetry" && it != "blackhole" && it != "weather" && it != "pedometer" && it != "crt_world_map"
+            }
+        )
     }
     var regLeftWidgetSizes by remember {
-        val raw = prefs.getString("left_widget_sizes_v1", "retro_calendar:standard,storage:standard,scratchpad:standard") ?: ""
-        val map = raw.split(",").mapNotNull { pair ->
-            val parts = pair.split(":")
-            if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+        val saved = prefs.getString(
+            "left_widget_sizes_v1",
+            "clock:standard,battery_bar:standard,week_strip:standard,pinned_apps:large,retro_calendar:standard,year_matrix:standard,retro_flip_clock:standard,analog_chrono:standard,precision_chrono:standard,globe:standard,torch:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard"
+        ) ?: ""
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
         }.toMap()
         mutableStateOf(map)
     }
     var regLeftWidgetFonts by remember {
-        val raw = prefs.getString("left_widget_fonts_v1", "") ?: ""
-        val map = raw.split(",").mapNotNull { pair ->
-            val parts = pair.split(":")
-            if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+        val saved = prefs.getString(
+            "left_widget_fonts_v1",
+            "clock:dot,battery_bar:dot,week_strip:dot,pinned_apps:dot,retro_calendar:dot,year_matrix:dot,retro_flip_clock:dot,analog_chrono:dot,precision_chrono:dot,torch:dot,storage:dot,quote:dot,scratchpad:dot,zen:dot"
+        ) ?: ""
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
         }.toMap()
         mutableStateOf(map)
     }
     var regLeftWidgetStyles by remember {
-        val raw = prefs.getString("left_widget_styles_v1", "battery_bar:80s_retro") ?: ""
-        val map = raw.split(",").mapNotNull { pair ->
-            val parts = pair.split(":")
-            if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+        val saved = prefs.getString(
+            "left_widget_styles_v1",
+            "clock:default,battery_bar:80s_retro,week_strip:default,pinned_apps:default,retro_calendar:default,year_matrix:default,retro_flip_clock:default,analog_chrono:default,precision_chrono:default,globe:default,torch:default,storage:default,quote:default,scratchpad:default,zen:default"
+        ) ?: ""
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
         }.toMap()
         mutableStateOf(map)
     }
 
-    // 2. OLD SCHOOL / RETRO-FUTURISTIC INDEPENDENT WIDGET PROFILE
+    // 80s CRT Mode Independent Widget Profile (Separate sizes, order, fonts & styles!)
     var crtActiveWidgets by remember {
-        val saved = prefs.getString("crt80s_widgets_order_v1", "clock,week_strip,globe,pinned_apps") ?: "clock,week_strip,globe,pinned_apps"
-        mutableStateOf(saved.split(",").map { it.trim() }.filter { it.isNotEmpty() }.distinct())
+        val saved = prefs.getString("crt80s_widgets_order_v1", "clock,week_strip,pinned_apps")
+            ?: "clock,week_strip,pinned_apps"
+        mutableStateOf(
+            saved.split(",").filter {
+                it.isNotBlank() && it != "telemetry" && it != "blackhole" && it != "weather" && it != "pedometer" && it != "crt_world_map"
+            }
+        )
     }
     var crtWidgetSizes by remember {
-        val raw = prefs.getString("crt80s_widget_sizes_v1", "clock:standard,week_strip:standard,globe:standard,pinned_apps:standard") ?: ""
-        val map = raw.split(",").mapNotNull { pair ->
-            val parts = pair.split(":")
-            if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+        val saved = prefs.getString(
+            "crt80s_widget_sizes_v1",
+            "clock:standard,battery_bar:standard,week_strip:standard,pinned_apps:standard,retro_calendar:standard,year_matrix:standard,retro_flip_clock:standard,analog_chrono:standard,precision_chrono:standard,globe:standard,torch:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard"
+        ) ?: ""
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
         }.toMap()
         mutableStateOf(map)
     }
     var crtWidgetFonts by remember {
-        val raw = prefs.getString("crt80s_widget_fonts_v1", "") ?: ""
-        val map = raw.split(",").mapNotNull { pair ->
-            val parts = pair.split(":")
-            if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+        val saved = prefs.getString(
+            "crt80s_widget_fonts_v1",
+            "clock:mono,battery_bar:mono,week_strip:mono,pinned_apps:mono,retro_calendar:mono,year_matrix:mono,retro_flip_clock:mono,analog_chrono:mono,precision_chrono:mono,torch:mono,storage:mono,quote:mono,scratchpad:mono,zen:mono"
+        ) ?: ""
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
         }.toMap()
         mutableStateOf(map)
     }
     var crtWidgetStyles by remember {
-        val raw = prefs.getString(
+        val saved = prefs.getString(
             "crt80s_widget_styles_v1",
-            "clock:80s_retro,battery_bar:80s_retro,week_strip:80s_retro,pinned_apps:80s_retro,retro_calendar:80s_retro,year_matrix:80s_retro,retro_flip_clock:80s_retro,analog_chrono:80s_retro,precision_chrono:80s_retro,globe:80s_retro,torch:80s_retro,storage:80s_retro,zen:80s_retro,quote:80s_retro,scratchpad:80s_retro"
+            "clock:80s_retro,battery_bar:80s_retro,week_strip:80s_retro,pinned_apps:80s_retro,retro_calendar:80s_retro,year_matrix:80s_retro,retro_flip_clock:80s_retro,analog_chrono:80s_retro,precision_chrono:80s_retro,globe:80s_retro,torch:80s_retro,storage:80s_retro,quote:80s_retro,scratchpad:80s_retro,zen:80s_retro"
         ) ?: ""
-        val map = raw.split(",").mapNotNull { pair ->
-            val parts = pair.split(":")
-            if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
         }.toMap()
         mutableStateOf(map)
     }
     var crtLeftPageWidgets by remember {
-        val saved = prefs.getString("crt80s_left_widgets_order_v1", "storage,retro_calendar,scratchpad,torch,zen") ?: "storage,retro_calendar,scratchpad,torch,zen"
-        mutableStateOf(saved.split(",").map { it.trim() }.filter { it.isNotEmpty() }.distinct())
+        val saved = prefs.getString("crt80s_left_widgets_order_v1", "retro_calendar,storage,scratchpad,torch,zen")
+            ?: "retro_calendar,storage,scratchpad,torch,zen"
+        mutableStateOf(
+            saved.split(",").filter {
+                it.isNotBlank() && it != "telemetry" && it != "blackhole" && it != "weather" && it != "pedometer" && it != "crt_world_map"
+            }
+        )
     }
     var crtLeftWidgetSizes by remember {
-        val raw = prefs.getString("crt80s_left_widget_sizes_v1", "storage:large,retro_calendar:standard") ?: ""
-        val map = raw.split(",").mapNotNull { pair ->
-            val parts = pair.split(":")
-            if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+        val saved = prefs.getString(
+            "crt80s_left_widget_sizes_v1",
+            "clock:standard,battery_bar:standard,week_strip:standard,pinned_apps:standard,retro_calendar:standard,year_matrix:standard,retro_flip_clock:standard,analog_chrono:standard,precision_chrono:standard,globe:standard,torch:standard,storage:standard,quote:standard,scratchpad:standard,zen:standard"
+        ) ?: ""
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
         }.toMap()
         mutableStateOf(map)
     }
     var crtLeftWidgetFonts by remember {
-        val raw = prefs.getString("crt80s_left_widget_fonts_v1", "") ?: ""
-        val map = raw.split(",").mapNotNull { pair ->
-            val parts = pair.split(":")
-            if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+        val saved = prefs.getString(
+            "crt80s_left_widget_fonts_v1",
+            "clock:mono,battery_bar:mono,week_strip:mono,pinned_apps:mono,retro_calendar:mono,year_matrix:mono,retro_flip_clock:mono,analog_chrono:mono,precision_chrono:mono,torch:mono,storage:mono,quote:mono,scratchpad:mono,zen:mono"
+        ) ?: ""
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
         }.toMap()
         mutableStateOf(map)
     }
     var crtLeftWidgetStyles by remember {
-        val raw = prefs.getString(
+        val saved = prefs.getString(
             "crt80s_left_widget_styles_v1",
-            "clock:80s_retro,battery_bar:80s_retro,week_strip:80s_retro,pinned_apps:80s_retro,retro_calendar:80s_retro,year_matrix:80s_retro,retro_flip_clock:80s_retro,analog_chrono:80s_retro,precision_chrono:80s_retro,globe:80s_retro,torch:80s_retro,storage:80s_retro,zen:80s_retro,quote:80s_retro,scratchpad:80s_retro"
+            "clock:80s_retro,battery_bar:80s_retro,week_strip:80s_retro,pinned_apps:80s_retro,retro_calendar:80s_retro,year_matrix:80s_retro,retro_flip_clock:80s_retro,analog_chrono:80s_retro,precision_chrono:80s_retro,globe:80s_retro,torch:80s_retro,storage:80s_retro,quote:80s_retro,scratchpad:80s_retro,zen:80s_retro"
         ) ?: ""
-        val map = raw.split(",").mapNotNull { pair ->
-            val parts = pair.split(":")
-            if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+        val map = saved.split(",").mapNotNull {
+            val parts = it.split(":")
+            if (parts.size == 2) parts[0] to parts[1] else null
         }.toMap()
         mutableStateOf(map)
     }
 
+    // Active profile selectors (automatically switches between Regular Profile and 80s CRT Profile!)
     val textSizeSp = if (retro80sMode) crtTextSizeSp else regTextSizeSp
     val activeWidgets = if (retro80sMode) crtActiveWidgets else regActiveWidgets
     val widgetSizes = if (retro80sMode) crtWidgetSizes else regWidgetSizes
@@ -557,314 +1162,641 @@ fun NTextLauncherApp() {
     val leftWidgetSizes = if (retro80sMode) crtLeftWidgetSizes else regLeftWidgetSizes
     val leftWidgetFonts = if (retro80sMode) crtLeftWidgetFonts else regLeftWidgetFonts
     val leftWidgetStyles = if (retro80sMode) crtLeftWidgetStyles else regLeftWidgetStyles
+    var torchEnabled by remember { mutableStateOf(false) }
+    var zenActive by remember { mutableStateOf(false) }
+    var zenSeconds by remember { mutableStateOf(1500) }
+    var quickNote by remember { mutableStateOf(prefs.getString("quick_note", "CMF Minimal Focus") ?: "CMF Minimal Focus") }
 
-    // Bright, Glowing Theme Colors:
-    // - In "holomap" (Red & Cyan): Primary = Glowing Cyan (#26FFFF), Secondary = Glowing Red (#FF3B14)
-    // - In "amber": Glowing Amber (#FFB830)
-    // - In "green": Glowing Green Phosphor (#9EFF78)
-    val accentColor = remember(accentHex, retro80sMode, retro80sColorTheme) {
-        when {
-            retro80sMode && retro80sColorTheme == "holomap" -> Color(0xFF26FFFF)
-            retro80sMode && retro80sColorTheme == "amber" -> Color(0xFFFFB830)
-            retro80sMode -> Color(0xFF9EFF78)
-            else -> resolveLauncherAccentColor(accentHex)
-        }
-    }
-    val secondaryRetroColor = remember(accentHex, retro80sMode, retro80sColorTheme) {
-        when {
-            retro80sMode && retro80sColorTheme == "holomap" -> Color(0xFFFF3B14)
-            retro80sMode && retro80sColorTheme == "amber" -> Color(0xFFFFB830)
-            retro80sMode -> Color(0xFF9EFF78)
-            else -> resolveLauncherAccentColor(accentHex)
-        }
-    }
+    // Offline Hardware RAM & Storage Telemetry State
+    var ramStatusText by remember { mutableStateOf("RAM --/-- GB") }
+    var storageStatusText by remember { mutableStateOf("ROM --/-- GB") }
+    var ramUsageFraction by remember { mutableStateOf(0.35f) }
+    var storageUsageFraction by remember { mutableStateOf(0.50f) }
 
-    val activePrebuiltFont = remember(fontId) { PrebuiltFont.fromId(fontId) }
-    val selectedFont = remember(activePrebuiltFont, lomoFontFamily) {
-        activePrebuiltFont.resolveFontFamily(lomoFontFamily)
-    }
-
-    // Lifecycle & App Open Pause Tracking
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var isLauncherResumed by remember { mutableStateOf(true) }
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            isLauncherResumed = when (event) {
-                Lifecycle.Event.ON_RESUME -> true
-                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> false
-                else -> isLauncherResumed
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    val widgetsActive = !pauseWhenAppOpen || isLauncherResumed
-
-    // Status Bar Visibility
-    LaunchedEffect(hideAndroidBar) {
-        val window = (context as? Activity)?.window ?: return@LaunchedEffect
-        val controller = WindowCompat.getInsetsController(window, view)
-        if (hideAndroidBar) {
-            controller.hide(WindowInsetsCompat.Type.statusBars())
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        } else {
-            controller.show(WindowInsetsCompat.Type.statusBars())
-        }
-    }
-
-    // Custom User Wallpaper Image
-    val customWallpaperFile = remember { File(context.filesDir, "custom_user_wallpaper.jpg") }
-    var customWallpaperBitmap by remember {
-        mutableStateOf<ImageBitmap?>(
-            if (customWallpaperFile.exists()) {
-                try {
-                    BitmapFactory.decodeFile(customWallpaperFile.absolutePath)?.asImageBitmap()
-                } catch (_: Exception) {
-                    null
-                }
-            } else null
+    // Pinned & Hidden Package Names + Custom Sequence Order for Pinned Apps in Edit Mode
+    val defaultPinnedOrderList = remember {
+        listOf(
+            "com.google.android.dialer",
+            "com.google.android.apps.messaging",
+            "com.brave.browser",
+            "com.android.chrome",
+            "com.nothing.camera",
+            "com.android.settings"
         )
     }
-    val pickWallpaperLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            scope.launch(Dispatchers.IO) {
-                try {
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        FileOutputStream(customWallpaperFile).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    val bmp = BitmapFactory.decodeFile(customWallpaperFile.absolutePath)?.asImageBitmap()
-                    withContext(Dispatchers.Main) {
-                        if (bmp != null) {
-                            customWallpaperBitmap = bmp
-                            wallpaperPreset = "user_image"
-                            prefs.edit().putString("wp_preset", "user_image").apply()
-                        }
-                    }
-                } catch (_: Exception) {
-                }
-            }
-        }
-    }
-
-    // Installed Apps & Pinned Apps
-    var installedApps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
     var pinnedPackages by remember {
-        mutableStateOf(prefs.getStringSet("pinned_pkgs", null) ?: emptySet())
+        mutableStateOf(
+            prefs.getStringSet(
+                "pinned_pkgs",
+                defaultPinnedOrderList.toSet()
+            )?.toSet() ?: emptySet()
+        )
+    }
+    var customPinnedOrderEnabled by remember {
+        mutableStateOf(prefs.getBoolean("custom_pinned_order", true))
     }
     var pinnedAppsOrder by remember {
-        val raw = prefs.getString("pinned_apps_order_v1", "") ?: ""
-        mutableStateOf(raw.split(",").map { it.trim() }.filter { it.isNotEmpty() })
-    }
-
-    fun reloadInstalledApps() {
-        scope.launch(Dispatchers.IO) {
-            try {
-                val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps
-                val myPkg = context.packageName
-                val result = mutableListOf<AppEntry>()
-                if (launcherApps != null) {
-                    val profiles = launcherApps.profiles
-                    for (profile in profiles) {
-                        val acts = launcherApps.getActivityList(null, profile)
-                        for (info in acts) {
-                            val pkg = info.applicationInfo.packageName
-                            if (pkg == myPkg) continue
-                            val label = info.label?.toString()?.trim()?.takeIf { it.isNotEmpty() } ?: pkg
-                            val firstChar = label.firstOrNull()?.uppercaseChar() ?: '#'
-                            val firstLetter = if (firstChar in 'A'..'Z') firstChar else '#'
-                            val sysApp = (info.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
-                            result.add(
-                                AppEntry(
-                                    label = label,
-                                    packageName = pkg,
-                                    firstLetter = firstLetter,
-                                    isPinned = false,
-                                    isSystemApp = sysApp
-                                )
-                            )
-                        }
-                    }
-                }
-                val deduped = result.distinctBy { it.packageName }.sortedBy { it.label.lowercase(Locale.getDefault()) }
-                withContext(Dispatchers.Main) {
-                    installedApps = deduped
-                    if (pinnedPackages.isEmpty() && deduped.isNotEmpty() && !prefs.contains("pinned_pkgs")) {
-                        val defaults = deduped.take(6).map { it.packageName }
-                        pinnedPackages = defaults.toSet()
-                        pinnedAppsOrder = defaults
-                        prefs.edit()
-                            .putStringSet("pinned_pkgs", pinnedPackages)
-                            .putString("pinned_apps_order_v1", defaults.joinToString(","))
-                            .apply()
-                    }
-                }
-            } catch (_: Exception) {
-            }
-        }
-    }
-
-    DisposableEffect(context) {
-        reloadInstalledApps()
-        val pkgReceiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context?, intent: Intent?) {
-                reloadInstalledApps()
-            }
-        }
-        val filter = IntentFilter().apply {
-            addAction(Intent.ACTION_PACKAGE_ADDED)
-            addAction(Intent.ACTION_PACKAGE_REMOVED)
-            addAction(Intent.ACTION_PACKAGE_REPLACED)
-            addDataScheme("package")
-        }
-        context.registerReceiver(pkgReceiver, filter)
-        onDispose {
-            try {
-                context.unregisterReceiver(pkgReceiver)
-            } catch (_: Exception) {
-            }
-        }
-    }
-
-    val appsWithPinFlag = remember(installedApps, pinnedPackages) {
-        installedApps.map { it.copy(isPinned = pinnedPackages.contains(it.packageName)) }
-    }
-    val orderedPinnedApps = remember(appsWithPinFlag, pinnedAppsOrder, customPinnedOrderEnabled) {
-        val pinnedList = appsWithPinFlag.filter { it.isPinned }
-        if (!customPinnedOrderEnabled) {
-            pinnedList.sortedBy { it.label.lowercase(Locale.getDefault()) }
+        val rawOrder = prefs.getString("pinned_apps_order_v1", null)
+        val parsed = if (!rawOrder.isNullOrBlank()) {
+            rawOrder.split(",").filter { it.isNotBlank() }
         } else {
-            val orderMap = pinnedAppsOrder.withIndex().associate { it.value to it.index }
-            pinnedList.sortedWith(
-                compareBy<AppEntry> { orderMap[it.packageName] ?: Int.MAX_VALUE }
-                    .thenBy { it.label.lowercase(Locale.getDefault()) }
+            defaultPinnedOrderList.filter { pinnedPackages.contains(it) } +
+                pinnedPackages.filter { !defaultPinnedOrderList.contains(it) }
+        }
+        mutableStateOf(parsed)
+    }
+    var hiddenPackages by remember {
+        mutableStateOf(prefs.getStringSet("hidden_pkgs", emptySet())?.toSet() ?: emptySet())
+    }
+
+    // Installed Apps Loader (Offloaded to Dispatchers.IO so PackageManager label loading never blocks 120Hz UI thread!)
+    var rawInstalledApps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
+    LaunchedEffect(packageRefreshTrigger) {
+        val loaded = withContext(Dispatchers.IO) {
+            val pm = context.packageManager
+            val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+            }
+            val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
+            resolveInfos
+                .mapNotNull { ri ->
+                    val pkg = ri.activityInfo.packageName
+                    if (pkg == context.packageName) return@mapNotNull null
+                    val label = ri.loadLabel(pm).toString().trim()
+                    val firstCh = label.firstOrNull()?.uppercaseChar()?.let {
+                        if (it in 'A'..'Z') it else '#'
+                    } ?: '#'
+                    val appFlags = ri.activityInfo?.applicationInfo?.flags ?: 0
+                    val isSysApp = (appFlags and ApplicationInfo.FLAG_SYSTEM) != 0
+                    AppEntry(
+                        label = label,
+                        packageName = pkg,
+                        firstLetter = firstCh,
+                        isPinned = false,
+                        isHidden = false,
+                        isSystemApp = isSysApp
+                    )
+                }
+                .distinctBy { it.packageName }
+                .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
+        }
+        if (pinnedPackages.isEmpty() && loaded.isNotEmpty()) {
+            val defaultsList = loaded.take(6).map { it.packageName }
+            val defaultsSet = defaultsList.toSet()
+            pinnedPackages = defaultsSet
+            pinnedAppsOrder = defaultsList
+            prefs.edit()
+                .putStringSet("pinned_pkgs", defaultsSet)
+                .putString("pinned_apps_order_v1", defaultsList.joinToString(","))
+                .apply()
+        }
+        rawInstalledApps = loaded
+    }
+
+    val installedApps = remember(rawInstalledApps, pinnedPackages, hiddenPackages) {
+        rawInstalledApps.map { app ->
+            app.copy(
+                isPinned = pinnedPackages.contains(app.packageName),
+                isHidden = hiddenPackages.contains(app.packageName)
             )
         }
     }
 
-    // Real-Time Clock, Battery, RAM/ROM & Torch Telemetry
-    var currentTimeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
-    var batteryPct by remember { mutableStateOf(80) }
-    var isCharging by remember { mutableStateOf(false) }
-    var ramStatusText by remember { mutableStateOf("RAM 4.2/8 GB") }
-    var storageStatusText by remember { mutableStateOf("ROM 64/128 GB") }
-    var ramUsageFraction by remember { mutableStateOf(0.52f) }
-    var storageUsageFraction by remember { mutableStateOf(0.50f) }
-    var torchEnabled by remember { mutableStateOf(false) }
-    var zenActive by remember { mutableStateOf(false) }
-    var zenSeconds by remember { mutableStateOf(25 * 60) }
-
-    fun refreshRealtimeSystemTelemetry() {
-        currentTimeMillis = System.currentTimeMillis()
-        try {
-            val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
-            val lvl = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 80
-            batteryPct = lvl.coerceIn(0, 100)
-            isCharging = bm?.isCharging == true
-        } catch (_: Exception) {
-        }
-        try {
-            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-            if (am != null) {
-                val mi = ActivityManager.MemoryInfo()
-                am.getMemoryInfo(mi)
-                val totalGb = (mi.totalMem.toDouble() / (1024.0 * 1024.0 * 1024.0)).coerceAtLeast(1.0)
-                val usedGb = ((mi.totalMem - mi.availMem).toDouble() / (1024.0 * 1024.0 * 1024.0)).coerceAtLeast(0.1)
-                ramUsageFraction = (usedGb / totalGb).toFloat().coerceIn(0.05f, 1f)
-                ramStatusText = String.format(Locale.US, "RAM %.1f/%.0fG", usedGb, totalGb)
-            }
-        } catch (_: Exception) {
-        }
-        try {
-            val stat = StatFs(Environment.getDataDirectory().path)
-            val totalBytes = stat.totalBytes.toDouble().coerceAtLeast(1.0)
-            val usedBytes = (stat.totalBytes - stat.availableBytes).toDouble().coerceAtLeast(0.0)
-            val totalGb = totalBytes / (1024.0 * 1024.0 * 1024.0)
-            val usedGb = usedBytes / (1024.0 * 1024.0 * 1024.0)
-            storageUsageFraction = (usedBytes / totalBytes).toFloat().coerceIn(0.05f, 1f)
-            storageStatusText = String.format(Locale.US, "ROM %.0f/%.0fG", usedGb, totalGb)
-        } catch (_: Exception) {
+    val orderedPinnedApps = remember(installedApps, pinnedAppsOrder, customPinnedOrderEnabled) {
+        val visiblePinned = installedApps.filter { it.isPinned && !it.isHidden }
+        if (!customPinnedOrderEnabled) {
+            visiblePinned.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
+        } else {
+            val orderMap = pinnedAppsOrder.withIndex().associate { (idx, pkg) -> pkg to idx }
+            visiblePinned.sortedWith(
+                compareBy<AppEntry> { orderMap[it.packageName] ?: Int.MAX_VALUE }
+                    .thenBy(String.CASE_INSENSITIVE_ORDER) { it.label }
+            )
         }
     }
 
-    LaunchedEffect(widgetsActive) {
-        refreshRealtimeSystemTelemetry()
-        if (!widgetsActive) return@LaunchedEffect
-        while (isActive && widgetsActive) {
-            delay(1000L)
-            currentTimeMillis = System.currentTimeMillis()
-            if ((currentTimeMillis / 1000L) % 10L == 0L) {
+    // Real-Time Offline Clock, Date, Next Alarm, Battery, RAM & ROM (Optimized for 120 FPS: zero per-second main-thread IPC/StatFs stalls)
+    var currentTimeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+    var currentHourStr by remember { mutableStateOf("4") }
+    var currentMinStr by remember { mutableStateOf("22") }
+    var currentSecStr by remember { mutableStateOf("00") }
+    var currentAmPmStr by remember { mutableStateOf("PM") }
+    var currentDateStr by remember { mutableStateOf("THU · 29 OCT") }
+    var nextAlarmStr by remember { mutableStateOf("") }
+    var batteryPct by remember { mutableStateOf(86) }
+    var isCharging by remember { mutableStateOf(false) }
+
+    val fmt24H = remember { SimpleDateFormat("HH", Locale.getDefault()) }
+    val fmt12H = remember { SimpleDateFormat("h", Locale.getDefault()) }
+    val fmtMin = remember { SimpleDateFormat("mm", Locale.getDefault()) }
+    val fmtSec = remember { SimpleDateFormat("ss", Locale.getDefault()) }
+    val fmtAmPm = remember { SimpleDateFormat("a", Locale.ENGLISH) }
+    val fmtDate = remember { SimpleDateFormat("EEE · dd MMM", Locale.ENGLISH) }
+    val fmtAlarm24 = remember { SimpleDateFormat("HH:mm", Locale.ENGLISH) }
+    val fmtAlarm12 = remember { SimpleDateFormat("h:mm a", Locale.ENGLISH) }
+
+    var telemetryBroadcastTrigger by remember { mutableStateOf(0) }
+    fun refreshRealtimeSystemTelemetry() {
+        telemetryBroadcastTrigger++
+    }
+
+    LaunchedEffect(use24Hour, packageRefreshTrigger, shouldRunWidgetsAndWallpapers, activeWidgets, leftPageWidgets, enableLeftPage, telemetryBroadcastTrigger) {
+        if (!shouldRunWidgetsAndWallpapers) return@LaunchedEffect
+        var tickCounter = 0
+        var lastMinuteBucket = -1L
+        val combinedWidgets = if (enableLeftPage) activeWidgets + leftPageWidgets else activeWidgets
+        val needsSeconds = combinedWidgets.contains("retro_flip_clock") || combinedWidgets.contains("analog_chrono")
+        val needsStorage = combinedWidgets.contains("storage")
+
+        while (shouldRunWidgetsAndWallpapers) {
+            val nowMs = System.currentTimeMillis()
+            val now = Date(nowMs)
+            val minuteBucket = nowMs / 60_000L
+
+            if (needsSeconds) {
+                val sec = fmtSec.format(now)
+                if (sec != currentSecStr) currentSecStr = sec
+            }
+
+            if (minuteBucket != lastMinuteBucket || tickCounter == 0) {
+                lastMinuteBucket = minuteBucket
+                currentTimeMillis = nowMs
+                val newH = if (use24Hour) fmt24H.format(now) else fmt12H.format(now)
+                val newM = fmtMin.format(now)
+                val newAmPm = if (use24Hour) "" else fmtAmPm.format(now).uppercase(Locale.ENGLISH)
+                val newDate = fmtDate.format(now).uppercase(Locale.ENGLISH)
+                if (newH != currentHourStr) currentHourStr = newH
+                if (newM != currentMinStr) currentMinStr = newM
+                if (newAmPm != currentAmPmStr) currentAmPmStr = newAmPm
+                if (newDate != currentDateStr) currentDateStr = newDate
+            }
+
+            // Query Alarm, Battery, RAM & ROM off the main UI thread only once every 15 seconds (or first tick)
+            if (tickCounter % 15 == 0) {
+                withContext(Dispatchers.IO) {
+                    try {
+                        val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+                        val nextAlarm = am?.nextAlarmClock
+                        val alarmTxt = if (nextAlarm != null) {
+                            val fmt = if (use24Hour) fmtAlarm24 else fmtAlarm12
+                            "ALARM " + fmt.format(Date(nextAlarm.triggerTime)).uppercase(Locale.ENGLISH)
+                        } else ""
+
+                        val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                        val cap = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+                        val charging = bm?.isCharging ?: isCharging
+
+                        var newRamTxt = ramStatusText
+                        var newRamFrac = ramUsageFraction
+                        var newRomTxt = storageStatusText
+                        var newRomFrac = storageUsageFraction
+
+                        if (needsStorage || tickCounter == 0) {
+                            val actMgr = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                            if (actMgr != null) {
+                                val memInfo = ActivityManager.MemoryInfo()
+                                actMgr.getMemoryInfo(memInfo)
+                                val totalGb = memInfo.totalMem.toDouble() / (1024.0 * 1024.0 * 1024.0)
+                                val usedGb = (memInfo.totalMem - memInfo.availMem).toDouble() / (1024.0 * 1024.0 * 1024.0)
+                                newRamTxt = String.format(Locale.US, "RAM %.1f/%.0f GB", usedGb, totalGb)
+                                newRamFrac = (usedGb / totalGb.coerceAtLeast(1.0)).toFloat().coerceIn(0.05f, 1f)
+                            }
+                            val stat = StatFs(Environment.getDataDirectory().path)
+                            val totalBytes = stat.totalBytes.toDouble()
+                            val availBytes = stat.availableBytes.toDouble()
+                            val usedBytes = (totalBytes - availBytes).coerceAtLeast(0.0)
+                            val totalGb = totalBytes / (1000.0 * 1000.0 * 1000.0)
+                            val usedGb = usedBytes / (1000.0 * 1000.0 * 1000.0)
+                            newRomTxt = String.format(Locale.US, "ROM %.0f/%.0f GB", usedGb, totalGb)
+                            newRomFrac = (usedBytes / totalBytes.coerceAtLeast(1.0)).toFloat().coerceIn(0.05f, 1f)
+                        }
+
+                        withContext(Dispatchers.Main) {
+                            if (alarmTxt != nextAlarmStr) nextAlarmStr = alarmTxt
+                            if (cap in 1..100 && cap != batteryPct) batteryPct = cap
+                            if (charging != isCharging) isCharging = charging
+                            if (newRamTxt != ramStatusText) ramStatusText = newRamTxt
+                            if (abs(newRamFrac - ramUsageFraction) > 0.01f) ramUsageFraction = newRamFrac
+                            if (newRomTxt != storageStatusText) storageStatusText = newRomTxt
+                            if (abs(newRomFrac - storageUsageFraction) > 0.01f) storageUsageFraction = newRomFrac
+                        }
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+
+            tickCounter++
+            delay(if (needsSeconds) 1_000L else 2_000L)
+        }
+    }
+
+    DisposableEffect(context, use24Hour) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                if (intent?.action == Intent.ACTION_BATTERY_CHANGED) {
+                    val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                    val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+                    if (level >= 0 && scale > 0) {
+                        batteryPct = ((level * 100f) / scale).roundToInt().coerceIn(1, 100)
+                    }
+                    val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+                    isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                        status == BatteryManager.BATTERY_STATUS_FULL
+                }
                 refreshRealtimeSystemTelemetry()
             }
-            if (zenActive) {
-                if (zenSeconds > 0) zenSeconds -= 1 else zenActive = false
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_BATTERY_CHANGED)
+            addAction(Intent.ACTION_POWER_CONNECTED)
+            addAction(Intent.ACTION_POWER_DISCONNECTED)
+            addAction(Intent.ACTION_TIME_TICK)
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+            addAction(AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+        } else {
+            context.registerReceiver(receiver, filter)
+        }
+        onDispose {
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (_: Exception) {
             }
         }
     }
 
-    val currentHourStr = remember(currentTimeMillis, use24Hour) {
-        SimpleDateFormat(if (use24Hour) "HH" else "hh", Locale.US).format(Date(currentTimeMillis))
-    }
-    val currentMinStr = remember(currentTimeMillis) {
-        SimpleDateFormat("mm", Locale.US).format(Date(currentTimeMillis))
-    }
-    val currentSecStr = remember(currentTimeMillis) {
-        SimpleDateFormat("ss", Locale.US).format(Date(currentTimeMillis))
-    }
-    val currentAmPmStr = remember(currentTimeMillis, use24Hour) {
-        if (use24Hour) "" else SimpleDateFormat("a", Locale.US).format(Date(currentTimeMillis)).uppercase(Locale.US)
-    }
-    val currentDateStr = remember(currentTimeMillis) {
-        SimpleDateFormat("EEE · dd MMM", Locale.US).format(Date(currentTimeMillis)).uppercase(Locale.US)
+    // Zen Focus Countdown
+    LaunchedEffect(zenActive) {
+        while (zenActive && zenSeconds > 0) {
+            delay(1000)
+            zenSeconds -= 1
+            if (zenSeconds <= 0) zenActive = false
+        }
     }
 
-    // Save helpers for Regular vs Old School / Retro-Futuristic Widget Profiles
-    fun saveWidgetList(nextList: List<String>) {
-        val cleaned = nextList.distinct()
+    val accentColor = remember(accentHex, retro80sMode, retro80sColorTheme) {
+        when {
+            retro80sMode && retro80sColorTheme == "amber" -> Color(0xFFFF8800)
+            retro80sMode -> Color(0xFF7CFF5B)
+            else -> resolveLauncherAccentColor(accentHex)
+        }
+    }
+    val prebuiltFont = remember(fontId) { PrebuiltFont.fromId(fontId) }
+    val selectedFont = remember(prebuiltFont, lomoFontFamily) {
+        prebuiltFont.resolveFontFamily(lomoFontFamily)
+    }
+    val textAlign = remember(textAlignMode) {
+        when (textAlignMode) {
+            "center" -> TextAlign.Center
+            "right" -> TextAlign.End
+            else -> TextAlign.Start
+        }
+    }
+
+    fun tickHaptic(heavy: Boolean = false) {
+        val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        val effect = if (heavy) {
+            VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK)
+        } else {
+            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
+        }
+        vib?.vibrate(effect)
+    }
+
+    var showNoSpacePopup by remember { mutableStateOf(false) }
+    var noSpacePopupMessage by remember {
+        mutableStateOf("No space left on the Home Screen. Remove or shrink a widget, or unpin/scale down Home apps first.")
+    }
+    var usableHomeHeightDp by remember { mutableStateOf(760f) }
+    var measuredHomeInnerHeightDp by remember { mutableStateOf(0f) }
+    var measuredWidgetsHeightDp by remember { mutableStateOf(0f) }
+    var measuredPinnedAppsHeightDp by remember { mutableStateOf(0f) }
+    var measuredLeftWidgetsHeightDp by remember { mutableStateOf(0f) }
+    var measuredLeftPinnedAppsHeightDp by remember { mutableStateOf(0f) }
+    var isGlobeInteractionActive by remember { mutableStateOf(false) }
+
+    fun currentPinnedAppsCount(): Int {
+        return installedApps.count { it.isPinned && !it.isHidden }.let { count ->
+            if (count > 0 || installedApps.isNotEmpty()) count else pinnedPackages.size
+        }
+    }
+
+    fun triggerNoSpaceLeftPopup(reason: String) {
+        tickHaptic(heavy = true)
+        noSpacePopupMessage = reason
+        showNoSpacePopup = true
+    }
+
+    fun canFitOnHomeScreen(
+        candidateWidgets: List<String>,
+        candidateSizes: Map<String, String>,
+        candidatePinnedCount: Int = currentPinnedAppsCount(),
+        candidateTextSizeSp: Int = textSizeSp
+    ): Boolean {
+        // Use actual measured Home container height if available, leaving just a tiny 4dp padding gap!
+        val effectiveContainerH = if (measuredHomeInnerHeightDp > 200f) {
+            measuredHomeInnerHeightDp - 4f
+        } else {
+            usableHomeHeightDp - 4f
+        }
+
+        val nonAppActiveWidgets = activeWidgets.filter { it != "pinned_apps" }
+        val nonAppCandidateWidgets = candidateWidgets.filter { it != "pinned_apps" }
+        val currentEstimatedWidgetsH = estimateWidgetsStackHeightDp(nonAppActiveWidgets, widgetSizes)
+        val candidateEstimatedWidgetsH = estimateWidgetsStackHeightDp(nonAppCandidateWidgets, candidateSizes)
+        val widgetsDeltaH = candidateEstimatedWidgetsH - currentEstimatedWidgetsH
+        val effectiveWidgetsH = if (measuredWidgetsHeightDp > 10f && nonAppActiveWidgets.isNotEmpty()) {
+            (measuredWidgetsHeightDp + widgetsDeltaH).coerceAtLeast(0f)
+        } else {
+            candidateEstimatedWidgetsH
+        }
+
+        val effectiveAppsH = if (!candidateWidgets.contains("pinned_apps") || candidatePinnedCount <= 0) {
+            0f
+        } else {
+            val curPinCount = currentPinnedAppsCount()
+            val currentEstimatedAppsH = estimatePinnedAppsHeightDp(curPinCount, textSizeSp)
+            val candidateEstimatedAppsH = estimatePinnedAppsHeightDp(candidatePinnedCount, candidateTextSizeSp)
+            val appsDeltaH = candidateEstimatedAppsH - currentEstimatedAppsH
+            if (measuredPinnedAppsHeightDp > 10f && curPinCount > 0 && activeWidgets.contains("pinned_apps")) {
+                (measuredPinnedAppsHeightDp + appsDeltaH).coerceAtLeast(0f)
+            } else {
+                candidateEstimatedAppsH
+            }
+        }
+
+        return (effectiveWidgetsH + effectiveAppsH) <= effectiveContainerH
+    }
+
+    // Reset measured widget heights when switching between Regular Mode and 80s CRT Mode so boundary checks use the active profile!
+    LaunchedEffect(retro80sMode) {
+        measuredWidgetsHeightDp = 0f
+        measuredPinnedAppsHeightDp = 0f
+        measuredLeftWidgetsHeightDp = 0f
+        measuredLeftPinnedAppsHeightDp = 0f
+    }
+
+    fun saveWidgetList(updated: List<String>) {
+        val cleaned = updated.filter {
+            it != "blackhole" && it != "telemetry" && it != "weather" && it != "pedometer" && it != "crt_world_map"
+        }
+        if (cleaned.size > activeWidgets.size) {
+            val pCount = currentPinnedAppsCount()
+            if (!canFitOnHomeScreen(cleaned, widgetSizes, pCount, textSizeSp)) {
+                triggerNoSpaceLeftPopup(
+                    "No space left on the Home Screen to add this widget with $pCount pinned apps (${textSizeSp}SP scale). Remove or shrink an existing widget, or unpin/scale down Home apps first."
+                )
+                return
+            }
+        }
         if (retro80sMode) {
             crtActiveWidgets = cleaned
             prefs.edit().putString("crt80s_widgets_order_v1", cleaned.joinToString(",")).apply()
         } else {
             regActiveWidgets = cleaned
-            prefs.edit().putString("widgets_order_v2", cleaned.joinToString(",")).apply()
+            prefs.edit()
+                .putString("widgets_order_v9", cleaned.joinToString(","))
+                .putString("widgets_order_v8", cleaned.filter { it != "pinned_apps" }.joinToString(","))
+                .apply()
         }
     }
-    fun saveWidgetSizesMap(nextMap: Map<String, String>) {
-        val serialized = nextMap.entries.joinToString(",") { "${it.key}:${it.value}" }
+
+    fun saveWidgetSize(widgetId: String, size: String) {
+        if (widgetId == "pinned_apps") {
+            val targetSp = when (size) {
+                "compact" -> 16
+                "standard" -> 18
+                "large" -> 20
+                "xlarge" -> 22
+                "max" -> 24
+                else -> 20
+            }
+            val pCount = currentPinnedAppsCount()
+            if (targetSp > textSizeSp && activeWidgets.contains("pinned_apps") && !canFitOnHomeScreen(activeWidgets, widgetSizes, pCount, targetSp)) {
+                triggerNoSpaceLeftPopup(
+                    "No space left on the Home Screen to resize Pinned Apps to ${targetSp}SP with your current widgets and $pCount pinned apps."
+                )
+                return
+            }
+            val newMap = widgetSizes.toMutableMap()
+            newMap["pinned_apps"] = size
+            val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
+            if (retro80sMode) {
+                crtTextSizeSp = targetSp
+                crtWidgetSizes = newMap.toMap()
+                prefs.edit()
+                    .putInt("crt80s_text_size_v1", targetSp)
+                    .putString("crt80s_widget_sizes_v1", serialized)
+                    .apply()
+            } else {
+                regTextSizeSp = targetSp
+                regWidgetSizes = newMap.toMap()
+                prefs.edit()
+                    .putInt("text_size", targetSp)
+                    .putString("widget_sizes_v7", serialized)
+                    .apply()
+            }
+            return
+        }
+
+        val currentSize = widgetSizes[widgetId] ?: "standard"
+        val currentH = estimateSingleWidgetHeightDp(widgetId, currentSize)
+        val targetH = estimateSingleWidgetHeightDp(widgetId, size)
+
+        val newMap = widgetSizes.toMutableMap()
+        newMap[widgetId] = size
+
+        if (targetH > currentH && activeWidgets.contains(widgetId)) {
+            val pCount = currentPinnedAppsCount()
+            if (!canFitOnHomeScreen(activeWidgets, newMap, pCount, textSizeSp)) {
+                val sizeLabel = when (size) {
+                    "compact" -> "S"
+                    "standard" -> "M"
+                    "large" -> "L"
+                    "xlarge" -> "XL"
+                    "max" -> "MAX"
+                    else -> size.uppercase(Locale.US)
+                }
+                triggerNoSpaceLeftPopup(
+                    "No space left on the Home Screen to resize this widget to $sizeLabel with $pCount pinned apps (${textSizeSp}SP scale). Shrink another widget or unpin/scale down Home apps first."
+                )
+                return
+            }
+        }
+
+        val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
         if (retro80sMode) {
-            crtWidgetSizes = nextMap
+            crtWidgetSizes = newMap.toMap()
             prefs.edit().putString("crt80s_widget_sizes_v1", serialized).apply()
         } else {
-            regWidgetSizes = nextMap
-            prefs.edit().putString("widget_sizes_v2", serialized).apply()
+            regWidgetSizes = newMap.toMap()
+            prefs.edit().putString("widget_sizes_v7", serialized).apply()
         }
     }
-    fun saveWidgetFontsMap(nextMap: Map<String, String>) {
-        val serialized = nextMap.entries.joinToString(",") { "${it.key}:${it.value}" }
+
+    fun saveWidgetFont(widgetId: String, wFontId: String) {
+        val newMap = widgetFonts.toMutableMap()
+        newMap[widgetId] = wFontId
+        val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
         if (retro80sMode) {
-            crtWidgetFonts = nextMap
+            crtWidgetFonts = newMap.toMap()
             prefs.edit().putString("crt80s_widget_fonts_v1", serialized).apply()
         } else {
-            regWidgetFonts = nextMap
-            prefs.edit().putString("widget_fonts_v1", serialized).apply()
+            regWidgetFonts = newMap.toMap()
+            val editor = prefs.edit().putString("widget_fonts_v1", serialized)
+            if (widgetId == "pinned_apps") {
+                fontId = wFontId
+                editor.putString("font_id", wFontId)
+            }
+            editor.apply()
         }
     }
-    fun saveWidgetStylesMap(nextMap: Map<String, String>) {
-        val serialized = nextMap.entries.joinToString(",") { "${it.key}:${it.value}" }
+
+    fun saveWidgetStyle(widgetId: String, styleId: String) {
+        val newMap = widgetStyles.toMutableMap()
+        newMap[widgetId] = styleId
+        val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
         if (retro80sMode) {
-            crtWidgetStyles = nextMap
+            crtWidgetStyles = newMap.toMap()
             prefs.edit().putString("crt80s_widget_styles_v1", serialized).apply()
         } else {
-            regWidgetStyles = nextMap
-            prefs.edit().putString("widget_styles_v1", serialized).apply()
+            regWidgetStyles = newMap.toMap()
+            val editor = prefs.edit().putString("widget_styles_v1", serialized)
+            if (widgetId == "globe") {
+                globeTheme = if (styleId == "default") "retro_holo" else "wireframe"
+                editor.putString("globe_theme", globeTheme)
+            }
+            editor.apply()
         }
     }
-    fun saveLeftWidgetList(nextList: List<String>) {
-        val cleaned = nextList.distinct()
+
+    fun saveLeftWidgetStyle(widgetId: String, styleId: String) {
+        val newMap = leftWidgetStyles.toMutableMap()
+        newMap[widgetId] = styleId
+        val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
+        if (retro80sMode) {
+            crtLeftWidgetStyles = newMap.toMap()
+            prefs.edit().putString("crt80s_left_widget_styles_v1", serialized).apply()
+        } else {
+            regLeftWidgetStyles = newMap.toMap()
+            prefs.edit().putString("left_widget_styles_v1", serialized).apply()
+        }
+    }
+
+    fun movePinnedApp(pkg: String, direction: Int) {
+        val currentList = orderedPinnedApps.map { it.packageName }.toMutableList()
+        val idx = currentList.indexOf(pkg)
+        val targetIdx = idx + direction
+        if (idx in currentList.indices && targetIdx in currentList.indices) {
+            val item = currentList.removeAt(idx)
+            currentList.add(targetIdx, item)
+            pinnedAppsOrder = currentList
+            prefs.edit().putString("pinned_apps_order_v1", currentList.joinToString(",")).apply()
+            tickHaptic(heavy = false)
+        }
+    }
+
+    fun unpinAppFromHome(pkg: String) {
+        pinnedPackages = pinnedPackages - pkg
+        pinnedAppsOrder = pinnedAppsOrder.filter { it != pkg }
+        prefs.edit()
+            .putStringSet("pinned_pkgs", pinnedPackages)
+            .putString("pinned_apps_order_v1", pinnedAppsOrder.joinToString(","))
+            .apply()
+        tickHaptic(heavy = false)
+    }
+
+    fun cycleWidgetSize(widgetId: String) {
+        val current = widgetSizes[widgetId] ?: "standard"
+        val next = if (
+            widgetId == "clock" ||
+            widgetId == "pinned_apps" ||
+            widgetId == "retro_flip_clock" ||
+            widgetId == "analog_chrono" ||
+            widgetId == "precision_chrono" ||
+            widgetId == "globe"
+        ) {
+            when (current) {
+                "compact" -> "standard"
+                "standard" -> "large"
+                "large" -> "xlarge"
+                "xlarge" -> "max"
+                else -> "compact"
+            }
+        } else {
+            when (current) {
+                "compact" -> "standard"
+                "standard" -> "large"
+                else -> "compact"
+            }
+        }
+        saveWidgetSize(widgetId, next)
+    }
+
+    fun moveWidget(widgetId: String, direction: Int) {
+        val list = activeWidgets.toMutableList()
+        val idx = list.indexOf(widgetId)
+        val targetIdx = idx + direction
+        if (idx in list.indices && targetIdx in list.indices) {
+            val item = list.removeAt(idx)
+            list.add(targetIdx, item)
+            saveWidgetList(list)
+        }
+    }
+
+    fun canFitOnLeftPage(
+        candidateWidgets: List<String>,
+        candidateSizes: Map<String, String>,
+        candidatePinnedCount: Int = currentPinnedAppsCount(),
+        candidateTextSizeSp: Int = textSizeSp
+    ): Boolean {
+        val effectiveContainerH = if (measuredHomeInnerHeightDp > 200f) {
+            measuredHomeInnerHeightDp - 4f
+        } else {
+            usableHomeHeightDp - 4f
+        }
+        val nonAppActive = leftPageWidgets.filter { it != "pinned_apps" }
+        val nonAppCandidate = candidateWidgets.filter { it != "pinned_apps" }
+        val currentEstH = estimateWidgetsStackHeightDp(nonAppActive, leftWidgetSizes)
+        val candidateEstH = estimateWidgetsStackHeightDp(nonAppCandidate, candidateSizes)
+        val deltaH = candidateEstH - currentEstH
+        val effectiveWidgetsH = if (measuredLeftWidgetsHeightDp > 10f && nonAppActive.isNotEmpty()) {
+            (measuredLeftWidgetsHeightDp + deltaH).coerceAtLeast(0f)
+        } else {
+            candidateEstH
+        }
+        val effectiveAppsH = if (!candidateWidgets.contains("pinned_apps") || candidatePinnedCount <= 0) {
+            0f
+        } else {
+            val curPinCount = currentPinnedAppsCount()
+            val curEstAppsH = estimatePinnedAppsHeightDp(curPinCount, textSizeSp)
+            val candEstAppsH = estimatePinnedAppsHeightDp(candidatePinnedCount, candidateTextSizeSp)
+            val appsDeltaH = candEstAppsH - curEstAppsH
+            if (measuredLeftPinnedAppsHeightDp > 10f && curPinCount > 0 && leftPageWidgets.contains("pinned_apps")) {
+                (measuredLeftPinnedAppsHeightDp + appsDeltaH).coerceAtLeast(0f)
+            } else {
+                candEstAppsH
+            }
+        }
+        return (effectiveWidgetsH + effectiveAppsH) <= effectiveContainerH
+    }
+
+    fun saveLeftWidgetList(updated: List<String>) {
+        val cleaned = updated.filter {
+            it != "blackhole" && it != "telemetry" && it != "weather" && it != "pedometer" && it != "crt_world_map"
+        }
+        if (cleaned.size > leftPageWidgets.size) {
+            val pCount = currentPinnedAppsCount()
+            if (!canFitOnLeftPage(cleaned, leftWidgetSizes, pCount, textSizeSp)) {
+                triggerNoSpaceLeftPopup(
+                    "No space left on the Left Page to add this widget. Remove or shrink an existing widget on the Left Page first."
+                )
+                return
+            }
+        }
         if (retro80sMode) {
             crtLeftPageWidgets = cleaned
             prefs.edit().putString("crt80s_left_widgets_order_v1", cleaned.joinToString(",")).apply()
@@ -873,166 +1805,233 @@ fun NTextLauncherApp() {
             prefs.edit().putString("left_widgets_order_v1", cleaned.joinToString(",")).apply()
         }
     }
-    fun saveLeftWidgetSizesMap(nextMap: Map<String, String>) {
-        val serialized = nextMap.entries.joinToString(",") { "${it.key}:${it.value}" }
+
+    fun saveLeftWidgetSize(widgetId: String, size: String) {
+        if (widgetId == "pinned_apps") {
+            saveWidgetSize(widgetId, size)
+            return
+        }
+        val currentSize = leftWidgetSizes[widgetId] ?: "standard"
+        val currentH = estimateSingleWidgetHeightDp(widgetId, currentSize)
+        val targetH = estimateSingleWidgetHeightDp(widgetId, size)
+        val newMap = leftWidgetSizes.toMutableMap()
+        newMap[widgetId] = size
+        if (targetH > currentH && leftPageWidgets.contains(widgetId)) {
+            val pCount = currentPinnedAppsCount()
+            if (!canFitOnLeftPage(leftPageWidgets, newMap, pCount, textSizeSp)) {
+                val sizeLabel = when (size) {
+                    "compact" -> "S"
+                    "standard" -> "M"
+                    "large" -> "L"
+                    "xlarge" -> "XL"
+                    "max" -> "MAX"
+                    else -> size.uppercase(Locale.US)
+                }
+                triggerNoSpaceLeftPopup(
+                    "No space left on the Left Page to resize this widget to $sizeLabel. Shrink another widget on the Left Page first."
+                )
+                return
+            }
+        }
+        val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
         if (retro80sMode) {
-            crtLeftWidgetSizes = nextMap
+            crtLeftWidgetSizes = newMap.toMap()
             prefs.edit().putString("crt80s_left_widget_sizes_v1", serialized).apply()
         } else {
-            regLeftWidgetSizes = nextMap
+            regLeftWidgetSizes = newMap.toMap()
             prefs.edit().putString("left_widget_sizes_v1", serialized).apply()
         }
     }
-    fun saveLeftWidgetFontsMap(nextMap: Map<String, String>) {
-        val serialized = nextMap.entries.joinToString(",") { "${it.key}:${it.value}" }
+
+    fun saveLeftWidgetFont(widgetId: String, wFontId: String) {
+        val newMap = leftWidgetFonts.toMutableMap()
+        newMap[widgetId] = wFontId
+        val serialized = newMap.entries.joinToString(",") { "${it.key}:${it.value}" }
         if (retro80sMode) {
-            crtLeftWidgetFonts = nextMap
+            crtLeftWidgetFonts = newMap.toMap()
             prefs.edit().putString("crt80s_left_widget_fonts_v1", serialized).apply()
         } else {
-            regLeftWidgetFonts = nextMap
+            regLeftWidgetFonts = newMap.toMap()
             prefs.edit().putString("left_widget_fonts_v1", serialized).apply()
         }
     }
-    fun saveLeftWidgetStylesMap(nextMap: Map<String, String>) {
-        val serialized = nextMap.entries.joinToString(",") { "${it.key}:${it.value}" }
-        if (retro80sMode) {
-            crtLeftWidgetStyles = nextMap
-            prefs.edit().putString("crt80s_left_widget_styles_v1", serialized).apply()
+
+    fun cycleLeftWidgetSize(widgetId: String) {
+        val current = leftWidgetSizes[widgetId] ?: "standard"
+        val next = if (
+            widgetId == "clock" ||
+            widgetId == "pinned_apps" ||
+            widgetId == "retro_flip_clock" ||
+            widgetId == "analog_chrono" ||
+            widgetId == "precision_chrono" ||
+            widgetId == "globe"
+        ) {
+            when (current) {
+                "compact" -> "standard"
+                "standard" -> "large"
+                "large" -> "xlarge"
+                "xlarge" -> "max"
+                else -> "compact"
+            }
         } else {
-            regLeftWidgetStyles = nextMap
-            prefs.edit().putString("left_widget_styles_v1", serialized).apply()
+            when (current) {
+                "compact" -> "standard"
+                "standard" -> "large"
+                else -> "compact"
+            }
         }
+        saveLeftWidgetSize(widgetId, next)
     }
 
-    fun currentPinnedAppsCount(): Int = orderedPinnedApps.size
-
-    fun estimateWidgetHeightDp(wId: String, sz: String, pinnedCount: Int, appSp: Int): Float {
-        return when (wId) {
-            "clock" -> when (sz) {
-                "compact" -> 58f
-                "large" -> 96f
-                "xlarge" -> 114f
-                "max" -> 132f
-                else -> 74f
-            }
-            "battery_bar" -> when (sz) {
-                "compact" -> 38f
-                "large" -> 58f
-                else -> 46f
-            }
-            "week_strip" -> when (sz) {
-                "compact" -> 64f
-                "large" -> 96f
-                else -> 78f
-            }
-            "globe" -> when (sz) {
-                "compact" -> 142f
-                "large" -> 272f
-                "xlarge" -> 338f
-                "max" -> 402f
-                else -> 202f
-            }
-            "pinned_apps" -> (pinnedCount.coerceAtLeast(1) * (appSp + 14f))
-            "retro_calendar" -> 185f
-            "year_matrix" -> 95f
-            "retro_flip_clock", "analog_chrono", "precision_chrono" -> 105f
-            else -> 48f
-        }
-    }
-
-    fun canFitOnHomeScreen(
-        candidateWidgets: List<String>,
-        candidateSizes: Map<String, String>,
-        pinnedCount: Int,
-        appSp: Int
-    ): Boolean {
-        val totalDp = candidateWidgets.sumOf { wId ->
-            val sz = candidateSizes[wId] ?: "standard"
-            estimateWidgetHeightDp(wId, sz, pinnedCount, appSp).toDouble() + 12.0
-        }
-        val maxAllowedDp = (configuration.screenHeightDp - 64).coerceAtLeast(420)
-        return totalDp <= maxAllowedDp
-    }
-
-    // Drawer & Left Page Slide Animation States (Pure horizontal slide for left page, zero fade!)
-    var drawerProgress by remember { mutableStateOf(0f) }
-    var leftPageProgress by remember { mutableStateOf(0f) }
-    var isGlobeInteractionUnlocked by remember { mutableStateOf(false) }
-
-    fun animateDrawerTo(target: Float) {
-        scope.launch {
-            animate(
-                initialValue = drawerProgress,
-                targetValue = target.coerceIn(0f, 1f),
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
-            ) { value, _ ->
-                drawerProgress = value
-            }
+    fun moveLeftWidget(widgetId: String, direction: Int) {
+        val list = leftPageWidgets.toMutableList()
+        val idx = list.indexOf(widgetId)
+        val targetIdx = idx + direction
+        if (idx in list.indices && targetIdx in list.indices) {
+            val item = list.removeAt(idx)
+            list.add(targetIdx, item)
+            saveLeftWidgetList(list)
         }
     }
 
     fun animateLeftPageTo(target: Float) {
+        val clamped = if (enableLeftPage) target.coerceIn(0f, 1f) else 0f
         scope.launch {
-            animate(
-                initialValue = leftPageProgress,
-                targetValue = target.coerceIn(0f, 1f),
-                animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
-            ) { value, _ ->
-                leftPageProgress = value
+            leftPageProgress.animateTo(
+                targetValue = clamped,
+                animationSpec = tween(
+                    durationMillis = 220,
+                    easing = FastOutSlowInEasing
+                )
+            )
+            leftPageProgress.snapTo(clamped)
+        }
+    }
+
+    fun toggleTorchState() {
+        torchEnabled = !torchEnabled
+        try {
+            val cm = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+            val camId = cm?.cameraIdList?.firstOrNull()
+            if (camId != null) {
+                cm.setTorchMode(camId, torchEnabled)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    var drawerSearchResetToken by remember { mutableStateOf(0) }
+
+    fun clearAllFocusAndKeyboard() {
+        focusDrawerSearchOnOpen = false
+        try {
+            focusManager.clearFocus(force = true)
+            keyboardController?.hide()
+        } catch (_: Exception) {
+        }
+        onDismissKeyboardHard()
+    }
+
+    fun animateDrawerTo(target: Float, initialVelocity: Float = 0f, focusSearch: Boolean = false) {
+        if (target <= 0.5f) {
+            clearAllFocusAndKeyboard()
+            drawerSearchResetToken++
+        } else {
+            focusDrawerSearchOnOpen = focusSearch
+        }
+        scope.launch {
+            drawerProgress.animateTo(
+                targetValue = target,
+                initialVelocity = initialVelocity,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessLow,
+                    visibilityThreshold = 0.001f
+                )
+            )
+            drawerProgress.snapTo(target)
+            if (target <= 0.05f) {
+                clearAllFocusAndKeyboard()
+            }
+        }
+    }
+
+    fun launchApp(pkg: String) {
+        clearAllFocusAndKeyboard()
+        drawerSearchResetToken++
+        context.packageManager.getLaunchIntentForPackage(pkg)?.let { intent ->
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            try {
+                val dv = activity.window.decorView
+                val w = dv.width.coerceAtLeast(1)
+                val h = dv.height.coerceAtLeast(1)
+                val opts = ActivityOptions.makeScaleUpAnimation(
+                    dv,
+                    w / 2,
+                    h / 2,
+                    w / 6,
+                    h / 6
+                ).toBundle()
+                activity.startActivity(intent, opts)
+            } catch (_: Exception) {
+                context.startActivity(intent)
+            }
+        }
+    }
+
+    fun openClockApp() {
+        tickHaptic(heavy = false)
+        // 1. Check installed launcher apps for the system / Google / Nothing Clock app
+        val clockApp = installedApps.firstOrNull {
+            it.packageName.equals("com.google.android.deskclock", ignoreCase = true) ||
+                it.packageName.equals("com.android.deskclock", ignoreCase = true) ||
+                it.packageName.contains("deskclock", ignoreCase = true) ||
+                it.label.equals("Clock", ignoreCase = true) ||
+                it.packageName.endsWith(".clock", ignoreCase = true)
+        }
+        if (clockApp != null) {
+            launchApp(clockApp.packageName)
+            return
+        }
+        // 2. Fallback to Android's standard AlarmClock intent
+        try {
+            val alarmIntent = Intent(AlarmClock.ACTION_SHOW_ALARMS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            activity.startActivity(alarmIntent)
+        } catch (_: Exception) {
+        }
+    }
+
+    LaunchedEffect(homeIntentTrigger) {
+        if (homeIntentTrigger > 0) {
+            clearAllFocusAndKeyboard()
+            contextMenuTarget = null
+            showHomeQuickMenu = false
+            editMode = false
+            currentView = LauncherView.HOME_AND_DRAWER
+            drawerSearchResetToken++
+            if (drawerProgress.value > 0f) {
+                drawerProgress.snapTo(0f)
+            }
+            if (leftPageProgress.value > 0f) {
+                leftPageProgress.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                )
             }
         }
     }
 
     LaunchedEffect(enableLeftPage) {
-        if (!enableLeftPage && leftPageProgress > 0f) {
-            leftPageProgress = 0f
+        if (!enableLeftPage && leftPageProgress.value > 0f) {
+            leftPageProgress.snapTo(0f)
         }
     }
 
-    val isDrawerNearClosed = drawerProgress < 0.04f
-    val isOnLeftPage = enableLeftPage && leftPageProgress > 0.5f
-
-    // Back Handler
-    DisposableEffect(currentView, editMode, showHomeQuickMenu, contextMenuTarget, drawerProgress, leftPageProgress) {
-        val activity = context as? ComponentActivity
-        val callback = object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                when {
-                    contextMenuTarget != null -> contextMenuTarget = null
-                    showHomeQuickMenu -> showHomeQuickMenu = false
-                    showNoSpacePopup -> showNoSpacePopup = false
-                    currentView != LauncherView.HOME_AND_DRAWER -> currentView = LauncherView.HOME_AND_DRAWER
-                    editMode -> editMode = false
-                    drawerProgress > 0.05f -> animateDrawerTo(0f)
-                    leftPageProgress > 0.05f -> animateLeftPageTo(0f)
-                }
-            }
-        }
-        activity?.onBackPressedDispatcher?.addCallback(callback)
-        onDispose { callback.remove() }
-    }
-
-    fun launchPackage(pkg: String) {
-        try {
-            val intent = context.packageManager.getLaunchIntentForPackage(pkg)
-            if (intent != null) {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
-            }
-        } catch (_: Exception) {
-        }
-    }
-
-    fun openClockApp() {
-        try {
-            val intent = Intent(AlarmClock.ACTION_SHOW_ALARMS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } catch (_: Exception) {
+    LaunchedEffect(packageRefreshTrigger, currentView) {
+        if (currentView != LauncherView.HOME_AND_DRAWER || drawerProgress.value < 0.5f) {
+            clearAllFocusAndKeyboard()
         }
     }
 
@@ -1040,143 +2039,971 @@ fun NTextLauncherApp() {
         try {
             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = Uri.fromParts("package", pkg, null)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            context.startActivity(intent)
+            activity.startActivity(intent)
         } catch (_: Exception) {
         }
     }
 
-    fun onRequestSystemUninstall(pkg: String) {
-        try {
-            val intent = Intent(Intent.ACTION_DELETE).apply {
-                data = Uri.fromParts("package", pkg, null)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    val backDispatcher = activity.onBackPressedDispatcher
+    DisposableEffect(backDispatcher, currentView, editMode, isDrawerOpen, isOnLeftPage, contextMenuTarget, showHomeQuickMenu) {
+        val callback = object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                when {
+                    contextMenuTarget != null -> contextMenuTarget = null
+                    showHomeQuickMenu -> showHomeQuickMenu = false
+                    editMode -> editMode = false
+                    currentView != LauncherView.HOME_AND_DRAWER -> currentView = LauncherView.HOME_AND_DRAWER
+                    drawerProgress.value > 0.05f -> animateDrawerTo(0f)
+                    leftPageProgress.value > 0.05f -> animateLeftPageTo(0f)
+                }
             }
-            context.startActivity(intent)
-        } catch (_: Exception) {
         }
+        backDispatcher.addCallback(callback)
+        onDispose { callback.remove() }
     }
 
-    fun toggleTorch() {
-        try {
-            val cm = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager ?: return
-            val camId = cm.cameraIdList.firstOrNull() ?: return
-            val next = !torchEnabled
-            cm.setTorchMode(camId, next)
-            torchEnabled = next
-        } catch (_: Exception) {
-        }
-    }
-
-    fun performWaveTick() {
-        try {
-            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-        } catch (_: Exception) {
-        }
+    // Root Surface with Full-Bleed Edge-to-Edge Wallpaper Engine + Universal Wallpaper Dimmer
+    // When retro80sMode is ON, applies a hardware-accelerated 80s CRT Green Phosphor ColorMatrix + Edge Glow Bloom across everything!
+    val retro80sRenderEffect = remember(retro80sMode, retro80sColorTheme) {
+        if (retro80sMode && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                val isAmber = retro80sColorTheme == "amber"
+                // 1. Sharp 80s Phosphor ColorMatrix:
+                //    - "green": P1 Light-Green Phosphor (#7CFF5B)
+                //    - "amber": P3 IBM Gas-Plasma / Amber-Orange Phosphor (#FF8400, matching reference IBM monitor!)
+                val sharpMatrix = if (isAmber) {
+                    AndroidColorMatrix(
+                        floatArrayOf(
+                            0.38f, 0.76f, 0.18f, 0f, 12f,
+                            0.18f, 0.36f, 0.09f, 0f, 3f,
+                            0.02f, 0.04f, 0.01f, 0f, 0f,
+                            0f,    0f,    0f,    1f, 0f
+                        )
+                    )
+                } else {
+                    AndroidColorMatrix(
+                        floatArrayOf(
+                            0.15f, 0.30f, 0.08f, 0f, 2f,
+                            0.34f, 0.68f, 0.18f, 0f, 10f,
+                            0.11f, 0.22f, 0.06f, 0f, 2f,
+                            0f,    0f,    0f,    1f, 0f
+                        )
+                    )
+                }
+                val sharpEffect = AndroidRenderEffect.createColorFilterEffect(
+                    AndroidColorMatrixColorFilter(sharpMatrix)
+                )
+                // 2. Soft 80s CRT Edge Phosphor Bloom (blurs bright edges & screens them over the crisp image)
+                val bloomMatrix = if (isAmber) {
+                    AndroidColorMatrix(
+                        floatArrayOf(
+                            0.28f, 0.54f, 0.14f, 0f, 0f,
+                            0.12f, 0.24f, 0.06f, 0f, 0f,
+                            0.01f, 0.02f, 0.01f, 0f, 0f,
+                            0f,    0f,    0f,    1f, 0f
+                        )
+                    )
+                } else {
+                    AndroidColorMatrix(
+                        floatArrayOf(
+                            0.08f, 0.16f, 0.04f, 0f, 0f,
+                            0.24f, 0.48f, 0.12f, 0f, 0f,
+                            0.06f, 0.13f, 0.03f, 0f, 0f,
+                            0f,    0f,    0f,    1f, 0f
+                        )
+                    )
+                }
+                val blurEffect = AndroidRenderEffect.createBlurEffect(
+                    13f,
+                    13f,
+                    AndroidShader.TileMode.CLAMP
+                )
+                val bloomEffect = AndroidRenderEffect.createChainEffect(
+                    blurEffect,
+                    AndroidRenderEffect.createColorFilterEffect(AndroidColorMatrixColorFilter(bloomMatrix))
+                )
+                AndroidRenderEffect.createBlendModeEffect(
+                    bloomEffect,
+                    sharpEffect,
+                    AndroidBlendMode.SCREEN
+                ).asComposeRenderEffect()
+            } catch (_: Exception) {
+                null
+            }
+        } else null
     }
 
     CompositionLocalProvider(
         LocalRetro80sMode provides retro80sMode,
         LocalRetro80sColorTheme provides retro80sColorTheme
     ) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                when {
+                    wallpaperPreset == "system_wallpaper" -> Color.Transparent
+                    retro80sMode && retro80sColorTheme == "amber" -> Color(0xFF0A0300)
+                    retro80sMode -> Color(0xFF020902)
+                    else -> Color.Black
+                }
+            )
+            .graphicsLayer {
+                if (retro80sRenderEffect != null) {
+                    renderEffect = retro80sRenderEffect
+                }
+            }
+    ) {
+        val density = LocalDensity.current
+        val screenWidthPx = with(density) { maxWidth.toPx().coerceAtLeast(1f) }
+        val screenHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
+        val topInsetDpVal = with(density) {
+            max(
+                WindowInsets.statusBars.getTop(density),
+                WindowInsets.displayCutout.getTop(density)
+            ).toDp().value
+        }
+        val bottomInsetDpVal = with(density) {
+            WindowInsets.navigationBars.getBottom(density).toDp().value
+        }
+        // Usable single-screen Home height = total height - top/bottom system insets - 20dp vertical padding (10dp top + 10dp bottom)
+        val computedUsableHeightDp = (maxHeight.value - topInsetDpVal - bottomInsetDpVal - 20f).coerceAtLeast(340f)
+        if (abs(usableHomeHeightDp - computedUsableHeightDp) > 0.5f) {
+            usableHomeHeightDp = computedUsableHeightDp
+        }
+
+        // Full-Screen Edge-to-Edge Wallpaper Canvas
+        // Supports real-time hardware blur when Nocturnaa Settings OR App Drawer is in "blurry" mode!
+        // Reads drawerProgress.value ONLY inside graphicsLayer (Draw phase) so zero recomposition occurs during 120Hz swipes!
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black)
+                .graphicsLayer {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        val settingsBlurPx = if (currentView == LauncherView.SETTINGS && settingsBgMode == "blurry") {
+                            ((settingsBgIntensity.coerceIn(4, 100) / 100f) * 38.dp.toPx())
+                        } else 0f
+                        val drawerBlurPx = if (currentView == LauncherView.HOME_AND_DRAWER && drawerBgMode == "blurry" && drawerProgress.value > 0.01f) {
+                            ((drawerBgIntensity.coerceIn(4, 100) / 100f) * drawerProgress.value * 38.dp.toPx())
+                        } else 0f
+                        val activeBlurPx = max(settingsBlurPx, drawerBlurPx)
+                        if (activeBlurPx >= 1f) {
+                            renderEffect = AndroidRenderEffect.createBlurEffect(
+                                activeBlurPx,
+                                activeBlurPx,
+                                AndroidShader.TileMode.CLAMP
+                            ).asComposeRenderEffect()
+                        }
+                    }
+                }
         ) {
-            // 1. Full-Screen AMOLED Wallpaper Layer
-            WallpaperCanvasView(
+            val isWallpaperScreenVisible = when (currentView) {
+                LauncherView.HOME_AND_DRAWER -> !isDrawerFullyOpen || drawerBgMode != "opaque"
+                LauncherView.WIDGETS -> false
+                LauncherView.SETTINGS -> settingsBgMode != "opaque"
+            }
+            OledWallpaperCanvas(
                 preset = wallpaperPreset,
                 accentColor = accentColor,
                 dimPercent = wallpaperDimPercent,
-                customImageBitmap = customWallpaperBitmap,
-                speedMult = wpSpeed,
-                densityMult = wpDensity,
-                opacityMult = wpOpacity,
-                scaleMult = wpScale,
-                animationsActive = widgetsActive
+                wpSpeed = wpSpeed,
+                wpDensity = wpDensity,
+                wpOpacity = wpOpacity,
+                wpScale = wpScale,
+                isScreenVisible = isWallpaperScreenVisible,
+                pauseWhenAppOpen = pauseWhenAppOpen,
+                userWallpaperRefreshTrigger = userWallpaperRefreshTrigger
             )
+        }
 
-            // 2. Subtle Background Overlay for Old School Scanlines or Red & Cyan Holomap Cyan Dot Matrix
-            if (retro80sMode) {
-                Retro80sCrtScreenEdgeGlowOverlay()
+        Column(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            if (editMode && currentView == LauncherView.HOME_AND_DRAWER && isDrawerNearClosed) {
+                val topBtnShape = RoundedCornerShape(if (retro80sMode) 0.dp else 4.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+                        .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 2.dp)
+                        .border(
+                            if (retro80sMode) 1.5.dp else 1.dp,
+                            if (retro80sMode) accentColor else Color(0xFF404040),
+                            RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp)
+                        )
+                        .background(
+                            if (retro80sMode) Color(0xFF050505) else Color(0xFF0A0A0A),
+                            RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp)
+                        )
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (enableLeftPage) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "◀ LEFT PAGE",
+                                color = if (isOnLeftPage) Color.Black else if (retro80sMode) accentColor else Color.White,
+                                fontSize = 9.sp,
+                                fontFamily = selectedFont,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .border(
+                                        1.dp,
+                                        if (isOnLeftPage) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF282828),
+                                        topBtnShape
+                                    )
+                                    .background(if (isOnLeftPage) accentColor else if (retro80sMode) Color(0xFF080808) else Color(0xFF1A1A1A), topBtnShape)
+                                    .clickable { animateLeftPageTo(1f) }
+                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                            )
+                            Text(
+                                text = "MAIN PAGE ▶",
+                                color = if (!isOnLeftPage) Color.Black else if (retro80sMode) accentColor else Color.White,
+                                fontSize = 9.sp,
+                                fontFamily = selectedFont,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .border(
+                                        1.dp,
+                                        if (!isOnLeftPage) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF282828),
+                                        topBtnShape
+                                    )
+                                    .background(if (!isOnLeftPage) accentColor else if (retro80sMode) Color(0xFF080808) else Color(0xFF1A1A1A), topBtnShape)
+                                    .clickable { animateLeftPageTo(0f) }
+                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "EDIT MODE",
+                            color = accentColor,
+                            fontSize = 10.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text(
+                        text = "DONE",
+                        color = Color.Black,
+                        fontSize = 10.sp,
+                        fontFamily = selectedFont,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .background(if (retro80sMode) accentColor else Color.White, topBtnShape)
+                            .clickable { editMode = false }
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
             }
 
-            // 3. Main Foreground Content
-            Column(modifier = Modifier.fillMaxSize()) {
-                if (editMode && currentView == LauncherView.HOME_AND_DRAWER && isDrawerNearClosed) {
-                    val topBtnShape = RoundedCornerShape(if (retro80sMode) 0.dp else 4.dp)
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                when (currentView) {
+                    LauncherView.HOME_AND_DRAWER -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    val p = drawerProgress.value
+                                    if (p >= 0.995f) {
+                                        alpha = 0f
+                                        translationY = -screenHeightPx * 2f
+                                    } else {
+                                        alpha = (1f - p * 1.15f).coerceIn(0f, 1f)
+                                        translationY = -p * 110.dp.toPx()
+                                        val s = 1f - p * 0.045f
+                                        scaleX = s
+                                        scaleY = s
+                                    }
+                                }
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onLongPress = {
+                                            if (drawerProgress.value < 0.1f) {
+                                                tickHaptic(heavy = true)
+                                                showHomeQuickMenu = true
+                                            }
+                                        }
+                                    )
+                                }
+                                .pointerInput(screenWidthPx, enableLeftPage, isGlobeInteractionActive) {
+                                    if (!enableLeftPage || isGlobeInteractionActive) return@pointerInput
+                                    var totalDx = 0f
+                                    var startPage = 0f
+                                    val horizVelocityTracker = VelocityTracker()
+                                    detectHorizontalDragGestures(
+                                        onDragStart = {
+                                            totalDx = 0f
+                                            startPage = if (leftPageProgress.value >= 0.5f) 1f else 0f
+                                            horizVelocityTracker.resetTracking()
+                                        },
+                                        onHorizontalDrag = { change, dragAmount ->
+                                            if (drawerProgress.value > 0.02f) return@detectHorizontalDragGestures
+                                            horizVelocityTracker.addPosition(change.uptimeMillis, change.position)
+                                            change.consume()
+                                            totalDx += dragAmount
+                                            // Dragging right (dragAmount > 0) reveals the Left Page (0f -> 1f);
+                                            // dragging left (dragAmount < 0) returns to the Main Page (1f -> 0f)
+                                            val delta = dragAmount / screenWidthPx
+                                            val next = (leftPageProgress.value + delta).coerceIn(0f, 1f)
+                                            scope.launch { leftPageProgress.snapTo(next) }
+                                        },
+                                        onDragEnd = {
+                                            val vx = horizVelocityTracker.calculateVelocity().x
+                                            val cur = leftPageProgress.value
+                                            val target = when {
+                                                startPage < 0.5f && (totalDx > 55f || vx > 420f || cur > 0.22f) -> 1f
+                                                startPage >= 0.5f && (totalDx < -55f || vx < -420f || cur < 0.78f) -> 0f
+                                                cur >= 0.5f -> 1f
+                                                else -> 0f
+                                            }
+                                            if (target != startPage) {
+                                                tickHaptic(heavy = false)
+                                            }
+                                            animateLeftPageTo(target)
+                                        },
+                                        onDragCancel = {
+                                            val target = if (leftPageProgress.value >= 0.5f) 1f else 0f
+                                            animateLeftPageTo(target)
+                                        }
+                                    )
+                                }
+                                .pointerInput(screenHeightPx, editMode, isGlobeInteractionActive) {
+                                    if (editMode || isGlobeInteractionActive) return@pointerInput
+                                    var totalDy = 0f
+                                    var notifTriggered = false
+                                    val velocityTracker = VelocityTracker()
+                                    val dragDistancePx = (screenHeightPx * 0.58f).coerceAtLeast(1f)
+                                    detectVerticalDragGestures(
+                                        onDragStart = {
+                                            totalDy = 0f
+                                            notifTriggered = false
+                                            velocityTracker.resetTracking()
+                                        },
+                                        onVerticalDrag = { change, dragAmount ->
+                                            velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                            change.consume()
+                                            totalDy += dragAmount
+                                            if (totalDy < 0f || drawerProgress.value > 0.005f) {
+                                                val delta = -dragAmount / dragDistancePx
+                                                val next = (drawerProgress.value + delta).coerceIn(0f, 1f)
+                                                scope.launch { drawerProgress.snapTo(next) }
+                                            } else if (totalDy > 95f && !notifTriggered && drawerProgress.value < 0.01f) {
+                                                notifTriggered = true
+                                                tickHaptic(heavy = false)
+                                                onExpandNotifications()
+                                            }
+                                        },
+                                        onDragEnd = {
+                                            val vy = velocityTracker.calculateVelocity().y
+                                            val normVel = (-vy / dragDistancePx).coerceIn(-6f, 6f)
+                                            if (drawerProgress.value > 0.14f || totalDy < -75f || vy < -550f) {
+                                                animateDrawerTo(1f, initialVelocity = normVel)
+                                            } else if (drawerProgress.value > 0f) {
+                                                animateDrawerTo(0f, initialVelocity = normVel)
+                                            }
+                                        },
+                                        onDragCancel = {
+                                            if (drawerProgress.value > 0.5f) animateDrawerTo(1f)
+                                            else if (drawerProgress.value > 0f) animateDrawerTo(0f)
+                                        }
+                                    )
+                                }
+                        ) {
+                            // 1. ADDITIONAL LEFT HOME PAGE (To the left of the Main Page; pure horizontal slide with NO fade!)
+                            if (enableLeftPage) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer {
+                                            val hp = leftPageProgress.value
+                                            // Pure horizontal translation from -screenWidthPx to 0f; alpha is strictly 1f (no fade)!
+                                            translationX = if (hp <= 0.0005f) -screenWidthPx * 2f else (hp - 1f) * screenWidthPx
+                                        }
+                                ) {
+                                    HomeScreenView(
+                                        activeWidgets = leftPageWidgets,
+                                        widgetSizes = leftWidgetSizes,
+                                        widgetFonts = leftWidgetFonts,
+                                        widgetStyles = leftWidgetStyles,
+                                        editMode = editMode,
+                                        currentTimeMillis = currentTimeMillis,
+                                        currentHourStr = currentHourStr,
+                                        currentMinStr = currentMinStr,
+                                        currentSecStr = currentSecStr,
+                                        currentAmPmStr = currentAmPmStr,
+                                        currentDateStr = currentDateStr,
+                                        nextAlarmStr = nextAlarmStr,
+                                        batteryPct = batteryPct,
+                                        isCharging = isCharging,
+                                        ramStatusText = ramStatusText,
+                                        storageStatusText = storageStatusText,
+                                        ramUsageFraction = ramUsageFraction,
+                                        storageUsageFraction = storageUsageFraction,
+                                        torchEnabled = torchEnabled,
+                                        zenActive = zenActive,
+                                        zenSeconds = zenSeconds,
+                                        quickNote = quickNote,
+                                        accentColor = accentColor,
+                                        lomoFontFamily = lomoFontFamily,
+                                        selectedFont = selectedFont,
+                                        uppercaseHome = prebuiltFont.uppercaseHome,
+                                        textAlign = textAlign,
+                                        textSizeSp = textSizeSp,
+                                        waveScrubMode = waveScrubMode,
+                                        retro80sMode = retro80sMode,
+                                        batteryBarStyle = batteryBarStyle,
+                                        onChangeBatteryBarStyle = { style ->
+                                            batteryBarStyle = style
+                                            prefs.edit().putString("battery_bar_style", style).apply()
+                                        },
+                                        globeTheme = if (retro80sMode) "wireframe" else globeTheme,
+                                        globeWireframeColor = if (retro80sMode) (if (retro80sColorTheme == "amber") "#FF8800" else "#7CFF5B") else globeWireframeColor,
+                                        globeTilt2dDeg = globeTilt2dDeg,
+                                        globeRotXDeg = globeRotXDeg,
+                                        globeRotYDeg = globeRotYDeg,
+                                        onChangeGlobeTilt2d = { deg ->
+                                            val clamped = deg.coerceIn(-180f, 180f)
+                                            globeTilt2dDeg = clamped
+                                            prefs.edit().putFloat("globe_tilt_2d_deg", clamped).apply()
+                                        },
+                                        onChangeGlobeRotX = { deg ->
+                                            val clamped = deg.coerceIn(-85f, 85f)
+                                            globeRotXDeg = clamped
+                                            prefs.edit().putFloat("globe_rot_x_deg", clamped).apply()
+                                        },
+                                        onChangeGlobeRotY = { deg ->
+                                            val clamped = deg.coerceIn(-180f, 180f)
+                                            globeRotYDeg = clamped
+                                            prefs.edit().putFloat("globe_rot_y_deg", clamped).apply()
+                                        },
+                                        pinnedApps = orderedPinnedApps,
+                                        customPinnedOrderEnabled = customPinnedOrderEnabled,
+                                        onMovePinnedApp = { pkg, dir -> movePinnedApp(pkg, dir) },
+                                        onUnpinApp = { pkg -> unpinAppFromHome(pkg) },
+                                        onOpenClockApp = { openClockApp() },
+                                        onToggleTorch = { toggleTorchState() },
+                                        onToggleZen = {
+                                            zenActive = !zenActive
+                                            if (!zenActive) zenSeconds = 1500
+                                        },
+                                        onCycleWidgetSize = { id -> cycleLeftWidgetSize(id) },
+                                        onSetWidgetSize = { id, sz -> saveLeftWidgetSize(id, sz) },
+                                        onSetWidgetFont = { id, fId -> saveLeftWidgetFont(id, fId) },
+                                        onSetWidgetStyle = { id, stId -> saveLeftWidgetStyle(id, stId) },
+                                        onMoveWidget = { id, dir -> moveLeftWidget(id, dir) },
+                                        onRemoveWidget = { id ->
+                                            saveLeftWidgetList(leftPageWidgets.filter { it != id })
+                                        },
+                                        widgetsActive = shouldRunWidgetsAndWallpapers && leftPageProgress.value > 0.01f,
+                                        onLaunchApp = { pkg -> launchApp(pkg) },
+                                        onLongPressApp = { app ->
+                                            tickHaptic(heavy = true)
+                                            contextMenuTarget = app to true
+                                        },
+                                        onLongPressHome = {
+                                            if (drawerProgress.value < 0.1f) {
+                                                tickHaptic(heavy = true)
+                                                showHomeQuickMenu = true
+                                            }
+                                        },
+                                        onGlobeInteractionChanged = { unlocked ->
+                                            isGlobeInteractionActive = unlocked
+                                        },
+                                        onReportMeasuredSpace = { innerH, widgetsH, appsH ->
+                                            if (innerH > 200f) measuredHomeInnerHeightDp = innerH
+                                            measuredLeftWidgetsHeightDp = widgetsH
+                                            measuredLeftPinnedAppsHeightDp = appsH
+                                        },
+                                        onWaveTick = { tickHaptic(heavy = false) }
+                                    )
+                                }
+                            }
+
+                            // 2. MAIN HOME PAGE (Pure horizontal slide to +screenWidthPx when Left Page slides in; NO fade!)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        val hp = if (enableLeftPage) leftPageProgress.value else 0f
+                                        translationX = if (hp >= 0.9995f) screenWidthPx * 2f else hp * screenWidthPx
+                                    }
+                            ) {
+                                HomeScreenView(
+                                    activeWidgets = activeWidgets,
+                                    widgetSizes = widgetSizes,
+                                    widgetFonts = widgetFonts,
+                                    widgetStyles = widgetStyles,
+                                    editMode = editMode,
+                                    currentTimeMillis = currentTimeMillis,
+                                    currentHourStr = currentHourStr,
+                                    currentMinStr = currentMinStr,
+                                    currentSecStr = currentSecStr,
+                                    currentAmPmStr = currentAmPmStr,
+                                    currentDateStr = currentDateStr,
+                                    nextAlarmStr = nextAlarmStr,
+                                    batteryPct = batteryPct,
+                                    isCharging = isCharging,
+                                    ramStatusText = ramStatusText,
+                                    storageStatusText = storageStatusText,
+                                    ramUsageFraction = ramUsageFraction,
+                                    storageUsageFraction = storageUsageFraction,
+                                    torchEnabled = torchEnabled,
+                                    zenActive = zenActive,
+                                    zenSeconds = zenSeconds,
+                                    quickNote = quickNote,
+                                    accentColor = accentColor,
+                                    lomoFontFamily = lomoFontFamily,
+                                    selectedFont = selectedFont,
+                                    uppercaseHome = prebuiltFont.uppercaseHome,
+                                    textAlign = textAlign,
+                                    textSizeSp = textSizeSp,
+                                    waveScrubMode = waveScrubMode,
+                                    retro80sMode = retro80sMode,
+                                    batteryBarStyle = batteryBarStyle,
+                                    onChangeBatteryBarStyle = { style ->
+                                        batteryBarStyle = style
+                                        prefs.edit().putString("battery_bar_style", style).apply()
+                                    },
+                                    globeTheme = if (retro80sMode) "wireframe" else globeTheme,
+                                    globeWireframeColor = if (retro80sMode) (if (retro80sColorTheme == "amber") "#FF8800" else "#7CFF5B") else globeWireframeColor,
+                                    globeTilt2dDeg = globeTilt2dDeg,
+                                    globeRotXDeg = globeRotXDeg,
+                                    globeRotYDeg = globeRotYDeg,
+                                    onChangeGlobeTilt2d = { deg ->
+                                        val clamped = deg.coerceIn(-180f, 180f)
+                                        globeTilt2dDeg = clamped
+                                        prefs.edit().putFloat("globe_tilt_2d_deg", clamped).apply()
+                                    },
+                                    onChangeGlobeRotX = { deg ->
+                                        val clamped = deg.coerceIn(-85f, 85f)
+                                        globeRotXDeg = clamped
+                                        prefs.edit().putFloat("globe_rot_x_deg", clamped).apply()
+                                    },
+                                    onChangeGlobeRotY = { deg ->
+                                        val clamped = deg.coerceIn(-180f, 180f)
+                                        globeRotYDeg = clamped
+                                        prefs.edit().putFloat("globe_rot_y_deg", clamped).apply()
+                                    },
+                                    pinnedApps = orderedPinnedApps,
+                                    customPinnedOrderEnabled = customPinnedOrderEnabled,
+                                    onMovePinnedApp = { pkg, dir -> movePinnedApp(pkg, dir) },
+                                    onUnpinApp = { pkg -> unpinAppFromHome(pkg) },
+                                    onOpenClockApp = { openClockApp() },
+                                    onToggleTorch = { toggleTorchState() },
+                                    onToggleZen = {
+                                        zenActive = !zenActive
+                                        if (!zenActive) zenSeconds = 1500
+                                    },
+                                    onCycleWidgetSize = { id -> cycleWidgetSize(id) },
+                                    onSetWidgetSize = { id, sz -> saveWidgetSize(id, sz) },
+                                    onSetWidgetFont = { id, fId -> saveWidgetFont(id, fId) },
+                                    onSetWidgetStyle = { id, stId -> saveWidgetStyle(id, stId) },
+                                    onMoveWidget = { id, dir -> moveWidget(id, dir) },
+                                    onRemoveWidget = { id ->
+                                        saveWidgetList(activeWidgets.filter { it != id })
+                                    },
+                                    widgetsActive = shouldRunWidgetsAndWallpapers && (!enableLeftPage || leftPageProgress.value < 0.99f),
+                                    onLaunchApp = { pkg -> launchApp(pkg) },
+                                    onLongPressApp = { app ->
+                                        tickHaptic(heavy = true)
+                                    contextMenuTarget = app to true
+                                    },
+                                    onLongPressHome = {
+                                        if (drawerProgress.value < 0.1f) {
+                                            tickHaptic(heavy = true)
+                                            showHomeQuickMenu = true
+                                        }
+                                    },
+                                    onGlobeInteractionChanged = { unlocked ->
+                                        isGlobeInteractionActive = unlocked
+                                    },
+                                    onReportMeasuredSpace = { innerH, widgetsH, appsH ->
+                                        if (innerH > 200f) measuredHomeInnerHeightDp = innerH
+                                        measuredWidgetsHeightDp = widgetsH
+                                        measuredPinnedAppsHeightDp = appsH
+                                    },
+                                    onWaveTick = { tickHaptic(heavy = false) }
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    val p = drawerProgress.value
+                                    if (p <= 0.005f) {
+                                        alpha = 0f
+                                        translationY = screenHeightPx * 2f
+                                    } else {
+                                        alpha = (p * 1.25f).coerceIn(0f, 1f)
+                                        translationY = (1f - p) * (screenHeightPx * 0.48f)
+                                    }
+                                }
+                        ) {
+                            AppDrawerView(
+                                apps = installedApps,
+                                lomoFontFamily = selectedFont,
+                                selectedFont = selectedFont,
+                                uppercaseHome = prebuiltFont.uppercaseHome,
+                                drawerTextSizeSp = drawerTextSizeSp,
+                                drawerBgMode = drawerBgMode,
+                                drawerBgIntensity = drawerBgIntensity,
+                                accentColor = accentColor,
+                                waveScrubMode = waveScrubMode,
+                                drawerWaveIntensity = drawerWaveIntensity,
+                                screenHeightPx = screenHeightPx,
+                                getDrawerProgress = { drawerProgress.value },
+                                searchResetToken = drawerSearchResetToken,
+                                focusSearchOnOpen = focusDrawerSearchOnOpen,
+                                onConsumedSearchFocus = { focusDrawerSearchOnOpen = false },
+                                onDragDrawerDelta = { dy ->
+                                    val delta = -dy / (screenHeightPx * 0.52f)
+                                    val next = (drawerProgress.value + delta).coerceIn(0f, 1f)
+                                    scope.launch { drawerProgress.snapTo(next) }
+                                },
+                                onSettleDrawer = { totalDy ->
+                                    if (drawerProgress.value < 0.82f || totalDy > 95f) {
+                                        animateDrawerTo(0f)
+                                    } else {
+                                        animateDrawerTo(1f)
+                                    }
+                                },
+                                onLaunchApp = { pkg ->
+                                    launchApp(pkg)
+                                    animateDrawerTo(0f)
+                                },
+                                onLongPressApp = { app ->
+                                    tickHaptic(heavy = true)
+                                    contextMenuTarget = app to false
+                                },
+                                onClose = { animateDrawerTo(0f) },
+                                onWaveTick = { tickHaptic(heavy = false) }
+                            )
+                        }
+                    }
+
+                    LauncherView.WIDGETS -> {
+                        WidgetsManagerView(
+                            activeWidgets = activeWidgets,
+                            widgetSizes = widgetSizes,
+                            widgetStyles = widgetStyles,
+                            leftPageEnabled = enableLeftPage,
+                            initialTargetLeftPage = isOnLeftPage,
+                            leftPageWidgets = leftPageWidgets,
+                            leftWidgetSizes = leftWidgetSizes,
+                            leftWidgetStyles = leftWidgetStyles,
+                            accentColor = accentColor,
+                            lomoFontFamily = selectedFont,
+                            use24Hour = use24Hour,
+                            batteryBarStyle = batteryBarStyle,
+                            onChangeBatteryBarStyle = { style ->
+                                batteryBarStyle = style
+                                prefs.edit().putString("battery_bar_style", style).apply()
+                            },
+                            customPinnedOrderEnabled = customPinnedOrderEnabled,
+                            quickNote = quickNote,
+                            globeTheme = globeTheme,
+                            globeWireframeColor = globeWireframeColor,
+                            onToggleCustomPinnedOrder = {
+                                customPinnedOrderEnabled = !customPinnedOrderEnabled
+                                prefs.edit().putBoolean("custom_pinned_order", customPinnedOrderEnabled).apply()
+                            },
+                            onToggle24h = {
+                                use24Hour = !use24Hour
+                                prefs.edit().putBoolean("use_24h_v4", use24Hour).apply()
+                            },
+                            onChangeQuickNote = {
+                                quickNote = it
+                                prefs.edit().putString("quick_note", it).apply()
+                            },
+                            onChangeGlobeTheme = {
+                                globeTheme = it
+                                prefs.edit().putString("globe_theme", it).apply()
+                            },
+                            onChangeGlobeWireframeColor = {
+                                globeWireframeColor = it
+                                prefs.edit().putString("globe_wf_color", it).apply()
+                            },
+                            onUpdateWidgets = { saveWidgetList(it) },
+                            onUpdateLeftWidgets = { saveLeftWidgetList(it) },
+                            onSetWidgetStyle = { id, stId -> saveWidgetStyle(id, stId) },
+                            onSetLeftWidgetStyle = { id, stId -> saveLeftWidgetStyle(id, stId) },
+                            onCycleWidgetSize = { cycleWidgetSize(it) },
+                            onSetWidgetSize = { id, sz -> saveWidgetSize(id, sz) },
+                            onMoveWidget = { id, dir -> moveWidget(id, dir) },
+                            onBack = { currentView = LauncherView.HOME_AND_DRAWER }
+                        )
+                    }
+
+                    LauncherView.SETTINGS -> {
+                        val hasCustomImageFile = remember(userWallpaperRefreshTrigger, wallpaperPreset) {
+                            File(context.filesDir, "user_custom_wallpaper.jpg").exists()
+                        }
+                        LauncherSettingsView(
+                            fontId = fontId,
+                            textAlignMode = textAlignMode,
+                            accentHex = accentHex,
+                            textSizeSp = textSizeSp,
+                            drawerTextSizeSp = drawerTextSizeSp,
+                            use24Hour = use24Hour,
+                            hideAndroidBar = hideAndroidBar,
+                            enableLeftPage = enableLeftPage,
+                            retro80sMode = retro80sMode,
+                            batteryBarStyle = batteryBarStyle,
+                            pauseWhenAppOpen = pauseWhenAppOpen,
+                            customPinnedOrderEnabled = customPinnedOrderEnabled,
+                            waveScrubMode = waveScrubMode,
+                            drawerWaveIntensity = drawerWaveIntensity,
+                            wallpaperPreset = wallpaperPreset,
+                            wallpaperDimPercent = wallpaperDimPercent,
+                            hasCustomUserImage = hasCustomImageFile,
+                            wpSpeed = wpSpeed,
+                            wpDensity = wpDensity,
+                            wpOpacity = wpOpacity,
+                            wpScale = wpScale,
+                            settingsBgMode = settingsBgMode,
+                            settingsBgIntensity = settingsBgIntensity,
+                            drawerBgMode = drawerBgMode,
+                            drawerBgIntensity = drawerBgIntensity,
+                            lomoFontFamily = lomoFontFamily,
+                            launcherFont = selectedFont,
+                            retro80sColorTheme = retro80sColorTheme,
+                            onChangeRetro80sColorTheme = { themeId ->
+                                retro80sColorTheme = themeId
+                                prefs.edit().putString("retro_80s_color_theme", themeId).apply()
+                            },
+                            onChangeFont = {
+                                fontId = it
+                                val newFontMap = widgetFonts.toMutableMap()
+                                newFontMap["pinned_apps"] = it
+                                val serializedFonts = newFontMap.entries.joinToString(",") { e -> "${e.key}:${e.value}" }
+                                if (retro80sMode) {
+                                    crtWidgetFonts = newFontMap.toMap()
+                                    prefs.edit()
+                                        .putString("font_id", it)
+                                        .putString("crt80s_widget_fonts_v1", serializedFonts)
+                                        .apply()
+                                } else {
+                                    regWidgetFonts = newFontMap.toMap()
+                                    prefs.edit()
+                                        .putString("font_id", it)
+                                        .putString("widget_fonts_v1", serializedFonts)
+                                        .apply()
+                                }
+                            },
+                            onChangeAlign = {
+                                textAlignMode = it
+                                prefs.edit().putString("align", it).apply()
+                            },
+                            onChangeAccent = {
+                                accentHex = it
+                                prefs.edit().putString("accent", it).apply()
+                            },
+                            onChangeTextSize = { newSp ->
+                                val pCount = currentPinnedAppsCount()
+                                if (newSp > textSizeSp && activeWidgets.isNotEmpty() && !canFitOnHomeScreen(activeWidgets, widgetSizes, pCount, newSp)) {
+                                    triggerNoSpaceLeftPopup(
+                                        "No space left on the Home Screen to increase app text scale to ${newSp}SP with your current widgets and $pCount pinned apps."
+                                    )
+                                } else {
+                                    val mappedSz = when (newSp) {
+                                        16 -> "compact"
+                                        18 -> "standard"
+                                        20 -> "large"
+                                        22 -> "xlarge"
+                                        else -> "max"
+                                    }
+                                    val newSizeMap = widgetSizes.toMutableMap()
+                                    newSizeMap["pinned_apps"] = mappedSz
+                                    val serializedSizes = newSizeMap.entries.joinToString(",") { e -> "${e.key}:${e.value}" }
+                                    if (retro80sMode) {
+                                        crtTextSizeSp = newSp
+                                        crtWidgetSizes = newSizeMap.toMap()
+                                        prefs.edit()
+                                            .putInt("crt80s_text_size_v1", newSp)
+                                            .putString("crt80s_widget_sizes_v1", serializedSizes)
+                                            .apply()
+                                    } else {
+                                        regTextSizeSp = newSp
+                                        regWidgetSizes = newSizeMap.toMap()
+                                        prefs.edit()
+                                            .putInt("text_size", newSp)
+                                            .putString("widget_sizes_v7", serializedSizes)
+                                            .apply()
+                                    }
+                                }
+                            },
+                            onToggleCustomPinnedOrder = {
+                                customPinnedOrderEnabled = !customPinnedOrderEnabled
+                                prefs.edit().putBoolean("custom_pinned_order", customPinnedOrderEnabled).apply()
+                            },
+                            onChangeDrawerTextSize = {
+                                drawerTextSizeSp = it
+                                prefs.edit().putInt("drawer_text_size", it).apply()
+                            },
+                            onToggle24h = {
+                                use24Hour = !use24Hour
+                                prefs.edit().putBoolean("use_24h_v4", use24Hour).apply()
+                            },
+                            onToggleAndroidBar = {
+                                val next = !hideAndroidBar
+                                hideAndroidBar = next
+                                onToggleAndroidStatusBar(next)
+                            },
+                            onToggleLeftPage = {
+                                enableLeftPage = !enableLeftPage
+                                prefs.edit().putBoolean("enable_left_page", enableLeftPage).apply()
+                            },
+                            onToggleRetro80sMode = {
+                                retro80sMode = !retro80sMode
+                                prefs.edit().putBoolean("retro_80s_green_mode", retro80sMode).apply()
+                            },
+                            onChangeBatteryBarStyle = { style ->
+                                batteryBarStyle = style
+                                prefs.edit().putString("battery_bar_style", style).apply()
+                            },
+                            onTogglePauseWhenAppOpen = {
+                                pauseWhenAppOpen = !pauseWhenAppOpen
+                                prefs.edit().putBoolean("pause_when_app_open", pauseWhenAppOpen).apply()
+                            },
+                            onChangeWaveMode = {
+                                waveScrubMode = it
+                                prefs.edit().putString("wave_mode", it).apply()
+                            },
+                            onChangeDrawerWaveIntensity = {
+                                drawerWaveIntensity = it
+                                prefs.edit().putFloat("drawer_wave_intensity", it).apply()
+                                if (it <= 0.02f && waveScrubMode != "off") {
+                                    waveScrubMode = "off"
+                                    prefs.edit().putString("wave_mode", "off").apply()
+                                } else if (it > 0.02f && waveScrubMode == "off") {
+                                    waveScrubMode = "full"
+                                    prefs.edit().putString("wave_mode", "full").apply()
+                                }
+                            },
+                            onChangeWallpaperPreset = {
+                                wallpaperPreset = it
+                                prefs.edit().putString("wallpaper", it).apply()
+                            },
+                            onChangeWallpaperDim = {
+                                wallpaperDimPercent = it
+                                prefs.edit().putInt("wp_dim", it).apply()
+                            },
+                            onChangeWpSpeed = {
+                                wpSpeed = it
+                                prefs.edit().putFloat("wp_speed", it).apply()
+                            },
+                            onChangeWpDensity = {
+                                wpDensity = it
+                                prefs.edit().putFloat("wp_density", it).apply()
+                            },
+                            onChangeWpOpacity = {
+                                wpOpacity = it
+                                prefs.edit().putFloat("wp_opacity", it).apply()
+                            },
+                            onChangeWpScale = {
+                                wpScale = it
+                                prefs.edit().putFloat("wp_scale", it).apply()
+                            },
+                            onResetWpTuning = {
+                                wpSpeed = 1.0f
+                                wpDensity = 1.0f
+                                wpOpacity = 1.0f
+                                wpScale = 1.0f
+                                prefs.edit()
+                                    .putFloat("wp_speed", 1.0f)
+                                    .putFloat("wp_density", 1.0f)
+                                    .putFloat("wp_opacity", 1.0f)
+                                    .putFloat("wp_scale", 1.0f)
+                                    .apply()
+                            },
+                            onChangeSettingsBgMode = {
+                                settingsBgMode = it
+                                prefs.edit().putString("settings_bg_mode", it).apply()
+                            },
+                            onChangeSettingsBgIntensity = {
+                                settingsBgIntensity = it
+                                prefs.edit().putInt("settings_bg_intensity", it).apply()
+                            },
+                            onChangeDrawerBgMode = {
+                                drawerBgMode = it
+                                prefs.edit().putString("drawer_bg_mode", it).apply()
+                            },
+                            onChangeDrawerBgIntensity = {
+                                drawerBgIntensity = it
+                                prefs.edit().putInt("drawer_bg_intensity", it).apply()
+                            },
+                            onOpenSystemWallpaperPicker = {
+                                wallpaperPreset = "system_wallpaper"
+                                prefs.edit().putString("wallpaper", "system_wallpaper").apply()
+                                onOpenSystemWallpaperPicker()
+                            },
+                            onPickCustomWallpaperImage = onPickCustomWallpaperImage,
+                            onRequestDefaultHomeRole = onRequestDefaultHomeRole,
+                            onBack = { currentView = LauncherView.HOME_AND_DRAWER }
+                        )
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
+        // FLUID SPRING-ANIMATED LONG-TAP HOME SCREEN "ACTIONS" MENU
+        // Clean title & buttons; styled with sharp Old School borders when retro80sMode is ON
+        // ====================================================================
+        val quickMenuProgress by rememberIosPopupProgress(
+            isVisible = showHomeQuickMenu,
+            label = "iosQuickMenuSpring"
+        )
+        if (showHomeQuickMenu || quickMenuProgress > 0.002f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = (0.84f * quickMenuProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.84f)))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { showHomeQuickMenu = false }
+                    .padding(horizontal = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val modalShape = RoundedCornerShape(if (retro80sMode) 0.dp else 16.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .iosPopupWindowLayer(progress = quickMenuProgress, initialScale = 0.80f)
+                        .border(
+                            if (retro80sMode) 1.5.dp else 1.dp,
+                            if (retro80sMode) accentColor else Color(0xFF2E2E2E),
+                            modalShape
+                        )
+                        .background(if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A), modalShape)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { /* consume inside modal */ }
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.statusBars)
-                            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
-                            .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 2.dp)
-                            .retroNeonBorder(
-                                if (retro80sMode) 1.5.dp else 1.dp,
-                                if (retro80sMode) accentColor else Color(0xFF404040),
-                                RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp),
-                                glowEnabled = retro80sMode
-                            )
-                            .background(
-                                if (retro80sMode) Color(0xFF050505) else Color(0xFF0A0A0A),
-                                RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp)
-                            )
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (enableLeftPage) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "◀ LEFT PAGE",
-                                    color = if (isOnLeftPage) Color.Black else if (retro80sMode) accentColor else Color.White,
-                                    fontSize = 9.sp,
-                                    fontFamily = selectedFont,
-                                    fontWeight = FontWeight.Bold,
-                                    style = if (isOnLeftPage) TextStyle.Default else glowTextStyle(accentColor, 14f),
-                                    modifier = Modifier
-                                        .border(
-                                            1.dp,
-                                            if (isOnLeftPage) secondaryRetroColor else if (retro80sMode) accentColor.copy(alpha = 0.6f) else Color(0xFF282828),
-                                            topBtnShape
-                                        )
-                                        .background(if (isOnLeftPage) secondaryRetroColor else if (retro80sMode) Color(0xFF080808) else Color(0xFF1A1A1A), topBtnShape)
-                                        .clickable { animateLeftPageTo(1f) }
-                                        .padding(horizontal = 7.dp, vertical = 3.dp)
-                                )
-                                Text(
-                                    text = "MAIN PAGE ▶",
-                                    color = if (!isOnLeftPage) Color.Black else if (retro80sMode) accentColor else Color.White,
-                                    fontSize = 9.sp,
-                                    fontFamily = selectedFont,
-                                    fontWeight = FontWeight.Bold,
-                                    style = if (!isOnLeftPage) TextStyle.Default else glowTextStyle(accentColor, 14f),
-                                    modifier = Modifier
-                                        .border(
-                                            1.dp,
-                                            if (!isOnLeftPage) secondaryRetroColor else if (retro80sMode) accentColor.copy(alpha = 0.6f) else Color(0xFF282828),
-                                            topBtnShape
-                                        )
-                                        .background(if (!isOnLeftPage) secondaryRetroColor else if (retro80sMode) Color(0xFF080808) else Color(0xFF1A1A1A), topBtnShape)
-                                        .clickable { animateLeftPageTo(0f) }
-                                        .padding(horizontal = 7.dp, vertical = 3.dp)
-                                )
-                            }
-                        } else {
-                            Text(
-                                text = "EDIT MODE",
-                                color = accentColor,
-                                fontSize = 10.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold,
-                                style = glowTextStyle(accentColor)
-                            )
-                        }
+                        Text(
+                            text = "Actions",
+                            color = if (retro80sMode) accentColor else Color.White,
+                            fontSize = 16.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold
+                        )
                         Text(
                             text = "DONE",
                             color = Color.Black,
@@ -1184,1023 +3011,273 @@ fun NTextLauncherApp() {
                             fontFamily = selectedFont,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier
-                                .retroNeonBorder(1.dp, if (retro80sMode) secondaryRetroColor else Color.White, topBtnShape, glowEnabled = retro80sMode)
-                                .background(if (retro80sMode) secondaryRetroColor else Color.White, topBtnShape)
-                                .clickable { editMode = false }
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                .background(
+                                    if (retro80sMode) accentColor else Color.White,
+                                    RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
+                                )
+                                .clickable { showHomeQuickMenu = false }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
-                }
 
-                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    when (currentView) {
-                        LauncherView.HOME_AND_DRAWER -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .pointerInput(enableLeftPage, isDrawerNearClosed, isGlobeInteractionUnlocked) {
-                                        if (!isDrawerNearClosed || isGlobeInteractionUnlocked) return@pointerInput
-                                        var totalDx = 0f
-                                        var totalDy = 0f
-                                        detectDragGestures(
-                                            onDragStart = {
-                                                totalDx = 0f
-                                                totalDy = 0f
-                                            },
-                                            onDrag = { change, dragAmount ->
-                                                totalDx += dragAmount.x
-                                                totalDy += dragAmount.y
-                                                if (abs(totalDx) > abs(totalDy) * 1.15f && enableLeftPage) {
-                                                    change.consume()
-                                                    val deltaFrac = dragAmount.x / screenWidthPx
-                                                    leftPageProgress = (leftPageProgress + deltaFrac).coerceIn(0f, 1f)
-                                                } else if (abs(totalDy) > abs(totalDx) * 1.15f && totalDy < -12f) {
-                                                    change.consume()
-                                                    val deltaFrac = -dragAmount.y / (screenHeightPx * 0.55f)
-                                                    drawerProgress = (drawerProgress + deltaFrac).coerceIn(0f, 1f)
-                                                }
-                                            },
-                                            onDragEnd = {
-                                                if (drawerProgress > 0.02f) {
-                                                    animateDrawerTo(if (drawerProgress > 0.22f) 1f else 0f)
-                                                } else if (enableLeftPage) {
-                                                    val target = when {
-                                                        totalDx > 95f -> 1f
-                                                        totalDx < -95f -> 0f
-                                                        leftPageProgress >= 0.5f -> 1f
-                                                        else -> 0f
-                                                    }
-                                                    animateLeftPageTo(target)
-                                                }
-                                            }
-                                        )
-                                    }
-                            ) {
-                                // Additional Left Page (Pure Horizontal Slide, ZERO Fade!)
-                                if (enableLeftPage && leftPageProgress > 0.001f) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .graphicsLayer {
-                                                translationX = (-1f + leftPageProgress) * screenWidthPx
-                                            }
-                                    ) {
-                                        HomeScreenView(
-                                            pinnedApps = orderedPinnedApps,
-                                            activeWidgets = leftPageWidgets,
-                                            widgetSizes = leftWidgetSizes,
-                                            widgetFonts = leftWidgetFonts,
-                                            widgetStyles = leftWidgetStyles,
-                                            selectedFont = selectedFont,
-                                            lomoFontFamily = lomoFontFamily,
-                                            uppercaseHome = activePrebuiltFont.uppercaseHome,
-                                            textAlignMode = textAlignMode,
-                                            textSizeSp = textSizeSp,
-                                            accentColor = accentColor,
-                                            secondaryRetroColor = secondaryRetroColor,
-                                            retro80sMode = retro80sMode,
-                                            retro80sColorTheme = retro80sColorTheme,
-                                            batteryBarStyle = batteryBarStyle,
-                                            onChangeBatteryBarStyle = { st ->
-                                                batteryBarStyle = st
-                                                prefs.edit().putString("battery_bar_style", st).apply()
-                                            },
-                                            waveScrubMode = waveScrubMode,
-                                            currentHourStr = currentHourStr,
-                                            currentMinStr = currentMinStr,
-                                            currentSecStr = currentSecStr,
-                                            currentAmPmStr = currentAmPmStr,
-                                            currentDateStr = currentDateStr,
-                                            currentTimeMillis = currentTimeMillis,
-                                            batteryPct = batteryPct,
-                                            isCharging = isCharging,
-                                            ramStatusText = ramStatusText,
-                                            storageStatusText = storageStatusText,
-                                            ramUsageFraction = ramUsageFraction,
-                                            storageUsageFraction = storageUsageFraction,
-                                            torchEnabled = torchEnabled,
-                                            zenActive = zenActive,
-                                            zenSeconds = zenSeconds,
-                                            quickNote = quickNote,
-                                            globeTheme = if (retro80sMode) "wireframe" else globeTheme,
-                                            globeWireframeColor = if (retro80sMode) {
-                                                when (retro80sColorTheme) {
-                                                    "holomap" -> "#26FFFF"
-                                                    "amber" -> "#FFB830"
-                                                    else -> "#9EFF78"
-                                                }
-                                            } else globeWireframeColor,
-                                            globeTilt2dDeg = globeTilt2dDeg,
-                                            globeRotXDeg = globeRotXDeg,
-                                            globeRotYDeg = globeRotYDeg,
-                                            editMode = editMode,
-                                            customPinnedOrderEnabled = customPinnedOrderEnabled,
-                                            widgetsActive = widgetsActive && isDrawerNearClosed,
-                                            onMovePinnedApp = { pkg, dir ->
-                                                val cur = orderedPinnedApps.map { it.packageName }.toMutableList()
-                                                val idx = cur.indexOf(pkg)
-                                                val nxt = idx + dir
-                                                if (idx >= 0 && nxt in cur.indices) {
-                                                    val item = cur.removeAt(idx)
-                                                    cur.add(nxt, item)
-                                                    pinnedAppsOrder = cur
-                                                    prefs.edit().putString("pinned_apps_order_v1", cur.joinToString(",")).apply()
-                                                }
-                                            },
-                                            onSetWidgetSize = { wId, sz ->
-                                                saveLeftWidgetSizesMap(leftWidgetSizes + (wId to sz))
-                                            },
-                                            onSetWidgetFont = { wId, fId ->
-                                                saveLeftWidgetFontsMap(leftWidgetFonts + (wId to fId))
-                                            },
-                                            onSetWidgetStyle = { wId, stId ->
-                                                saveLeftWidgetStylesMap(leftWidgetStyles + (wId to stId))
-                                            },
-                                            onMoveWidget = { wId, dir ->
-                                                val cur = leftPageWidgets.toMutableList()
-                                                val idx = cur.indexOf(wId)
-                                                val nxt = idx + dir
-                                                if (idx >= 0 && nxt in cur.indices) {
-                                                    val item = cur.removeAt(idx)
-                                                    cur.add(nxt, item)
-                                                    saveLeftWidgetList(cur)
-                                                }
-                                            },
-                                            onRemoveWidget = { wId ->
-                                                saveLeftWidgetList(leftPageWidgets - wId)
-                                            },
-                                            onUnpinApp = { pkg ->
-                                                pinnedPackages = pinnedPackages - pkg
-                                                prefs.edit().putStringSet("pinned_pkgs", pinnedPackages).apply()
-                                            },
-                                            onChangeGlobeTilt2d = { deg ->
-                                                globeTilt2dDeg = deg
-                                                prefs.edit().putFloat("globe_tilt2d_deg", deg).apply()
-                                            },
-                                            onChangeGlobeRotX = { deg ->
-                                                globeRotXDeg = deg
-                                                prefs.edit().putFloat("globe_rotx_deg", deg).apply()
-                                            },
-                                            onChangeGlobeRotY = { deg ->
-                                                globeRotYDeg = deg
-                                                prefs.edit().putFloat("globe_roty_deg", deg).apply()
-                                            },
-                                            onLaunchApp = { pkg -> launchPackage(pkg) },
-                                            onLongPressApp = { app -> contextMenuTarget = app to true },
-                                            onLongPressHome = { showHomeQuickMenu = true },
-                                            onOpenClockApp = { openClockApp() },
-                                            onToggleTorch = { toggleTorch() },
-                                            onToggleZen = {
-                                                if (zenActive) {
-                                                    zenActive = false
-                                                    zenSeconds = 25 * 60
-                                                } else {
-                                                    zenSeconds = 25 * 60
-                                                    zenActive = true
-                                                }
-                                            },
-                                            onWaveTick = { performWaveTick() },
-                                            onGlobeInteractionChanged = { unlocked ->
-                                                isGlobeInteractionUnlocked = unlocked
-                                            }
-                                        )
-                                    }
-                                }
-
-                                // Main Home Screen Page (Pure Horizontal Slide, ZERO Fade!)
-                                if (leftPageProgress < 0.999f) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .graphicsLayer {
-                                                translationX = leftPageProgress * screenWidthPx
-                                            }
-                                    ) {
-                                        HomeScreenView(
-                                            pinnedApps = orderedPinnedApps,
-                                            activeWidgets = activeWidgets,
-                                            widgetSizes = widgetSizes,
-                                            widgetFonts = widgetFonts,
-                                            widgetStyles = widgetStyles,
-                                            selectedFont = selectedFont,
-                                            lomoFontFamily = lomoFontFamily,
-                                            uppercaseHome = activePrebuiltFont.uppercaseHome,
-                                            textAlignMode = textAlignMode,
-                                            textSizeSp = textSizeSp,
-                                            accentColor = accentColor,
-                                            secondaryRetroColor = secondaryRetroColor,
-                                            retro80sMode = retro80sMode,
-                                            retro80sColorTheme = retro80sColorTheme,
-                                            batteryBarStyle = batteryBarStyle,
-                                            onChangeBatteryBarStyle = { st ->
-                                                batteryBarStyle = st
-                                                prefs.edit().putString("battery_bar_style", st).apply()
-                                            },
-                                            waveScrubMode = waveScrubMode,
-                                            currentHourStr = currentHourStr,
-                                            currentMinStr = currentMinStr,
-                                            currentSecStr = currentSecStr,
-                                            currentAmPmStr = currentAmPmStr,
-                                            currentDateStr = currentDateStr,
-                                            currentTimeMillis = currentTimeMillis,
-                                            batteryPct = batteryPct,
-                                            isCharging = isCharging,
-                                            ramStatusText = ramStatusText,
-                                            storageStatusText = storageStatusText,
-                                            ramUsageFraction = ramUsageFraction,
-                                            storageUsageFraction = storageUsageFraction,
-                                            torchEnabled = torchEnabled,
-                                            zenActive = zenActive,
-                                            zenSeconds = zenSeconds,
-                                            quickNote = quickNote,
-                                            globeTheme = if (retro80sMode) "wireframe" else globeTheme,
-                                            globeWireframeColor = if (retro80sMode) {
-                                                when (retro80sColorTheme) {
-                                                    "holomap" -> "#26FFFF"
-                                                    "amber" -> "#FFB830"
-                                                    else -> "#9EFF78"
-                                                }
-                                            } else globeWireframeColor,
-                                            globeTilt2dDeg = globeTilt2dDeg,
-                                            globeRotXDeg = globeRotXDeg,
-                                            globeRotYDeg = globeRotYDeg,
-                                            editMode = editMode,
-                                            customPinnedOrderEnabled = customPinnedOrderEnabled,
-                                            widgetsActive = widgetsActive && isDrawerNearClosed,
-                                            onMovePinnedApp = { pkg, dir ->
-                                                val cur = orderedPinnedApps.map { it.packageName }.toMutableList()
-                                                val idx = cur.indexOf(pkg)
-                                                val nxt = idx + dir
-                                                if (idx >= 0 && nxt in cur.indices) {
-                                                    val item = cur.removeAt(idx)
-                                                    cur.add(nxt, item)
-                                                    pinnedAppsOrder = cur
-                                                    prefs.edit().putString("pinned_apps_order_v1", cur.joinToString(",")).apply()
-                                                }
-                                            },
-                                            onSetWidgetSize = { wId, sz ->
-                                                saveWidgetSizesMap(widgetSizes + (wId to sz))
-                                            },
-                                            onSetWidgetFont = { wId, fId ->
-                                                saveWidgetFontsMap(widgetFonts + (wId to fId))
-                                            },
-                                            onSetWidgetStyle = { wId, stId ->
-                                                saveWidgetStylesMap(widgetStyles + (wId to stId))
-                                            },
-                                            onMoveWidget = { wId, dir ->
-                                                val cur = activeWidgets.toMutableList()
-                                                val idx = cur.indexOf(wId)
-                                                val nxt = idx + dir
-                                                if (idx >= 0 && nxt in cur.indices) {
-                                                    val item = cur.removeAt(idx)
-                                                    cur.add(nxt, item)
-                                                    saveWidgetList(cur)
-                                                }
-                                            },
-                                            onRemoveWidget = { wId ->
-                                                saveWidgetList(activeWidgets - wId)
-                                            },
-                                            onUnpinApp = { pkg ->
-                                                pinnedPackages = pinnedPackages - pkg
-                                                prefs.edit().putStringSet("pinned_pkgs", pinnedPackages).apply()
-                                            },
-                                            onChangeGlobeTilt2d = { deg ->
-                                                globeTilt2dDeg = deg
-                                                prefs.edit().putFloat("globe_tilt2d_deg", deg).apply()
-                                            },
-                                            onChangeGlobeRotX = { deg ->
-                                                globeRotXDeg = deg
-                                                prefs.edit().putFloat("globe_rotx_deg", deg).apply()
-                                            },
-                                            onChangeGlobeRotY = { deg ->
-                                                globeRotYDeg = deg
-                                                prefs.edit().putFloat("globe_roty_deg", deg).apply()
-                                            },
-                                            onLaunchApp = { pkg -> launchPackage(pkg) },
-                                            onLongPressApp = { app -> contextMenuTarget = app to true },
-                                            onLongPressHome = { showHomeQuickMenu = true },
-                                            onOpenClockApp = { openClockApp() },
-                                            onToggleTorch = { toggleTorch() },
-                                            onToggleZen = {
-                                                if (zenActive) {
-                                                    zenActive = false
-                                                    zenSeconds = 25 * 60
-                                                } else {
-                                                    zenSeconds = 25 * 60
-                                                    zenActive = true
-                                                }
-                                            },
-                                            onWaveTick = { performWaveTick() },
-                                            onGlobeInteractionChanged = { unlocked ->
-                                                isGlobeInteractionUnlocked = unlocked
-                                            }
-                                        )
-                                    }
-                                }
-
-                                // App Drawer Overlay
-                                if (drawerProgress > 0.001f) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .graphicsLayer {
-                                                translationY = (1f - drawerProgress) * screenHeightPx
-                                                alpha = (drawerProgress * 1.35f).coerceIn(0f, 1f)
-                                            }
-                                    ) {
-                                        AppDrawerView(
-                                            apps = appsWithPinFlag,
-                                            selectedFont = selectedFont,
-                                            lomoFontFamily = lomoFontFamily,
-                                            uppercaseHome = activePrebuiltFont.uppercaseHome,
-                                            drawerTextSizeSp = drawerTextSizeSp,
-                                            accentColor = accentColor,
-                                            secondaryRetroColor = secondaryRetroColor,
-                                            waveScrubMode = waveScrubMode,
-                                            drawerWaveIntensity = drawerWaveIntensity,
-                                            drawerBgMode = drawerBgMode,
-                                            drawerBgIntensity = drawerBgIntensity,
-                                            isDrawerOpenNow = drawerProgress > 0.85f,
-                                            onDragDelta = { dy ->
-                                                val deltaFrac = dy / (screenHeightPx * 0.55f)
-                                                drawerProgress = (drawerProgress - deltaFrac).coerceIn(0f, 1f)
-                                            },
-                                            onSettle = { pulledPx ->
-                                                animateDrawerTo(if (pulledPx > 95f) 0f else 1f)
-                                            },
-                                            onLaunchApp = { pkg ->
-                                                animateDrawerTo(0f)
-                                                launchPackage(pkg)
-                                            },
-                                            onLongPressApp = { app -> contextMenuTarget = app to false },
-                                            onWaveTick = { performWaveTick() }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        LauncherView.WIDGETS -> {
-                            WidgetsManagerView(
-                                activeWidgets = activeWidgets,
-                                widgetSizes = widgetSizes,
-                                widgetStyles = widgetStyles,
-                                leftPageEnabled = enableLeftPage,
-                                initialTargetLeftPage = isOnLeftPage,
-                                leftPageWidgets = leftPageWidgets,
-                                leftWidgetSizes = leftWidgetSizes,
-                                leftWidgetStyles = leftWidgetStyles,
-                                accentColor = accentColor,
-                                secondaryRetroColor = secondaryRetroColor,
-                                lomoFontFamily = selectedFont,
-                                use24Hour = use24Hour,
-                                batteryBarStyle = batteryBarStyle,
-                                onChangeBatteryBarStyle = { st ->
-                                    batteryBarStyle = st
-                                    prefs.edit().putString("battery_bar_style", st).apply()
-                                },
-                                customPinnedOrderEnabled = customPinnedOrderEnabled,
-                                quickNote = quickNote,
-                                globeTheme = globeTheme,
-                                globeWireframeColor = globeWireframeColor,
-                                onToggleCustomPinnedOrder = {
-                                    customPinnedOrderEnabled = !customPinnedOrderEnabled
-                                    prefs.edit().putBoolean("custom_pinned_order_enabled", customPinnedOrderEnabled).apply()
-                                },
-                                onToggle24h = {
-                                    use24Hour = !use24Hour
-                                    prefs.edit().putBoolean("use_24h", use24Hour).apply()
-                                },
-                                onChangeQuickNote = { note ->
-                                    quickNote = note
-                                    prefs.edit().putString("quick_note", note).apply()
-                                },
-                                onChangeGlobeTheme = { th ->
-                                    globeTheme = th
-                                    prefs.edit().putString("globe_theme", th).apply()
-                                },
-                                onChangeGlobeWireframeColor = { hex ->
-                                    globeWireframeColor = hex
-                                    prefs.edit().putString("globe_wf_color", hex).apply()
-                                },
-                                onUpdateWidgets = { nextList -> saveWidgetList(nextList) },
-                                onUpdateLeftWidgets = { nextList -> saveLeftWidgetList(nextList) },
-                                onSetWidgetStyle = { wId, stId -> saveWidgetStylesMap(widgetStyles + (wId to stId)) },
-                                onSetLeftWidgetStyle = { wId, stId -> saveLeftWidgetStylesMap(leftWidgetStyles + (wId to stId)) },
-                                onCycleWidgetSize = {},
-                                onSetWidgetSize = { wId, sz -> saveWidgetSizesMap(widgetSizes + (wId to sz)) },
-                                onMoveWidget = { _, _ -> },
-                                onBack = { currentView = LauncherView.HOME_AND_DRAWER }
-                            )
-                        }
-
-                        LauncherView.SETTINGS -> {
-                            LauncherSettingsView(
-                                fontId = fontId,
-                                textAlignMode = textAlignMode,
-                                accentHex = accentHex,
-                                textSizeSp = textSizeSp,
-                                drawerTextSizeSp = drawerTextSizeSp,
-                                use24Hour = use24Hour,
-                                hideAndroidBar = hideAndroidBar,
-                                enableLeftPage = enableLeftPage,
-                                retro80sMode = retro80sMode,
-                                retro80sColorTheme = retro80sColorTheme,
-                                onChangeRetro80sColorTheme = { themeId ->
-                                    retro80sColorTheme = themeId
-                                    prefs.edit().putString("retro_80s_color_theme", themeId).apply()
-                                },
-                                batteryBarStyle = batteryBarStyle,
-                                pauseWhenAppOpen = pauseWhenAppOpen,
-                                customPinnedOrderEnabled = customPinnedOrderEnabled,
-                                waveScrubMode = waveScrubMode,
-                                drawerWaveIntensity = drawerWaveIntensity,
-                                wallpaperPreset = wallpaperPreset,
-                                wallpaperDimPercent = wallpaperDimPercent,
-                                hasCustomUserImage = customWallpaperBitmap != null,
-                                wpSpeed = wpSpeed,
-                                wpDensity = wpDensity,
-                                wpOpacity = wpOpacity,
-                                wpScale = wpScale,
-                                settingsBgMode = settingsBgMode,
-                                settingsBgIntensity = settingsBgIntensity,
-                                drawerBgMode = drawerBgMode,
-                                drawerBgIntensity = drawerBgIntensity,
-                                lomoFontFamily = lomoFontFamily,
-                                launcherFont = selectedFont,
-                                onChangeFont = { newFontId ->
-                                    fontId = newFontId
-                                    prefs.edit().putString("font_id", newFontId).apply()
-                                },
-                                onChangeAlign = { newAlign ->
-                                    textAlignMode = newAlign
-                                    prefs.edit().putString("align_mode", newAlign).apply()
-                                },
-                                onChangeAccent = { newHex ->
-                                    accentHex = newHex
-                                    prefs.edit().putString("accent_hex", newHex).apply()
-                                },
-                                onChangeTextSize = { newSp ->
-                                    if (retro80sMode) {
-                                        crtTextSizeSp = newSp
-                                        prefs.edit().putInt("crt80s_text_size_v1", newSp).apply()
-                                    } else {
-                                        regTextSizeSp = newSp
-                                        prefs.edit().putInt("text_size_sp", newSp).apply()
-                                    }
-                                },
-                                onChangeDrawerTextSize = { newSp ->
-                                    drawerTextSizeSp = newSp
-                                    prefs.edit().putInt("drawer_text_size_sp", newSp).apply()
-                                },
-                                onToggle24h = {
-                                    use24Hour = !use24Hour
-                                    prefs.edit().putBoolean("use_24h", use24Hour).apply()
-                                },
-                                onToggleAndroidBar = {
-                                    hideAndroidBar = !hideAndroidBar
-                                    prefs.edit().putBoolean("hide_status_bar", hideAndroidBar).apply()
-                                },
-                                onToggleLeftPage = {
-                                    enableLeftPage = !enableLeftPage
-                                    prefs.edit().putBoolean("enable_left_page", enableLeftPage).apply()
-                                },
-                                onToggleRetro80sMode = {
-                                    retro80sMode = !retro80sMode
-                                    prefs.edit().putBoolean("retro_80s_green_mode", retro80sMode).apply()
-                                },
-                                onChangeBatteryBarStyle = { st ->
-                                    batteryBarStyle = st
-                                    prefs.edit().putString("battery_bar_style", st).apply()
-                                },
-                                onTogglePauseWhenAppOpen = {
-                                    pauseWhenAppOpen = !pauseWhenAppOpen
-                                    prefs.edit().putBoolean("pause_when_app_open", pauseWhenAppOpen).apply()
-                                },
-                                onToggleCustomPinnedOrder = {
-                                    customPinnedOrderEnabled = !customPinnedOrderEnabled
-                                    prefs.edit().putBoolean("custom_pinned_order_enabled", customPinnedOrderEnabled).apply()
-                                },
-                                onChangeWaveMode = { newMode ->
-                                    waveScrubMode = newMode
-                                    prefs.edit().putString("wave_mode", newMode).apply()
-                                },
-                                onChangeDrawerWaveIntensity = { nextVal ->
-                                    drawerWaveIntensity = nextVal
-                                    prefs.edit().putFloat("drawer_wave_intensity", nextVal).apply()
-                                },
-                                onChangeWallpaperPreset = { preset ->
-                                    wallpaperPreset = preset
-                                    prefs.edit().putString("wp_preset", preset).apply()
-                                },
-                                onChangeWallpaperDim = { dim ->
-                                    wallpaperDimPercent = dim
-                                    prefs.edit().putInt("wp_dim_pct", dim).apply()
-                                },
-                                onChangeWpSpeed = { v ->
-                                    wpSpeed = v
-                                    prefs.edit().putFloat("wp_speed", v).apply()
-                                },
-                                onChangeWpDensity = { v ->
-                                    wpDensity = v
-                                    prefs.edit().putFloat("wp_density", v).apply()
-                                },
-                                onChangeWpOpacity = { v ->
-                                    wpOpacity = v
-                                    prefs.edit().putFloat("wp_opacity", v).apply()
-                                },
-                                onChangeWpScale = { v ->
-                                    wpScale = v
-                                    prefs.edit().putFloat("wp_scale", v).apply()
-                                },
-                                onResetWpTuning = {
-                                    wpSpeed = 1.0f
-                                    wpDensity = 1.0f
-                                    wpOpacity = 1.0f
-                                    wpScale = 1.0f
-                                    prefs.edit()
-                                        .putFloat("wp_speed", 1.0f)
-                                        .putFloat("wp_density", 1.0f)
-                                        .putFloat("wp_opacity", 1.0f)
-                                        .putFloat("wp_scale", 1.0f)
-                                        .apply()
-                                },
-                                onChangeSettingsBgMode = { mode ->
-                                    settingsBgMode = mode
-                                    prefs.edit().putString("settings_bg_mode", mode).apply()
-                                },
-                                onChangeSettingsBgIntensity = { pct ->
-                                    settingsBgIntensity = pct
-                                    prefs.edit().putInt("settings_bg_intensity", pct).apply()
-                                },
-                                onChangeDrawerBgMode = { mode ->
-                                    drawerBgMode = mode
-                                    prefs.edit().putString("drawer_bg_mode", mode).apply()
-                                },
-                                onChangeDrawerBgIntensity = { pct ->
-                                    drawerBgIntensity = pct
-                                    prefs.edit().putInt("drawer_bg_intensity", pct).apply()
-                                },
-                                onOpenSystemWallpaperPicker = {
-                                    try {
-                                        context.startActivity(Intent(Intent.ACTION_SET_WALLPAPER))
-                                    } catch (_: Exception) {
-                                    }
-                                },
-                                onPickCustomWallpaperImage = {
-                                    try {
-                                        pickWallpaperLauncher.launch("image/*")
-                                    } catch (_: Exception) {
-                                    }
-                                },
-                                onRequestDefaultHomeRole = {
-                                    try {
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                            val rm = context.getSystemService(RoleManager::class.java)
-                                            if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_HOME) && !rm.isRoleHeld(RoleManager.ROLE_HOME)) {
-                                                val intent = rm.createRequestRoleIntent(RoleManager.ROLE_HOME)
-                                                (context as? Activity)?.startActivityForResult(intent, 9001)
-                                            } else {
-                                                context.startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
-                                            }
-                                        } else {
-                                            context.startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
-                                        }
-                                    } catch (_: Exception) {
-                                    }
-                                },
-                                onBack = { currentView = LauncherView.HOME_AND_DRAWER }
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ====================================================================
-            // FLUID SPRING-ANIMATED LONG-TAP HOME SCREEN "ACTIONS" MENU
-            // ====================================================================
-            val quickMenuProgress by rememberIosPopupProgress(
-                isVisible = showHomeQuickMenu,
-                label = "iosQuickMenuSpring"
-            )
-            if (showHomeQuickMenu || quickMenuProgress > 0.002f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = (0.84f * quickMenuProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.84f)))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { showHomeQuickMenu = false }
-                        .padding(horizontal = 24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val modalShape = RoundedCornerShape(if (retro80sMode) 0.dp else 16.dp)
-                    Column(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .iosPopupWindowLayer(progress = quickMenuProgress, initialScale = 0.80f)
-                            .retroNeonBorder(
-                                if (retro80sMode) 1.5.dp else 1.dp,
-                                if (retro80sMode) accentColor else Color(0xFF2E2E2E),
-                                modalShape,
-                                glowEnabled = retro80sMode
-                            )
-                            .background(if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A), modalShape)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) { /* consume inside modal */ }
-                            .padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Actions",
-                                color = if (retro80sMode) accentColor else Color.White,
-                                fontSize = 16.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold,
-                                style = glowTextStyle(accentColor)
-                            )
-                            Text(
-                                text = "DONE",
-                                color = Color.Black,
-                                fontSize = 10.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier
-                                    .retroNeonBorder(
-                                        1.dp,
-                                        if (retro80sMode) secondaryRetroColor else Color.White,
-                                        RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp),
-                                        glowEnabled = retro80sMode
-                                    )
-                                    .background(
-                                        if (retro80sMode) secondaryRetroColor else Color.White,
-                                        RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
-                                    )
-                                    .clickable { showHomeQuickMenu = false }
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                            )
+                            .height(1.dp)
+                            .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF1F1F1F))
+                    )
+
+                    QuickMenuButton(
+                        label = if (retro80sMode) "Widget Configuration" else "Widget Manager",
+                        badge = "",
+                        accentColor = accentColor,
+                        lomoFontFamily = selectedFont,
+                        onClick = {
+                            showHomeQuickMenu = false
+                            currentView = LauncherView.WIDGETS
                         }
+                    )
 
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF1F1F1F))
-                        )
+                    QuickMenuButton(
+                        label = if (editMode) "Exit Edit Mode" else "Edit Mode",
+                        badge = "",
+                        accentColor = accentColor,
+                        lomoFontFamily = selectedFont,
+                        onClick = {
+                            showHomeQuickMenu = false
+                            editMode = !editMode
+                        }
+                    )
 
-                        QuickMenuButton(
-                            label = if (retro80sMode) "Widget Configuration" else "Widget Manager",
-                            badge = "",
-                            accentColor = accentColor,
-                            lomoFontFamily = selectedFont,
-                            onClick = {
-                                showHomeQuickMenu = false
-                                currentView = LauncherView.WIDGETS
+                    QuickMenuButton(
+                        label = if (retro80sMode) "Nocturna Configuration" else "Nocturnaa Settings",
+                        badge = "",
+                        accentColor = accentColor,
+                        lomoFontFamily = selectedFont,
+                        onClick = {
+                            showHomeQuickMenu = false
+                            currentView = LauncherView.SETTINGS
+                        }
+                    )
+
+                    QuickMenuButton(
+                        label = "Phone Settings",
+                        badge = "",
+                        accentColor = accentColor,
+                        lomoFontFamily = selectedFont,
+                        onClick = {
+                            showHomeQuickMenu = false
+                            try {
+                                context.startActivity(Intent(Settings.ACTION_SETTINGS))
+                            } catch (_: Exception) {
                             }
-                        )
-
-                        QuickMenuButton(
-                            label = if (editMode) "Exit Edit Mode" else "Edit Mode",
-                            badge = "",
-                            accentColor = accentColor,
-                            lomoFontFamily = selectedFont,
-                            onClick = {
-                                showHomeQuickMenu = false
-                                editMode = !editMode
-                            }
-                        )
-
-                        QuickMenuButton(
-                            label = if (retro80sMode) "Nocturna Configuration" else "Nocturnaa Settings",
-                            badge = "",
-                            accentColor = accentColor,
-                            lomoFontFamily = selectedFont,
-                            onClick = {
-                                showHomeQuickMenu = false
-                                currentView = LauncherView.SETTINGS
-                            }
-                        )
-
-                        QuickMenuButton(
-                            label = "Phone Settings",
-                            badge = "",
-                            accentColor = accentColor,
-                            lomoFontFamily = selectedFont,
-                            onClick = {
-                                showHomeQuickMenu = false
-                                try {
-                                    context.startActivity(Intent(Settings.ACTION_SETTINGS))
-                                } catch (_: Exception) {
-                                }
-                            }
-                        )
-                    }
+                        }
+                    )
                 }
             }
+        }
 
-            // ====================================================================
-            // FLUID SPRING-ANIMATED LONG-PRESS APP CONTEXT MENU MODAL
-            // ====================================================================
-            var lastContextMenuTarget by remember { mutableStateOf<Pair<AppEntry, Boolean>?>(null) }
-            if (contextMenuTarget != null) {
-                lastContextMenuTarget = contextMenuTarget
-            }
-            val appMenuProgress by rememberIosPopupProgress(
-                isVisible = contextMenuTarget != null,
-                label = "iosAppMenuSpring"
-            )
-            val activeTargetPair = contextMenuTarget ?: if (appMenuProgress > 0.002f) lastContextMenuTarget else null
-            activeTargetPair?.let { (targetApp, isFromHome) ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = (0.84f * appMenuProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.84f)))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { contextMenuTarget = null }
-                        .padding(horizontal = 24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val appModalShape = RoundedCornerShape(if (retro80sMode) 0.dp else 16.dp)
-                    val currentlyPinned = pinnedPackages.contains(targetApp.packageName)
-                    val pinActionLabel = if (isFromHome || currentlyPinned) {
-                        "Remove from Pinned Apps"
+        // ====================================================================
+        // FLUID SPRING-ANIMATED LONG-PRESS APP CONTEXT MENU MODAL
+        // ====================================================================
+        var lastContextMenuTarget by remember { mutableStateOf<Pair<AppEntry, Boolean>?>(null) }
+        if (contextMenuTarget != null) {
+            lastContextMenuTarget = contextMenuTarget
+        }
+        val appMenuProgress by rememberIosPopupProgress(
+            isVisible = contextMenuTarget != null,
+            label = "iosAppMenuSpring"
+        )
+        val activeTargetPair = contextMenuTarget ?: if (appMenuProgress > 0.002f) lastContextMenuTarget else null
+        activeTargetPair?.let { (targetApp, isFromHome) ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = (0.84f * appMenuProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.84f)))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { contextMenuTarget = null }
+                    .padding(horizontal = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val appModalShape = RoundedCornerShape(if (retro80sMode) 0.dp else 16.dp)
+                val currentlyPinned = pinnedPackages.contains(targetApp.packageName)
+                val pinActionLabel = if (isFromHome || currentlyPinned) {
+                    "Remove from Pinned Apps"
+                } else {
+                    "Add to Home Screen"
+                }
+                val pinActionSymbol = if (isFromHome || currentlyPinned) "−" else "+"
+
+                val onPinToggleClick: () -> Unit = {
+                    if (isFromHome || currentlyPinned) {
+                        pinnedPackages = pinnedPackages - targetApp.packageName
+                        pinnedAppsOrder = pinnedAppsOrder.filter { it != targetApp.packageName }
+                        prefs.edit()
+                            .putStringSet("pinned_pkgs", pinnedPackages)
+                            .putString("pinned_apps_order_v1", pinnedAppsOrder.joinToString(","))
+                            .apply()
+                        contextMenuTarget = null
                     } else {
-                        "Add to Home Screen"
-                    }
-                    val pinActionSymbol = if (isFromHome || currentlyPinned) "−" else "+"
-
-                    val onPinToggleClick: () -> Unit = {
-                        if (isFromHome || currentlyPinned) {
-                            pinnedPackages = pinnedPackages - targetApp.packageName
-                            pinnedAppsOrder = pinnedAppsOrder.filter { it != targetApp.packageName }
+                        val candidateWidgetsList = if (activeWidgets.contains("pinned_apps")) activeWidgets else activeWidgets + "pinned_apps"
+                        val newPinnedCount = currentPinnedAppsCount() + 1
+                        if (candidateWidgetsList.isNotEmpty() && !canFitOnHomeScreen(candidateWidgetsList, widgetSizes, newPinnedCount, textSizeSp)) {
+                            contextMenuTarget = null
+                            triggerNoSpaceLeftPopup(
+                                "No space left on the Home Screen to pin another app with your current widgets and ${textSizeSp}SP app scale."
+                            )
+                        } else {
+                            pinnedPackages = pinnedPackages + targetApp.packageName
+                            val nextOrder = orderedPinnedApps.map { it.packageName }.filter { it != targetApp.packageName } + targetApp.packageName
+                            pinnedAppsOrder = nextOrder
+                            if (!activeWidgets.contains("pinned_apps")) {
+                                saveWidgetList(candidateWidgetsList)
+                            }
                             prefs.edit()
                                 .putStringSet("pinned_pkgs", pinnedPackages)
-                                .putString("pinned_apps_order_v1", pinnedAppsOrder.joinToString(","))
+                                .putString("pinned_apps_order_v1", nextOrder.joinToString(","))
                                 .apply()
                             contextMenuTarget = null
-                        } else {
-                            val candidateWidgetsList = if (activeWidgets.contains("pinned_apps")) activeWidgets else activeWidgets + "pinned_apps"
-                            val newPinnedCount = currentPinnedAppsCount() + 1
-                            if (candidateWidgetsList.isNotEmpty() && !canFitOnHomeScreen(candidateWidgetsList, widgetSizes, newPinnedCount, textSizeSp)) {
-                                contextMenuTarget = null
-                                triggerNoSpaceLeftPopup(
-                                    "No space left on the Home Screen to pin another app with your current widgets and ${textSizeSp}SP app scale."
-                                )
-                            } else {
-                                pinnedPackages = pinnedPackages + targetApp.packageName
-                                val nextOrder = orderedPinnedApps.map { it.packageName }.filter { it != targetApp.packageName } + targetApp.packageName
-                                pinnedAppsOrder = nextOrder
-                                if (!activeWidgets.contains("pinned_apps")) {
-                                    saveWidgetList(candidateWidgetsList)
-                                }
-                                prefs.edit()
-                                    .putStringSet("pinned_pkgs", pinnedPackages)
-                                    .putString("pinned_apps_order_v1", nextOrder.joinToString(","))
-                                    .apply()
-                                contextMenuTarget = null
-                            }
-                        }
-                    }
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .iosPopupWindowLayer(progress = appMenuProgress, initialScale = 0.80f)
-                            .retroNeonBorder(
-                                if (retro80sMode) 1.5.dp else 1.dp,
-                                if (retro80sMode) accentColor else Color(0xFF333333),
-                                appModalShape,
-                                glowEnabled = retro80sMode
-                            )
-                            .background(if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A), appModalShape)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) { /* consume inside modal */ }
-                            .padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = targetApp.label,
-                                color = if (retro80sMode) accentColor else Color.White,
-                                fontSize = 16.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold,
-                                style = glowTextStyle(accentColor),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f).padding(end = 8.dp)
-                            )
-                            Text(
-                                text = "DONE",
-                                color = Color.Black,
-                                fontSize = 10.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier
-                                    .retroNeonBorder(
-                                        1.dp,
-                                        if (retro80sMode) secondaryRetroColor else Color.White,
-                                        RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp),
-                                        glowEnabled = retro80sMode
-                                    )
-                                    .background(
-                                        if (retro80sMode) secondaryRetroColor else Color.White,
-                                        RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
-                                    )
-                                    .clickable { contextMenuTarget = null }
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                            )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF1F1F1F))
-                        )
-
-                        val rowShape = RoundedCornerShape(if (retro80sMode) 0.dp else 10.dp)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .retroNeonBorder(1.dp, if (retro80sMode) accentColor else Color(0xFF262626), rowShape, glowEnabled = retro80sMode, glowRadiusDp = 4.dp)
-                                .background(Color.Black, rowShape)
-                                .clickable { onPinToggleClick() }
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = pinActionLabel,
-                                color = if (retro80sMode) accentColor else Color.White,
-                                fontSize = 13.sp,
-                                fontFamily = selectedFont,
-                                style = glowTextStyle(accentColor, 14f)
-                            )
-                            Text(
-                                text = pinActionSymbol,
-                                color = secondaryRetroColor,
-                                fontSize = 15.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold,
-                                style = glowTextStyle(secondaryRetroColor, 14f)
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .retroNeonBorder(1.dp, if (retro80sMode) accentColor else Color(0xFF262626), rowShape, glowEnabled = retro80sMode, glowRadiusDp = 4.dp)
-                                .background(Color.Black, rowShape)
-                                .clickable {
-                                    val pkg = targetApp.packageName
-                                    contextMenuTarget = null
-                                    openAppInfo(pkg)
-                                }
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "App Info",
-                                color = if (retro80sMode) accentColor else Color.White,
-                                fontSize = 13.sp,
-                                fontFamily = selectedFont,
-                                style = glowTextStyle(accentColor, 14f)
-                            )
-                            Text(
-                                text = "↗",
-                                color = secondaryRetroColor,
-                                fontSize = 13.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold,
-                                style = glowTextStyle(secondaryRetroColor, 14f)
-                            )
-                        }
-
-                        if (!targetApp.isSystemApp) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .retroNeonBorder(1.dp, if (retro80sMode) secondaryRetroColor else Color(0xFF451A1A), rowShape, glowEnabled = retro80sMode, glowRadiusDp = 4.dp)
-                                    .background(if (retro80sMode) Color.Black else Color(0xFF140707), rowShape)
-                                    .clickable {
-                                        val pkg = targetApp.packageName
-                                        contextMenuTarget = null
-                                        onRequestSystemUninstall(pkg)
-                                    }
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Uninstall App",
-                                    color = if (retro80sMode) secondaryRetroColor else Color(0xFFF87171),
-                                    fontSize = 13.sp,
-                                    fontFamily = selectedFont,
-                                    style = glowTextStyle(secondaryRetroColor, 14f)
-                                )
-                                Text(
-                                    text = "×",
-                                    color = if (retro80sMode) secondaryRetroColor else Color(0xFFF87171),
-                                    fontSize = 14.sp,
-                                    fontFamily = selectedFont,
-                                    fontWeight = FontWeight.Bold,
-                                    style = glowTextStyle(secondaryRetroColor, 14f)
-                                )
-                            }
                         }
                     }
                 }
-            }
 
-            // ====================================================================
-            // "NO SPACE LEFT" BOUNDARY POPUP MODAL
-            // ====================================================================
-            val noSpaceProgress by rememberIosPopupProgress(
-                isVisible = showNoSpacePopup,
-                label = "iosNoSpaceAlertSpring"
-            )
-            if (showNoSpacePopup || noSpaceProgress > 0.002f) {
-                Box(
+                Column(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = (0.84f * noSpaceProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.84f)))
+                        .fillMaxWidth()
+                        .iosPopupWindowLayer(progress = appMenuProgress, initialScale = 0.80f)
+                        .border(
+                            if (retro80sMode) 1.5.dp else 1.dp,
+                            if (retro80sMode) accentColor else Color(0xFF333333),
+                            appModalShape
+                        )
+                        .background(if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A), appModalShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
-                        ) { showNoSpacePopup = false }
-                        .padding(horizontal = 24.dp),
-                    contentAlignment = Alignment.Center
+                        ) { /* consume inside modal */ }
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    val alertShape = RoundedCornerShape(if (retro80sMode) 0.dp else 16.dp)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .iosPopupWindowLayer(progress = noSpaceProgress, initialScale = 0.80f)
-                            .retroNeonBorder(if (retro80sMode) 1.5.dp else 1.dp, accentColor, alertShape, glowEnabled = retro80sMode)
-                            .background(if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A), alertShape)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) { /* consume inside modal */ }
-                            .padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "No Space Left",
+                            text = targetApp.label,
+                            color = if (retro80sMode) accentColor else Color.White,
+                            fontSize = 16.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f).padding(end = 8.dp)
+                        )
+                        Text(
+                            text = "DONE",
+                            color = Color.Black,
+                            fontSize = 10.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .background(
+                                    if (retro80sMode) accentColor else Color.White,
+                                    RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
+                                )
+                                .clickable { contextMenuTarget = null }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF1F1F1F))
+                    )
+
+                    val rowShape = RoundedCornerShape(if (retro80sMode) 0.dp else 10.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, if (retro80sMode) accentColor else Color(0xFF262626), rowShape)
+                            .background(Color.Black, rowShape)
+                            .clickable { onPinToggleClick() }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = pinActionLabel,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontFamily = selectedFont
+                        )
+                        Text(
+                            text = pinActionSymbol,
                             color = accentColor,
                             fontSize = 15.sp,
                             fontFamily = selectedFont,
-                            fontWeight = FontWeight.Bold,
-                            style = glowTextStyle(accentColor)
+                            fontWeight = FontWeight.Bold
                         )
+                    }
 
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF222222))
-                        )
-
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, if (retro80sMode) accentColor else Color(0xFF262626), rowShape)
+                            .background(Color.Black, rowShape)
+                            .clickable {
+                                val pkg = targetApp.packageName
+                                contextMenuTarget = null
+                                openAppInfo(pkg)
+                            }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = noSpacePopupMessage,
-                            color = if (retro80sMode) accentColor else Color(0xFFE5E5E5),
-                            fontSize = 12.sp,
-                            fontFamily = selectedFont,
-                            lineHeight = 17.sp,
-                            style = glowTextStyle(accentColor, 12f)
+                            text = "App Info",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontFamily = selectedFont
                         )
+                        Text(
+                            text = "↗",
+                            color = accentColor,
+                            fontSize = 13.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
 
-                        Box(
+                    if (!targetApp.isSystemApp) {
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .retroNeonBorder(1.dp, secondaryRetroColor, RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp), glowEnabled = retro80sMode)
-                                .background(if (retro80sMode) secondaryRetroColor else Color(0xFF141414), RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp))
-                                .clickable { showNoSpacePopup = false }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
+                                .border(1.dp, if (retro80sMode) accentColor else Color(0xFF451A1A), rowShape)
+                                .background(if (retro80sMode) Color.Black else Color(0xFF140707), rowShape)
+                                .clickable {
+                                    val pkg = targetApp.packageName
+                                    contextMenuTarget = null
+                                    onRequestSystemUninstall(pkg)
+                                }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "OK",
-                                color = if (retro80sMode) Color.Black else Color.White,
-                                fontSize = 11.sp,
+                                text = "Uninstall App",
+                                color = if (retro80sMode) accentColor else Color(0xFFF87171),
+                                fontSize = 13.sp,
+                                fontFamily = selectedFont
+                            )
+                            Text(
+                                text = "×",
+                                color = if (retro80sMode) accentColor else Color(0xFFF87171),
+                                fontSize = 14.sp,
                                 fontFamily = selectedFont,
                                 fontWeight = FontWeight.Bold
                             )
@@ -2209,6 +3286,89 @@ fun NTextLauncherApp() {
                 }
             }
         }
+
+        // ====================================================================
+        // "NO SPACE LEFT" BOUNDARY POPUP MODAL
+        // ====================================================================
+        val noSpaceProgress by rememberIosPopupProgress(
+            isVisible = showNoSpacePopup,
+            label = "iosNoSpaceAlertSpring"
+        )
+        if (showNoSpacePopup || noSpaceProgress > 0.002f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = (0.84f * noSpaceProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.84f)))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { showNoSpacePopup = false }
+                    .padding(horizontal = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val alertShape = RoundedCornerShape(if (retro80sMode) 0.dp else 16.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .iosPopupWindowLayer(progress = noSpaceProgress, initialScale = 0.80f)
+                        .border(if (retro80sMode) 1.5.dp else 1.dp, accentColor, alertShape)
+                        .background(if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A), alertShape)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { /* consume inside modal */ }
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "No Space Left",
+                        color = accentColor,
+                        fontSize = 15.sp,
+                        fontFamily = selectedFont,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF222222))
+                    )
+
+                    Text(
+                        text = noSpacePopupMessage,
+                        color = Color(0xFFE5E5E5),
+                        fontSize = 12.sp,
+                        fontFamily = selectedFont,
+                        lineHeight = 17.sp
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, accentColor, RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp))
+                            .background(if (retro80sMode) accentColor else Color(0xFF141414), RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp))
+                            .clickable { showNoSpacePopup = false }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "OK",
+                            color = if (retro80sMode) Color.Black else Color.White,
+                            fontSize = 11.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
+        // Old School Phosphor Scanlines Overlay (Pass-through touches)
+        if (retro80sMode) {
+            Retro80sCrtScreenEdgeGlowOverlay()
+        }
+    }
     }
 }
 
@@ -2221,12 +3381,11 @@ fun QuickMenuButton(
     onClick: () -> Unit
 ) {
     val is80s = LocalRetro80sMode.current
-    val secondaryCol = rememberRetroSecondaryColor(accentColor)
     val shape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .retroNeonBorder(1.dp, if (is80s) accentColor else Color(0xFF262626), shape, glowEnabled = is80s, glowRadiusDp = 4.dp)
+            .border(1.dp, if (is80s) accentColor else Color(0xFF262626), shape)
             .background(Color.Black, shape)
             .clickable { onClick() }
             .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -2235,94 +3394,64 @@ fun QuickMenuButton(
     ) {
         Text(
             text = label,
-            color = if (is80s) accentColor else Color.White,
+            color = Color.White,
             fontSize = 13.sp,
             fontFamily = lomoFontFamily,
-            fontWeight = if (is80s) FontWeight.Bold else FontWeight.Normal,
-            style = glowTextStyle(accentColor, 16f)
+            fontWeight = if (is80s) FontWeight.Bold else FontWeight.Normal
         )
         Text(
             text = if (is80s) "[+]" else "▸",
-            color = secondaryCol,
+            color = accentColor,
             fontSize = 12.sp,
             fontFamily = lomoFontFamily,
-            fontWeight = FontWeight.Bold,
-            style = glowTextStyle(secondaryCol, 16f)
+            fontWeight = FontWeight.Bold
         )
     }
 }
 
-@Composable
 fun Retro80sCrtScreenEdgeGlowOverlay() {
-    val theme = LocalRetro80sColorTheme.current
+    // Subtle 80s CRT horizontal phosphor scanlines across the display — NO glowing around the edges of the phone screen!
     Canvas(modifier = Modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
-        if (theme == "holomap") {
-            // Subtle Glowing Cyan Dot-Matrix Grid in the background (exact match to 2nd reference image!)
-            val gridStep = 18.dp.toPx().coerceAtLeast(12f)
-            val dotRadius = 1.05.dp.toPx()
-            val glowRadius = 2.4.dp.toPx()
-            var y = gridStep * 0.5f
-            while (y < h) {
-                var x = gridStep * 0.5f
-                while (x < w) {
-                    drawCircle(
-                        color = Color(0xFF00E5FF).copy(alpha = 0.12f),
-                        radius = glowRadius,
-                        center = Offset(x, y)
-                    )
-                    drawCircle(
-                        color = Color(0xFF26FFFF).copy(alpha = 0.42f),
-                        radius = dotRadius,
-                        center = Offset(x, y)
-                    )
-                    x += gridStep
-                }
-                y += gridStep
-            }
-        } else {
-            // Subtle additive phosphor raster lines that never dim foreground text
-            val scanStep = 4.dp.toPx().coerceAtLeast(3f)
-            val tint = if (theme == "amber") Color(0xFFFF9900).copy(alpha = 0.035f) else Color(0xFF55FF33).copy(alpha = 0.035f)
-            var y = 0f
-            while (y < h) {
-                drawLine(
-                    color = tint,
-                    start = Offset(0f, y),
-                    end = Offset(w, y),
-                    strokeWidth = 1f
-                )
-                y += scanStep
-            }
+        val scanStep = 3.dp.toPx().coerceAtLeast(2f)
+        var y = 0f
+        while (y < h) {
+            drawLine(
+                color = Color(0xFF001400).copy(alpha = 0.20f),
+                start = Offset(0f, y),
+                end = Offset(w, y),
+                strokeWidth = 1f
+            )
+            y += scanStep
         }
     }
 }
 
 fun getWidgetStyleChoices(widgetId: String): List<Pair<String, String>> = when (widgetId) {
-    "clock" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "MODERN DOT", "cyber_hud" to "HOLOMAP")
-    "battery_bar" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "CLEAN BAR", "cyber_hud" to "HOLOMAP")
-    "week_strip" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "7-DAY STRIP", "cyber_hud" to "HOLOMAP")
-    "retro_calendar" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "DOT MATRIX", "cyber_hud" to "HOLOMAP")
-    "year_matrix" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "365 DOTS", "cyber_hud" to "HOLOMAP")
-    "retro_flip_clock" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "SPLIT-FLAP", "cyber_hud" to "HOLOMAP")
-    "analog_chrono" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "WATCH DIAL", "cyber_hud" to "HOLOMAP")
-    "precision_chrono" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "SPLIT-LAP", "cyber_hud" to "HOLOMAP")
-    "globe" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "HOLO GLOBE", "cyber_hud" to "HOLOMAP")
-    "torch" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "CLEAN PILL", "cyber_hud" to "HOLOMAP")
-    "storage" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "DUAL BARS", "cyber_hud" to "HOLOMAP")
-    "zen" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "MINIMAL", "cyber_hud" to "HOLOMAP")
-    "quote" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "EDITORIAL", "cyber_hud" to "HOLOMAP")
-    "scratchpad" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "MINIMAL >", "cyber_hud" to "HOLOMAP")
-    "pinned_apps" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "CLEAN LIST", "cyber_hud" to "HOLOMAP")
-    else -> listOf("80s_retro" to "OLD SCHOOL", "default" to "DEFAULT", "cyber_hud" to "HOLOMAP")
+    "clock" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "MODERN DOT", "cyber_hud" to "TACTICAL HUD")
+    "battery_bar" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "CLEAN BAR", "cyber_hud" to "CELL DIAG")
+    "week_strip" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "7-DAY STRIP", "cyber_hud" to "TIMELINE")
+    "retro_calendar" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "DOT MATRIX", "cyber_hud" to "BRACKET [DD]")
+    "year_matrix" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "365 DOTS", "cyber_hud" to "12 MONTHS")
+    "retro_flip_clock" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "SPLIT-FLAP", "cyber_hud" to "TERMINAL")
+    "analog_chrono" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "WATCH DIAL", "cyber_hud" to "AVIONICS")
+    "precision_chrono" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "SPLIT-LAP", "cyber_hud" to "TELEMETRY")
+    "globe" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "HOLO GLOBE", "cyber_hud" to "WIREFRAME")
+    "torch" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "CLEAN PILL", "cyber_hud" to "ARMED HUD")
+    "storage" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "DUAL BARS", "cyber_hud" to "LED SECTORS")
+    "zen" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "MINIMAL", "cyber_hud" to "CHAMBER")
+    "quote" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "EDITORIAL", "cyber_hud" to "LOG STREAM")
+    "scratchpad" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "MINIMAL >", "cyber_hud" to "MEMO LOG")
+    "pinned_apps" -> listOf("80s_retro" to "OLD SCHOOL", "default" to "CLEAN LIST", "cyber_hud" to "[01] INDEXED")
+    else -> listOf("80s_retro" to "OLD SCHOOL", "default" to "DEFAULT", "cyber_hud" to "CYBER HUD")
 }
 
 val BATTERY_BAR_STYLES: List<Pair<String, String>> = listOf(
     "retro_blocks" to "OLD SCHOOL",
-    "holomap_slash" to "HOLOMAP ///",
     "segmented_led" to "LED CELLS",
     "pill" to "SMOOTH PILL",
+    "chevron" to "CHEVRON",
     "ruler_ticks" to "TICKS"
 )
 
@@ -2335,18 +3464,31 @@ fun RetroBatteryProgressBar(
     sizeMode: String = "standard",
     modifier: Modifier = Modifier
 ) {
-    val theme = LocalRetro80sColorTheme.current
-    val isHolomap = (retro80sMode && theme == "holomap") || barStyle == "holomap_slash"
-    val barColor = if (isHolomap) Color(0xFFFF3B14) else accentColor
-    val barHeight = when (sizeMode) {
-        "compact" -> 14.dp
-        "large" -> 26.dp
-        "xlarge" -> 30.dp
-        "max" -> 34.dp
-        else -> 20.dp
+    val pct = batteryPct.coerceIn(1, 100)
+    val frac = (pct / 100f).coerceIn(0.02f, 1f)
+    val activeColor = accentColor
+    val barHeight = when (barStyle) {
+        "retro_blocks" -> when (sizeMode) {
+            "max" -> 28.dp
+            "xlarge" -> 24.dp
+            "large" -> 22.dp
+            "compact" -> 14.dp
+            else -> 19.dp
+        }
+        "segmented_led", "chevron", "ruler_ticks" -> when (sizeMode) {
+            "max" -> 18.dp
+            "xlarge" -> 16.dp
+            "large" -> 14.dp
+            "compact" -> 10.dp
+            else -> 12.dp
+        }
+        else -> when (sizeMode) {
+            "max" -> 10.dp
+            "xlarge" -> 9.dp
+            "large" -> 8.dp
+            else -> 6.dp
+        }
     }
-    val clampedPct = batteryPct.coerceIn(0, 100)
-    val effectiveStyle = if (retro80sMode && theme == "holomap") "holomap_slash" else barStyle
 
     Canvas(
         modifier = modifier
@@ -2354,226 +3496,178 @@ fun RetroBatteryProgressBar(
     ) {
         val w = size.width
         val h = size.height
-        val frac = (clampedPct / 100f).coerceIn(0f, 1f)
 
-        when (effectiveStyle) {
-            "holomap_slash" -> {
-                // GLOWING RED DIAGONAL-HATCHED BAR (Exact match to PEAKS/VALLIES/ROCKS bars in 2nd reference image!)
-                val fillW = (w * frac).coerceAtLeast(4f)
-                // Soft outer red neon glow
-                drawIntoCanvas { canvas ->
-                    val glowPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                        style = android.graphics.Paint.Style.FILL
-                        color = android.graphics.Color.argb(115, 255, 30, 0)
-                        maskFilter = BlurMaskFilter(8.dp.toPx(), BlurMaskFilter.Blur.NORMAL)
-                    }
-                    canvas.nativeCanvas.drawRect(0f, 1.dp.toPx(), fillW, h - 1.dp.toPx(), glowPaint)
-                }
-                // Dark red base track for the filled region
-                drawRect(
-                    color = Color(0xFF3A0800),
-                    topLeft = Offset(0f, 1.dp.toPx()),
-                    size = Size(fillW, h - 2.dp.toPx())
-                )
-                // Faint unlit track for remaining region
-                if (fillW < w) {
-                    drawRect(
-                        color = Color(0xFF1A0500),
-                        topLeft = Offset(fillW, 1.dp.toPx()),
-                        size = Size(w - fillW, h - 2.dp.toPx())
-                    )
-                }
-                // Crisp glowing red diagonal hatch stripes (///) across the filled region
-                val stripeStep = 5.2.dp.toPx().coerceAtLeast(4f)
-                val slant = h * 0.55f
-                val strokeW = 2.3.dp.toPx().coerceAtLeast(1.8f)
-                var x = -slant
-                while (x < fillW) {
-                    val xStart = x.coerceIn(0f, fillW)
-                    val xEnd = (x + slant).coerceIn(0f, fillW)
-                    if (xEnd > xStart) {
-                        drawLine(
-                            color = barColor,
-                            start = Offset(xStart, h - 1.5.dp.toPx()),
-                            end = Offset(xEnd, 1.5.dp.toPx()),
-                            strokeWidth = strokeW,
-                            cap = StrokeCap.Square
-                        )
-                    }
-                    x += stripeStep
-                }
-            }
-
+        when (barStyle) {
             "retro_blocks" -> {
-                // Framed Old School Blocky Progress Bar with Dithered Unlit Blocks
-                val strokePx = 1.4.dp.toPx()
-                if (retro80sMode) {
-                    drawIntoCanvas { canvas ->
-                        val glowPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                            style = android.graphics.Paint.Style.STROKE
-                            strokeWidth = strokePx * 2f
-                            color = android.graphics.Color.argb(
-                                150,
-                                (barColor.red * 255).toInt(),
-                                (barColor.green * 255).toInt(),
-                                (barColor.blue * 255).toInt()
-                            )
-                            maskFilter = BlurMaskFilter(6.dp.toPx(), BlurMaskFilter.Blur.NORMAL)
-                        }
-                        canvas.nativeCanvas.drawRect(0f, 0f, w, h, glowPaint)
-                    }
-                }
+                val borderStroke = 1.35.dp.toPx()
                 drawRect(
-                    color = barColor,
-                    topLeft = Offset.Zero,
+                    color = activeColor.copy(alpha = 0.28f),
+                    topLeft = Offset(0f, 0f),
                     size = Size(w, h),
-                    style = Stroke(width = strokePx)
+                    style = Stroke(width = borderStroke * 2.4f)
                 )
+                drawRect(
+                    color = activeColor.copy(alpha = 0.92f),
+                    topLeft = Offset(borderStroke * 0.5f, borderStroke * 0.5f),
+                    size = Size(w - borderStroke, h - borderStroke),
+                    style = Stroke(width = borderStroke)
+                )
+
                 val pad = 3.2.dp.toPx()
-                val innerW = (w - pad * 2f).coerceAtLeast(1f)
-                val innerH = (h - pad * 2f).coerceAtLeast(1f)
+                val innerW = (w - pad * 2f).coerceAtLeast(10f)
+                val innerH = (h - pad * 2f).coerceAtLeast(4f)
                 val totalBlocks = 18
-                val gap = 2.2.dp.toPx()
-                val blockW = ((innerW - gap * (totalBlocks - 1)) / totalBlocks.toFloat()).coerceAtLeast(2f)
+                val gap = 2.4.dp.toPx()
+                val blockW = ((innerW - gap * (totalBlocks - 1)) / totalBlocks).coerceAtLeast(2f)
                 val exactBlocks = frac * totalBlocks
+                val fullBlocks = exactBlocks.toInt()
+                val partialFrac = exactBlocks - fullBlocks
 
                 for (i in 0 until totalBlocks) {
                     val bx = pad + i * (blockW + gap)
                     val by = pad
-                    if (i < exactBlocks.toInt()) {
+                    if (i < fullBlocks) {
                         drawRect(
-                            color = barColor,
+                            color = activeColor.copy(alpha = 0.30f),
+                            topLeft = Offset(bx - 1f, by - 1f),
+                            size = Size(blockW + 2f, innerH + 2f)
+                        )
+                        drawRect(
+                            color = activeColor,
                             topLeft = Offset(bx, by),
                             size = Size(blockW, innerH)
                         )
-                    } else if (i == exactBlocks.toInt() && (exactBlocks - i) > 0.25f) {
-                        // Half-dithered transition block
-                        val dotStep = 2.2.dp.toPx().coerceAtLeast(1.5f)
-                        var dy = by
-                        var r = 0
-                        while (dy < by + innerH) {
-                            var dx = bx
-                            var c = 0
-                            while (dx < bx + blockW) {
-                                if ((r + c) % 2 == 0) {
-                                    drawRect(
-                                        color = barColor.copy(alpha = 0.78f),
-                                        topLeft = Offset(dx, dy),
-                                        size = Size(dotStep * 0.75f, dotStep * 0.75f)
-                                    )
-                                }
-                                dx += dotStep
-                                c++
-                            }
-                            dy += dotStep
-                            r++
-                        }
                     } else {
-                        // Unlit stippled dithered block
-                        val dotStep = 2.6.dp.toPx().coerceAtLeast(1.8f)
-                        var dy = by
-                        var r = 0
-                        while (dy < by + innerH) {
-                            var dx = bx
-                            var c = 0
-                            while (dx < bx + blockW) {
-                                if ((r + c) % 2 == 0) {
-                                    drawRect(
-                                        color = barColor.copy(alpha = 0.22f),
-                                        topLeft = Offset(dx, dy),
-                                        size = Size(dotStep * 0.55f, dotStep * 0.55f)
+                        val isTransitionBlock = (i == fullBlocks && partialFrac > 0.08f)
+                        val dotAlpha = when {
+                            isTransitionBlock -> 0.78f
+                            i == fullBlocks + 1 -> 0.42f
+                            i < totalBlocks - 1 -> 0.25f
+                            else -> 0.12f
+                        }
+                        val cols = 3
+                        val rows = 6
+                        val cellW = blockW / cols
+                        val cellH = innerH / rows
+                        val dotR = (min(cellW, cellH) * 0.34f).coerceAtLeast(0.75f)
+                        for (r in 0 until rows) {
+                            for (c in 0 until cols) {
+                                val drawDot = if (isTransitionBlock) true else (r + c) % 2 == 0
+                                if (drawDot) {
+                                    drawCircle(
+                                        color = activeColor.copy(alpha = dotAlpha),
+                                        radius = dotR,
+                                        center = Offset(
+                                            bx + (c + 0.5f) * cellW,
+                                            by + (r + 0.5f) * cellH
+                                        )
                                     )
                                 }
-                                dx += dotStep
-                                c++
                             }
-                            dy += dotStep
-                            r++
                         }
                     }
                 }
             }
 
             "segmented_led" -> {
-                val cells = 24
-                val gap = 2.dp.toPx()
-                val cellW = ((w - gap * (cells - 1)) / cells.toFloat()).coerceAtLeast(2f)
-                val litCount = (frac * cells).roundToInt()
-                for (i in 0 until cells) {
-                    val cx = i * (cellW + gap)
-                    drawRect(
-                        color = if (i < litCount) barColor else barColor.copy(alpha = 0.16f),
-                        topLeft = Offset(cx, h * 0.15f),
-                        size = Size(cellW, h * 0.70f)
+                val totalCells = 12
+                val gap = 3.dp.toPx()
+                val cellW = ((w - gap * (totalCells - 1)) / totalCells).coerceAtLeast(2f)
+                val litCells = (frac * totalCells).roundToInt().coerceIn(1, totalCells)
+                for (i in 0 until totalCells) {
+                    val cx0 = i * (cellW + gap)
+                    val isLit = i < litCells
+                    drawRoundRect(
+                        color = if (isLit) activeColor else activeColor.copy(alpha = 0.14f),
+                        topLeft = Offset(cx0, 0f),
+                        size = Size(cellW, h),
+                        cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
+                    )
+                }
+            }
+
+            "chevron" -> {
+                val totalCells = 14
+                val gap = 3.dp.toPx()
+                val slant = h * 0.38f
+                val cellW = ((w - slant - gap * (totalCells - 1)) / totalCells).coerceAtLeast(2f)
+                val litCells = (frac * totalCells).roundToInt().coerceIn(1, totalCells)
+                val path = Path()
+                for (i in 0 until totalCells) {
+                    val x0 = i * (cellW + gap)
+                    path.reset()
+                    path.moveTo(x0 + slant, 0f)
+                    path.lineTo(x0 + slant + cellW, 0f)
+                    path.lineTo(x0 + cellW, h)
+                    path.lineTo(x0, h)
+                    path.close()
+                    drawPath(
+                        path = path,
+                        color = if (i < litCells) activeColor else activeColor.copy(alpha = 0.15f)
                     )
                 }
             }
 
             "ruler_ticks" -> {
-                val ticks = 40
-                val step = w / ticks.toFloat()
-                val litTicks = (frac * ticks).roundToInt()
-                for (i in 0..ticks) {
-                    val x = (i * step).coerceIn(0f, w)
-                    val isMajor = i % 5 == 0
-                    val th = if (isMajor) h * 0.85f else h * 0.48f
+                val totalTicks = 32
+                val step = w / totalTicks
+                val litTicks = (frac * totalTicks).roundToInt().coerceIn(1, totalTicks)
+                for (i in 0..totalTicks) {
+                    val tx = (i * step).coerceIn(0f, w)
+                    val isMajor = i % 4 == 0
+                    val tickH = if (isMajor) h else h * 0.58f
+                    val y0 = (h - tickH) * 0.5f
+                    val isLit = i <= litTicks
                     drawLine(
-                        color = if (i <= litTicks) barColor else barColor.copy(alpha = 0.20f),
-                        start = Offset(x, (h - th) * 0.5f),
-                        end = Offset(x, (h + th) * 0.5f),
-                        strokeWidth = if (isMajor) 2.dp.toPx() else 1.dp.toPx()
+                        color = if (isLit) activeColor else activeColor.copy(alpha = 0.22f),
+                        start = Offset(tx, y0),
+                        end = Offset(tx, y0 + tickH),
+                        strokeWidth = if (isMajor) 1.8.dp.toPx() else 1.1.dp.toPx()
                     )
                 }
             }
 
             else -> {
-                // Smooth Pill
-                val trackH = (h * 0.45f).coerceAtLeast(6.dp.toPx())
-                val cy = h * 0.5f
+                val r = h * 0.5f
                 drawRoundRect(
-                    color = barColor.copy(alpha = 0.18f),
-                    topLeft = Offset(0f, cy - trackH * 0.5f),
-                    size = Size(w, trackH),
-                    cornerRadius = CornerRadius(trackH * 0.5f, trackH * 0.5f)
+                    color = Color(0xFF141414),
+                    size = Size(w, h),
+                    cornerRadius = CornerRadius(r, r)
                 )
                 drawRoundRect(
-                    color = barColor,
-                    topLeft = Offset(0f, cy - trackH * 0.5f),
-                    size = Size((w * frac).coerceAtLeast(trackH), trackH),
-                    cornerRadius = CornerRadius(trackH * 0.5f, trackH * 0.5f)
+                    color = activeColor.copy(alpha = 0.35f),
+                    size = Size(w, h),
+                    cornerRadius = CornerRadius(r, r),
+                    style = Stroke(width = 1.dp.toPx())
+                )
+                drawRoundRect(
+                    color = activeColor,
+                    size = Size((w * frac).coerceAtLeast(h), h),
+                    cornerRadius = CornerRadius(r, r)
                 )
             }
         }
     }
 }
 
-
+// ============================================================================
+// HOME SCREEN (EXACT PROTOTYPE WIDGETS SETUP + LOMO PIXEL APPS + NO BOTTOM DOCK)
+// ============================================================================
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreenView(
-    pinnedApps: List<AppEntry>,
     activeWidgets: List<String>,
     widgetSizes: Map<String, String>,
     widgetFonts: Map<String, String>,
     widgetStyles: Map<String, String> = emptyMap(),
-    selectedFont: FontFamily,
-    lomoFontFamily: FontFamily,
-    uppercaseHome: Boolean,
-    textAlignMode: String,
-    textSizeSp: Int,
-    accentColor: Color,
-    secondaryRetroColor: Color = accentColor,
-    retro80sMode: Boolean = false,
-    retro80sColorTheme: String = "green",
-    batteryBarStyle: String = "retro_blocks",
-    onChangeBatteryBarStyle: (String) -> Unit = {},
-    waveScrubMode: String,
+    editMode: Boolean,
+    currentTimeMillis: Long,
     currentHourStr: String,
     currentMinStr: String,
     currentSecStr: String,
     currentAmPmStr: String,
     currentDateStr: String,
-    currentTimeMillis: Long,
+    nextAlarmStr: String,
     batteryPct: Int,
     isCharging: Boolean,
     ramStatusText: String,
@@ -2584,229 +3678,352 @@ fun HomeScreenView(
     zenActive: Boolean,
     zenSeconds: Int,
     quickNote: String,
+    accentColor: Color,
+    lomoFontFamily: FontFamily,
+    selectedFont: FontFamily,
+    uppercaseHome: Boolean,
+    textAlign: TextAlign,
+    textSizeSp: Int,
+    waveScrubMode: String,
+    retro80sMode: Boolean = false,
+    batteryBarStyle: String = "retro_blocks",
+    onChangeBatteryBarStyle: (String) -> Unit = {},
     globeTheme: String,
     globeWireframeColor: String,
     globeTilt2dDeg: Float,
     globeRotXDeg: Float,
     globeRotYDeg: Float,
-    editMode: Boolean,
+    onChangeGlobeTilt2d: (Float) -> Unit,
+    onChangeGlobeRotX: (Float) -> Unit,
+    onChangeGlobeRotY: (Float) -> Unit,
+    pinnedApps: List<AppEntry>,
     customPinnedOrderEnabled: Boolean = true,
-    widgetsActive: Boolean = true,
     onMovePinnedApp: (String, Int) -> Unit = { _, _ -> },
+    onUnpinApp: (String) -> Unit = {},
+    onOpenClockApp: () -> Unit,
+    onToggleTorch: () -> Unit,
+    onToggleZen: () -> Unit,
+    onCycleWidgetSize: (String) -> Unit,
     onSetWidgetSize: (String, String) -> Unit,
     onSetWidgetFont: (String, String) -> Unit,
     onSetWidgetStyle: (String, String) -> Unit = { _, _ -> },
     onMoveWidget: (String, Int) -> Unit,
     onRemoveWidget: (String) -> Unit,
-    onUnpinApp: (String) -> Unit,
-    onChangeGlobeTilt2d: (Float) -> Unit,
-    onChangeGlobeRotX: (Float) -> Unit,
-    onChangeGlobeRotY: (Float) -> Unit,
+    widgetsActive: Boolean = true,
     onLaunchApp: (String) -> Unit,
     onLongPressApp: (AppEntry) -> Unit,
-    onLongPressHome: () -> Unit,
-    onOpenClockApp: () -> Unit,
-    onToggleTorch: () -> Unit,
-    onToggleZen: () -> Unit,
-    onWaveTick: () -> Unit,
-    onGlobeInteractionChanged: (Boolean) -> Unit = {}
+    onLongPressHome: () -> Unit = {},
+    onGlobeInteractionChanged: (Boolean) -> Unit = {},
+    onReportMeasuredSpace: (Float, Float, Float) -> Unit = { _, _, _ -> },
+    onWaveTick: () -> Unit
 ) {
     val density = LocalDensity.current
     var waveFloatIndex by remember { mutableStateOf<Float?>(null) }
     var lastHoveredIndex by remember { mutableStateOf<Int?>(null) }
-    var expandedFontWidgetIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    val scrollState = rememberScrollState()
 
-    val isHolomapMode = retro80sMode && retro80sColorTheme == "holomap"
-    val primaryCol = accentColor // Glowing Cyan in holomap, Green in green, Amber in amber
-    val secondaryCol = secondaryRetroColor // Glowing Red in holomap
+    // Pulsing orange colon animation matching the prototype's .animate-dot
+    val infiniteTransition = rememberInfiniteTransition(label = "colonPulse")
+    val colonAlpha by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.25f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "colonAlpha"
+    )
 
-    val textAlign = when (textAlignMode) {
-        "center" -> TextAlign.Center
-        "right" -> TextAlign.End
-        else -> TextAlign.Start
-    }
+    val homeEditScrollState = rememberScrollState()
+    var expandedFontWidgetIds by remember { mutableStateOf(setOf<String>()) }
+    var lastMeasInnerH by remember { mutableStateOf(0f) }
+    var lastMeasWidgetsH by remember { mutableStateOf(0f) }
+    var lastMeasAppsH by remember { mutableStateOf(0f) }
+    val measuredWidgetHeights = remember { mutableStateMapOf<String, Float>() }
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
-            .windowInsetsPadding(WindowInsets.navigationBars)
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = {},
                 onLongClick = { onLongPressHome() }
             )
-            .padding(horizontal = 24.dp, vertical = 12.dp)
+            .then(
+                if (editMode) {
+                    // Edit Mode banner above already consumes statusBars & displayCutout top insets;
+                    // use a clean 8.dp top spacing so there is no wide gap below the Edit Mode header,
+                    // and enable smooth vertical scrolling across all widgets (including the unified Pinned Apps widget)!
+                    Modifier
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .verticalScroll(homeEditScrollState)
+                        .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 20.dp)
+                } else {
+                    Modifier
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(horizontal = 24.dp, vertical = 10.dp)
+                        .onGloballyPositioned { coords ->
+                            val hDp = with(density) { coords.size.height.toDp().value }
+                            if (abs(hDp - lastMeasInnerH) > 0.5f) {
+                                lastMeasInnerH = hDp
+                                onReportMeasuredSpace(lastMeasInnerH, lastMeasWidgetsH, lastMeasAppsH)
+                            }
+                        }
+                }
+            ),
+        verticalArrangement = Arrangement.Top
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(if (editMode) Modifier.verticalScroll(scrollState) else Modifier),
-            verticalArrangement = Arrangement.spacedBy(if (editMode) 10.dp else 6.dp)
-        ) {
-            activeWidgets.forEach { widgetId ->
-                val sizeMode = widgetSizes[widgetId] ?: "standard"
-                val wFontId = widgetFonts[widgetId] ?: "lomo_pixel"
-                val wPrebuiltFont = remember(wFontId) { PrebuiltFont.fromId(wFontId) }
-                val wFontFamily = remember(wPrebuiltFont, lomoFontFamily) {
-                    wPrebuiltFont.resolveFontFamily(lomoFontFamily)
+        // UNIFIED MODULAR OLED WIDGETS STACK (Includes "pinned_apps" as a single unified widget!)
+        // In normal Home mode (!editMode), no verticalScroll is attached so swipe-up (App Drawer)
+        // and swipe-down (Notification Panel) gestures work over every widget!
+        activeWidgets.forEachIndexed { widgetIndex, widgetId ->
+            if (widgetIndex > 0) {
+                if (!editMode && widgetIndex == activeWidgets.lastIndex) {
+                    // Flexible spacer before the bottom-most widget (e.g. Pinned Apps by default)
+                    // anchors it cleanly at the bottom while leaving a tiny 4dp minimum gap when full!
+                    Spacer(modifier = Modifier.weight(1f).heightIn(min = 4.dp))
+                } else {
+                    Spacer(modifier = Modifier.height(10.dp))
                 }
-                val rawWStyle = widgetStyles[widgetId] ?: if (widgetId == "battery_bar") "80s_retro" else "default"
-                val wStyle = when {
-                    isHolomapMode -> "cyber_hud"
-                    retro80sMode && rawWStyle == "default" -> "80s_retro"
-                    else -> rawWStyle
-                }
+            }
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (editMode) {
-                                val outerEditShape = RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp)
-                                Modifier
-                                    .retroNeonBorder(
-                                        if (retro80sMode) 1.4.dp else 1.dp,
-                                        if (retro80sMode) primaryCol else Color(0xFF383838),
-                                        outerEditShape,
-                                        glowEnabled = retro80sMode,
-                                        glowRadiusDp = 5.dp
-                                    )
-                                    .background(
-                                        if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A),
-                                        outerEditShape
-                                    )
-                                    .padding(8.dp)
-                            } else {
-                                Modifier.combinedClickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                    onClick = {},
-                                    onLongClick = { onLongPressHome() }
-                                )
+            val sizeMode = if (widgetId == "pinned_apps") {
+                when (textSizeSp) {
+                    16 -> "compact"
+                    18 -> "standard"
+                    20 -> "large"
+                    22 -> "xlarge"
+                    else -> "max"
+                }
+            } else {
+                widgetSizes[widgetId] ?: "standard"
+            }
+            val wFontId = widgetFonts[widgetId] ?: "dot"
+            val wPrebuiltFont = remember(wFontId) { PrebuiltFont.fromId(wFontId) }
+            val wFontFamily = remember(wPrebuiltFont, lomoFontFamily) {
+                wPrebuiltFont.resolveFontFamily(lomoFontFamily)
+            }
+            val rawWStyle = widgetStyles[widgetId] ?: if (widgetId == "battery_bar") "80s_retro" else "default"
+            val wStyle = if (retro80sMode && rawWStyle == "default") "80s_retro" else rawWStyle
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (!editMode) {
+                            Modifier.onGloballyPositioned { coords ->
+                                val hDp = with(density) { coords.size.height.toDp().value }
+                                if (widgetId == "pinned_apps") {
+                                    if (abs(hDp - lastMeasAppsH) > 0.5f) {
+                                        lastMeasAppsH = hDp
+                                        onReportMeasuredSpace(lastMeasInnerH, lastMeasWidgetsH, lastMeasAppsH)
+                                    }
+                                } else {
+                                    val prev = measuredWidgetHeights[widgetId] ?: 0f
+                                    if (abs(hDp - prev) > 0.5f) {
+                                        measuredWidgetHeights[widgetId] = hDp
+                                        val nonAppWidgets = activeWidgets.filter { it != "pinned_apps" }
+                                        val sumH = nonAppWidgets.sumOf { (measuredWidgetHeights[it] ?: 0f).toDouble() }.toFloat() +
+                                            ((nonAppWidgets.size - 1).coerceAtLeast(0) * 10f)
+                                        lastMeasWidgetsH = sumH
+                                        onReportMeasuredSpace(lastMeasInnerH, lastMeasWidgetsH, lastMeasAppsH)
+                                    }
+                                }
                             }
-                        )
-                ) {
-                    Column {
+                        } else Modifier
+                    )
+                    .then(
                         if (editMode) {
-                            val editBtnShape = RoundedCornerShape(if (retro80sMode) 0.dp else 4.dp)
-                            val editBoxShape = RoundedCornerShape(if (retro80sMode) 0.dp else 5.dp)
-                            val sizeChoices = when (widgetId) {
-                                "clock", "pinned_apps", "retro_flip_clock", "analog_chrono", "precision_chrono", "globe" -> listOf(
-                                    "compact" to "S",
-                                    "standard" to "M",
-                                    "large" to "L",
-                                    "xlarge" to "XL",
-                                    "max" to "MAX"
+                            val outerEditShape = RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp)
+                            Modifier
+                                .border(
+                                    if (retro80sMode) 1.4.dp else 1.dp,
+                                    if (retro80sMode) accentColor else Color(0xFF383838),
+                                    outerEditShape
                                 )
-                                else -> listOf(
-                                    "compact" to "S",
-                                    "standard" to "M",
-                                    "large" to "L"
+                                .background(
+                                    if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A),
+                                    outerEditShape
+                                )
+                                .padding(8.dp)
+                        } else {
+                            Modifier.combinedClickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = {},
+                                onLongClick = { onLongPressHome() }
+                            )
+                        }
+                    )
+            ) {
+                Column {
+                    // Top-Anchored Edit Mode Controls: Styled consistently with Old School theme when retro80sMode is ON
+                    if (editMode) {
+                        val editBtnShape = RoundedCornerShape(if (retro80sMode) 0.dp else 4.dp)
+                        val editBoxShape = RoundedCornerShape(if (retro80sMode) 0.dp else 5.dp)
+                        val sizeChoices = when (widgetId) {
+                            "clock", "pinned_apps", "retro_flip_clock", "analog_chrono", "precision_chrono", "globe" -> listOf(
+                                "compact" to "S",
+                                "standard" to "M",
+                                "large" to "L",
+                                "xlarge" to "XL",
+                                "max" to "MAX"
+                            )
+                            else -> listOf(
+                                "compact" to "S",
+                                "standard" to "M",
+                                "large" to "L"
+                            )
+                        }
+                        val allWidgetFonts = remember { PrebuiltFont.values().toList() }
+                        val activeWidgetFont = remember(wFontId) { PrebuiltFont.fromId(wFontId) }
+                        val isWidgetFontMenuExpanded = expandedFontWidgetIds.contains(widgetId)
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            // Row 1: Reorder (↑ / ↓) + Direct Size Pills (S, M, L, XL, MAX) + Remove (×)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val idx = activeWidgets.indexOf(widgetId)
+                                    if (idx > 0) {
+                                        Text(
+                                            text = "↑",
+                                            color = if (retro80sMode) accentColor else Color(0xFFD4D4D4),
+                                            fontSize = 10.sp,
+                                            fontFamily = selectedFont,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier
+                                                .border(1.dp, if (retro80sMode) accentColor else Color(0xFF333333), editBtnShape)
+                                                .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF141414), editBtnShape)
+                                                .clickable { onMoveWidget(widgetId, -1) }
+                                                .padding(horizontal = 7.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                    if (idx < activeWidgets.lastIndex) {
+                                        Text(
+                                            text = "↓",
+                                            color = if (retro80sMode) accentColor else Color(0xFFD4D4D4),
+                                            fontSize = 10.sp,
+                                            fontFamily = selectedFont,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier
+                                                .border(1.dp, if (retro80sMode) accentColor else Color(0xFF333333), editBtnShape)
+                                                .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF141414), editBtnShape)
+                                                .clickable { onMoveWidget(widgetId, 1) }
+                                                .padding(horizontal = 7.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                    sizeChoices.forEach { (szId, szLbl) ->
+                                        val isSz = sizeMode == szId
+                                        Text(
+                                            text = szLbl,
+                                            color = if (isSz) Color.Black else if (retro80sMode) accentColor else Color.White,
+                                            fontSize = 9.sp,
+                                            fontFamily = selectedFont,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier
+                                                .border(
+                                                    1.dp,
+                                                    if (isSz) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF2E2E2E),
+                                                    editBtnShape
+                                                )
+                                                .background(
+                                                    if (isSz) accentColor else if (retro80sMode) Color(0xFF080808) else Color(0xFF151515),
+                                                    editBtnShape
+                                                )
+                                                .clickable { onSetWidgetSize(widgetId, szId) }
+                                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
+
+                                Text(
+                                    text = "×",
+                                    color = if (retro80sMode) accentColor else Color(0xFFEF4444),
+                                    fontSize = 11.sp,
+                                    fontFamily = selectedFont,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .border(1.dp, if (retro80sMode) accentColor else Color(0xFFEF4444).copy(alpha = 0.5f), editBtnShape)
+                                        .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF1A0808), editBtnShape)
+                                        .clickable { onRemoveWidget(widgetId) }
+                                        .padding(horizontal = 7.dp, vertical = 2.dp)
                                 )
                             }
-                            val allWidgetFonts = remember { PrebuiltFont.values().toList() }
-                            val activeWidgetFont = remember(wFontId) { PrebuiltFont.fromId(wFontId) }
-                            val isWidgetFontMenuExpanded = expandedFontWidgetIds.contains(widgetId)
 
+                            // Per-Widget Visual Style Selector (Old School + Default + Cyber/HUD)
+                            val styleChoices = remember(widgetId) { getWidgetStyleChoices(widgetId) }
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(bottom = 8.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    .border(
+                                        1.dp,
+                                        if (retro80sMode) accentColor.copy(alpha = 0.65f) else Color(0xFF262626),
+                                        editBoxShape
+                                    )
+                                    .background(if (retro80sMode) Color(0xFF060606) else Color(0xFF101010), editBoxShape)
+                                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                // Row 1: Reorder (↑ / ↓) + Direct Size Pills + Remove (×)
+                                Text(
+                                    text = "STYLE",
+                                    color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
+                                    fontSize = 8.sp,
+                                    fontFamily = selectedFont,
+                                    fontWeight = FontWeight.Bold
+                                )
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        val idx = activeWidgets.indexOf(widgetId)
-                                        if (idx > 0) {
-                                            Text(
-                                                text = "↑",
-                                                color = if (retro80sMode) primaryCol else Color(0xFFD4D4D4),
-                                                fontSize = 10.sp,
-                                                fontFamily = selectedFont,
-                                                fontWeight = FontWeight.Bold,
-                                                style = glowTextStyle(primaryCol, 12f),
-                                                modifier = Modifier
-                                                    .border(1.dp, if (retro80sMode) primaryCol else Color(0xFF333333), editBtnShape)
-                                                    .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF141414), editBtnShape)
-                                                    .clickable { onMoveWidget(widgetId, -1) }
-                                                    .padding(horizontal = 7.dp, vertical = 3.dp)
-                                            )
-                                        }
-                                        if (idx < activeWidgets.lastIndex) {
-                                            Text(
-                                                text = "↓",
-                                                color = if (retro80sMode) primaryCol else Color(0xFFD4D4D4),
-                                                fontSize = 10.sp,
-                                                fontFamily = selectedFont,
-                                                fontWeight = FontWeight.Bold,
-                                                style = glowTextStyle(primaryCol, 12f),
-                                                modifier = Modifier
-                                                    .border(1.dp, if (retro80sMode) primaryCol else Color(0xFF333333), editBtnShape)
-                                                    .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF141414), editBtnShape)
-                                                    .clickable { onMoveWidget(widgetId, 1) }
-                                                    .padding(horizontal = 7.dp, vertical = 3.dp)
-                                            )
-                                        }
-                                        sizeChoices.forEach { (szId, szLbl) ->
-                                            val isSz = sizeMode == szId
-                                            Text(
-                                                text = szLbl,
-                                                color = if (isSz) Color.Black else if (retro80sMode) primaryCol else Color.White,
-                                                fontSize = 9.sp,
-                                                fontFamily = selectedFont,
-                                                fontWeight = FontWeight.Bold,
-                                                style = if (isSz) TextStyle.Default else glowTextStyle(primaryCol, 12f),
-                                                modifier = Modifier
-                                                    .border(
-                                                        1.dp,
-                                                        if (isSz) secondaryCol else if (retro80sMode) primaryCol.copy(alpha = 0.55f) else Color(0xFF2E2E2E),
-                                                        editBtnShape
-                                                    )
-                                                    .background(
-                                                        if (isSz) secondaryCol else if (retro80sMode) Color(0xFF080808) else Color(0xFF151515),
-                                                        editBtnShape
-                                                    )
-                                                    .clickable { onSetWidgetSize(widgetId, szId) }
-                                                    .padding(horizontal = 6.dp, vertical = 3.dp)
-                                            )
-                                        }
+                                    styleChoices.forEach { (stId, stLbl) ->
+                                        val isSt = rawWStyle == stId
+                                        Text(
+                                            text = stLbl,
+                                            color = if (isSt) Color.Black else if (retro80sMode) accentColor else Color.White,
+                                            fontSize = 8.sp,
+                                            fontFamily = selectedFont,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .border(
+                                                    1.dp,
+                                                    if (isSt) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                                    editBtnShape
+                                                )
+                                                .background(
+                                                    if (isSt) accentColor else if (retro80sMode) Color(0xFF080808) else Color(0xFF151515),
+                                                    editBtnShape
+                                                )
+                                                .clickable { onSetWidgetStyle(widgetId, stId) }
+                                                .padding(vertical = 4.dp)
+                                        )
                                     }
-
-                                    Text(
-                                        text = "×",
-                                        color = if (retro80sMode) secondaryCol else Color(0xFFEF4444),
-                                        fontSize = 11.sp,
-                                        fontFamily = selectedFont,
-                                        fontWeight = FontWeight.Bold,
-                                        style = glowTextStyle(secondaryCol, 12f),
-                                        modifier = Modifier
-                                            .border(1.dp, if (retro80sMode) secondaryCol else Color(0xFFEF4444).copy(alpha = 0.5f), editBtnShape)
-                                            .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF1A0808), editBtnShape)
-                                            .clickable { onRemoveWidget(widgetId) }
-                                            .padding(horizontal = 7.dp, vertical = 2.dp)
-                                    )
                                 }
+                            }
 
-                                // Per-Widget Visual Style Selector
-                                val styleChoices = remember(widgetId) { getWidgetStyleChoices(widgetId) }
+                            // Battery Progress Bar Style Selector in Edit Mode (for Clock & Battery Bar widgets)
+                            if (widgetId == "clock" || widgetId == "battery_bar") {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .border(
                                             1.dp,
-                                            if (retro80sMode) primaryCol.copy(alpha = 0.65f) else Color(0xFF262626),
+                                            if (retro80sMode) accentColor.copy(alpha = 0.65f) else Color(0xFF262626),
                                             editBoxShape
                                         )
                                         .background(if (retro80sMode) Color(0xFF060606) else Color(0xFF101010), editBoxShape)
@@ -2814,306 +4031,250 @@ fun HomeScreenView(
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Text(
-                                        text = "STYLE",
-                                        color = if (retro80sMode) primaryCol else Color(0xFF8A8A8A),
+                                        text = "BATTERY BAR STYLE",
+                                        color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
                                         fontSize = 8.sp,
                                         fontFamily = selectedFont,
-                                        fontWeight = FontWeight.Bold,
-                                        style = glowTextStyle(primaryCol, 12f)
+                                        fontWeight = FontWeight.Bold
                                     )
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        styleChoices.forEach { (stId, stLbl) ->
-                                            val isSt = rawWStyle == stId
+                                        BATTERY_BAR_STYLES.forEach { (stId, stLbl) ->
+                                            val isSt = batteryBarStyle == stId
                                             Text(
                                                 text = stLbl,
-                                                color = if (isSt) Color.Black else if (retro80sMode) primaryCol else Color.White,
-                                                fontSize = 8.sp,
+                                                color = if (isSt) Color.Black else if (retro80sMode) accentColor else Color.White,
+                                                fontSize = 7.sp,
                                                 fontFamily = selectedFont,
                                                 fontWeight = FontWeight.Bold,
                                                 textAlign = TextAlign.Center,
-                                                style = if (isSt) TextStyle.Default else glowTextStyle(primaryCol, 12f),
                                                 modifier = Modifier
                                                     .weight(1f)
                                                     .border(
                                                         1.dp,
-                                                        if (isSt) secondaryCol else if (retro80sMode) primaryCol.copy(alpha = 0.45f) else Color(0xFF282828),
+                                                        if (isSt) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
                                                         editBtnShape
                                                     )
                                                     .background(
-                                                        if (isSt) secondaryCol else if (retro80sMode) Color(0xFF080808) else Color(0xFF151515),
+                                                        if (isSt) accentColor else if (retro80sMode) Color(0xFF080808) else Color(0xFF151515),
                                                         editBtnShape
                                                     )
-                                                    .clickable { onSetWidgetStyle(widgetId, stId) }
+                                                    .clickable { onChangeBatteryBarStyle(stId) }
                                                     .padding(vertical = 4.dp)
                                             )
                                         }
                                     }
                                 }
+                            }
 
-                                // Battery Progress Bar Style Selector in Edit Mode
-                                if (widgetId == "clock" || widgetId == "battery_bar") {
-                                    Column(
+                            // Row 2: Collapsible Per-Widget Font Style Menu
+                            if (widgetId != "globe") {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .border(
                                                 1.dp,
-                                                if (retro80sMode) primaryCol.copy(alpha = 0.65f) else Color(0xFF262626),
+                                                if (retro80sMode) accentColor.copy(alpha = 0.65f) else if (isWidgetFontMenuExpanded) accentColor.copy(alpha = 0.6f) else Color(0xFF282828),
                                                 editBoxShape
                                             )
-                                            .background(if (retro80sMode) Color(0xFF060606) else Color(0xFF101010), editBoxShape)
+                                            .background(if (retro80sMode) Color(0xFF060606) else Color(0xFF111111), editBoxShape)
+                                            .clickable {
+                                                expandedFontWidgetIds = if (isWidgetFontMenuExpanded) {
+                                                    expandedFontWidgetIds - widgetId
+                                                } else {
+                                                    expandedFontWidgetIds + widgetId
+                                                }
+                                            }
                                             .padding(horizontal = 8.dp, vertical = 5.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "FONT",
+                                                color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
+                                                fontSize = 8.sp,
+                                                fontFamily = selectedFont,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = activeWidgetFont.displayName.substringBefore(" ("),
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontFamily = wFontFamily,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        Text(
+                                            text = if (retro80sMode) {
+                                                if (isWidgetFontMenuExpanded) "[-]" else "[+]"
+                                            } else {
+                                                if (isWidgetFontMenuExpanded) "▾" else "▸"
+                                            },
+                                            color = accentColor,
+                                            fontSize = 10.sp,
+                                            fontFamily = selectedFont,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    AnimatedVisibility(
+                                        visible = isWidgetFontMenuExpanded,
+                                        enter = expandVertically() + fadeIn(),
+                                        exit = shrinkVertically() + fadeOut()
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(top = 2.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            allWidgetFonts.chunked(5).forEach { rowFonts ->
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    rowFonts.forEach { f ->
+                                                        val isF = wFontId == f.id
+                                                        val previewFamily = f.resolveFontFamily(lomoFontFamily)
+                                                        Text(
+                                                            text = f.shortLabel,
+                                                            color = if (isF) Color.Black else if (retro80sMode) accentColor else Color(0xFFD4D4D4),
+                                                            fontSize = 8.sp,
+                                                            fontFamily = previewFamily,
+                                                            fontWeight = if (isF) FontWeight.Bold else FontWeight.Normal,
+                                                            textAlign = TextAlign.Center,
+                                                            modifier = Modifier
+                                                                .weight(1f)
+                                                                .border(
+                                                                    1.dp,
+                                                                    if (isF) (if (retro80sMode) accentColor else Color.White) else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                                                    editBtnShape
+                                                                )
+                                                                .background(
+                                                                    if (isF) (if (retro80sMode) accentColor else Color.White) else if (retro80sMode) Color(0xFF080808) else Color(0xFF121212),
+                                                                    editBtnShape
+                                                                )
+                                                                .clickable { onSetWidgetFont(widgetId, f.id) }
+                                                                .padding(vertical = 4.dp)
+                                                        )
+                                                    }
+                                                    repeat(5 - rowFonts.size) {
+                                                        Spacer(modifier = Modifier.weight(1f))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Dedicated Separate X-Axis & Y-Axis Rotation Controls for the 3D Globe Widget in Edit Mode
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(
+                                            1.dp,
+                                            if (retro80sMode) accentColor.copy(alpha = 0.65f) else Color(0xFF262626),
+                                            editBoxShape
+                                        )
+                                        .background(if (retro80sMode) Color(0xFF060606) else Color(0xFF101010), editBoxShape)
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "BATTERY BAR STYLE",
-                                            color = if (retro80sMode) primaryCol else Color(0xFF8A8A8A),
+                                            text = "GLOBE AXIS",
+                                            color = if (retro80sMode) accentColor else Color(0xFFA3A3A3),
+                                            fontSize = 8.sp,
+                                            fontFamily = selectedFont,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "RESET",
+                                            color = accentColor,
                                             fontSize = 8.sp,
                                             fontFamily = selectedFont,
                                             fontWeight = FontWeight.Bold,
-                                            style = glowTextStyle(primaryCol, 12f)
-                                        )
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            BATTERY_BAR_STYLES.forEach { (stId, stLbl) ->
-                                                val isSt = batteryBarStyle == stId
-                                                Text(
-                                                    text = stLbl,
-                                                    color = if (isSt) Color.Black else if (retro80sMode) primaryCol else Color.White,
-                                                    fontSize = 7.sp,
-                                                    fontFamily = selectedFont,
-                                                    fontWeight = FontWeight.Bold,
-                                                    textAlign = TextAlign.Center,
-                                                    style = if (isSt) TextStyle.Default else glowTextStyle(primaryCol, 12f),
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .border(
-                                                            1.dp,
-                                                            if (isSt) secondaryCol else if (retro80sMode) primaryCol.copy(alpha = 0.45f) else Color(0xFF282828),
-                                                            editBtnShape
-                                                        )
-                                                        .background(
-                                                            if (isSt) secondaryCol else if (retro80sMode) Color(0xFF080808) else Color(0xFF151515),
-                                                            editBtnShape
-                                                        )
-                                                        .clickable { onChangeBatteryBarStyle(stId) }
-                                                        .padding(vertical = 4.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Row 2: Collapsible Per-Widget Font Style Menu
-                                if (widgetId != "globe") {
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalArrangement = Arrangement.spacedBy(5.dp)
-                                    ) {
-                                        Row(
                                             modifier = Modifier
-                                                .fillMaxWidth()
-                                                .border(
-                                                    1.dp,
-                                                    if (retro80sMode) primaryCol.copy(alpha = 0.65f) else if (isWidgetFontMenuExpanded) primaryCol.copy(alpha = 0.6f) else Color(0xFF282828),
-                                                    editBoxShape
-                                                )
-                                                .background(if (retro80sMode) Color(0xFF060606) else Color(0xFF111111), editBoxShape)
+                                                .border(1.dp, accentColor.copy(alpha = 0.6f), editBtnShape)
+                                                .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF181818), editBtnShape)
                                                 .clickable {
-                                                    expandedFontWidgetIds = if (isWidgetFontMenuExpanded) {
-                                                        expandedFontWidgetIds - widgetId
-                                                    } else {
-                                                        expandedFontWidgetIds + widgetId
-                                                    }
+                                                    onChangeGlobeTilt2d(-3f)
+                                                    onChangeGlobeRotX(14f)
+                                                    onChangeGlobeRotY(-77f)
                                                 }
-                                                .padding(horizontal = 8.dp, vertical = 5.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Text(
-                                                    text = "FONT",
-                                                    color = if (retro80sMode) primaryCol else Color(0xFF8A8A8A),
-                                                    fontSize = 8.sp,
-                                                    fontFamily = selectedFont,
-                                                    fontWeight = FontWeight.Bold,
-                                                    style = glowTextStyle(primaryCol, 12f)
-                                                )
-                                                Text(
-                                                    text = activeWidgetFont.displayName.substringBefore(" ("),
-                                                    color = if (retro80sMode) secondaryCol else Color.White,
-                                                    fontSize = 9.sp,
-                                                    fontFamily = wFontFamily,
-                                                    fontWeight = FontWeight.Bold,
-                                                    style = glowTextStyle(secondaryCol, 12f)
-                                                )
-                                            }
-                                            CollapsibleTriangleIndicator(
-                                                expanded = isWidgetFontMenuExpanded,
-                                                is80s = retro80sMode,
-                                                accentColor = secondaryCol,
-                                                secondaryCol = secondaryCol,
-                                                lomoFontFamily = selectedFont,
-                                                triangleSizeDp = 9.dp
-                                            )
-                                        }
-
-                                        AnimatedVisibility(
-                                            visible = isWidgetFontMenuExpanded,
-                                            enter = expandVertically() + fadeIn(),
-                                            exit = shrinkVertically() + fadeOut()
-                                        ) {
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(top = 2.dp),
-                                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                allWidgetFonts.chunked(5).forEach { rowFonts ->
-                                                    Row(
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        rowFonts.forEach { f ->
-                                                            val isF = wFontId == f.id
-                                                            val previewFamily = f.resolveFontFamily(lomoFontFamily)
-                                                            Text(
-                                                                text = f.shortLabel,
-                                                                color = if (isF) Color.Black else if (retro80sMode) primaryCol else Color(0xFFD4D4D4),
-                                                                fontSize = 8.sp,
-                                                                fontFamily = previewFamily,
-                                                                fontWeight = if (isF) FontWeight.Bold else FontWeight.Normal,
-                                                                textAlign = TextAlign.Center,
-                                                                style = if (isF) TextStyle.Default else glowTextStyle(primaryCol, 10f),
-                                                                modifier = Modifier
-                                                                    .weight(1f)
-                                                                    .border(
-                                                                        1.dp,
-                                                                        if (isF) (if (retro80sMode) secondaryCol else Color.White) else if (retro80sMode) primaryCol.copy(alpha = 0.45f) else Color(0xFF282828),
-                                                                        editBtnShape
-                                                                    )
-                                                                    .background(
-                                                                        if (isF) (if (retro80sMode) secondaryCol else Color.White) else if (retro80sMode) Color(0xFF080808) else Color(0xFF121212),
-                                                                        editBtnShape
-                                                                    )
-                                                                    .clickable { onSetWidgetFont(widgetId, f.id) }
-                                                                    .padding(vertical = 4.dp)
-                                                            )
-                                                        }
-                                                        repeat(5 - rowFonts.size) {
-                                                            Spacer(modifier = Modifier.weight(1f))
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    // Dedicated X-Axis & Y-Axis Rotation Controls for the 3D Globe Widget in Edit Mode
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .border(
-                                                1.dp,
-                                                if (retro80sMode) primaryCol.copy(alpha = 0.65f) else Color(0xFF262626),
-                                                editBoxShape
-                                            )
-                                            .background(if (retro80sMode) Color(0xFF060606) else Color(0xFF101010), editBoxShape)
-                                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = "GLOBE AXIS",
-                                                color = if (retro80sMode) primaryCol else Color(0xFFA3A3A3),
-                                                fontSize = 8.sp,
-                                                fontFamily = selectedFont,
-                                                fontWeight = FontWeight.Bold,
-                                                style = glowTextStyle(primaryCol, 12f)
-                                            )
-                                            Text(
-                                                text = "RESET",
-                                                color = secondaryCol,
-                                                fontSize = 8.sp,
-                                                fontFamily = selectedFont,
-                                                fontWeight = FontWeight.Bold,
-                                                style = glowTextStyle(secondaryCol, 12f),
-                                                modifier = Modifier
-                                                    .border(1.dp, secondaryCol.copy(alpha = 0.6f), editBtnShape)
-                                                    .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF181818), editBtnShape)
-                                                    .clickable {
-                                                        onChangeGlobeTilt2d(-3f)
-                                                        onChangeGlobeRotX(14f)
-                                                        onChangeGlobeRotY(-77f)
-                                                    }
-                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-
-                                        GlobeAxisControlRow(
-                                            axisLabel = "X-AXIS (TILT)",
-                                            degreeValue = globeTilt2dDeg,
-                                            minDeg = -180f,
-                                            maxDeg = 180f,
-                                            stepDeg = 5f,
-                                            accentColor = primaryCol,
-                                            fontFamily = selectedFont,
-                                            onChangeDeg = onChangeGlobeTilt2d
-                                        )
-
-                                        GlobeAxisControlRow(
-                                            axisLabel = "Y-AXIS (SPIN)",
-                                            degreeValue = globeRotYDeg,
-                                            minDeg = -180f,
-                                            maxDeg = 180f,
-                                            stepDeg = 10f,
-                                            accentColor = primaryCol,
-                                            fontFamily = selectedFont,
-                                            onChangeDeg = onChangeGlobeRotY
-                                        )
-
-                                        GlobeAxisControlRow(
-                                            axisLabel = "POLAR (NOD)",
-                                            degreeValue = globeRotXDeg,
-                                            minDeg = -85f,
-                                            maxDeg = 85f,
-                                            stepDeg = 5f,
-                                            accentColor = primaryCol,
-                                            fontFamily = selectedFont,
-                                            onChangeDeg = onChangeGlobeRotX
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }
+
+                                    GlobeAxisControlRow(
+                                        axisLabel = "X-AXIS (TILT)",
+                                        degreeValue = globeTilt2dDeg,
+                                        minDeg = -180f,
+                                        maxDeg = 180f,
+                                        stepDeg = 5f,
+                                        accentColor = accentColor,
+                                        fontFamily = selectedFont,
+                                        onChangeDeg = onChangeGlobeTilt2d
+                                    )
+
+                                    GlobeAxisControlRow(
+                                        axisLabel = "Y-AXIS (SPIN)",
+                                        degreeValue = globeRotYDeg,
+                                        minDeg = -180f,
+                                        maxDeg = 180f,
+                                        stepDeg = 10f,
+                                        accentColor = accentColor,
+                                        fontFamily = selectedFont,
+                                        onChangeDeg = onChangeGlobeRotY
+                                    )
+
+                                    GlobeAxisControlRow(
+                                        axisLabel = "POLAR (NOD)",
+                                        degreeValue = globeRotXDeg,
+                                        minDeg = -85f,
+                                        maxDeg = 85f,
+                                        stepDeg = 5f,
+                                        accentColor = accentColor,
+                                        fontFamily = selectedFont,
+                                        onChangeDeg = onChangeGlobeRotX
+                                    )
                                 }
-
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(1.dp)
-                                        .background(if (retro80sMode) primaryCol.copy(alpha = 0.45f) else Color(0xFF1F1F1F))
-                                )
                             }
-                        }
 
-                        // Widget Rendering Switch
-                        when (widgetId) {
-                            "clock" -> {
-                                val horizontalAlign = when (textAlign) {
-                                    TextAlign.Center -> Alignment.CenterHorizontally
-                                    TextAlign.End -> Alignment.End
-                                    else -> Alignment.Start
-                                }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF1F1F1F))
+                            )
+                        }
+                    }
+
+                    when (widgetId) {
+                        "clock" -> {
+                            val horizontalAlign = when (textAlign) {
+                                TextAlign.Center -> Alignment.CenterHorizontally
+                                TextAlign.End -> Alignment.End
+                                else -> Alignment.Start
+                            }
+                            if (wStyle == "80s_retro") {
+                                // 80s RETRO CLOCK: Exact match to top-left of 80s CRT reference image!
+                                // Single-line 80s terminal timestamp ("1:39 PM TUE - 03 NOV") + full-width framed 80s Blocky Dithered Battery Bar!
                                 val timePart = if (currentAmPmStr.isNotEmpty()) {
                                     "$currentHourStr:$currentMinStr $currentAmPmStr"
                                 } else {
@@ -3127,219 +4288,6 @@ fun HomeScreenView(
                                     "compact" -> 11.sp
                                     else -> 13.sp
                                 }
-
-                                if (isHolomapMode || wStyle == "cyber_hud") {
-                                    // RETRO-FUTURISTIC HOLOMAP CLOCK (Glowing Cyan Header + Glowing Red <<< TIME >>> + Red Diagonal Slash Bar!)
-                                    val cyanCol = if (isHolomapMode) Color(0xFF26FFFF) else primaryCol
-                                    val redCol = if (isHolomapMode) Color(0xFFFF3B14) else secondaryCol
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .combinedClickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null,
-                                                onClick = { onOpenClockApp() },
-                                                onLongClick = { onLongPressHome() }
-                                            ),
-                                        verticalArrangement = Arrangement.spacedBy(5.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = "HOLOMAP CHRONO",
-                                                color = cyanCol,
-                                                fontSize = (hdrSp.value * 0.90f).sp,
-                                                fontFamily = wFontFamily,
-                                                fontWeight = FontWeight.Bold,
-                                                letterSpacing = 1.0.sp,
-                                                style = glowTextStyle(cyanCol, 18f)
-                                            )
-                                            Text(
-                                                text = "[${batteryPct}%]",
-                                                color = cyanCol,
-                                                fontSize = (hdrSp.value * 0.90f).sp,
-                                                fontFamily = wFontFamily,
-                                                fontWeight = FontWeight.Bold,
-                                                style = glowTextStyle(cyanCol, 18f)
-                                            )
-                                        }
-                                        Text(
-                                            text = "<<< $timePart · $dateClean >>>",
-                                            color = redCol,
-                                            fontSize = hdrSp,
-                                            fontFamily = wFontFamily,
-                                            fontWeight = FontWeight.Bold,
-                                            style = glowTextStyle(redCol, 18f)
-                                        )
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Text(
-                                                text = "POWER",
-                                                color = cyanCol,
-                                                fontSize = 10.sp,
-                                                fontFamily = wFontFamily,
-                                                fontWeight = FontWeight.Bold,
-                                                style = glowTextStyle(cyanCol, 16f)
-                                            )
-                                            Text(
-                                                text = "[${batteryPct}%]",
-                                                color = cyanCol,
-                                                fontSize = 10.sp,
-                                                fontFamily = wFontFamily,
-                                                fontWeight = FontWeight.Bold,
-                                                style = glowTextStyle(cyanCol, 16f)
-                                            )
-                                            RetroBatteryProgressBar(
-                                                batteryPct = batteryPct,
-                                                barStyle = "holomap_slash",
-                                                accentColor = redCol,
-                                                retro80sMode = true,
-                                                sizeMode = sizeMode,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                        }
-                                    }
-                                } else if (wStyle == "80s_retro") {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .combinedClickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null,
-                                                onClick = { onOpenClockApp() },
-                                                onLongClick = { onLongPressHome() }
-                                            ),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = "$timePart $dateClean",
-                                                color = primaryCol,
-                                                fontSize = hdrSp,
-                                                fontFamily = wFontFamily,
-                                                fontWeight = FontWeight.Bold,
-                                                letterSpacing = 1.0.sp,
-                                                style = glowTextStyle(primaryCol, 18f)
-                                            )
-                                            Text(
-                                                text = if (isCharging) "$batteryPct% ⚡" else "$batteryPct%",
-                                                color = primaryCol,
-                                                fontSize = hdrSp,
-                                                fontFamily = wFontFamily,
-                                                fontWeight = FontWeight.Bold,
-                                                style = glowTextStyle(primaryCol, 18f)
-                                            )
-                                        }
-                                        RetroBatteryProgressBar(
-                                            batteryPct = batteryPct,
-                                            barStyle = batteryBarStyle,
-                                            accentColor = primaryCol,
-                                            retro80sMode = retro80sMode,
-                                            sizeMode = sizeMode,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                    }
-                                } else {
-                                    // Standard Modern Dot-Matrix Clock
-                                    val clockSp = when (sizeMode) {
-                                        "compact" -> 34.sp
-                                        "large" -> 54.sp
-                                        "xlarge" -> 64.sp
-                                        "max" -> 76.sp
-                                        else -> 44.sp
-                                    }
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .combinedClickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null,
-                                                onClick = { onOpenClockApp() },
-                                                onLongClick = { onLongPressHome() }
-                                            ),
-                                        horizontalAlignment = horizontalAlign,
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.Bottom,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Text(
-                                                text = "$currentHourStr:$currentMinStr",
-                                                color = Color.White,
-                                                fontSize = clockSp,
-                                                fontFamily = wFontFamily,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            if (currentAmPmStr.isNotEmpty()) {
-                                                Text(
-                                                    text = currentAmPmStr,
-                                                    color = primaryCol,
-                                                    fontSize = 12.sp,
-                                                    fontFamily = wFontFamily,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(bottom = 6.dp)
-                                                )
-                                            }
-                                        }
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = currentDateStr,
-                                                color = Color(0xFFA3A3A3),
-                                                fontSize = 11.sp,
-                                                fontFamily = wFontFamily
-                                            )
-                                            Text(
-                                                text = if (isCharging) "$batteryPct% ⚡" else "$batteryPct%",
-                                                color = primaryCol,
-                                                fontSize = 11.sp,
-                                                fontFamily = wFontFamily,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                        RetroBatteryProgressBar(
-                                            batteryPct = batteryPct,
-                                            barStyle = batteryBarStyle,
-                                            accentColor = primaryCol,
-                                            retro80sMode = retro80sMode,
-                                            sizeMode = "compact",
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                    }
-                                }
-                            }
-
-                            "battery_bar" -> {
-                                val headerSp = when (sizeMode) {
-                                    "compact" -> 10.sp
-                                    "large" -> 14.sp
-                                    else -> 12.sp
-                                }
-                                val timePart = if (currentAmPmStr.isNotEmpty()) {
-                                    "$currentHourStr:$currentMinStr $currentAmPmStr"
-                                } else {
-                                    "$currentHourStr:$currentMinStr"
-                                }
-                                val dateClean = currentDateStr.replace("·", "-")
-                                val effectiveBarStyle = when {
-                                    isHolomapMode || wStyle == "cyber_hud" -> "holomap_slash"
-                                    wStyle == "80s_retro" -> "retro_blocks"
-                                    else -> batteryBarStyle
-                                }
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -3349,7 +4297,7 @@ fun HomeScreenView(
                                             onClick = { onOpenClockApp() },
                                             onLongClick = { onLongPressHome() }
                                         ),
-                                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -3357,507 +4305,920 @@ fun HomeScreenView(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = if (isHolomapMode || wStyle == "cyber_hud") "ENERGY CELL // $timePart" else "$timePart $dateClean",
-                                            color = if (retro80sMode || wStyle == "80s_retro" || wStyle == "cyber_hud") primaryCol else Color.White,
-                                            fontSize = headerSp,
+                                            text = "$timePart $dateClean",
+                                            color = accentColor,
+                                            fontSize = hdrSp,
                                             fontFamily = wFontFamily,
                                             fontWeight = FontWeight.Bold,
-                                            letterSpacing = 0.8.sp,
-                                            style = glowTextStyle(primaryCol, 16f)
+                                            letterSpacing = 1.0.sp
                                         )
                                         Text(
-                                            text = if (isHolomapMode || wStyle == "cyber_hud") "[${batteryPct}%]" else if (isCharging) "$batteryPct% ⚡" else "$batteryPct%",
-                                            color = primaryCol,
-                                            fontSize = headerSp,
+                                            text = if (isCharging) "$batteryPct% ⚡" else "$batteryPct%",
+                                            color = accentColor,
+                                            fontSize = hdrSp,
                                             fontFamily = wFontFamily,
-                                            fontWeight = FontWeight.Bold,
-                                            style = glowTextStyle(primaryCol, 16f)
+                                            fontWeight = FontWeight.Bold
                                         )
                                     }
                                     RetroBatteryProgressBar(
                                         batteryPct = batteryPct,
-                                        barStyle = effectiveBarStyle,
-                                        accentColor = secondaryCol,
+                                        barStyle = "retro_blocks",
+                                        accentColor = accentColor,
                                         retro80sMode = retro80sMode,
                                         sizeMode = sizeMode,
                                         modifier = Modifier.fillMaxWidth()
                                     )
                                 }
-                            }
-
-                            "retro_flip_clock" -> {
-                                RetroSplitFlapClockWidget(
-                                    hourStr = currentHourStr,
-                                    minStr = currentMinStr,
-                                    secStr = currentSecStr,
-                                    amPmStr = currentAmPmStr,
-                                    dateStr = currentDateStr,
-                                    sizeMode = sizeMode,
-                                    widgetStyle = wStyle,
-                                    accentColor = primaryCol,
-                                    secondaryColor = secondaryCol,
-                                    lomoFontFamily = wFontFamily,
-                                    onOpenClockApp = onOpenClockApp,
-                                    onLongPressHome = onLongPressHome
-                                )
-                            }
-
-                            "analog_chrono" -> {
-                                RetroAnalogChronoWidget(
-                                    currentTimeMillis = currentTimeMillis,
-                                    hourStr = currentHourStr,
-                                    minStr = currentMinStr,
-                                    secStr = currentSecStr,
-                                    amPmStr = currentAmPmStr,
-                                    dateStr = currentDateStr,
-                                    sizeMode = sizeMode,
-                                    widgetStyle = wStyle,
-                                    accentColor = primaryCol,
-                                    secondaryColor = secondaryCol,
-                                    lomoFontFamily = wFontFamily,
-                                    widgetsActive = widgetsActive,
-                                    onOpenClockApp = onOpenClockApp,
-                                    onLongPressHome = onLongPressHome
-                                )
-                            }
-
-                            "precision_chrono" -> {
-                                PrecisionChronographWidget(
-                                    sizeMode = sizeMode,
-                                    widgetStyle = wStyle,
-                                    accentColor = primaryCol,
-                                    secondaryColor = secondaryCol,
-                                    lomoFontFamily = wFontFamily,
-                                    widgetsActive = widgetsActive,
-                                    onLongPressHome = onLongPressHome,
-                                    onTick = onWaveTick
-                                )
-                            }
-
-                            "retro_calendar" -> {
-                                RetroDotMatrixCalendarWidget(
-                                    currentTimeMillis = currentTimeMillis,
-                                    sizeMode = sizeMode,
-                                    widgetStyle = wStyle,
-                                    accentColor = primaryCol,
-                                    secondaryColor = secondaryCol,
-                                    lomoFontFamily = wFontFamily
-                                )
-                            }
-
-                            "week_strip" -> {
-                                val timeHeader = if (currentAmPmStr.isNotEmpty()) {
-                                    "$currentHourStr:$currentMinStr $currentAmPmStr"
-                                } else {
-                                    "$currentHourStr:$currentMinStr"
-                                }
-                                RetroWeekTimelineStripWidget(
-                                    currentTimeMillis = currentTimeMillis,
-                                    sizeMode = sizeMode,
-                                    widgetStyle = wStyle,
-                                    timeHeaderStr = timeHeader,
-                                    batteryPct = batteryPct,
-                                    accentColor = primaryCol,
-                                    secondaryColor = secondaryCol,
-                                    lomoFontFamily = wFontFamily
-                                )
-                            }
-
-                            "year_matrix" -> {
-                                RetroYearDotMatrixWidget(
-                                    currentTimeMillis = currentTimeMillis,
-                                    sizeMode = sizeMode,
-                                    widgetStyle = wStyle,
-                                    accentColor = primaryCol,
-                                    secondaryColor = secondaryCol,
-                                    lomoFontFamily = wFontFamily
-                                )
-                            }
-
-                            "torch" -> {
-                                val padV = when (sizeMode) {
-                                    "compact" -> 5.dp
-                                    "large" -> 11.dp
-                                    else -> 7.dp
-                                }
-                                when (wStyle) {
-                                    "80s_retro", "cyber_hud" -> {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .combinedClickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null,
-                                                    onClick = { onToggleTorch() },
-                                                    onLongClick = { onLongPressHome() }
-                                                )
-                                                .retroNeonBorder(1.2.dp, primaryCol, RoundedCornerShape(0.dp), glowEnabled = retro80sMode, glowRadiusDp = 4.dp)
-                                                .background(Color(0xFF040606), RoundedCornerShape(0.dp))
-                                                .padding(horizontal = 10.dp, vertical = padV),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
+                            } else if (wStyle == "cyber_hud") {
+                                // TACTICAL HUD CLOCK: Framed dual-column cybernetic telemetry module
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, accentColor.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                        .combinedClickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null,
+                                            onClick = { onOpenClockApp() },
+                                            onLongClick = { onLongPressHome() }
+                                        )
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.Bottom) {
+                                        val dSp = when (sizeMode) {
+                                            "max" -> 58.sp
+                                            "xlarge" -> 48.sp
+                                            "large" -> 40.sp
+                                            "compact" -> 26.sp
+                                            else -> 34.sp
+                                        }
+                                        Text(
+                                            text = "$currentHourStr:$currentMinStr",
+                                            color = Color.White,
+                                            fontSize = dSp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        if (currentAmPmStr.isNotEmpty()) {
+                                            Spacer(modifier = Modifier.width(4.dp))
                                             Text(
-                                                text = "ILLUMINATOR",
-                                                color = primaryCol,
-                                                fontSize = if (sizeMode == "large") 12.sp else 10.sp,
+                                                text = currentAmPmStr,
+                                                color = accentColor,
+                                                fontSize = 10.sp,
                                                 fontFamily = wFontFamily,
                                                 fontWeight = FontWeight.Bold,
-                                                style = glowTextStyle(primaryCol, 16f)
-                                            )
-                                            Text(
-                                                text = if (torchEnabled) "<<< ACTIVE >>>" else "<<< STANDBY >>>",
-                                                color = if (torchEnabled) secondaryCol else primaryCol.copy(alpha = 0.65f),
-                                                fontSize = if (sizeMode == "large") 11.sp else 10.sp,
-                                                fontFamily = wFontFamily,
-                                                fontWeight = FontWeight.Bold,
-                                                style = glowTextStyle(secondaryCol, 16f)
+                                                modifier = Modifier.padding(bottom = 4.dp)
                                             )
                                         }
                                     }
-                                    else -> {
+                                    Column(
+                                        horizontalAlignment = Alignment.End,
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier.widthIn(min = 110.dp, max = 165.dp)
+                                    ) {
+                                        Text(
+                                            text = "[$currentDateStr]",
+                                            color = Color(0xFFD4D4D4),
+                                            fontSize = 9.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                         Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .combinedClickable(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "PWR $batteryPct%",
+                                                color = accentColor,
+                                                fontSize = 9.sp,
+                                                fontFamily = wFontFamily,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            RetroBatteryProgressBar(
+                                                batteryPct = batteryPct,
+                                                barStyle = batteryBarStyle,
+                                                accentColor = accentColor,
+                                                retro80sMode = retro80sMode,
+                                                sizeMode = "compact",
+                                                modifier = Modifier.width(68.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = horizontalAlign
+                                ) {
+                                    when (sizeMode) {
+                                        "compact" -> {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                modifier = Modifier.combinedClickable(
                                                     interactionSource = remember { MutableInteractionSource() },
                                                     indication = null,
-                                                    onClick = { onToggleTorch() },
+                                                    onClick = { onOpenClockApp() },
                                                     onLongClick = { onLongPressHome() }
                                                 )
-                                                .border(1.dp, if (torchEnabled) primaryCol else Color(0xFF242424), RoundedCornerShape(8.dp))
-                                                .background(if (torchEnabled) primaryCol.copy(alpha = 0.12f) else Color(0xFF060606), RoundedCornerShape(8.dp))
-                                                .padding(horizontal = 12.dp, vertical = padV),
+                                            ) {
+                                                Text(
+                                                    text = "$currentHourStr:$currentMinStr $currentAmPmStr".trim(),
+                                                    color = Color.White,
+                                                    fontSize = 24.sp,
+                                                    fontFamily = wFontFamily
+                                                )
+                                                Text(
+                                                    text = "·",
+                                                    color = accentColor,
+                                                    fontSize = 12.sp,
+                                                    fontFamily = wFontFamily
+                                                )
+                                                Text(
+                                                    text = "$currentDateStr · $batteryPct%",
+                                                    color = Color(0xFFA3A3A3),
+                                                    fontSize = 11.sp,
+                                                    fontFamily = wFontFamily
+                                                )
+                                            }
+                                        }
+                                        "large", "xlarge", "max" -> {
+                                            val digitSp = when (sizeMode) {
+                                                "max" -> 96.sp
+                                                "xlarge" -> 76.sp
+                                                else -> 58.sp
+                                            }
+                                            val amPmSp = when (sizeMode) {
+                                                "max" -> 17.sp
+                                                "xlarge" -> 15.sp
+                                                else -> 13.sp
+                                            }
+                                            val amPmBottomPad = when (sizeMode) {
+                                                "max" -> 12.dp
+                                                "xlarge" -> 9.dp
+                                                else -> 7.dp
+                                            }
+                                            val metaSp = when (sizeMode) {
+                                                "max" -> 13.sp
+                                                "xlarge" -> 12.sp
+                                                else -> 11.sp
+                                            }
+                                            Row(
+                                                verticalAlignment = Alignment.Bottom,
+                                                modifier = Modifier.combinedClickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null,
+                                                    onClick = { onOpenClockApp() },
+                                                    onLongClick = { onLongPressHome() }
+                                                )
+                                            ) {
+                                                Text(
+                                                    text = currentHourStr,
+                                                    color = Color.White,
+                                                    fontSize = digitSp,
+                                                    fontFamily = wFontFamily
+                                                )
+                                                Text(
+                                                    text = ":",
+                                                    color = accentColor,
+                                                    fontSize = digitSp,
+                                                    fontFamily = wFontFamily,
+                                                    modifier = Modifier.graphicsLayer { alpha = colonAlpha }
+                                                )
+                                                Text(
+                                                    text = currentMinStr,
+                                                    color = Color.White,
+                                                    fontSize = digitSp,
+                                                    fontFamily = wFontFamily
+                                                )
+                                                if (currentAmPmStr.isNotEmpty()) {
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = currentAmPmStr,
+                                                        color = Color(0xFF737373),
+                                                        fontSize = amPmSp,
+                                                        fontFamily = wFontFamily,
+                                                        modifier = Modifier.padding(bottom = amPmBottomPad)
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = currentDateStr,
+                                                    color = Color(0xFFA3A3A3),
+                                                    fontSize = metaSp,
+                                                    fontFamily = wFontFamily,
+                                                    letterSpacing = 1.2.sp
+                                                )
+                                                if (nextAlarmStr.isNotBlank()) {
+                                                    Text(
+                                                        text = "·",
+                                                        color = accentColor,
+                                                        fontSize = metaSp,
+                                                        fontFamily = wFontFamily,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text(
+                                                        text = nextAlarmStr,
+                                                        color = Color(0xFF737373),
+                                                        fontSize = metaSp,
+                                                        fontFamily = wFontFamily,
+                                                        letterSpacing = 1.2.sp
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(1.dp)
+                                                    .background(Color(0xFF171717))
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                Text(
+                                                    text = "$batteryPct%",
+                                                    color = Color(0xFFD4D4D4),
+                                                    fontSize = metaSp,
+                                                    fontFamily = wFontFamily,
+                                                    letterSpacing = 0.8.sp
+                                                )
+                                                RetroBatteryProgressBar(
+                                                    batteryPct = batteryPct,
+                                                    barStyle = batteryBarStyle,
+                                                    accentColor = accentColor,
+                                                    retro80sMode = retro80sMode,
+                                                    sizeMode = sizeMode,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                if (isCharging) {
+                                                    Text(
+                                                        text = "⚡",
+                                                        color = accentColor,
+                                                        fontSize = metaSp,
+                                                        fontFamily = wFontFamily
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        else -> {
+                                            Row(
+                                                verticalAlignment = Alignment.Bottom,
+                                                modifier = Modifier.combinedClickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null,
+                                                    onClick = { onOpenClockApp() },
+                                                    onLongClick = { onLongPressHome() }
+                                                )
+                                            ) {
+                                                Text(
+                                                    text = currentHourStr,
+                                                    color = Color.White,
+                                                    fontSize = 42.sp,
+                                                    fontFamily = wFontFamily
+                                                )
+                                                Text(
+                                                    text = ":",
+                                                    color = accentColor,
+                                                    fontSize = 42.sp,
+                                                    fontFamily = wFontFamily,
+                                                    modifier = Modifier.graphicsLayer { alpha = colonAlpha }
+                                                )
+                                                Text(
+                                                    text = currentMinStr,
+                                                    color = Color.White,
+                                                    fontSize = 42.sp,
+                                                    fontFamily = wFontFamily
+                                                )
+                                                if (currentAmPmStr.isNotEmpty()) {
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = currentAmPmStr,
+                                                        color = Color(0xFF737373),
+                                                        fontSize = 11.sp,
+                                                        fontFamily = wFontFamily,
+                                                        modifier = Modifier.padding(bottom = 5.dp)
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = currentDateStr,
+                                                    color = Color(0xFFA3A3A3),
+                                                    fontSize = 10.sp,
+                                                    fontFamily = wFontFamily,
+                                                    letterSpacing = 1.2.sp
+                                                )
+                                                if (nextAlarmStr.isNotBlank()) {
+                                                    Text(
+                                                        text = "·",
+                                                        color = accentColor,
+                                                        fontSize = 10.sp,
+                                                        fontFamily = wFontFamily,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text(
+                                                        text = nextAlarmStr,
+                                                        color = Color(0xFF737373),
+                                                        fontSize = 10.sp,
+                                                        fontFamily = wFontFamily,
+                                                        letterSpacing = 1.2.sp
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(1.dp)
+                                                    .background(Color(0xFF171717))
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                Text(
+                                                    text = "$batteryPct%",
+                                                    color = Color(0xFFD4D4D4),
+                                                    fontSize = 10.sp,
+                                                    fontFamily = wFontFamily,
+                                                    letterSpacing = 0.8.sp
+                                                )
+                                                RetroBatteryProgressBar(
+                                                    batteryPct = batteryPct,
+                                                    barStyle = batteryBarStyle,
+                                                    accentColor = accentColor,
+                                                    retro80sMode = retro80sMode,
+                                                    sizeMode = sizeMode,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                if (isCharging) {
+                                                    Text(
+                                                        text = "⚡",
+                                                        color = accentColor,
+                                                        fontSize = 9.sp,
+                                                        fontFamily = wFontFamily
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        "battery_bar" -> {
+                            val headerSp = when (sizeMode) {
+                                "large" -> 14.sp
+                                "compact" -> 10.sp
+                                else -> 12.sp
+                            }
+                            val timePart = if (currentAmPmStr.isNotEmpty()) {
+                                "$currentHourStr:$currentMinStr $currentAmPmStr"
+                            } else {
+                                "$currentHourStr:$currentMinStr"
+                            }
+                            val dateClean = currentDateStr.replace("·", "-")
+                            val effectiveBarStyle = if (wStyle == "80s_retro") "retro_blocks" else batteryBarStyle
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (wStyle == "cyber_hud") {
+                                            Modifier
+                                                .border(1.dp, accentColor.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+                                                .background(Color(0xFF060606), RoundedCornerShape(6.dp))
+                                                .padding(8.dp)
+                                        } else Modifier
+                                    )
+                                    .combinedClickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onClick = { onOpenClockApp() },
+                                        onLongClick = { onLongPressHome() }
+                                    ),
+                                verticalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (wStyle == "cyber_hud") "SYS.PWR // $timePart" else "$timePart $dateClean",
+                                        color = if (wStyle == "80s_retro") accentColor else Color.White,
+                                        fontSize = headerSp,
+                                        fontFamily = wFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.8.sp
+                                    )
+                                    Text(
+                                        text = if (wStyle == "cyber_hud") "[CELL: $batteryPct%${if (isCharging) " ⚡" else ""}]" else if (isCharging) "$batteryPct% ⚡" else "$batteryPct%",
+                                        color = accentColor,
+                                        fontSize = headerSp,
+                                        fontFamily = wFontFamily,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                RetroBatteryProgressBar(
+                                    batteryPct = batteryPct,
+                                    barStyle = effectiveBarStyle,
+                                    accentColor = accentColor,
+                                    retro80sMode = retro80sMode,
+                                    sizeMode = sizeMode,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                        "retro_flip_clock" -> {
+                            RetroSplitFlapClockWidget(
+                                hourStr = currentHourStr,
+                                minStr = currentMinStr,
+                                secStr = currentSecStr,
+                                amPmStr = currentAmPmStr,
+                                dateStr = currentDateStr,
+                                sizeMode = sizeMode,
+                                widgetStyle = wStyle,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily,
+                                onOpenClockApp = onOpenClockApp,
+                                onLongPressHome = onLongPressHome
+                            )
+                        }
+                        "analog_chrono" -> {
+                            RetroAnalogChronoWidget(
+                                currentTimeMillis = currentTimeMillis,
+                                hourStr = currentHourStr,
+                                minStr = currentMinStr,
+                                secStr = currentSecStr,
+                                amPmStr = currentAmPmStr,
+                                dateStr = currentDateStr,
+                                sizeMode = sizeMode,
+                                widgetStyle = wStyle,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily,
+                                widgetsActive = widgetsActive,
+                                onOpenClockApp = onOpenClockApp,
+                                onLongPressHome = onLongPressHome
+                            )
+                        }
+                        "precision_chrono" -> {
+                            PrecisionChronographWidget(
+                                sizeMode = sizeMode,
+                                widgetStyle = wStyle,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily,
+                                widgetsActive = widgetsActive,
+                                onLongPressHome = onLongPressHome,
+                                onTick = onWaveTick
+                            )
+                        }
+                        "retro_calendar" -> {
+                            RetroDotMatrixCalendarWidget(
+                                currentTimeMillis = currentTimeMillis,
+                                sizeMode = sizeMode,
+                                widgetStyle = wStyle,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily
+                            )
+                        }
+                        "week_strip" -> {
+                            val timeHeader = if (currentAmPmStr.isNotEmpty()) {
+                                "$currentHourStr:$currentMinStr $currentAmPmStr"
+                            } else {
+                                "$currentHourStr:$currentMinStr"
+                            }
+                            RetroWeekTimelineStripWidget(
+                                currentTimeMillis = currentTimeMillis,
+                                sizeMode = sizeMode,
+                                widgetStyle = wStyle,
+                                timeHeaderStr = timeHeader,
+                                batteryPct = batteryPct,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily
+                            )
+                        }
+                        "year_matrix" -> {
+                            RetroYearDotMatrixWidget(
+                                currentTimeMillis = currentTimeMillis,
+                                sizeMode = sizeMode,
+                                widgetStyle = wStyle,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily
+                            )
+                        }
+                        "torch" -> {
+                            val padV = when (sizeMode) {
+                                "compact" -> 5.dp
+                                "large" -> 11.dp
+                                else -> 7.dp
+                            }
+                            when (wStyle) {
+                                "80s_retro" -> {
+                                    // 80s RETRO BEAM SWITCH: Crisp rectangular CRT frame + blocky 6-cell power bar
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .combinedClickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                                onClick = { onToggleTorch() },
+                                                onLongClick = { onLongPressHome() }
+                                            )
+                                            .border(1.2.dp, accentColor, RoundedCornerShape(2.dp))
+                                            .background(Color(0xFF040804), RoundedCornerShape(2.dp))
+                                            .padding(horizontal = 10.dp, vertical = padV),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "AUX.LAMP // BEAM",
+                                            color = accentColor,
+                                            fontSize = if (sizeMode == "large") 12.sp else 10.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = if (torchEnabled) "[██████] ON" else "[░░░░░░] OFF",
+                                            color = if (torchEnabled) accentColor else Color(0xFF737373),
+                                            fontSize = if (sizeMode == "large") 11.sp else 10.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                                "cyber_hud" -> {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .combinedClickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                                onClick = { onToggleTorch() },
+                                                onLongClick = { onLongPressHome() }
+                                            )
+                                            .border(1.dp, if (torchEnabled) accentColor else Color(0xFF2E2E2E), RoundedCornerShape(4.dp))
+                                            .background(Color(0xFF080808), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 12.dp, vertical = padV),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "⟦ ⚡ ILLUMINATOR ⟧",
+                                            color = Color.White,
+                                            fontSize = if (sizeMode == "large") 12.sp else 10.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = if (torchEnabled) "STATUS: ACTIVE" else "STATUS: STANDBY",
+                                            color = if (torchEnabled) accentColor else Color(0xFF737373),
+                                            fontSize = 9.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                                else -> {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .combinedClickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                                onClick = { onToggleTorch() },
+                                                onLongClick = { onLongPressHome() }
+                                            )
+                                            .border(1.dp, if (torchEnabled) accentColor else Color(0xFF242424), RoundedCornerShape(8.dp))
+                                            .background(if (torchEnabled) accentColor.copy(alpha = 0.12f) else Color(0xFF060606), RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 12.dp, vertical = padV),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text(
+                                                text = if (torchEnabled) "⚡" else "☼",
+                                                color = if (torchEnabled) accentColor else Color(0xFFA3A3A3),
+                                                fontSize = if (sizeMode == "large") 14.sp else 12.sp
+                                            )
+                                            Text(
+                                                text = "TORCH",
+                                                color = Color.White,
+                                                fontSize = if (sizeMode == "large") 12.sp else 11.sp,
+                                                fontFamily = wFontFamily,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                        Text(
+                                            text = if (torchEnabled) "ON" else "OFF",
+                                            color = if (torchEnabled) accentColor else Color(0xFF737373),
+                                            fontSize = 10.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        "storage" -> {
+                            when (wStyle) {
+                                "80s_retro" -> {
+                                    // 80s RETRO MEMORY BANKS: Framed 80s CRT box with blocky dithered RAM & ROM progress bars!
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.2.dp, accentColor, RoundedCornerShape(2.dp))
+                                            .background(Color(0xFF040804), RoundedCornerShape(2.dp))
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
+                                            Text(
+                                                text = "SYS.MEM // $ramStatusText",
+                                                color = accentColor,
+                                                fontSize = if (sizeMode == "large") 11.sp else 9.sp,
+                                                fontFamily = wFontFamily,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = storageStatusText,
+                                                color = accentColor,
+                                                fontSize = if (sizeMode == "large") 11.sp else 9.sp,
+                                                fontFamily = wFontFamily,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        if (sizeMode != "compact") {
                                             Row(
-                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
-                                                Text(
-                                                    text = if (torchEnabled) "⚡" else "☼",
-                                                    color = if (torchEnabled) primaryCol else Color(0xFFA3A3A3),
-                                                    fontSize = if (sizeMode == "large") 14.sp else 12.sp
+                                                RetroBatteryProgressBar(
+                                                    batteryPct = (ramUsageFraction * 100f).roundToInt().coerceIn(5, 100),
+                                                    barStyle = "retro_blocks",
+                                                    accentColor = accentColor,
+                                                    retro80sMode = retro80sMode,
+                                                    sizeMode = "compact",
+                                                    modifier = Modifier.weight(1f)
                                                 )
-                                                Text(
-                                                    text = "TORCH",
-                                                    color = Color.White,
-                                                    fontSize = if (sizeMode == "large") 12.sp else 11.sp,
-                                                    fontFamily = wFontFamily,
-                                                    fontWeight = FontWeight.Medium
+                                                RetroBatteryProgressBar(
+                                                    batteryPct = (storageUsageFraction * 100f).roundToInt().coerceIn(5, 100),
+                                                    barStyle = "retro_blocks",
+                                                    accentColor = accentColor,
+                                                    retro80sMode = retro80sMode,
+                                                    sizeMode = "compact",
+                                                    modifier = Modifier.weight(1f)
                                                 )
                                             }
+                                        }
+                                    }
+                                }
+                                "cyber_hud" -> {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, Color(0xFF2E2E2E), RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF060606), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
                                             Text(
-                                                text = if (torchEnabled) "ON" else "OFF",
-                                                color = if (torchEnabled) primaryCol else Color(0xFF737373),
+                                                text = "[$ramStatusText]",
+                                                color = Color.White,
+                                                fontSize = 10.sp,
+                                                fontFamily = wFontFamily,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "[$storageStatusText]",
+                                                color = accentColor,
                                                 fontSize = 10.sp,
                                                 fontFamily = wFontFamily,
                                                 fontWeight = FontWeight.Bold
                                             )
                                         }
-                                    }
-                                }
-                            }
-
-                            "storage" -> {
-                                val ramPct = (ramUsageFraction * 100f).roundToInt().coerceIn(5, 100)
-                                val romPct = (storageUsageFraction * 100f).roundToInt().coerceIn(5, 100)
-                                when (wStyle) {
-                                    "cyber_hud" -> {
-                                        // EXACT MATCH TO 2ND REFERENCE IMAGE (TERRAIN PROPERTIES -> SYSTEM PROPERTIES):
-                                        // Glowing Cyan Header + Rows with Glowing Cyan Label, Cyan [81%] & Glowing Red Diagonal-Hatched Bar!
-                                        val cyanCol = if (isHolomapMode) Color(0xFF26FFFF) else primaryCol
-                                        val redCol = if (isHolomapMode) Color(0xFFFF3B14) else secondaryCol
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = 4.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Text(
-                                                text = "SYSTEM PROPERTIES",
-                                                color = cyanCol,
-                                                fontSize = if (sizeMode == "large") 13.sp else 11.sp,
-                                                fontFamily = wFontFamily,
-                                                fontWeight = FontWeight.Bold,
-                                                letterSpacing = 1.0.sp,
-                                                style = glowTextStyle(cyanCol, 18f)
-                                            )
-                                            listOf(
-                                                Triple("MEMORY", ramPct, ramStatusText),
-                                                Triple("STORAGE", romPct, storageStatusText),
-                                                Triple("BATTERY", batteryPct, "${batteryPct}%")
-                                            ).forEach { (lbl, pctVal, _) ->
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    Text(
-                                                        text = lbl,
-                                                        color = cyanCol,
-                                                        fontSize = if (sizeMode == "large") 11.sp else 10.sp,
-                                                        fontFamily = wFontFamily,
-                                                        fontWeight = FontWeight.Bold,
-                                                        style = glowTextStyle(cyanCol, 16f),
-                                                        modifier = Modifier.width(76.dp)
-                                                    )
-                                                    Text(
-                                                        text = "[${pctVal}%]",
-                                                        color = cyanCol,
-                                                        fontSize = if (sizeMode == "large") 10.sp else 9.sp,
-                                                        fontFamily = wFontFamily,
-                                                        fontWeight = FontWeight.Bold,
-                                                        style = glowTextStyle(cyanCol, 16f),
-                                                        modifier = Modifier.width(42.dp)
-                                                    )
-                                                    RetroBatteryProgressBar(
-                                                        batteryPct = pctVal,
-                                                        barStyle = "holomap_slash",
-                                                        accentColor = redCol,
-                                                        retro80sMode = true,
-                                                        sizeMode = "compact",
-                                                        modifier = Modifier.weight(1f)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                    "80s_retro" -> {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .retroNeonBorder(1.2.dp, primaryCol, RoundedCornerShape(0.dp), glowEnabled = retro80sMode, glowRadiusDp = 4.dp)
-                                                .background(Color(0xFF040804), RoundedCornerShape(0.dp))
-                                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
+                                        if (sizeMode != "compact") {
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
-                                                Text(
-                                                    text = ramStatusText,
-                                                    color = primaryCol,
-                                                    fontSize = if (sizeMode == "large") 11.sp else 9.sp,
-                                                    fontFamily = wFontFamily,
-                                                    fontWeight = FontWeight.Bold,
-                                                    style = glowTextStyle(primaryCol, 16f)
+                                                RetroBatteryProgressBar(
+                                                    batteryPct = (ramUsageFraction * 100f).roundToInt().coerceIn(5, 100),
+                                                    barStyle = "segmented_led",
+                                                    accentColor = accentColor,
+                                                    retro80sMode = retro80sMode,
+                                                    sizeMode = "compact",
+                                                    modifier = Modifier.weight(1f)
                                                 )
-                                                Text(
-                                                    text = storageStatusText,
-                                                    color = primaryCol,
-                                                    fontSize = if (sizeMode == "large") 11.sp else 9.sp,
-                                                    fontFamily = wFontFamily,
-                                                    fontWeight = FontWeight.Bold,
-                                                    style = glowTextStyle(primaryCol, 16f)
+                                                RetroBatteryProgressBar(
+                                                    batteryPct = (storageUsageFraction * 100f).roundToInt().coerceIn(5, 100),
+                                                    barStyle = "segmented_led",
+                                                    accentColor = accentColor,
+                                                    retro80sMode = retro80sMode,
+                                                    sizeMode = "compact",
+                                                    modifier = Modifier.weight(1f)
                                                 )
-                                            }
-                                            if (sizeMode != "compact") {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    RetroBatteryProgressBar(
-                                                        batteryPct = ramPct,
-                                                        barStyle = "retro_blocks",
-                                                        accentColor = secondaryCol,
-                                                        retro80sMode = retro80sMode,
-                                                        sizeMode = "compact",
-                                                        modifier = Modifier.weight(1f)
-                                                    )
-                                                    RetroBatteryProgressBar(
-                                                        batteryPct = romPct,
-                                                        barStyle = "retro_blocks",
-                                                        accentColor = secondaryCol,
-                                                        retro80sMode = retro80sMode,
-                                                        sizeMode = "compact",
-                                                        modifier = Modifier.weight(1f)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                    else -> {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
-                                                .background(Color(0xFF060606), RoundedCornerShape(8.dp))
-                                                .padding(horizontal = 12.dp, vertical = 7.dp)
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Text(
-                                                    text = ramStatusText,
-                                                    color = Color.White,
-                                                    fontSize = if (sizeMode == "large") 11.sp else 10.sp,
-                                                    fontFamily = wFontFamily
-                                                )
-                                                Text(
-                                                    text = storageStatusText,
-                                                    color = Color(0xFFA3A3A3),
-                                                    fontSize = if (sizeMode == "large") 11.sp else 10.sp,
-                                                    fontFamily = wFontFamily
-                                                )
-                                            }
-                                            if (sizeMode != "compact") {
-                                                Spacer(modifier = Modifier.height(6.dp))
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .height(5.dp)
-                                                            .background(Color(0xFF141414), RoundedCornerShape(999.dp))
-                                                    ) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .fillMaxHeight()
-                                                                .fillMaxWidth(ramUsageFraction.coerceIn(0.05f, 1f))
-                                                                .background(primaryCol, RoundedCornerShape(999.dp))
-                                                        )
-                                                    }
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .height(5.dp)
-                                                            .background(Color(0xFF141414), RoundedCornerShape(999.dp))
-                                                    ) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .fillMaxHeight()
-                                                                .fillMaxWidth(storageUsageFraction.coerceIn(0.05f, 1f))
-                                                                .background(Color(0xFF555555), RoundedCornerShape(999.dp))
-                                                        )
-                                                    }
-                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
-
-                            "quote" -> {
-                                when (wStyle) {
-                                    "80s_retro", "cyber_hud" -> {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .retroNeonBorder(1.2.dp, primaryCol, RoundedCornerShape(0.dp), glowEnabled = retro80sMode, glowRadiusDp = 4.dp)
-                                                .background(Color(0xFF040606), RoundedCornerShape(0.dp))
-                                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                                            verticalArrangement = Arrangement.spacedBy(3.dp)
-                                        ) {
-                                            Text(
-                                                text = "<<< Simplify, then add lightness. >>>",
-                                                color = secondaryCol,
-                                                fontSize = if (sizeMode == "large") 13.sp else 11.sp,
-                                                fontFamily = wFontFamily,
-                                                fontWeight = FontWeight.Bold,
-                                                style = glowTextStyle(secondaryCol, 16f)
+                                else -> {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
+                                            .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                            .padding(
+                                                horizontal = 12.dp,
+                                                vertical = when (sizeMode) {
+                                                    "compact" -> 5.dp
+                                                    "large" -> 10.dp
+                                                    else -> 7.dp
+                                                }
                                             )
-                                        }
-                                    }
-                                    else -> {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .border(1.dp, Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
-                                                .background(Color(0xFF060606), RoundedCornerShape(8.dp))
-                                                .padding(horizontal = 12.dp, vertical = 7.dp)
-                                        ) {
-                                            Text(
-                                                text = "“Simplify, then add lightness.”",
-                                                color = Color.White,
-                                                fontSize = if (sizeMode == "large") 13.sp else 11.sp,
-                                                fontFamily = wFontFamily,
-                                                lineHeight = 15.sp
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            "zen" -> {
-                                val mm = (zenSeconds / 60).toString().padStart(2, '0')
-                                val ss = (zenSeconds % 60).toString().padStart(2, '0')
-                                val zenPct = ((zenSeconds / 1500f) * 100f).roundToInt().coerceIn(1, 100)
-                                when (wStyle) {
-                                    "80s_retro", "cyber_hud" -> {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .retroNeonBorder(1.2.dp, primaryCol, RoundedCornerShape(0.dp), glowEnabled = retro80sMode, glowRadiusDp = 4.dp)
-                                                .background(Color(0xFF040606), RoundedCornerShape(0.dp))
-                                                .padding(horizontal = 10.dp, vertical = 7.dp),
-                                            verticalArrangement = Arrangement.spacedBy(5.dp)
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Text(
-                                                    text = "FOCUS // $mm:$ss",
-                                                    color = primaryCol,
-                                                    fontSize = if (sizeMode == "large") 14.sp else 11.sp,
-                                                    fontFamily = wFontFamily,
-                                                    fontWeight = FontWeight.Bold,
-                                                    style = glowTextStyle(primaryCol, 16f)
-                                                )
-                                                Text(
-                                                    text = if (zenActive) "[STOP]" else "[START]",
-                                                    color = secondaryCol,
-                                                    fontSize = 10.sp,
-                                                    fontFamily = wFontFamily,
-                                                    fontWeight = FontWeight.Bold,
-                                                    style = glowTextStyle(secondaryCol, 16f),
-                                                    modifier = Modifier.combinedClickable(
-                                                        interactionSource = remember { MutableInteractionSource() },
-                                                        indication = null,
-                                                        onClick = { onToggleZen() },
-                                                        onLongClick = { onLongPressHome() }
-                                                    )
-                                                )
-                                            }
-                                            RetroBatteryProgressBar(
-                                                batteryPct = zenPct,
-                                                barStyle = if (isHolomapMode || wStyle == "cyber_hud") "holomap_slash" else "retro_blocks",
-                                                accentColor = secondaryCol,
-                                                retro80sMode = retro80sMode,
-                                                sizeMode = "compact",
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                        }
-                                    }
-                                    else -> {
+                                    ) {
                                         Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .border(1.dp, Color(0xFF262626), RoundedCornerShape(8.dp))
-                                                .background(Color(0xFF060606), RoundedCornerShape(8.dp))
-                                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                                            modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
-                                                text = "$mm:$ss",
+                                                text = ramStatusText,
                                                 color = Color.White,
-                                                fontSize = if (sizeMode == "large") 15.sp else 12.sp,
+                                                fontSize = if (sizeMode == "large") 11.sp else 10.sp,
+                                                fontFamily = wFontFamily
+                                            )
+                                            Text(
+                                                text = storageStatusText,
+                                                color = Color(0xFFA3A3A3),
+                                                fontSize = if (sizeMode == "large") 11.sp else 10.sp,
+                                                fontFamily = wFontFamily
+                                            )
+                                        }
+                                        if (sizeMode != "compact") {
+                                            Spacer(modifier = Modifier.height(if (sizeMode == "large") 7.dp else 5.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(if (sizeMode == "large") 6.dp else 4.dp)
+                                                        .background(Color(0xFF141414), RoundedCornerShape(999.dp))
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxHeight()
+                                                            .fillMaxWidth(ramUsageFraction.coerceIn(0.05f, 1f))
+                                                            .background(accentColor, RoundedCornerShape(999.dp))
+                                                    )
+                                                }
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(if (sizeMode == "large") 6.dp else 4.dp)
+                                                        .background(Color(0xFF141414), RoundedCornerShape(999.dp))
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxHeight()
+                                                            .fillMaxWidth(storageUsageFraction.coerceIn(0.05f, 1f))
+                                                            .background(Color(0xFF555555), RoundedCornerShape(999.dp))
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        "quote" -> {
+                            when (wStyle) {
+                                "80s_retro" -> {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.2.dp, accentColor, RoundedCornerShape(2.dp))
+                                            .background(Color(0xFF040804), RoundedCornerShape(2.dp))
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                                    ) {
+                                        Text(
+                                            text = "C://SYS/MOTD.TXT",
+                                            color = accentColor.copy(alpha = 0.75f),
+                                            fontSize = 8.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "> “Simplify, then add lightness.” █",
+                                            color = accentColor,
+                                            fontSize = if (sizeMode == "large") 13.sp else 11.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                                "cyber_hud" -> {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, Color(0xFF282828), RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF060606), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "// LOG: “Simplify, then add lightness.”",
+                                            color = Color.White,
+                                            fontSize = if (sizeMode == "large") 12.sp else 10.sp,
+                                            fontFamily = wFontFamily
+                                        )
+                                    }
+                                }
+                                else -> {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+                                            .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                            .padding(
+                                                horizontal = 12.dp,
+                                                vertical = when (sizeMode) {
+                                                    "compact" -> 5.dp
+                                                    "large" -> 10.dp
+                                                    else -> 7.dp
+                                                }
+                                            )
+                                    ) {
+                                        Text(
+                                            text = "“Simplify, then add lightness.”",
+                                            color = Color.White,
+                                            fontSize = if (sizeMode == "large") 13.sp else 11.sp,
+                                            fontFamily = wFontFamily,
+                                            lineHeight = 15.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        "zen" -> {
+                            val mm = (zenSeconds / 60).toString().padStart(2, '0')
+                            val ss = (zenSeconds % 60).toString().padStart(2, '0')
+                            val zenPct = ((zenSeconds / 1500f) * 100f).roundToInt().coerceIn(1, 100)
+                            when (wStyle) {
+                                "80s_retro" -> {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.2.dp, accentColor, RoundedCornerShape(2.dp))
+                                            .background(Color(0xFF040804), RoundedCornerShape(2.dp))
+                                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "SYS.FOCUS // $mm:$ss",
+                                                color = accentColor,
+                                                fontSize = if (sizeMode == "large") 14.sp else 11.sp,
                                                 fontFamily = wFontFamily,
                                                 fontWeight = FontWeight.Bold
                                             )
                                             Text(
-                                                text = if (zenActive) "STOP" else "START",
-                                                color = primaryCol,
+                                                text = if (zenActive) "[ABORT]" else "[EXEC]",
+                                                color = accentColor,
                                                 fontSize = 10.sp,
                                                 fontFamily = wFontFamily,
                                                 fontWeight = FontWeight.Bold,
@@ -3869,414 +5230,510 @@ fun HomeScreenView(
                                                 )
                                             )
                                         }
+                                        RetroBatteryProgressBar(
+                                            batteryPct = zenPct,
+                                            barStyle = "retro_blocks",
+                                            accentColor = accentColor,
+                                            retro80sMode = retro80sMode,
+                                            sizeMode = "compact",
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
                                     }
                                 }
-                            }
-
-                            "scratchpad" -> {
-                                when (wStyle) {
-                                    "80s_retro", "cyber_hud" -> {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .retroNeonBorder(1.2.dp, primaryCol, RoundedCornerShape(0.dp), glowEnabled = retro80sMode, glowRadiusDp = 4.dp)
-                                                .background(Color(0xFF040606), RoundedCornerShape(0.dp))
-                                                .padding(horizontal = 10.dp, vertical = 7.dp),
-                                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                                        ) {
-                                            Text(
-                                                text = if (isHolomapMode || wStyle == "cyber_hud") "<<< $quickNote >>>" else "$ $quickNote █",
-                                                color = secondaryCol,
-                                                fontSize = if (sizeMode == "large") 13.sp else 11.sp,
-                                                fontFamily = wFontFamily,
-                                                fontWeight = FontWeight.Bold,
-                                                style = glowTextStyle(secondaryCol, 16f)
-                                            )
-                                        }
-                                    }
-                                    else -> {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .border(1.dp, Color(0xFF1F1F1F), RoundedCornerShape(8.dp))
-                                                .background(Color(0xFF060606), RoundedCornerShape(8.dp))
-                                                .padding(horizontal = 12.dp, vertical = 7.dp)
-                                        ) {
-                                            Text(
-                                                text = "> $quickNote",
-                                                color = Color(0xFFD4D4D4),
-                                                fontSize = if (sizeMode == "large") 13.sp else 11.sp,
-                                                fontFamily = wFontFamily
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            "globe" -> {
-                                val globeHeight = when (sizeMode) {
-                                    "compact" -> 130.dp
-                                    "large" -> 245.dp
-                                    "xlarge" -> 305.dp
-                                    "max" -> 365.dp
-                                    else -> 185.dp
-                                }
-                                val effectiveGlobeThemeForWidget = when {
-                                    retro80sMode || wStyle == "80s_retro" || wStyle == "cyber_hud" -> "wireframe"
-                                    else -> globeTheme
-                                }
-                                val effectiveGlobeColorForWidget = when {
-                                    isHolomapMode -> "#26FFFF"
-                                    retro80sMode && retro80sColorTheme == "amber" -> "#FFB830"
-                                    retro80sMode || wStyle == "80s_retro" -> "#9EFF78"
-                                    else -> globeWireframeColor
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(globeHeight),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    RetroFuturisticGlobeView(
-                                        globeTheme = effectiveGlobeThemeForWidget,
-                                        globeWireframeColor = effectiveGlobeColorForWidget,
-                                        hudOverrideColor = if (isHolomapMode || wStyle == "cyber_hud") Color(0xFFFF3B14) else null,
-                                        widgetStyle = wStyle,
-                                        axisTilt2dDeg = globeTilt2dDeg,
-                                        axisRotXDeg = globeRotXDeg,
-                                        axisRotYDeg = globeRotYDeg,
-                                        interactive = !editMode,
-                                        widgetsActive = widgetsActive,
-                                        onLongPressHome = onLongPressHome,
-                                        onInteractionModeChanged = onGlobeInteractionChanged,
-                                        onTick = onWaveTick
-                                    )
-                                }
-                            }
-
-                            "pinned_apps" -> {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 2.dp),
-                                    contentAlignment = Alignment.BottomStart
-                                ) {
-                                    val waveRadiusRows = 2.25f
-                                    val maxWaveShiftPx = with(density) { (if (waveScrubMode == "full") 32.dp else 16.dp).toPx() }
-                                    val verticalSpreadPx = with(density) { 4.dp.toPx() }
-                                    val pressHoverShiftPx = with(density) { 14.dp.toPx() }
-                                    val maxDotWaveShiftPx = with(density) { 14.dp.toPx() }
-
-                                    val activeFocusedIndex = remember(waveFloatIndex, pinnedApps.size, editMode) {
-                                        val w = waveFloatIndex
-                                        if (editMode || w == null || pinnedApps.isEmpty() || waveScrubMode == "off") {
-                                            null
-                                        } else {
-                                            w.toInt().coerceIn(0, pinnedApps.lastIndex)
-                                        }
-                                    }
-
-                                    LaunchedEffect(activeFocusedIndex) {
-                                        if (activeFocusedIndex != null && activeFocusedIndex != lastHoveredIndex) {
-                                            lastHoveredIndex = activeFocusedIndex
-                                            onWaveTick()
-                                        }
-                                    }
-
+                                "cyber_hud" -> {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(IntrinsicSize.Min),
+                                            .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF060606), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.Bottom
-                                        ) {
-                                            if (editMode) {
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(bottom = 4.dp),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Text(
-                                                        text = "PINNED APPS",
-                                                        color = if (retro80sMode) primaryCol else Color(0xFFA3A3A3),
-                                                        fontSize = 8.sp,
-                                                        fontFamily = selectedFont,
-                                                        fontWeight = FontWeight.Bold,
-                                                        style = glowTextStyle(primaryCol, 12f)
-                                                    )
-                                                    Text(
-                                                        text = if (customPinnedOrderEnabled) "CUSTOM (↑/↓)" else "A–Z AUTO",
-                                                        color = if (customPinnedOrderEnabled) secondaryCol else Color(0xFF737373),
-                                                        fontSize = 8.sp,
-                                                        fontFamily = selectedFont,
-                                                        fontWeight = FontWeight.Bold,
-                                                        style = glowTextStyle(secondaryCol, 12f)
-                                                    )
+                                        Text(
+                                            text = "⟦ FOCUS CHAMBER · $mm:$ss ⟧",
+                                            color = Color.White,
+                                            fontSize = if (sizeMode == "large") 13.sp else 11.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = if (zenActive) "HALT ■" else "ENGAGE ▶",
+                                            color = accentColor,
+                                            fontSize = 9.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.combinedClickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                                onClick = { onToggleZen() },
+                                                onLongClick = { onLongPressHome() }
+                                            )
+                                        )
+                                    }
+                                }
+                                else -> {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, Color(0xFF262626), RoundedCornerShape(8.dp))
+                                            .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                            .padding(
+                                                horizontal = 12.dp,
+                                                vertical = when (sizeMode) {
+                                                    "compact" -> 5.dp
+                                                    "large" -> 10.dp
+                                                    else -> 7.dp
                                                 }
+                                            ),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "$mm:$ss",
+                                            color = Color.White,
+                                            fontSize = if (sizeMode == "large") 15.sp else 12.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = if (zenActive) "STOP" else "START",
+                                            color = accentColor,
+                                            fontSize = 10.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.combinedClickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                                onClick = { onToggleZen() },
+                                                onLongClick = { onLongPressHome() }
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        "scratchpad" -> {
+                            when (wStyle) {
+                                "80s_retro" -> {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.2.dp, accentColor, RoundedCornerShape(2.dp))
+                                            .background(Color(0xFF040804), RoundedCornerShape(2.dp))
+                                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            text = "A:> TERM.BUF [64K RAM]",
+                                            color = accentColor.copy(alpha = 0.72f),
+                                            fontSize = 8.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "$ $quickNote █",
+                                            color = accentColor,
+                                            fontSize = if (sizeMode == "large") 13.sp else 11.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                                "cyber_hud" -> {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF060606), RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = "[MEMO // LOG]: $quickNote",
+                                            color = Color.White,
+                                            fontSize = if (sizeMode == "large") 12.sp else 10.sp,
+                                            fontFamily = wFontFamily,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                                else -> {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .border(1.dp, Color(0xFF1F1F1F), RoundedCornerShape(8.dp))
+                                            .background(Color(0xFF060606), RoundedCornerShape(8.dp))
+                                            .padding(
+                                                horizontal = 12.dp,
+                                                vertical = when (sizeMode) {
+                                                    "compact" -> 5.dp
+                                                    "large" -> 10.dp
+                                                    else -> 7.dp
+                                                }
+                                            )
+                                    ) {
+                                        Text(
+                                            text = "> $quickNote",
+                                            color = Color(0xFFD4D4D4),
+                                            fontSize = if (sizeMode == "large") 13.sp else 11.sp,
+                                            fontFamily = wFontFamily
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        "globe" -> {
+                            val globeHeight = when (sizeMode) {
+                                "compact" -> 135.dp
+                                "large" -> 265.dp
+                                "xlarge" -> 330.dp
+                                "max" -> 395.dp
+                                else -> 195.dp
+                            }
+                            val effectiveGlobeThemeForWidget = when {
+                                retro80sMode || wStyle == "80s_retro" || wStyle == "cyber_hud" -> "wireframe"
+                                else -> globeTheme
+                            }
+                            val effectiveGlobeColorForWidget = when {
+                                retro80sMode || wStyle == "80s_retro" -> "#7CFF5B"
+                                else -> globeWireframeColor
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(globeHeight),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                RetroFuturisticGlobeView(
+                                    globeTheme = effectiveGlobeThemeForWidget,
+                                    globeWireframeColor = effectiveGlobeColorForWidget,
+                                    widgetStyle = wStyle,
+                                    axisTilt2dDeg = globeTilt2dDeg,
+                                    axisRotXDeg = globeRotXDeg,
+                                    axisRotYDeg = globeRotYDeg,
+                                    interactive = !editMode,
+                                    widgetsActive = widgetsActive,
+                                    onLongPressHome = onLongPressHome,
+                                    onInteractionModeChanged = onGlobeInteractionChanged,
+                                    onTick = onWaveTick
+                                )
+                            }
+                        }
+                        "pinned_apps" -> {
+                            // UNIFIED PINNED APPS WIDGET (All pinned apps together in one widget!)
+                            // In Edit Mode (when customPinnedOrderEnabled is ON), each app row shows ↑ / ↓ sequence buttons!
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 2.dp),
+                                contentAlignment = Alignment.BottomStart
+                            ) {
+                                val waveRadiusRows = 2.25f
+                                val maxWaveShiftPx = with(density) { (if (waveScrubMode == "full") 32.dp else 16.dp).toPx() }
+                                val verticalSpreadPx = with(density) { 4.dp.toPx() }
+                                val pressHoverShiftPx = with(density) { 14.dp.toPx() }
+                                val maxDotWaveShiftPx = with(density) { 14.dp.toPx() }
+
+                                val activeFocusedIndex = remember(waveFloatIndex, pinnedApps.size, editMode) {
+                                    val w = waveFloatIndex
+                                    if (editMode || w == null || pinnedApps.isEmpty() || waveScrubMode == "off") {
+                                        null
+                                    } else {
+                                        w.toInt().coerceIn(0, pinnedApps.lastIndex)
+                                    }
+                                }
+
+                                LaunchedEffect(activeFocusedIndex) {
+                                    if (activeFocusedIndex != null && activeFocusedIndex != lastHoveredIndex) {
+                                        lastHoveredIndex = activeFocusedIndex
+                                        onWaveTick()
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(IntrinsicSize.Min),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Left/Main Column: Pinned Home Screen Apps (Together in the unified Pinned Apps Widget)
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.Bottom
+                                    ) {
+                                        if (editMode) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(bottom = 4.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "PINNED APPS",
+                                                    color = if (retro80sMode) accentColor else Color(0xFFA3A3A3),
+                                                    fontSize = 8.sp,
+                                                    fontFamily = selectedFont,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    text = if (customPinnedOrderEnabled) "CUSTOM (↑/↓)" else "A–Z AUTO",
+                                                    color = if (customPinnedOrderEnabled) accentColor else Color(0xFF737373),
+                                                    fontSize = 8.sp,
+                                                    fontFamily = selectedFont,
+                                                    fontWeight = FontWeight.Bold
+                                                )
                                             }
+                                        }
 
-                                            pinnedApps.forEachIndexed { index, app ->
-                                                val interactionSource = remember { MutableInteractionSource() }
-                                                val isPressed by interactionSource.collectIsPressedAsState()
+                                        pinnedApps.forEachIndexed { index, app ->
+                                            val interactionSource = remember { MutableInteractionSource() }
+                                            val isPressed by interactionSource.collectIsPressedAsState()
 
-                                                val targetWaveFactor = if (!editMode && waveFloatIndex != null && waveScrubMode != "off") {
-                                                    val distRows = abs(waveFloatIndex!! - (index + 0.5f))
-                                                    if (distRows < waveRadiusRows) {
-                                                        val c = cos((distRows / waveRadiusRows) * (PI / 2)).toFloat().coerceIn(0f, 1f)
-                                                        c * c * (3f - 2f * c)
-                                                    } else 0f
+                                            val targetWaveFactor = if (!editMode && waveFloatIndex != null && waveScrubMode != "off") {
+                                                val distRows = abs(waveFloatIndex!! - (index + 0.5f))
+                                                if (distRows < waveRadiusRows) {
+                                                    val c = cos((distRows / waveRadiusRows) * (PI / 2)).toFloat().coerceIn(0f, 1f)
+                                                    c * c * (3f - 2f * c)
                                                 } else 0f
+                                            } else 0f
 
-                                                val animWave by animateFloatAsState(
-                                                    targetValue = targetWaveFactor,
-                                                    animationSpec = spring(
-                                                        dampingRatio = 0.78f,
-                                                        stiffness = Spring.StiffnessMediumLow
-                                                    ),
-                                                    label = "homeAppWave"
-                                                )
+                                            val animWave by animateFloatAsState(
+                                                targetValue = targetWaveFactor,
+                                                animationSpec = spring(
+                                                    dampingRatio = 0.78f,
+                                                    stiffness = Spring.StiffnessMediumLow
+                                                ),
+                                                label = "homeAppWave"
+                                            )
 
-                                                val isWaveFocused = activeFocusedIndex == index
-                                                val isHighlighted = isWaveFocused || isPressed
+                                            val isWaveFocused = activeFocusedIndex == index
+                                            val isHighlighted = isWaveFocused || isPressed
 
-                                                val pressAnim by animateFloatAsState(
-                                                    targetValue = if (isPressed) 1f else 0f,
-                                                    animationSpec = spring(
-                                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                                        stiffness = Spring.StiffnessMedium
-                                                    ),
-                                                    label = "homeAppPress"
-                                                )
+                                            val pressAnim by animateFloatAsState(
+                                                targetValue = if (isPressed) 1f else 0f,
+                                                animationSpec = spring(
+                                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                                    stiffness = Spring.StiffnessMedium
+                                                ),
+                                                label = "homeAppPress"
+                                            )
 
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .graphicsLayer {
-                                                            val shiftX = (animWave * maxWaveShiftPx) + (pressAnim * pressHoverShiftPx)
-                                                            val shiftY = if (waveFloatIndex != null && animWave > 0.01f) {
-                                                                ((index + 0.5f) - waveFloatIndex!!) * verticalSpreadPx * animWave
-                                                            } else 0f
-                                                            val sc = 1f + (animWave * 0.14f) + (pressAnim * 0.04f)
-                                                            translationX = shiftX
-                                                            translationY = shiftY
-                                                            scaleX = sc
-                                                            scaleY = sc
-                                                            transformOrigin = TransformOrigin(0f, 0.5f)
-                                                        }
-                                                        .combinedClickable(
-                                                            interactionSource = interactionSource,
-                                                            indication = null,
-                                                            onClick = {
-                                                                if (!editMode) onLaunchApp(app.packageName)
-                                                            },
-                                                            onLongClick = { onLongPressApp(app) }
-                                                        )
-                                                        .padding(vertical = 6.dp),
-                                                    horizontalArrangement = if (editMode) {
-                                                        Arrangement.SpaceBetween
-                                                    } else {
-                                                        when (textAlign) {
-                                                            TextAlign.Center -> Arrangement.Center
-                                                            TextAlign.End -> Arrangement.End
-                                                            else -> Arrangement.Start
-                                                        }
-                                                    },
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    val displayLabel = if (wPrebuiltFont.uppercaseHome || uppercaseHome) {
-                                                        app.label.uppercase(Locale.getDefault())
-                                                    } else {
-                                                        app.label
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .graphicsLayer {
+                                                        val shiftX = (animWave * maxWaveShiftPx) + (pressAnim * pressHoverShiftPx)
+                                                        val shiftY = if (waveFloatIndex != null && animWave > 0.01f) {
+                                                            ((index + 0.5f) - waveFloatIndex!!) * verticalSpreadPx * animWave
+                                                        } else 0f
+                                                        val sc = 1f + (animWave * 0.14f) + (pressAnim * 0.04f)
+                                                        translationX = shiftX
+                                                        translationY = shiftY
+                                                        scaleX = sc
+                                                        scaleY = sc
+                                                        transformOrigin = TransformOrigin(0f, 0.5f)
                                                     }
-                                                    val is80sApps = (retro80sMode || wStyle == "80s_retro" || wStyle == "cyber_hud") && !editMode
-                                                    val styledAppLabel = when {
-                                                        isHighlighted && !editMode && isHolomapMode -> "<<< $displayLabel >>>"
-                                                        isHighlighted && !editMode -> "▸ $displayLabel"
-                                                        isHolomapMode && !editMode -> "> $displayLabel"
-                                                        is80sApps -> "> $displayLabel"
-                                                        else -> displayLabel
-                                                    }
-                                                    val appCol = when {
-                                                        isHighlighted && !editMode -> secondaryCol
-                                                        is80sApps -> primaryCol
-                                                        else -> Color(0xFFF5F5F5)
-                                                    }
-                                                    Text(
-                                                        text = styledAppLabel,
-                                                        color = appCol,
-                                                        fontSize = textSizeSp.sp,
-                                                        fontFamily = wFontFamily,
-                                                        style = glowTextStyle(appCol, 18f),
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        modifier = if (editMode) Modifier.weight(1f).padding(end = 8.dp) else Modifier
+                                                    .combinedClickable(
+                                                        interactionSource = interactionSource,
+                                                        indication = null,
+                                                        onClick = {
+                                                            if (!editMode) onLaunchApp(app.packageName)
+                                                        },
+                                                        onLongClick = { onLongPressApp(app) }
                                                     )
+                                                    .padding(vertical = 6.dp),
+                                                horizontalArrangement = if (editMode) {
+                                                    Arrangement.SpaceBetween
+                                                } else {
+                                                    when (textAlign) {
+                                                        TextAlign.Center -> Arrangement.Center
+                                                        TextAlign.End -> Arrangement.End
+                                                        else -> Arrangement.Start
+                                                    }
+                                                },
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                val displayLabel = if (wPrebuiltFont.uppercaseHome || uppercaseHome) {
+                                                    app.label.uppercase(Locale.getDefault())
+                                                } else {
+                                                    app.label
+                                                }
+                                                val is80sApps = (retro80sMode || wStyle == "80s_retro") && !editMode
+                                                val isCyberApps = wStyle == "cyber_hud" && !editMode
+                                                val idxTag = (index + 1).toString().padStart(2, '0')
+                                                val styledAppLabel = when {
+                                                    isHighlighted && !editMode -> "▸ $displayLabel"
+                                                    is80sApps -> "> $displayLabel"
+                                                    isCyberApps -> "[$idxTag] $displayLabel"
+                                                    else -> displayLabel
+                                                }
+                                                Text(
+                                                    text = styledAppLabel,
+                                                    color = if ((isHighlighted && !editMode) || is80sApps) accentColor else if (animWave > 0.35f) Color.White else Color(0xFFF5F5F5),
+                                                    fontSize = textSizeSp.sp,
+                                                    fontFamily = wFontFamily,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = if (editMode) Modifier.weight(1f).padding(end = 8.dp) else Modifier
+                                                )
 
-                                                    if (editMode) {
-                                                        val pinBtnShape = RoundedCornerShape(if (retro80sMode) 0.dp else 4.dp)
-                                                        Row(
-                                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                            verticalAlignment = Alignment.CenterVertically
-                                                        ) {
-                                                            if (customPinnedOrderEnabled) {
-                                                                if (index > 0) {
-                                                                    Text(
-                                                                        text = "↑",
-                                                                        color = if (retro80sMode) primaryCol else Color.White,
-                                                                        fontSize = 10.sp,
-                                                                        fontFamily = selectedFont,
-                                                                        fontWeight = FontWeight.Bold,
-                                                                        style = glowTextStyle(primaryCol, 12f),
-                                                                        modifier = Modifier
-                                                                            .border(1.dp, if (retro80sMode) primaryCol else Color(0xFF333333), pinBtnShape)
-                                                                            .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF161616), pinBtnShape)
-                                                                            .clickable { onMovePinnedApp(app.packageName, -1) }
-                                                                            .padding(horizontal = 7.dp, vertical = 3.dp)
-                                                                    )
-                                                                }
-                                                                if (index < pinnedApps.lastIndex) {
-                                                                    Text(
-                                                                        text = "↓",
-                                                                        color = if (retro80sMode) primaryCol else Color.White,
-                                                                        fontSize = 10.sp,
-                                                                        fontFamily = selectedFont,
-                                                                        fontWeight = FontWeight.Bold,
-                                                                        style = glowTextStyle(primaryCol, 12f),
-                                                                        modifier = Modifier
-                                                                            .border(1.dp, if (retro80sMode) primaryCol else Color(0xFF333333), pinBtnShape)
-                                                                            .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF161616), pinBtnShape)
-                                                                            .clickable { onMovePinnedApp(app.packageName, 1) }
-                                                                            .padding(horizontal = 7.dp, vertical = 3.dp)
-                                                                    )
-                                                                }
+                                                // In Edit Mode: Customize sequence of pinned apps via ↑ / ↓ buttons (when enabled in settings) + unpin (×)
+                                                if (editMode) {
+                                                    val pinBtnShape = RoundedCornerShape(if (retro80sMode) 0.dp else 4.dp)
+                                                    Row(
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        if (customPinnedOrderEnabled) {
+                                                            if (index > 0) {
+                                                                Text(
+                                                                    text = "↑",
+                                                                    color = if (retro80sMode) accentColor else Color.White,
+                                                                    fontSize = 10.sp,
+                                                                    fontFamily = selectedFont,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    modifier = Modifier
+                                                                        .border(1.dp, if (retro80sMode) accentColor else Color(0xFF333333), pinBtnShape)
+                                                                        .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF161616), pinBtnShape)
+                                                                        .clickable { onMovePinnedApp(app.packageName, -1) }
+                                                                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                                                                )
                                                             }
-                                                            Text(
-                                                                text = "×",
-                                                                color = if (retro80sMode) secondaryCol else Color(0xFFEF4444),
-                                                                fontSize = 10.sp,
-                                                                fontFamily = selectedFont,
-                                                                fontWeight = FontWeight.Bold,
-                                                                style = glowTextStyle(secondaryCol, 12f),
-                                                                modifier = Modifier
-                                                                    .border(1.dp, if (retro80sMode) secondaryCol else Color(0xFFEF4444).copy(alpha = 0.45f), pinBtnShape)
-                                                                    .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF180808), pinBtnShape)
-                                                                    .clickable { onUnpinApp(app.packageName) }
-                                                                    .padding(horizontal = 6.dp, vertical = 3.dp)
-                                                            )
+                                                            if (index < pinnedApps.lastIndex) {
+                                                                Text(
+                                                                    text = "↓",
+                                                                    color = if (retro80sMode) accentColor else Color.White,
+                                                                    fontSize = 10.sp,
+                                                                    fontFamily = selectedFont,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    modifier = Modifier
+                                                                        .border(1.dp, if (retro80sMode) accentColor else Color(0xFF333333), pinBtnShape)
+                                                                        .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF161616), pinBtnShape)
+                                                                        .clickable { onMovePinnedApp(app.packageName, 1) }
+                                                                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                                                                )
+                                                            }
                                                         }
+                                                        Text(
+                                                            text = "×",
+                                                            color = if (retro80sMode) accentColor else Color(0xFFEF4444),
+                                                            fontSize = 10.sp,
+                                                            fontFamily = selectedFont,
+                                                            fontWeight = FontWeight.Bold,
+                                                            modifier = Modifier
+                                                                .border(1.dp, if (retro80sMode) accentColor else Color(0xFFEF4444).copy(alpha = 0.45f), pinBtnShape)
+                                                                .background(if (retro80sMode) Color(0xFF080808) else Color(0xFF180808), pinBtnShape)
+                                                                .clickable { onUnpinApp(app.packageName) }
+                                                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                                                        )
                                                     }
                                                 }
                                             }
                                         }
+                                    }
 
-                                        // Right-Side Dots Scroller
-                                        if (!editMode && waveScrubMode != "off" && pinnedApps.isNotEmpty()) {
-                                            Column(
-                                                modifier = Modifier
-                                                    .width(34.dp)
-                                                    .fillMaxHeight()
-                                                    .pointerInput(pinnedApps) {
-                                                        awaitEachGesture {
-                                                            val down = awaitFirstDown(requireUnconsumed = false)
-                                                            down.consume()
-                                                            val h0 = size.height.toFloat().coerceAtLeast(1f)
-                                                            var latestWaveIdx: Float? = (down.position.y.coerceIn(0f, h0) / h0) * pinnedApps.size
-                                                            waveFloatIndex = latestWaveIdx
-                                                            var isFingerOutsideDots = false
-                                                            val cancelMarginX = 36.dp.toPx()
-                                                            val cancelMarginY = 28.dp.toPx()
+                                    // Right-Side Dots Scroller: Exact same count as pinnedApps.size, aligned 1-to-1 with each app row!
+                                    if (!editMode && waveScrubMode != "off" && pinnedApps.isNotEmpty()) {
+                                        Column(
+                                            modifier = Modifier
+                                                .width(34.dp)
+                                                .fillMaxHeight()
+                                                .pointerInput(pinnedApps) {
+                                                    awaitEachGesture {
+                                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                                        down.consume()
+                                                        val h0 = size.height.toFloat().coerceAtLeast(1f)
+                                                        var latestWaveIdx: Float? = (down.position.y.coerceIn(0f, h0) / h0) * pinnedApps.size
+                                                        waveFloatIndex = latestWaveIdx
+                                                        var isFingerOutsideDots = false
+                                                        val cancelMarginX = 36.dp.toPx()
+                                                        val cancelMarginY = 28.dp.toPx()
 
-                                                            do {
-                                                                val event = awaitPointerEvent()
-                                                                val change = event.changes.firstOrNull()
-                                                                if (change != null) {
-                                                                    val w = size.width.toFloat().coerceAtLeast(1f)
-                                                                    val h = size.height.toFloat().coerceAtLeast(1f)
-                                                                    val pos = change.position
-                                                                    val outsideNow = pos.x < -cancelMarginX ||
-                                                                        pos.x > w + cancelMarginX ||
-                                                                        pos.y < -cancelMarginY ||
-                                                                        pos.y > h + cancelMarginY
+                                                        do {
+                                                            val event = awaitPointerEvent()
+                                                            val change = event.changes.firstOrNull()
+                                                            if (change != null) {
+                                                                val w = size.width.toFloat().coerceAtLeast(1f)
+                                                                val h = size.height.toFloat().coerceAtLeast(1f)
+                                                                val pos = change.position
+                                                                val outsideNow = pos.x < -cancelMarginX ||
+                                                                    pos.x > w + cancelMarginX ||
+                                                                    pos.y < -cancelMarginY ||
+                                                                    pos.y > h + cancelMarginY
 
-                                                                    if (change.pressed) {
-                                                                        change.consume()
-                                                                        isFingerOutsideDots = outsideNow
-                                                                        if (outsideNow) {
-                                                                            latestWaveIdx = null
-                                                                            waveFloatIndex = null
-                                                                            lastHoveredIndex = null
-                                                                        } else {
-                                                                            val idx = (pos.y.coerceIn(0f, h) / h) * pinnedApps.size
-                                                                            latestWaveIdx = idx
-                                                                            waveFloatIndex = idx
-                                                                        }
+                                                                if (change.pressed) {
+                                                                    change.consume()
+                                                                    isFingerOutsideDots = outsideNow
+                                                                    if (outsideNow) {
+                                                                        latestWaveIdx = null
+                                                                        waveFloatIndex = null
+                                                                        lastHoveredIndex = null
                                                                     } else {
-                                                                        isFingerOutsideDots = outsideNow || change.isConsumed
+                                                                        val idx = (pos.y.coerceIn(0f, h) / h) * pinnedApps.size
+                                                                        latestWaveIdx = idx
+                                                                        waveFloatIndex = idx
                                                                     }
+                                                                } else {
+                                                                    isFingerOutsideDots = outsideNow || change.isConsumed
                                                                 }
-                                                            } while (event.changes.any { it.pressed })
-
-                                                            val targetIdx = latestWaveIdx?.toInt()?.coerceIn(0, pinnedApps.lastIndex)
-                                                            waveFloatIndex = null
-                                                            lastHoveredIndex = null
-
-                                                            if (!isFingerOutsideDots && targetIdx != null && pinnedApps.isNotEmpty()) {
-                                                                onWaveTick()
-                                                                onLaunchApp(pinnedApps[targetIdx].packageName)
                                                             }
+                                                        } while (event.changes.any { it.pressed })
+
+                                                        val targetIdx = latestWaveIdx?.toInt()?.coerceIn(0, pinnedApps.lastIndex)
+                                                        waveFloatIndex = null
+                                                        lastHoveredIndex = null
+
+                                                        if (!isFingerOutsideDots && targetIdx != null && pinnedApps.isNotEmpty()) {
+                                                            onWaveTick()
+                                                            onLaunchApp(pinnedApps[targetIdx].packageName)
                                                         }
-                                                    },
-                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                verticalArrangement = Arrangement.SpaceAround
-                                            ) {
-                                                pinnedApps.forEachIndexed { dotIdx, _ ->
-                                                    val isDotFocused = activeFocusedIndex == dotIdx
-                                                    val targetDotWave = if (waveFloatIndex != null) {
-                                                        val dist = abs(waveFloatIndex!! - (dotIdx + 0.5f))
-                                                        if (dist < waveRadiusRows) {
-                                                            cos((dist / waveRadiusRows) * (PI / 2)).toFloat().coerceIn(0f, 1f)
-                                                        } else 0f
+                                                    }
+                                                },
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.SpaceAround
+                                        ) {
+                                            pinnedApps.forEachIndexed { dotIdx, _ ->
+                                                val isDotFocused = activeFocusedIndex == dotIdx
+                                                val targetDotWave = if (waveFloatIndex != null) {
+                                                    val dist = abs(waveFloatIndex!! - (dotIdx + 0.5f))
+                                                    if (dist < waveRadiusRows) {
+                                                        cos((dist / waveRadiusRows) * (PI / 2)).toFloat().coerceIn(0f, 1f)
                                                     } else 0f
+                                                } else 0f
 
-                                                    val animDotWave by animateFloatAsState(
-                                                        targetValue = targetDotWave,
-                                                        animationSpec = spring(
-                                                            dampingRatio = 0.75f,
-                                                            stiffness = Spring.StiffnessMedium
-                                                        ),
-                                                        label = "homeDotWave"
-                                                    )
+                                                val animDotWave by animateFloatAsState(
+                                                    targetValue = targetDotWave,
+                                                    animationSpec = spring(
+                                                        dampingRatio = 0.75f,
+                                                        stiffness = Spring.StiffnessMedium
+                                                    ),
+                                                    label = "homeDotWave"
+                                                )
 
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(16.dp)
+                                                        .graphicsLayer {
+                                                            translationX = -animDotWave * maxDotWaveShiftPx
+                                                            val sc = 1f + animDotWave * 0.9f
+                                                            scaleX = sc
+                                                            scaleY = sc
+                                                        },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
                                                     Box(
                                                         modifier = Modifier
-                                                            .size(16.dp)
-                                                            .graphicsLayer {
-                                                                translationX = -animDotWave * maxDotWaveShiftPx
-                                                                val sc = 1f + animDotWave * 0.9f
-                                                                scaleX = sc
-                                                                scaleY = sc
-                                                            },
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .size(if (isDotFocused) 6.dp else 4.dp)
-                                                                .background(
-                                                                    color = when {
-                                                                        isDotFocused -> secondaryCol
-                                                                        animDotWave > 0.35f -> primaryCol
-                                                                        retro80sMode -> primaryCol.copy(alpha = 0.55f)
-                                                                        else -> Color(0xFF525252)
-                                                                    },
-                                                                    shape = if (retro80sMode) RoundedCornerShape(0.dp) else CircleShape
-                                                                )
-                                                        )
-                                                    }
+                                                            .size(if (isDotFocused) 6.dp else 4.dp)
+                                                            .background(
+                                                                color = when {
+                                                                    isDotFocused -> accentColor
+                                                                    animDotWave > 0.35f -> Color.White
+                                                                    else -> Color(0xFF525252)
+                                                                },
+                                                                shape = CircleShape
+                                                            )
+                                                    )
                                                 }
                                             }
                                         }
@@ -4291,13 +5748,13 @@ fun HomeScreenView(
     }
 }
 
-
 // ============================================================================
-// ULTRA-HIGH-PRECISION 3D WORLD COUNTRIES & SURVEY OF INDIA GLOBE DATASET
-// - All 177 Sovereign Countries with exact borders + Official Survey of India
-//   boundary (including 100% of Jammu & Kashmir, Ladakh, Gilgit-Baltistan,
-//   Aksai Chin, and Arunachal Pradesh as an integral part of India)
-// - Zero low-poly triangulation lines; crisp vector country borders & horizon clipping
+// ULTRA-HIGH-PRECISION 3D EARTH MODEL & CARTOGRAPHIC DATASET (v3.3.0-cmf)
+// - 360+ Exact Polygon Rings (11,700+ Satellite-Derived Natural Earth + Survey of India
+//   + Island Archipelagos & Great Lakes Coordinates at 0.01° Precision)
+// - Precomputed 3D Unit-Sphere Mesh Vectors (FloatArray) for 120Hz Zero-Trig Projection
+// - Exact 3D Spherical Horizon Limb Clipping + Lambertian Surface Normal Shading
+// - Interactive 360° Trackball Spin + Double-Tap Zoom (1.0x -> 1.75x -> 2.65x)
 // ============================================================================
 private val WORLD_MAP_RAW_POLYGONS: Array<String> = arrayOf(
     "-16.07,180.00;-16.56,180.00;-16.80,179.36;-17.01,178.73;-16.64,178.60;-16.43,179.10;-16.38,179.41;-16.07,180.00",
@@ -4401,6 +5858,7 @@ private val WORLD_MAP_RAW_POLYGONS: Array<String> = arrayOf(
     "-48.63,68.94;-48.94,69.58;-49.07,70.53;-49.26,70.56;-49.71,70.28;-49.78,68.75;-49.24,68.72;-48.83,68.87;-48.63,68.94",
     "-8.89,124.97;-8.66,125.09;-8.43,125.95;-8.40,126.64;-8.27,126.96;-8.40,127.34;-8.67,126.97;-9.11,125.93;-9.39,125.09;-9.09,125.07;-8.89,124.97",
     "-28.58,16.34;-28.08,16.82;-28.36,17.22;-28.78,17.39;-28.86,17.84;-29.05,18.46;-28.97,19.00;-28.46,19.89;-24.77,19.90;-24.92,20.17;-25.87,20.76;-26.48,20.67;-26.83,20.89;-26.73,21.61;-26.28,22.11;-25.98,22.58;-25.50,22.82;-25.27,23.31;-25.39,23.73;-25.67,24.21;-25.72,25.03;-25.49,25.66;-25.17,25.77;-24.70,25.94;-24.62,26.49;-24.24,26.79;-23.57,27.12;-22.83,28.02;-22.09,29.43;-22.10,29.84;-22.27,30.32;-22.15,30.66;-22.25,31.19;-23.66,31.67;-24.37,31.93;-25.48,31.75;-25.84,31.84;-25.66,31.33;-25.73,31.04;-26.02,30.95;-26.40,30.68;-26.74,30.69;-27.29,31.28;-27.18,31.87;-26.73,32.07;-26.74,32.83;-27.47,32.58;-28.30,32.46;-28.75,32.20;-29.26,31.52;-29.40,31.33;-29.91,30.90;-30.42,30.62;-31.14,30.06;-32.17,28.93;-32.77,28.22;-33.23,27.46;-33.61,26.42;-33.67,25.91;-33.94,25.78;-33.80,25.17;-33.99,24.68;-33.79,23.59;-33.92,22.99;-33.86,22.57;-34.26,21.54;-34.42,20.69;-34.80,20.07;-34.82,19.62;-34.46,19.19;-34.44,18.86;-34.00,18.42;-34.14,18.38;-33.87,18.24;-33.28,18.25;-32.61,17.93;-32.43,18.25;-31.66,18.22;-30.73,17.57;-29.88,17.06;-29.88,17.06;-28.58,16.34",
+    "-28.96,28.98;-28.65,28.54;-28.85,28.07;-29.24,27.53;-29.88,27.00;-30.65,27.75;-30.55,28.11;-30.23,28.29;-30.07,28.85;-29.74,29.02;-29.26,29.33;-28.96,28.98",
     "-28.96,28.98;-29.26,29.33;-29.74,29.02;-30.07,28.85;-30.23,28.29;-30.55,28.11;-30.65,27.75;-29.88,27.00;-29.24,27.53;-28.85,28.07;-28.65,28.54;-28.96,28.98",
     "32.54,-117.13;32.61,-115.99;32.72,-114.72;32.53,-114.81;32.04,-113.30;31.33,-111.02;31.34,-109.04;31.34,-108.24;31.75,-108.24;31.75,-106.51;31.40,-106.14;31.08,-105.63;30.64,-105.04;30.12,-104.71;29.57,-104.46;29.27,-103.94;28.97,-103.11;29.76,-102.48;29.78,-101.66;29.38,-100.96;28.70,-100.46;28.11,-100.11;27.54,-99.52;26.84,-99.30;26.37,-99.02;26.06,-98.24;25.84,-97.53;25.87,-97.14;24.99,-97.53;24.27,-97.70;22.93,-97.78;22.44,-97.87;21.90,-97.70;21.41,-97.39;20.64,-97.19;19.89,-96.53;19.32,-96.29;18.83,-95.90;18.56,-94.84;18.14,-94.43;18.42,-93.55;18.52,-92.79;18.70,-92.04;18.88,-91.41;19.28,-90.77;19.87,-90.53;20.71,-90.45;21.00,-90.28;21.26,-89.60;21.49,-88.54;21.46,-87.66;21.54,-87.05;21.33,-86.81;20.85,-86.85;20.26,-87.38;19.65,-87.62;19.47,-87.44;19.04,-87.59;18.26,-87.84;18.52,-88.09;18.50,-88.30;18.49,-88.49;17.88,-88.85;18.00,-89.03;17.96,-89.15;17.81,-89.14;17.82,-90.07;17.82,-91.00;17.25,-91.00;17.25,-91.45;16.92,-91.08;16.69,-90.71;16.47,-90.60;16.41,-90.44;16.07,-90.46;16.07,-91.75;15.25,-92.23;15.06,-92.09;14.83,-92.20;14.54,-92.23;15.62,-93.36;15.94,-93.88;16.20,-94.69;16.13,-95.25;15.75,-96.05;15.65,-96.56;15.92,-97.26;16.11,-98.01;16.57,-98.95;16.71,-99.70;17.17,-100.83;17.65,-101.67;17.92,-101.92;17.98,-102.48;18.29,-103.50;18.75,-103.92;19.32,-104.99;19.95,-105.49;20.43,-105.73;20.53,-105.40;20.82,-105.50;21.08,-105.27;21.42,-105.27;21.87,-105.60;22.27,-105.69;22.77,-106.03;23.77,-106.91;24.55,-107.92;25.17,-108.40;25.58,-109.26;25.82,-109.44;26.44,-109.29;26.68,-109.80;27.16,-110.39;27.86,-110.64;27.94,-111.18;28.47,-111.76;28.95,-112.23;29.27,-112.27;30.02,-112.81;30.79,-113.16;31.17,-113.15;31.57,-113.87;31.52,-114.21;31.80,-114.78;31.39,-114.94;30.91,-114.77;30.16,-114.67;29.75,-114.33;29.06,-113.59;28.83,-113.42;28.75,-113.27;28.41,-113.14;28.43,-112.96;27.78,-112.76;27.53,-112.46;27.17,-112.24;26.66,-111.62;25.73,-111.28;25.29,-110.99;24.83,-110.71;24.30,-110.66;24.27,-110.17;23.81,-109.77;23.36,-109.41;23.19,-109.43;22.82,-109.85;22.82,-110.03;23.43,-110.30;24.00,-110.95;24.48,-111.67;24.74,-112.18;25.47,-112.15;26.01,-112.30;26.32,-112.78;26.77,-113.46;26.64,-113.60;26.90,-113.85;27.14,-114.47;27.72,-115.06;27.80,-114.98;27.74,-114.57;28.12,-114.20;28.57,-114.16;29.28,-114.93;29.56,-115.52;30.18,-115.89;30.84,-116.26;31.64,-116.72;32.54,-117.13",
     "-30.22,-57.63;-30.11,-56.98;-30.88,-55.97;-30.85,-55.60;-31.49,-54.57;-32.05,-53.79;-32.73,-53.21;-33.20,-53.65;-33.77,-53.37;-34.40,-53.81;-34.95,-54.94;-34.75,-55.67;-34.86,-56.22;-34.43,-57.14;-34.46,-57.82;-33.91,-58.43;-33.26,-58.35;-33.04,-58.13;-32.04,-58.14;-31.02,-57.87;-30.22,-57.63",
@@ -4479,14 +5937,12 @@ private val WORLD_MAP_RAW_POLYGONS: Array<String> = arrayOf(
     "42.40,130.64;42.40,130.64;42.22,130.78;42.28,130.40;41.94,129.97;41.60,129.67;40.88,129.71;40.66,129.19;40.49,129.01;40.19,128.63;40.03,127.97;39.76,127.53;39.32,127.50;39.21,127.39;39.05,127.78;38.61,128.35;38.37,128.21;38.30,127.78;38.26,127.07;37.80,126.68;37.84,126.24;37.75,126.17;37.94,125.69;37.75,125.57;37.67,125.28;37.86,125.24;37.95,124.98;38.11,124.71;38.55,124.99;38.67,125.22;38.85,125.13;39.39,125.39;39.55,125.32;39.66,124.74;39.93,124.27;40.57,125.08;41.11,126.18;41.82,126.87;41.50,127.34;41.47,128.21;41.99,128.05;42.42,129.60;42.99,129.99;42.40,130.64",
     "37.75,126.17;37.84,126.24;37.80,126.68;38.26,127.07;38.30,127.78;38.37,128.21;38.61,128.35;37.43,129.21;36.78,129.46;35.63,129.47;35.08,129.09;34.89,128.19;34.48,127.39;34.39,126.49;34.93,126.37;35.68,126.56;36.73,126.12;36.89,126.86;37.75,126.17",
     "49.30,87.75;49.47,88.81;50.33,90.71;50.80,92.23;50.50,93.10;50.48,94.15;50.01,94.82;49.98,95.81;49.73,97.26;50.42,98.23;51.01,97.83;52.05,98.86;51.63,99.98;51.52,100.89;51.26,102.07;50.51,102.26;50.09,103.68;50.28,104.62;50.41,105.89;50.27,106.89;49.79,107.87;49.28,108.48;49.29,109.40;49.13,110.66;49.38,111.58;49.54,112.90;50.25,114.36;50.14,114.96;49.81,115.49;49.89,116.68;49.13,116.19;48.14,115.49;47.73,115.74;47.85,116.31;47.70,117.30;48.07,118.06;47.75,118.87;47.05,119.77;46.69,119.66;46.81,118.87;46.67,117.42;46.39,116.72;45.73,115.99;45.34,114.46;44.81,113.46;45.01,112.44;45.10,111.87;44.46,111.35;44.07,111.67;43.74,111.83;43.41,111.13;42.87,110.41;42.52,109.24;42.48,107.74;42.13,106.13;41.60,104.96;41.91,104.52;41.91,103.31;42.51,101.83;42.66,100.85;42.52,99.52;42.75,97.45;42.73,96.35;43.32,95.76;44.24,95.31;44.35,94.69;44.98,93.48;45.12,92.13;45.29,90.95;45.72,90.59;46.89,90.97;47.69,90.28;48.07,88.85;48.60,88.01;49.30,87.75",
-    "27.88,97.40;27.70,97.05;27.08,97.13;27.26,96.42;26.57,95.12;26.00,95.16;25.16,94.60;24.68,94.55;23.85,94.11;24.08,93.33;23.04,93.29;22.70,93.06;22.28,93.17;22.04,92.67;23.63,92.15;23.62,91.87;22.99,91.71;23.50,91.16;24.07,91.47;24.13,91.92;24.98,92.38;25.15,91.80;25.13,90.87;25.27,89.92;25.97,89.83;26.01,89.36;26.45,88.56;25.77,88.21;25.24,88.93;24.87,88.31;24.50,88.08;24.23,88.70;23.63,88.53;22.88,88.88;22.06,89.03;21.69,88.89;21.70,88.21;21.50,86.98;20.74,87.03;20.15,86.50;19.48,85.06;18.30,83.94;17.67,83.19;17.02,82.19;16.56,82.19;16.31,81.69;15.95,80.79;15.90,80.32;15.14,80.03;13.84,80.23;13.01,80.29;12.06,79.86;10.36,79.86;10.31,79.34;9.55,78.89;9.22,79.19;8.93,78.28;8.25,77.94;7.97,77.54;8.90,76.59;10.30,76.13;11.31,75.75;11.78,75.40;12.74,74.86;13.99,74.62;14.62,74.44;15.99,73.53;17.93,73.12;19.21,72.82;20.42,72.82;21.36,72.63;20.76,71.18;20.88,70.47;22.09,69.16;22.45,69.64;22.84,69.35;23.69,68.18;24.36,68.84;24.36,71.04;25.22,70.84;25.72,70.28;26.49,70.17;26.94,69.51;27.99,70.62;27.91,71.78;28.96,72.82;29.98,73.45;30.98,74.42;31.69,74.41;32.20,75.15;32.25,74.80;32.50,73.75;33.20,73.40;34.10,73.65;34.65,73.25;35.45,72.60;36.05,72.52;36.68,73.15;36.92,74.10;37.09,74.56;36.95,75.45;36.35,76.15;35.85,76.95;35.52,77.82;35.88,78.95;35.62,79.92;35.10,80.32;34.25,80.15;33.35,79.55;32.96,79.21;32.48,79.18;32.55,78.85;32.15,78.58;31.52,78.74;30.88,79.72;30.18,81.11;29.73,80.48;28.79,80.09;28.42,81.06;27.93,82.00;27.36,83.30;27.23,84.68;26.73,85.25;26.63,86.02;26.40,87.23;26.41,88.06;26.81,88.17;27.45,88.04;27.88,88.12;28.09,88.73;27.30,88.81;27.10,88.84;26.72,89.74;26.88,90.37;26.81,91.22;26.84,92.03;27.45,92.10;27.77,91.70;27.90,92.50;28.64,93.41;29.28,94.57;29.03,95.40;29.45,96.12;28.83,96.59;28.41,96.25;28.26,97.33;27.88,97.40",
+    "27.88,97.40;27.70,97.05;27.08,97.13;27.26,96.42;26.57,95.12;26.00,95.16;25.16,94.60;24.68,94.55;23.85,94.11;24.08,93.33;23.04,93.29;22.70,93.06;22.28,93.17;22.04,92.67;23.63,92.15;23.62,91.87;22.99,91.71;23.50,91.16;24.07,91.47;24.13,91.92;24.98,92.38;25.15,91.80;25.13,90.87;25.27,89.92;25.97,89.83;26.01,89.36;26.45,88.56;25.77,88.21;25.24,88.93;24.87,88.31;24.50,88.08;24.23,88.70;23.63,88.53;22.88,88.88;22.06,89.03;21.69,88.89;21.70,88.21;21.50,86.98;20.74,87.03;20.15,86.50;19.48,85.06;18.30,83.94;17.67,83.19;17.02,82.19;16.56,82.19;16.31,81.69;15.95,80.79;15.90,80.32;15.14,80.03;13.84,80.23;13.01,80.29;12.06,79.86;10.36,79.86;10.31,79.34;9.55,78.89;9.22,79.19;8.93,78.28;8.25,77.94;7.97,77.54;8.90,76.59;10.30,76.13;11.31,75.75;11.78,75.40;12.74,74.86;13.99,74.62;14.62,74.44;15.99,73.53;17.93,73.12;19.21,72.82;20.42,72.82;21.36,72.63;20.76,71.18;20.88,70.47;22.09,69.16;22.45,69.64;22.84,69.35;23.69,68.18;24.36,68.84;24.36,71.04;25.22,70.84;25.72,70.28;26.49,70.17;26.94,69.51;27.99,70.62;27.91,71.78;28.96,72.82;29.98,73.45;30.98,74.42;31.69,74.41;31.69,74.41;32.45,73.85;33.25,73.55;34.15,73.35;34.85,73.45;35.35,73.15;35.85,72.75;36.75,72.88;36.88,74.07;37.06,74.58;37.16,75.18;36.70,75.92;35.95,76.22;35.52,77.84;35.95,78.42;36.05,79.25;35.95,79.95;35.35,80.38;34.55,79.90;34.32,78.95;33.51,78.85;32.99,79.25;32.48,79.20;31.51,78.75;30.88,79.72;30.18,81.11;29.73,80.48;28.79,80.09;28.42,81.06;27.93,82.00;27.36,83.30;27.23,84.68;26.73,85.25;26.63,86.02;26.40,87.23;26.41,88.06;26.81,88.17;27.45,88.04;27.88,88.12;28.09,88.73;27.30,88.81;27.10,88.84;26.72,89.74;26.88,90.37;26.81,91.22;26.84,92.03;27.45,92.10;27.77,91.70;27.90,92.50;28.64,93.41;29.28,94.57;29.03,95.40;29.45,96.12;28.83,96.59;28.41,96.25;28.26,97.33;27.88,97.40",
     "22.04,92.67;21.32,92.65;21.48,92.30;20.67,92.37;21.19,92.08;21.70,92.03;22.18,91.83;22.77,91.42;22.81,90.50;22.39,90.59;21.84,90.27;22.04,89.85;21.86,89.70;21.97,89.42;22.06,89.03;22.88,88.88;23.63,88.53;24.23,88.70;24.50,88.08;24.87,88.31;25.24,88.93;25.77,88.21;26.45,88.56;26.01,89.36;25.97,89.83;25.27,89.92;25.13,90.87;25.15,91.80;24.98,92.38;24.13,91.92;24.07,91.47;23.50,91.16;22.99,91.71;23.62,91.87;23.63,92.15;22.04,92.67",
     "27.77,91.70;27.45,92.10;26.84,92.03;26.81,91.22;26.88,90.37;26.72,89.74;27.10,88.84;27.30,88.81;28.04,89.48;28.30,90.02;28.06,90.73;28.04,91.26;27.77,91.70",
     "27.88,88.12;27.45,88.04;26.81,88.17;26.41,88.06;26.40,87.23;26.63,86.02;26.73,85.25;27.23,84.68;27.36,83.30;27.93,82.00;28.42,81.06;28.79,80.09;29.73,80.48;30.18,81.11;30.42,81.53;30.12,82.33;29.46,83.34;29.32,83.90;28.84,84.23;28.64,85.01;28.20,85.82;27.97,86.95;27.88,88.12",
-    "30.98,74.42;29.98,73.45;28.96,72.82;27.91,71.78;27.99,70.62;26.94,69.51;26.49,70.17;25.72,70.28;25.22,70.84;24.36,71.04;24.36,68.84;23.69,68.18;23.94,67.44;24.66,67.15;25.43,66.37;25.24,64.53;25.22,62.91;25.08,61.50;26.24,61.87;26.76,63.32;27.22,63.23;27.38,62.76;28.26,62.73;28.70,61.77;29.30,61.37;29.83,60.87;29.32,62.55;29.47,63.55;29.34,64.15;29.56,64.35;29.47,65.05;29.89,66.35;30.74,66.38;31.30,66.94;31.30,67.68;31.58,67.79;31.71,68.56;31.62,68.93;31.90,69.32;32.50,69.26;33.11,69.69;33.36,70.32;34.02,69.93;33.99,70.88;34.35,71.16;34.73,71.12;35.15,71.61;35.65,71.50;36.07,71.26;36.51,71.85;36.72,72.92;36.79,73.57;36.68,73.15;36.05,72.52;35.45,72.60;34.65,73.25;34.10,73.65;33.20,73.40;32.50,73.75;32.25,74.80;32.20,75.15;31.69,74.41;30.98,74.42",
-    "37.13,75.16;36.95,75.45;37.06,74.77;37.13,75.16",
-    "36.67,75.90;36.52,75.95;36.95,75.46;36.67,75.90",
-    "37.36,66.52;37.36,67.08;37.14,67.83;37.02,68.14;37.34,68.86;37.15,69.20;37.61,69.52;37.59,70.12;37.74,70.27;38.14,70.38;38.49,70.81;38.26,71.35;37.95,71.24;37.91,71.54;37.07,71.45;36.74,71.84;36.95,72.19;37.05,72.64;37.50,73.26;37.42,73.95;37.42,74.98;37.13,75.16;37.02,74.58;36.84,74.07;36.72,72.92;36.51,71.85;36.07,71.26;35.65,71.50;35.15,71.61;34.73,71.12;34.35,71.16;33.99,70.88;34.02,69.93;33.36,70.32;33.11,69.69;32.50,69.26;31.90,69.32;31.62,68.93;31.71,68.56;31.58,67.79;31.30,67.68;31.30,66.94;30.74,66.38;29.89,66.35;29.47,65.05;29.56,64.35;29.34,64.15;29.47,63.55;29.32,62.55;29.83,60.87;30.74,61.78;31.38,61.70;31.55,60.94;32.18,60.86;32.98,60.54;33.53,60.96;33.68,60.53;34.40,60.80;35.65,61.21;35.27,62.23;35.40,62.98;35.86,63.19;36.01,63.98;36.31,64.55;37.11,64.75;37.31,65.59;37.66,65.75;37.39,66.22;37.36,66.52",
+    "23.94,67.44;24.66,67.15;25.43,66.37;25.24,64.53;25.22,62.91;25.08,61.50;26.24,61.87;26.76,63.32;27.22,63.23;27.38,62.76;28.26,62.73;28.70,61.77;29.30,61.37;29.83,60.87;29.32,62.55;29.47,63.55;29.34,64.15;29.56,64.35;29.47,65.05;29.89,66.35;30.74,66.38;31.30,66.94;31.30,67.68;31.58,67.79;31.71,68.56;31.62,68.93;31.90,69.32;32.50,69.26;33.11,69.69;33.36,70.32;34.02,69.93;33.99,70.88;34.35,71.16;34.73,71.12;35.15,71.61;35.65,71.50;36.07,71.26;36.51,71.85;36.71,72.86;35.85,72.74;35.85,72.74;35.85,72.74;35.85,72.74;35.85,72.74;35.85,72.74;35.85,72.74;35.84,72.74;35.84,72.74;35.34,73.14;34.85,73.44;34.15,73.34;34.15,73.34;34.15,73.34;34.15,73.34;34.15,73.34;33.25,73.54;33.25,73.54;32.45,73.84;32.45,73.84;32.44,73.84;32.44,73.84;31.69,74.40;30.98,74.41;29.98,73.44;29.98,73.44;29.98,73.44;28.97,72.82;27.92,71.77;28.00,70.62;28.00,70.62;28.00,70.62;28.00,70.61;28.00,70.61;28.00,70.61;28.00,70.61;28.00,70.61;28.00,70.61;26.95,69.51;26.95,69.51;26.95,69.51;26.95,69.51;26.94,69.51;26.94,69.50;26.94,69.50;26.94,69.50;26.94,69.50;26.94,69.50;26.94,69.50;26.94,69.50;26.94,69.51;26.94,69.51;26.94,69.51;26.93,69.51;26.93,69.51;26.93,69.51;26.93,69.51;26.49,70.16;25.72,70.27;25.72,70.27;25.72,70.27;25.72,70.27;25.72,70.27;25.72,70.27;25.72,70.28;25.71,70.28;25.21,70.84;24.37,71.03;24.37,68.84;24.37,68.84;24.37,68.84;24.37,68.84;24.37,68.84;24.37,68.84;24.37,68.84;24.37,68.84;24.37,68.84;23.70,68.17;23.70,68.17;23.70,68.17;23.70,68.17;23.70,68.17;23.70,68.17;23.94,67.44",
+    "37.36,67.08;37.14,67.83;37.02,68.14;37.34,68.86;37.15,69.20;37.61,69.52;37.59,70.12;37.74,70.27;38.14,70.38;38.49,70.81;38.26,71.35;37.95,71.24;37.91,71.54;37.07,71.45;36.74,71.84;36.95,72.19;37.05,72.64;37.50,73.26;37.42,73.95;37.42,74.98;37.16,75.14;37.07,74.58;37.07,74.58;37.07,74.58;36.89,74.07;36.76,72.88;36.76,72.88;36.76,72.88;36.76,72.88;36.76,72.88;36.76,72.87;36.76,72.87;36.76,72.87;36.76,72.87;36.76,72.87;36.75,72.87;36.75,72.87;36.75,72.87;36.75,72.87;36.71,72.86;36.51,71.85;36.07,71.26;35.65,71.50;35.15,71.61;34.73,71.12;34.35,71.16;33.99,70.88;34.02,69.93;33.36,70.32;33.11,69.69;32.50,69.26;31.90,69.32;31.62,68.93;31.71,68.56;31.58,67.79;31.30,67.68;31.30,66.94;30.74,66.38;29.89,66.35;29.47,65.05;29.56,64.35;29.34,64.15;29.47,63.55;29.32,62.55;29.83,60.87;30.74,61.78;31.38,61.70;31.55,60.94;32.18,60.86;32.98,60.54;33.53,60.96;33.68,60.53;34.40,60.80;35.65,61.21;35.27,62.23;35.40,62.98;35.86,63.19;36.01,63.98;36.31,64.55;37.11,64.75;37.31,65.59;37.66,65.75;37.39,66.22;37.36,66.52;37.36,67.08",
     "37.14,67.83;38.16,68.39;38.90,68.18;39.14,67.44;39.58,67.70;39.53,68.54;40.09,69.01;40.73,69.33;40.96,70.67;40.50,70.46;40.22,70.60;40.24,71.01;39.94,70.65;40.10,69.56;39.53,69.46;39.60,70.55;39.28,71.78;39.43,73.68;38.51,73.93;38.61,74.26;38.38,74.86;37.99,74.83;37.42,74.98;37.42,73.95;37.50,73.26;37.05,72.64;36.95,72.19;36.74,71.84;37.07,71.45;37.91,71.54;37.95,71.24;38.26,71.35;38.49,70.81;38.14,70.38;37.74,70.27;37.59,70.12;37.61,69.52;37.15,69.20;37.34,68.86;37.02,68.14;37.14,67.83",
     "42.27,70.96;42.70,71.19;42.85,71.84;42.50,73.49;43.09,73.65;43.30,74.21;42.88,75.64;42.99,76.00;42.96,77.66;42.86,79.14;42.50,79.64;42.35,80.26;42.12,80.12;41.58,78.54;41.19,78.19;41.07,76.90;40.43,76.53;40.56,75.47;40.37,74.78;39.89,73.82;39.66,73.96;39.43,73.68;39.28,71.78;39.60,70.55;39.53,69.46;40.10,69.56;39.94,70.65;40.24,71.01;40.15,71.77;40.87,73.06;41.39,71.87;41.14,71.16;41.52,70.42;42.17,71.26;42.27,70.96",
     "41.78,52.50;42.12,52.94;42.32,54.08;42.04,54.76;41.26,55.46;41.31,55.97;41.32,57.10;41.83,56.93;42.17,57.79;42.75,58.63;42.22,59.98;41.43,60.08;41.22,60.47;41.27,61.55;41.08,61.88;40.05,62.37;39.36,63.52;38.89,64.17;38.40,65.22;37.97,66.55;37.36,66.52;37.39,66.22;37.66,65.75;37.31,65.59;37.11,64.75;36.31,64.55;36.01,63.98;35.86,63.19;35.40,62.98;35.27,62.23;35.65,61.21;36.49,61.12;36.53,60.38;37.41,59.23;37.52,58.44;38.03,57.33;38.12,56.62;37.94,56.18;37.96,55.51;37.39,54.80;37.20,53.92;37.91,53.74;38.95,53.88;39.29,53.10;39.98,53.36;40.03,52.69;40.88,52.92;40.63,53.86;40.95,54.74;41.55,54.01;42.12,53.72;41.87,52.92;41.14,52.81;41.78,52.50",
@@ -4530,8 +5986,8 @@ private val WORLD_MAP_RAW_POLYGONS: Array<String> = arrayOf(
     "-40.81,147.69;-40.88,148.29;-42.06,148.36;-42.41,148.02;-43.21,147.91;-42.94,147.56;-43.63,146.87;-43.58,146.66;-43.55,146.05;-42.69,145.43;-42.03,145.30;-41.16,144.72;-40.70,144.74;-40.79,145.40;-41.14,146.36;-41.00,146.91;-40.81,147.69",
     "-32.22,126.15;-32.73,125.09;-32.96,124.22;-33.48,124.03;-33.89,123.66;-33.91,122.81;-34.00,122.18;-33.82,121.30;-33.93,120.58;-33.98,119.89;-34.51,119.30;-34.46,119.01;-34.75,118.51;-35.06,118.02;-35.03,117.30;-35.03,116.63;-34.39,115.56;-34.20,115.03;-33.62,115.05;-33.49,115.55;-33.26,115.71;-32.90,115.68;-32.21,115.80;-31.61,115.69;-30.60,115.16;-30.03,115.00;-29.46,115.04;-28.81,114.64;-28.52,114.62;-28.12,114.17;-27.33,114.05;-26.54,113.48;-26.12,113.34;-26.55,113.78;-25.62,113.44;-25.91,113.94;-26.30,114.23;-25.79,114.22;-25.00,113.72;-24.68,113.63;-24.38,113.39;-23.81,113.50;-23.56,113.71;-23.06,113.84;-22.48,113.74;-21.76,114.15;-22.52,114.23;-21.83,114.65;-21.50,115.46;-21.07,115.95;-20.70,116.71;-20.62,117.17;-20.75,117.44;-20.37,118.23;-20.26,118.84;-20.04,118.99;-19.95,119.25;-19.98,119.81;-19.68,120.86;-19.24,121.40;-18.71,121.66;-18.20,122.24;-17.80,122.29;-17.25,122.31;-16.41,123.01;-17.27,123.43;-17.07,123.86;-16.60,123.50;-16.11,123.82;-16.33,124.26;-15.57,124.38;-15.08,124.93;-14.68,125.17;-14.51,125.67;-14.23,125.69;-14.35,126.13;-14.10,126.14;-13.95,126.58;-13.82,127.07;-14.28,127.80;-14.87,128.36;-14.88,128.99;-14.97,129.62;-14.42,129.41;-13.62,129.89;-13.36,130.34;-13.11,130.18;-12.54,130.62;-12.18,131.22;-12.30,131.74;-12.11,132.58;-11.60,132.56;-11.27,131.82;-11.13,132.36;-11.38,133.02;-11.79,133.55;-12.04,134.39;-11.94,134.68;-12.25,135.30;-11.96,135.88;-12.05,136.26;-11.86,136.49;-12.35,136.95;-12.89,136.69;-13.29,136.31;-13.32,135.96;-13.72,136.08;-14.22,135.78;-14.72,135.43;-15.00,135.50;-15.55,136.30;-15.87,137.07;-16.22,137.58;-16.81,138.30;-16.81,138.59;-17.06,139.11;-17.37,139.26;-17.71,140.22;-17.37,140.88;-16.83,141.07;-16.39,141.27;-15.84,141.40;-15.04,141.70;-14.56,141.56;-14.27,141.64;-13.70,141.52;-12.94,141.65;-12.74,141.84;-12.41,141.69;-11.88,141.93;-11.33,142.12;-11.04,142.14;-10.67,142.52;-11.16,142.80;-11.78,142.87;-11.91,143.12;-12.33,143.16;-12.83,143.52;-13.40,143.60;-13.76,143.56;-14.55,143.92;-14.17,144.56;-14.59,144.89;-14.98,145.37;-15.43,145.27;-16.29,145.49;-16.78,145.64;-16.91,145.89;-17.76,146.16;-18.28,146.06;-18.96,146.39;-19.48,147.47;-19.96,148.18;-20.39,148.85;-20.63,148.72;-21.26,149.29;-22.34,149.68;-22.12,150.08;-22.56,150.48;-22.40,150.73;-23.46,150.90;-24.08,151.61;-24.46,152.07;-25.27,152.86;-26.07,153.14;-26.64,153.16;-27.26,153.09;-28.11,153.57;-29.00,153.51;-29.46,153.34;-30.35,153.07;-30.92,153.09;-31.64,152.89;-32.55,152.45;-33.04,151.71;-33.82,151.34;-34.31,151.01;-35.17,150.71;-35.67,150.33;-36.42,150.08;-37.11,149.95;-37.43,150.00;-37.77,149.42;-37.81,148.30;-38.22,147.38;-38.61,146.92;-39.04,146.32;-38.59,145.49;-38.42,144.88;-37.90,145.03;-38.09,144.49;-38.81,143.61;-38.54,142.75;-38.38,142.18;-38.31,141.61;-38.02,140.64;-37.40,139.99;-36.64,139.81;-36.14,139.57;-35.73,139.08;-35.61,138.12;-35.13,138.45;-34.38,138.21;-35.08,137.72;-35.26,136.83;-34.71,137.35;-34.13,137.50;-33.64,137.89;-32.90,137.81;-33.75,137.00;-34.09,136.37;-34.89,135.99;-34.48,135.21;-33.95,135.24;-33.22,134.61;-32.85,134.09;-32.62,134.27;-32.01,132.99;-31.98,132.29;-31.50,131.33;-31.59,129.54;-31.95,128.24;-32.28,127.10;-32.22,126.15",
     "7.52,81.79;6.48,81.64;6.20,81.22;5.97,80.35;6.76,79.87;8.20,79.70;9.82,80.15;9.27,80.84;8.56,81.30;7.52,81.79",
+    "42.92,80.18;43.18,80.87;44.92,79.97;45.32,81.95;45.54,82.46;47.33,83.18;47.00,85.16;47.45,85.72;48.46,85.77;48.55,86.60;49.21,87.36;49.30,87.75;48.60,88.01;48.07,88.85;47.69,90.28;46.89,90.97;45.72,90.59;45.29,90.95;45.12,92.13;44.98,93.48;44.35,94.69;44.24,95.31;43.32,95.76;42.73,96.35;42.75,97.45;42.52,99.52;42.66,100.85;42.51,101.83;41.91,103.31;41.91,104.52;41.60,104.96;42.13,106.13;42.48,107.74;42.52,109.24;42.87,110.41;43.41,111.13;43.74,111.83;44.07,111.67;44.46,111.35;45.10,111.87;45.01,112.44;44.81,113.46;45.34,114.46;45.73,115.99;46.39,116.72;46.67,117.42;46.81,118.87;46.69,119.66;47.05,119.77;47.75,118.87;48.07,118.06;47.70,117.30;47.85,116.31;47.73,115.74;48.14,115.49;49.13,116.19;49.89,116.68;49.51,117.88;50.14,119.29;50.58,119.28;51.64,120.18;51.96,120.74;52.52,120.73;52.75,120.18;53.25,121.00;53.43,122.25;53.46,123.57;53.16,125.07;52.79,125.95;51.78,126.56;51.35,126.94;50.74,127.29;49.76,127.66;49.44,129.40;48.73,130.58;47.79,130.99;47.79,132.51;48.18,133.37;48.48,135.03;47.58,134.50;47.21,134.11;46.12,133.77;45.14,133.10;45.32,131.88;44.97,131.03;44.11,131.29;42.93,131.14;42.90,130.63;42.40,130.64;42.99,129.99;42.42,129.60;41.99,128.05;41.47,128.21;41.50,127.34;41.82,126.87;41.11,126.18;40.57,125.08;39.93,124.27;39.64,122.87;39.17,122.13;38.90,121.05;39.36,121.59;39.75,121.38;40.42,122.17;40.95,121.64;40.59,120.77;39.90,119.64;39.25,119.02;39.20,118.04;38.74,117.53;38.06,118.06;37.90,118.88;37.45,118.91;37.16,119.70;37.87,120.82;37.48,121.71;37.45,122.36;36.93,122.52;36.65,121.10;36.11,120.64;35.61,119.66;34.91,119.15;34.36,120.23;33.38,120.62;32.46,121.23;31.69,121.91;30.95,121.89;30.68,121.26;30.14,121.50;29.83,122.09;29.02,121.94;28.23,121.68;28.14,121.13;27.05,120.40;25.74,119.59;24.55,118.66;23.62,117.28;22.78,115.89;22.67,114.76;22.22,114.15;22.55,113.81;22.05,113.24;21.55,111.84;21.40,110.79;20.34,110.44;20.28,109.89;21.01,109.63;21.40,109.86;21.72,108.52;21.55,108.05;21.81,107.04;22.22,106.57;22.79,106.73;22.98,105.81;23.35,105.33;22.82,104.48;22.70,103.50;22.71,102.71;22.46,102.17;22.32,101.65;21.17,101.80;21.20,101.27;21.44,101.18;21.85,101.15;21.56,100.42;21.74,99.98;22.12,99.24;22.95,99.53;23.14,98.90;24.06,98.66;23.90,97.60;25.08,97.72;25.92,98.67;26.74,98.71;27.51,98.68;27.75,98.25;28.34,97.91;28.26,97.34;28.26,97.34;28.26,97.34;28.27,97.34;28.27,97.34;28.27,97.34;28.27,97.33;28.27,97.33;28.27,97.33;28.27,97.33;28.27,97.33;28.27,97.33;28.27,97.33;28.27,97.33;28.27,97.33;28.42,96.27;28.82,96.59;28.83,96.59;28.83,96.60;28.83,96.60;28.83,96.60;28.83,96.60;28.83,96.60;28.83,96.60;28.83,96.60;28.83,96.60;28.83,96.60;28.84,96.60;28.84,96.60;28.84,96.59;29.46,96.13;29.46,96.13;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.12;29.46,96.11;29.46,96.11;29.46,96.11;29.04,95.40;29.29,94.57;29.29,94.57;29.29,94.57;29.29,94.57;29.29,94.56;29.29,94.56;29.29,94.56;29.29,94.56;29.29,94.56;28.65,93.41;28.65,93.41;28.65,93.41;27.91,92.50;27.78,91.70;27.78,91.69;27.78,91.69;27.78,91.69;27.78,91.69;27.78,91.69;27.78,91.69;27.78,91.69;27.78,91.69;27.78,91.69;28.04,91.26;28.06,90.73;28.30,90.02;28.04,89.48;27.31,88.82;28.09,88.74;28.09,88.74;28.09,88.74;28.09,88.74;28.09,88.74;28.09,88.74;28.09,88.74;28.09,88.74;28.09,88.74;28.10,88.74;28.10,88.73;28.10,88.73;28.10,88.73;28.10,88.73;28.10,88.73;28.10,88.73;28.10,88.73;28.10,88.73;28.10,88.73;27.89,88.12;27.89,88.12;27.89,88.12;27.88,88.11;27.88,88.11;27.88,88.11;27.88,88.11;27.88,88.11;27.88,88.11;27.88,88.11;27.88,88.11;27.88,88.11;27.88,88.11;27.97,86.95;28.20,85.82;28.64,85.01;28.84,84.23;29.32,83.90;29.46,83.34;30.12,82.33;30.42,81.53;30.19,81.12;30.19,81.12;30.19,81.12;30.19,81.12;30.19,81.12;30.19,81.12;30.19,81.12;30.89,79.73;31.51,78.77;32.48,79.21;32.48,79.21;32.48,79.21;32.48,79.21;32.99,79.26;32.99,79.26;32.99,79.26;32.99,79.26;32.99,79.26;32.99,79.26;32.99,79.26;33.00,79.26;33.00,79.26;33.51,78.86;34.31,78.96;34.54,79.90;34.54,79.90;34.54,79.90;34.54,79.91;34.54,79.91;34.54,79.91;34.54,79.91;34.54,79.91;34.54,79.91;35.34,80.39;35.35,80.39;35.35,80.39;35.35,80.39;35.35,80.39;35.35,80.39;35.35,80.39;35.35,80.39;35.35,80.39;35.35,80.39;35.35,80.39;35.36,80.39;35.36,80.39;35.96,79.96;35.96,79.96;35.96,79.96;35.96,79.96;35.96,79.96;35.96,79.95;35.96,79.95;35.96,79.95;35.96,79.95;36.06,79.25;36.06,79.25;36.06,79.25;36.06,79.25;35.96,78.42;35.96,78.42;35.96,78.42;35.96,78.42;35.96,78.41;35.96,78.41;35.53,77.84;35.96,76.23;36.70,75.93;36.70,75.93;36.71,75.93;36.71,75.93;36.71,75.93;36.71,75.93;36.71,75.93;37.17,75.19;37.17,75.18;37.17,75.18;37.17,75.18;37.17,75.18;37.17,75.18;37.17,75.18;37.17,75.18;37.16,75.14;37.42,74.98;37.99,74.83;38.38,74.86;38.61,74.26;38.51,73.93;39.43,73.68;39.66,73.96;39.89,73.82;40.37,74.78;40.56,75.47;40.43,76.53;41.07,76.90;41.19,78.19;41.58,78.54;42.12,80.12;42.35,80.26;42.92,80.18",
     "18.51,108.66;19.37,108.63;19.82,109.12;20.10,110.21;20.08,110.79;19.70,111.01;19.26,110.57;18.68,110.34;18.20,109.48;18.51,108.66",
-    "42.92,80.18;43.18,80.87;44.92,79.97;45.32,81.95;45.54,82.46;47.33,83.18;47.00,85.16;47.45,85.72;48.46,85.77;48.55,86.60;49.21,87.36;49.30,87.75;48.60,88.01;48.07,88.85;47.69,90.28;46.89,90.97;45.72,90.59;45.29,90.95;45.12,92.13;44.98,93.48;44.35,94.69;44.24,95.31;43.32,95.76;42.73,96.35;42.75,97.45;42.52,99.52;42.66,100.85;42.51,101.83;41.91,103.31;41.91,104.52;41.60,104.96;42.13,106.13;42.48,107.74;42.52,109.24;42.87,110.41;43.41,111.13;43.74,111.83;44.07,111.67;44.46,111.35;45.10,111.87;45.01,112.44;44.81,113.46;45.34,114.46;45.73,115.99;46.39,116.72;46.67,117.42;46.81,118.87;46.69,119.66;47.05,119.77;47.75,118.87;48.07,118.06;47.70,117.30;47.85,116.31;47.73,115.74;48.14,115.49;49.13,116.19;49.89,116.68;49.51,117.88;50.14,119.29;50.58,119.28;51.64,120.18;51.96,120.74;52.52,120.73;52.75,120.18;53.25,121.00;53.43,122.25;53.46,123.57;53.16,125.07;52.79,125.95;51.78,126.56;51.35,126.94;50.74,127.29;49.76,127.66;49.44,129.40;48.73,130.58;47.79,130.99;47.79,132.51;48.18,133.37;48.48,135.03;47.58,134.50;47.21,134.11;46.12,133.77;45.14,133.10;45.32,131.88;44.97,131.03;44.11,131.29;42.93,131.14;42.90,130.63;42.40,130.64;42.99,129.99;42.42,129.60;41.99,128.05;41.47,128.21;41.50,127.34;41.82,126.87;41.11,126.18;40.57,125.08;39.93,124.27;39.64,122.87;39.17,122.13;38.90,121.05;39.36,121.59;39.75,121.38;40.42,122.17;40.95,121.64;40.59,120.77;39.90,119.64;39.25,119.02;39.20,118.04;38.74,117.53;38.06,118.06;37.90,118.88;37.45,118.91;37.16,119.70;37.87,120.82;37.48,121.71;37.45,122.36;36.93,122.52;36.65,121.10;36.11,120.64;35.61,119.66;34.91,119.15;34.36,120.23;33.38,120.62;32.46,121.23;31.69,121.91;30.95,121.89;30.68,121.26;30.14,121.50;29.83,122.09;29.02,121.94;28.23,121.68;28.14,121.13;27.05,120.40;25.74,119.59;24.55,118.66;23.62,117.28;22.78,115.89;22.67,114.76;22.22,114.15;22.55,113.81;22.05,113.24;21.55,111.84;21.40,110.79;20.34,110.44;20.28,109.89;21.01,109.63;21.40,109.86;21.72,108.52;21.55,108.05;21.81,107.04;22.22,106.57;22.79,106.73;22.98,105.81;23.35,105.33;22.82,104.48;22.70,103.50;22.71,102.71;22.46,102.17;22.32,101.65;21.17,101.80;21.20,101.27;21.44,101.18;21.85,101.15;21.56,100.42;21.74,99.98;22.12,99.24;22.95,99.53;23.14,98.90;24.06,98.66;23.90,97.60;25.08,97.72;25.92,98.67;26.74,98.71;27.51,98.68;27.75,98.25;28.34,97.91;28.26,97.33;28.41,96.25;28.83,96.59;29.45,96.12;29.03,95.40;29.28,94.57;28.64,93.41;27.90,92.50;27.77,91.70;28.04,91.26;28.06,90.73;28.30,90.02;28.04,89.48;27.30,88.81;28.09,88.73;27.88,88.12;27.97,86.95;28.20,85.82;28.64,85.01;28.84,84.23;29.32,83.90;29.46,83.34;30.12,82.33;30.42,81.53;30.18,81.11;30.88,79.72;31.52,78.74;32.15,78.58;32.55,78.85;32.48,79.18;32.96,79.21;32.96,79.21;33.35,79.55;34.25,80.15;35.10,80.32;35.62,79.92;35.88,78.95;35.52,77.82;35.85,76.95;36.35,76.15;36.52,75.95;36.67,75.90;36.95,75.46;36.95,75.45;36.95,75.45;37.13,75.16;37.42,74.98;37.99,74.83;38.38,74.86;38.61,74.26;38.51,73.93;39.43,73.68;39.66,73.96;39.89,73.82;40.37,74.78;40.56,75.47;40.43,76.53;41.07,76.90;41.19,78.19;41.58,78.54;42.12,80.12;42.35,80.26;42.92,80.18",
     "24.39,121.78;22.79,121.18;21.97,120.75;22.81,120.22;23.56,120.11;24.54,120.69;25.30,121.50;25.00,121.95;24.39,121.78",
     "46.89,10.44;46.75,11.05;46.94,11.16;47.12,12.15;46.77,12.38;46.51,13.81;46.02,13.70;45.59,13.94;45.74,13.14;45.38,12.33;44.89,12.38;44.60,12.26;44.09,12.59;43.59,13.53;42.76,14.03;41.96,15.14;41.96,15.93;41.74,16.17;41.54,15.89;41.18,16.79;40.88,17.52;40.36,18.38;40.17,18.48;39.81,18.29;40.28,17.74;40.44,16.87;39.80,16.45;39.42,17.17;38.90,17.05;38.84,16.64;37.99,16.10;37.91,15.68;38.21,15.69;38.75,15.89;38.96,16.11;39.54,15.72;40.05,15.41;40.17,15.00;40.60,14.70;40.79,14.06;41.19,13.63;41.25,12.89;41.70,12.11;42.36,11.19;42.93,10.51;43.92,10.20;44.04,9.70;44.37,8.89;44.23,8.43;43.77,7.85;43.69,7.44;44.13,7.55;44.25,7.01;45.03,6.75;45.33,7.10;45.71,6.80;45.99,6.84;45.78,7.27;45.82,7.76;46.16,8.32;46.01,8.49;46.04,8.97;46.44,9.18;46.31,9.92;46.48,10.36;46.89,10.44",
     "38.14,14.76;38.23,15.52;37.44,15.16;37.13,15.31;36.62,15.10;37.00,14.34;37.10,13.83;37.61,12.43;38.13,12.57;38.03,13.74;38.14,14.76",
@@ -4590,58 +6046,224 @@ private val WORLD_MAP_RAW_POLYGONS: Array<String> = arrayOf(
     "41.86,20.59;42.22,20.52;42.32,20.28;42.59,20.07;42.81,20.26;42.88,20.50;43.22,20.64;43.27,20.81;43.13,20.96;43.07,21.14;42.91,21.27;42.86,21.44;42.68,21.63;42.68,21.78;42.44,21.66;42.32,21.54;42.25,21.58;42.21,21.35;42.05,20.76;41.85,20.72;41.86,20.59",
     "10.76,-61.68;10.89,-61.11;10.86,-60.90;10.11,-60.94;10.00,-61.77;10.09,-61.95;10.37,-61.66;10.76,-61.68",
     "3.51,30.83;4.17,29.95;4.60,29.72;4.39,29.16;4.46,28.70;4.29,28.43;4.41,27.98;5.23,27.37;5.55,27.21;5.95,26.47;6.55,26.21;6.98,25.80;7.50,25.12;7.83,25.11;8.23,24.57;8.62,23.89;8.73,24.19;8.92,24.54;9.81,24.79;10.27,25.07;10.41,25.79;10.14,25.96;9.55,26.48;9.47,26.75;9.64,27.11;9.60,27.83;9.40,27.97;9.40,28.97;9.60,29.00;9.79,29.52;10.08,29.62;10.29,30.00;9.71,30.84;9.81,31.35;10.53,31.85;11.08,32.40;11.68,32.31;11.97,32.07;12.02,32.67;12.25,32.74;12.18,33.21;11.44,33.09;10.72,33.21;10.33,33.72;9.98,33.84;9.48,33.82;9.46,33.96;8.68,33.97;8.38,33.83;8.35,33.29;7.78,32.95;7.71,33.57;7.23,34.08;6.83,34.25;6.59,34.71;5.51,35.30;4.85,34.62;4.25,34.01;3.79,33.39;3.79,32.69;3.56,31.88;3.78,31.25;3.51,30.83",
-    "13.50,92.90;12.50,92.80;11.50,92.70;11.70,92.60;12.80,92.70;13.50,92.90",
-    "8.20,93.50;7.00,93.80;6.80,93.90;7.50,93.70;8.20,93.50",
-    "20.08,-155.40;19.51,-154.81;18.92,-155.69;19.70,-156.07;20.27,-155.86;20.08,-155.40"
+    "13.52,92.98;13.35,93.08;12.92,92.95;12.55,92.92;12.15,92.82;11.68,92.76;11.52,92.62;12.12,92.68;12.88,92.75;13.42,92.85;13.52,92.98",
+    "10.88,92.58;10.55,92.58;10.52,92.38;10.85,92.42;10.88,92.58",
+    "9.25,92.82;9.12,92.82;9.12,92.70;9.25,92.72;9.25,92.82",
+    "8.35,93.55;7.92,93.58;7.88,93.35;8.32,93.38;8.35,93.55",
+    "7.38,93.88;6.75,93.92;6.75,93.68;7.35,93.68;7.38,93.88",
+    "11.62,72.78;11.12,72.72;10.55,72.65;10.05,72.32;10.58,72.18;11.22,72.52;11.62,72.78",
+    "6.95,73.22;5.82,73.42;4.22,73.55;2.15,73.38;0.28,73.18;-0.65,73.15;0.35,72.95;2.25,73.05;4.35,73.22;5.92,73.12;6.95,73.22",
+    "-20.02,57.58;-20.48,57.75;-20.52,57.32;-20.05,57.42;-20.02,57.58",
+    "-20.88,55.45;-21.38,55.82;-21.35,55.22;-20.92,55.22;-20.88,55.45",
+    "-4.58,55.45;-4.82,55.55;-4.78,55.38;-4.58,55.45",
+    "-11.38,43.35;-11.92,43.52;-12.38,44.52;-12.22,44.22;-11.42,43.22;-11.38,43.35",
+    "12.68,54.48;12.45,54.52;12.32,53.35;12.62,53.38;12.68,54.48",
+    "-5.75,39.32;-6.45,39.55;-6.42,39.18;-5.78,39.20;-5.75,39.32",
+    "38.28,15.65;37.52,15.12;36.68,15.08;37.15,13.58;37.75,12.42;38.18,12.75;38.22,14.25;38.28,15.65",
+    "41.25,9.25;40.42,9.78;39.15,9.58;38.88,8.85;39.22,8.38;40.58,8.18;41.15,8.25;41.25,9.25",
+    "43.02,9.42;42.15,9.55;41.38,9.22;41.58,8.78;42.55,8.58;43.02,9.42",
+    "35.58,23.58;35.38,24.48;35.22,26.28;34.98,25.85;34.95,24.75;35.22,23.52;35.58,23.58",
+    "36.45,28.22;35.88,27.78;36.15,27.72;36.45,28.22",
+    "36.08,14.22;35.82,14.58;35.80,14.32;36.08,14.22",
+    "39.95,3.18;39.65,3.48;39.28,2.98;39.55,2.35;39.95,3.18",
+    "40.08,4.05;39.82,4.32;39.92,3.82;40.08,4.05",
+    "39.12,1.58;38.85,1.42;38.92,1.22;39.12,1.58",
+    "28.58,-16.12;28.02,-16.72;28.32,-16.92;28.58,-16.12",
+    "28.18,-15.38;27.75,-15.62;27.95,-15.85;28.18,-15.38",
+    "29.22,-13.42;28.05,-14.35;28.42,-14.02;29.22,-13.42",
+    "32.88,-16.68;32.62,-17.25;32.85,-17.22;32.88,-16.68",
+    "37.92,-25.15;37.70,-25.88;38.55,-28.62;38.78,-27.05;37.92,-25.15",
+    "17.22,-25.05;16.58,-24.25;15.15,-23.15;14.82,-24.52;16.05,-25.15;17.22,-25.05",
+    "57.95,19.15;57.35,18.78;56.92,18.18;57.45,18.12;57.95,19.15",
+    "57.35,17.12;56.20,16.40;56.65,16.38;57.35,17.12",
+    "58.62,22.85;57.92,22.05;58.38,21.82;58.62,22.85",
+    "62.42,-6.52;61.38,-6.68;62.12,-7.45;62.42,-6.52",
+    "71.15,-8.05;70.82,-8.95;71.08,-8.52;71.15,-8.05",
+    "81.25,58.50;80.15,62.50;79.85,50.20;80.85,47.50;81.25,58.50",
+    "81.20,96.50;79.50,102.50;77.95,104.20;78.50,94.50;80.40,91.50;81.20,96.50",
+    "71.55,-178.50;70.85,-178.90;70.92,178.60;71.52,179.20;71.55,-178.50",
+    "54.42,142.65;51.85,143.25;49.25,144.25;46.62,143.45;45.95,141.95;48.55,142.05;51.55,141.95;53.85,142.25;54.42,142.65",
+    "50.75,156.45;49.25,154.65;46.85,151.85;45.25,148.45;44.15,146.15;44.85,147.55;47.25,152.35;50.75,156.45",
+    "33.55,126.85;33.22,126.55;33.30,126.18;33.52,126.45;33.55,126.85",
+    "26.88,128.32;26.08,127.68;26.45,127.78;26.88,128.32",
+    "28.52,129.72;27.75,128.88;28.25,129.15;28.52,129.72",
+    "24.48,124.32;24.05,123.75;24.35,123.95;24.48,124.32",
+    "1.46,103.85;1.32,104.05;1.24,103.65;1.42,103.68;1.46,103.85",
+    "8.15,98.35;7.75,98.32;7.95,98.25;8.15,98.35",
+    "-8.08,115.12;-8.45,115.72;-8.82,115.18;-8.42,114.45;-8.08,115.12",
+    "-8.22,116.45;-8.88,116.58;-8.85,115.98;-8.28,116.05;-8.22,116.45",
+    "-8.15,117.85;-8.62,119.05;-9.02,118.42;-9.05,116.75;-8.42,116.82;-8.15,117.85",
+    "-9.35,119.85;-10.15,120.82;-10.32,120.15;-9.65,118.95;-9.35,119.85",
+    "-8.22,122.95;-8.68,122.88;-8.85,121.15;-8.72,119.82;-8.35,120.45;-8.22,122.95",
+    "2.18,127.92;1.45,128.68;0.25,128.75;-0.82,128.15;0.35,127.45;1.65,127.48;2.18,127.92",
+    "-2.82,129.52;-3.45,130.85;-3.52,129.25;-3.32,127.92;-2.85,128.25;-2.82,129.52",
+    "-3.08,126.85;-3.82,127.22;-3.78,126.05;-3.12,125.98;-3.08,126.85",
+    "-1.55,105.85;-2.55,106.52;-3.08,106.45;-2.38,105.65;-1.68,105.18;-1.55,105.85",
+    "-2.55,107.92;-3.22,108.25;-3.20,107.55;-2.58,107.58;-2.55,107.92",
+    "11.42,119.55;9.95,118.92;8.42,117.22;8.92,117.52;10.45,118.88;11.42,119.55",
+    "13.52,120.85;12.25,121.38;12.52,120.78;13.45,120.32;13.52,120.85",
+    "11.88,122.15;11.42,123.18;10.45,122.18;11.15,121.95;11.88,122.15",
+    "10.95,123.45;9.12,123.18;9.65,122.42;10.82,122.95;10.95,123.45",
+    "11.28,124.05;9.42,123.35;10.25,123.48;11.28,124.05",
+    "12.68,125.12;11.15,125.72;10.05,125.18;10.82,124.62;12.25,124.32;12.68,125.12",
+    "20.25,-155.82;19.52,-154.82;18.92,-155.68;19.68,-156.05;20.25,-155.82",
+    "21.02,-156.45;20.58,-156.02;20.78,-156.68;21.02,-156.45",
+    "21.72,-157.95;21.25,-157.68;21.32,-158.12;21.58,-158.28;21.72,-157.95",
+    "22.22,-159.35;21.88,-159.38;22.02,-159.78;22.22,-159.35",
+    "-17.48,-149.42;-17.88,-149.12;-17.78,-149.62;-17.48,-149.42",
+    "-13.45,-172.18;-13.85,-171.42;-14.05,-171.85;-13.68,-172.78;-13.45,-172.18",
+    "-9.25,159.65;-9.88,160.82;-9.92,159.95;-9.38,159.58;-9.25,159.65",
+    "57.92,-152.35;56.88,-154.15;57.38,-154.68;57.92,-152.35",
+    "54.85,-163.15;53.45,-166.85;52.15,-174.15;52.95,-171.25;54.25,-165.15;54.85,-163.15",
+    "54.15,-131.75;52.15,-131.12;52.95,-132.45;54.05,-133.05;54.15,-131.75",
+    "-41.82,-73.52;-43.38,-73.68;-43.42,-74.38;-41.88,-74.05;-41.82,-73.52",
+    "-0.02,-91.42;-0.98,-90.95;-1.02,-91.55;-0.25,-91.62;-0.02,-91.42",
+    "47.05,-64.02;46.42,-62.02;45.98,-62.52;46.45,-63.92;47.05,-64.02",
+    "47.05,-60.42;45.95,-59.82;45.55,-61.25;46.42,-61.18;47.05,-60.42",
+    "49.95,-64.15;49.12,-61.72;49.08,-62.65;49.75,-64.52;49.95,-64.15",
+    "48.88,-87.85;47.65,-84.85;46.52,-84.42;46.52,-88.25;46.78,-92.08;47.95,-89.85;48.88,-87.85",
+    "46.02,-85.25;44.15,-86.35;41.68,-87.15;42.55,-87.85;44.85,-87.55;45.82,-86.55;46.02,-85.25",
+    "46.18,-83.85;45.25,-81.35;43.15,-82.42;43.95,-83.85;45.65,-84.35;46.18,-83.85",
+    "42.88,-78.95;42.15,-80.25;41.48,-82.85;41.95,-83.35;42.68,-81.15;42.88,-78.95",
+    "44.22,-76.35;43.55,-76.22;43.25,-79.75;43.88,-78.15;44.22,-76.35",
+    "66.85,-119.50;65.25,-118.85;65.15,-123.45;66.55,-121.85;66.85,-119.50",
+    "62.85,-110.25;61.25,-113.55;60.95,-116.45;62.35,-115.25;62.85,-110.25",
+    "53.85,-97.95;51.15,-96.55;50.42,-96.85;53.25,-99.15;53.85,-97.95",
+    "55.75,109.65;53.55,108.25;51.65,104.25;51.95,105.65;54.15,109.15;55.75,109.65",
+    "46.85,79.15;45.85,77.25;45.15,74.15;46.25,74.85;46.75,77.55;46.85,79.15",
+    "0.42,33.25;-1.15,33.95;-2.68,32.85;-2.35,31.65;-0.45,31.75;0.42,33.25",
+    "-3.38,29.35;-5.85,29.85;-8.75,31.15;-8.45,30.55;-5.65,29.25;-3.38,29.35",
+    "-9.55,33.95;-11.95,34.85;-14.35,35.15;-13.85,34.45;-10.85,34.15;-9.55,33.95",
+    "-15.25,-69.85;-16.55,-68.65;-16.25,-69.45;-15.25,-69.85",
+    "61.65,30.85;60.15,32.45;60.05,31.05;61.25,30.15;61.65,30.85"
 )
 
-private class GlobePolygonRing(
-    val vx: FloatArray,
-    val vy: FloatArray,
-    val vz: FloatArray,
-    val nx: Float,
-    val ny: Float,
-    val nz: Float
+private data class SpherePolygon3D(
+    val latLonPairs: List<Pair<Float, Float>>,
+    val xyzPacked: FloatArray, // [x0, y0, z0, x1, y1, z1, ...] on unit sphere
+    val normalX: Float,
+    val normalY: Float,
+    val normalZ: Float
 )
 
-private val PRECOMPUTED_GLOBE_RINGS: List<GlobePolygonRing> by lazy {
-    val rings = mutableListOf<GlobePolygonRing>()
-    for (raw in WORLD_MAP_RAW_POLYGONS) {
-        val pts = raw.split(";")
-        if (pts.size < 3) continue
-        val n = pts.size
-        val vx = FloatArray(n)
-        val vy = FloatArray(n)
-        val vz = FloatArray(n)
+private val WORLD_SPHERE_POLYGONS_3D: List<SpherePolygon3D> by lazy {
+    WORLD_MAP_RAW_POLYGONS.mapNotNull { rawStr ->
+        val rawPts = rawStr.split(';')
+        if (rawPts.size < 3) return@mapNotNull null
+
+        // Subdivide any segment longer than 2.4 degrees so long borders follow the true 3D spherical curvature!
+        val latLonList = ArrayList<Pair<Float, Float>>(rawPts.size * 2)
+        var prevLat = 0f
+        var prevLon = 0f
+        var hasPrev = false
+
+        for (token in rawPts) {
+            val comma = token.indexOf(',')
+            if (comma <= 0) continue
+            val lat = token.substring(0, comma).toFloatOrNull() ?: continue
+            val lon = token.substring(comma + 1).toFloatOrNull() ?: continue
+            if (hasPrev) {
+                val dLat = lat - prevLat
+                var dLon = lon - prevLon
+                if (abs(dLon) < 180f) {
+                    val distDeg = hypot(dLat, dLon)
+                    if (distDeg > 2.4f) {
+                        val steps = (distDeg / 2.0f).toInt().coerceIn(2, 16)
+                        for (s in 1 until steps) {
+                            val f = s.toFloat() / steps.toFloat()
+                            latLonList.add((prevLat + dLat * f) to (prevLon + dLon * f))
+                        }
+                    }
+                }
+            }
+            latLonList.add(lat to lon)
+            prevLat = lat
+            prevLon = lon
+            hasPrev = true
+        }
+
+        val n = latLonList.size
+        if (n < 3) return@mapNotNull null
+
+        val xyz = FloatArray(n * 3)
         var sumX = 0f
         var sumY = 0f
         var sumZ = 0f
         for (i in 0 until n) {
-            val pair = pts[i].split(",")
-            val latRad = Math.toRadians(pair[0].toDouble()).toFloat()
-            val lonRad = Math.toRadians(pair[1].toDouble()).toFloat()
+            val (latDeg, lonDeg) = latLonList[i]
+            val latRad = (latDeg * PI / 180.0).toFloat()
+            val lonRad = (lonDeg * PI / 180.0).toFloat()
             val cosLat = cos(latRad)
-            val x = cosLat * sin(lonRad)
-            val y = -sin(latRad)
-            val z = cosLat * cos(lonRad)
-            vx[i] = x
-            vy[i] = y
-            vz[i] = z
-            sumX += x
-            sumY += y
-            sumZ += z
+            val x0 = cosLat * sin(lonRad)
+            val y0 = -sin(latRad)
+            val z0 = cosLat * cos(lonRad)
+            val base = i * 3
+            xyz[base] = x0
+            xyz[base + 1] = y0
+            xyz[base + 2] = z0
+            sumX += x0
+            sumY += y0
+            sumZ += z0
         }
-        val len = sqrt(sumX * sumX + sumY * sumY + sumZ * sumZ).coerceAtLeast(1e-4f)
-        rings.add(GlobePolygonRing(vx, vy, vz, sumX / len, sumY / len, sumZ / len))
+        val normLen = sqrt(sumX * sumX + sumY * sumY + sumZ * sumZ).coerceAtLeast(1e-4f)
+        SpherePolygon3D(
+            latLonPairs = latLonList,
+            xyzPacked = xyz,
+            normalX = sumX / normLen,
+            normalY = sumY / normLen,
+            normalZ = sumZ / normLen
+        )
     }
-    rings
 }
 
-private class GlobeInteractivePoseState {
-    var yaw: Float = 0f
-    var pitch: Float = 0f
-    var roll: Float = 0f
-    var velYaw: Float = 0f
+// Precomputed 3D Graticule Latitude Rings & Longitude Meridians on Unit Sphere (Zero sin/cos or Triple allocations per frame!)
+private val GRATICULE_LAT_RINGS_3D: List<Pair<Boolean, FloatArray>> by lazy {
+    val latLevels = listOf(-75f, -60f, -45f, -30f, -15f, 0f, 15f, 30f, 45f, 60f, 75f)
+    latLevels.map { latDeg ->
+        val isEq = latDeg == 0f
+        val latRad = (latDeg * PI / 180.0).toFloat()
+        val cosLat = cos(latRad)
+        val y0 = -sin(latRad)
+        val steps = 61 // 0..360 step 6
+        val packed = FloatArray(steps * 3)
+        for (idx in 0 until steps) {
+            val lonDeg = (idx * 6).toFloat()
+            val lonRad = (lonDeg * PI / 180.0).toFloat()
+            val base = idx * 3
+            packed[base] = cosLat * sin(lonRad)
+            packed[base + 1] = y0
+            packed[base + 2] = cosLat * cos(lonRad)
+        }
+        isEq to packed
+    }
+}
+
+private val GRATICULE_LON_MERIDIANS_3D: List<FloatArray> by lazy {
+    (0 until 360 step 15).map { lonDeg ->
+        val lonRad = (lonDeg * PI / 180.0).toFloat()
+        val sinLon = sin(lonRad)
+        val cosLon = cos(lonRad)
+        val steps = 26 // -75..75 step 6
+        val packed = FloatArray(steps * 3)
+        for (idx in 0 until steps) {
+            val latDeg = (-75 + idx * 6).toFloat()
+            val latRad = (latDeg * PI / 180.0).toFloat()
+            val cosLat = cos(latRad)
+            val base = idx * 3
+            packed[base] = cosLat * sinLon
+            packed[base + 1] = -sin(latRad)
+            packed[base + 2] = cosLat * cosLon
+        }
+        packed
+    }
+}
+
+// Plain mutable holder for 120Hz Globe rotation state so frame updates NEVER trigger Composable recomposition!
+private class GlobePoseState(initialPitch: Float, initialRoll: Float) {
+    var spinYawDelta: Float = 0f
+    var pitch: Float = initialPitch
+    var roll: Float = initialRoll
+    var velYaw: Float = 0.28f
     var velPitch: Float = 0f
     var velRoll: Float = 0f
     var isDragging: Boolean = false
@@ -4659,7 +6281,6 @@ fun GlobeAxisControlRow(
     onChangeDeg: (Float) -> Unit
 ) {
     val is80s = LocalRetro80sMode.current
-    val secondaryCol = rememberRetroSecondaryColor(accentColor)
     val btnShape = RoundedCornerShape(if (is80s) 0.dp else 4.dp)
     val trackShape = RoundedCornerShape(if (is80s) 0.dp else 999.dp)
     val currentOnChange by rememberUpdatedState(onChangeDeg)
@@ -4678,7 +6299,6 @@ fun GlobeAxisControlRow(
             color = if (is80s) accentColor else Color.White,
             fontSize = 8.sp,
             fontFamily = fontFamily,
-            style = glowTextStyle(accentColor, 12f),
             modifier = Modifier.width(88.dp)
         )
 
@@ -4688,7 +6308,6 @@ fun GlobeAxisControlRow(
             fontSize = 10.sp,
             fontFamily = fontFamily,
             fontWeight = FontWeight.Bold,
-            style = glowTextStyle(accentColor, 12f),
             modifier = Modifier
                 .border(1.dp, if (is80s) accentColor else Color(0xFF303030), btnShape)
                 .background(if (is80s) Color(0xFF080808) else Color(0xFF181818), btnShape)
@@ -4728,7 +6347,7 @@ fun GlobeAxisControlRow(
                     modifier = Modifier
                         .fillMaxHeight()
                         .fillMaxWidth(fraction)
-                        .background(secondaryCol, trackShape)
+                        .background(accentColor, trackShape)
                 )
             }
         }
@@ -4739,7 +6358,6 @@ fun GlobeAxisControlRow(
             fontSize = 10.sp,
             fontFamily = fontFamily,
             fontWeight = FontWeight.Bold,
-            style = glowTextStyle(accentColor, 12f),
             modifier = Modifier
                 .border(1.dp, if (is80s) accentColor else Color(0xFF303030), btnShape)
                 .background(if (is80s) Color(0xFF080808) else Color(0xFF181818), btnShape)
@@ -4749,6 +6367,10 @@ fun GlobeAxisControlRow(
     }
 }
 
+// ============================================================================
+// 155+ WORLD COUNTRIES GEOGRAPHIC COORDINATE DATABASE FOR GLOBE CROSSHAIR HUD
+// Resolves the exact country under the center crosshair intersection (cx, cy)!
+// ============================================================================
 private class CountryGeoEntry(
     val name: String,
     val minLat: Float,
@@ -4759,221 +6381,219 @@ private class CountryGeoEntry(
     val centerLon: Float
 )
 
-private val WORLD_COUNTRY_GEO_TABLE: List<CountryGeoEntry> = listOf(
-    CountryGeoEntry("INDIA", 6.7f, 37.1f, 68.1f, 97.4f, 23.5f, 79.0f),
-    CountryGeoEntry("FIJI", -18.3f, -16.0f, -180.0f, 180.0f, -17.3f, 163.9f),
-    CountryGeoEntry("TANZANIA", -11.7f, -1.0f, 29.3f, 40.3f, -6.3f, 34.8f),
-    CountryGeoEntry("W. SAHARA", 21.0f, 27.7f, -17.1f, -8.7f, 24.3f, -12.1f),
-    CountryGeoEntry("CANADA", 41.7f, 83.2f, -141.0f, -52.6f, 61.5f, -98.1f),
-    CountryGeoEntry("UNITED STATES OF AMERICA", 18.9f, 71.4f, -171.8f, -67.0f, 45.7f, -112.6f),
-    CountryGeoEntry("KAZAKHSTAN", 40.7f, 55.4f, 46.5f, 87.4f, 48.2f, 67.3f),
-    CountryGeoEntry("UZBEKISTAN", 37.1f, 45.6f, 55.9f, 73.1f, 41.7f, 63.2f),
-    CountryGeoEntry("PAPUA NEW GUINEA", -10.7f, -2.5f, 141.0f, 156.0f, -6.5f, 145.3f),
-    CountryGeoEntry("INDONESIA", -10.4f, 5.5f, 95.3f, 141.0f, -2.2f, 117.4f),
-    CountryGeoEntry("ARGENTINA", -55.2f, -21.8f, -73.4f, -53.6f, -35.4f, -65.2f),
-    CountryGeoEntry("CHILE", -55.6f, -17.6f, -75.6f, -67.0f, -39.0f, -71.5f),
-    CountryGeoEntry("DEM. REP. CONGO", -13.3f, 5.3f, 12.2f, 31.2f, -2.9f, 23.6f),
-    CountryGeoEntry("SOMALIA", -1.7f, 12.0f, 41.0f, 51.1f, 4.8f, 45.7f),
-    CountryGeoEntry("KENYA", -4.7f, 5.5f, 33.9f, 41.9f, 0.6f, 37.8f),
-    CountryGeoEntry("SUDAN", 8.2f, 22.0f, 21.9f, 38.4f, 16.0f, 29.9f),
-    CountryGeoEntry("CHAD", 7.4f, 23.4f, 13.5f, 23.9f, 15.3f, 18.6f),
-    CountryGeoEntry("HAITI", 18.0f, 19.9f, -74.5f, -71.6f, 18.9f, -72.7f),
-    CountryGeoEntry("DOMINICAN REP.", 17.6f, 19.9f, -71.9f, -68.3f, 18.9f, -70.5f),
-    CountryGeoEntry("RUSSIA", 41.2f, 81.3f, -180.0f, 180.0f, 62.0f, 96.8f),
-    CountryGeoEntry("BAHAMAS", 23.7f, 27.0f, -79.0f, -77.0f, 25.5f, -77.9f),
-    CountryGeoEntry("FALKLAND IS.", -52.3f, -51.1f, -61.2f, -57.8f, -51.7f, -59.4f),
-    CountryGeoEntry("NORWAY", 58.1f, 80.7f, 5.0f, 31.3f, 69.2f, 15.5f),
-    CountryGeoEntry("GREENLAND", 60.0f, 83.6f, -73.3f, -12.2f, 74.8f, -41.5f),
-    CountryGeoEntry("FR. S. ANTARCTIC LANDS", -49.8f, -48.6f, 68.7f, 70.6f, -49.3f, 69.5f),
-    CountryGeoEntry("TIMOR-LESTE", -9.4f, -8.3f, 125.0f, 127.3f, -8.8f, 126.0f),
-    CountryGeoEntry("SOUTH AFRICA", -34.8f, -22.1f, 16.3f, 32.8f, -28.9f, 25.0f),
-    CountryGeoEntry("LESOTHO", -30.6f, -28.6f, 27.0f, 29.3f, -29.6f, 28.2f),
-    CountryGeoEntry("MEXICO", 14.5f, 32.7f, -117.1f, -86.8f, 23.9f, -102.6f),
-    CountryGeoEntry("URUGUAY", -35.0f, -30.1f, -58.4f, -53.2f, -32.8f, -56.0f),
-    CountryGeoEntry("BRAZIL", -33.8f, 5.2f, -74.0f, -34.7f, -10.8f, -53.1f),
-    CountryGeoEntry("BOLIVIA", -22.9f, -9.8f, -69.6f, -57.5f, -16.7f, -64.6f),
-    CountryGeoEntry("PERU", -18.3f, -0.1f, -81.4f, -68.7f, -9.2f, -74.4f),
-    CountryGeoEntry("COLOMBIA", -4.3f, 12.4f, -79.0f, -66.9f, 3.9f, -73.1f),
+private val WORLD_COUNTRIES_GEO_DB: Array<CountryGeoEntry> = arrayOf(
+    // North & Central America & Caribbean
+    CountryGeoEntry("CANADA", 42.0f, 83.0f, -141.0f, -52.6f, 58.0f, -102.0f),
+    CountryGeoEntry("UNITED STATES", 24.5f, 49.4f, -124.8f, -66.9f, 38.5f, -97.5f),
+    CountryGeoEntry("UNITED STATES (ALASKA)", 54.0f, 71.4f, -168.0f, -141.0f, 64.0f, -152.0f),
+    CountryGeoEntry("GREENLAND", 59.8f, 83.6f, -73.0f, -12.0f, 72.0f, -40.0f),
+    CountryGeoEntry("MEXICO", 14.5f, 32.7f, -117.1f, -86.7f, 23.6f, -102.5f),
+    CountryGeoEntry("GUATEMALA", 13.7f, 17.8f, -92.2f, -88.2f, 15.8f, -90.2f),
+    CountryGeoEntry("HONDURAS", 13.0f, 16.5f, -89.4f, -83.1f, 14.8f, -86.2f),
+    CountryGeoEntry("NICARAGUA", 10.7f, 15.0f, -87.7f, -83.1f, 12.9f, -85.2f),
+    CountryGeoEntry("COSTA RICA", 8.0f, 11.2f, -85.9f, -82.6f, 9.9f, -84.1f),
     CountryGeoEntry("PANAMA", 7.2f, 9.6f, -83.0f, -77.2f, 8.5f, -80.1f),
-    CountryGeoEntry("COSTA RICA", 8.2f, 11.2f, -85.9f, -82.5f, 10.0f, -84.2f),
-    CountryGeoEntry("NICARAGUA", 10.7f, 15.0f, -87.7f, -83.1f, 12.8f, -85.0f),
-    CountryGeoEntry("HONDURAS", 13.0f, 16.0f, -89.4f, -83.1f, 14.8f, -86.6f),
-    CountryGeoEntry("EL SALVADOR", 13.1f, 14.4f, -90.1f, -87.7f, 13.7f, -88.9f),
-    CountryGeoEntry("GUATEMALA", 13.7f, 17.8f, -92.2f, -88.2f, 15.7f, -90.4f),
-    CountryGeoEntry("BELIZE", 15.9f, 18.5f, -89.2f, -88.1f, 17.2f, -88.7f),
-    CountryGeoEntry("VENEZUELA", 0.7f, 12.2f, -73.3f, -59.8f, 7.2f, -66.2f),
-    CountryGeoEntry("GUYANA", 1.3f, 8.4f, -61.4f, -56.5f, 4.8f, -59.0f),
-    CountryGeoEntry("SURINAME", 1.8f, 6.0f, -58.0f, -54.0f, 4.1f, -55.9f),
-    CountryGeoEntry("FRANCE", 2.1f, 51.1f, -54.5f, 9.6f, 42.5f, -2.9f),
-    CountryGeoEntry("ECUADOR", -5.0f, 1.4f, -81.0f, -75.2f, -1.5f, -78.4f),
-    CountryGeoEntry("PUERTO RICO", 17.9f, 18.5f, -67.2f, -65.6f, 18.2f, -66.5f),
-    CountryGeoEntry("JAMAICA", 17.7f, 18.5f, -78.3f, -76.2f, 18.1f, -77.3f),
-    CountryGeoEntry("CUBA", 19.9f, 23.2f, -85.0f, -74.2f, 21.6f, -79.0f),
-    CountryGeoEntry("ZIMBABWE", -22.3f, -15.5f, 25.3f, 32.8f, -18.9f, 29.8f),
-    CountryGeoEntry("BOTSWANA", -26.8f, -17.7f, 19.9f, 29.4f, -22.1f, 23.8f),
-    CountryGeoEntry("NAMIBIA", -29.0f, -16.9f, 11.7f, 25.1f, -22.1f, 17.2f),
-    CountryGeoEntry("SENEGAL", 12.3f, 16.6f, -17.6f, -11.5f, 14.4f, -14.5f),
-    CountryGeoEntry("MALI", 10.1f, 25.0f, -12.2f, 4.3f, 17.3f, -3.5f),
-    CountryGeoEntry("MAURITANIA", 14.6f, 27.4f, -17.1f, -4.9f, 20.2f, -10.3f),
-    CountryGeoEntry("BENIN", 6.1f, 12.2f, 0.8f, 3.8f, 9.6f, 2.3f),
-    CountryGeoEntry("NIGER", 11.7f, 23.5f, 0.3f, 15.9f, 17.3f, 9.3f),
-    CountryGeoEntry("NIGERIA", 4.2f, 13.9f, 2.7f, 14.6f, 9.5f, 8.0f),
-    CountryGeoEntry("CAMEROON", 1.7f, 12.9f, 8.5f, 16.0f, 5.7f, 12.6f),
-    CountryGeoEntry("TOGO", 5.9f, 11.0f, -0.0f, 1.9f, 8.4f, 1.0f),
-    CountryGeoEntry("GHANA", 4.7f, 11.1f, -3.2f, 1.1f, 7.9f, -1.2f),
-    CountryGeoEntry("CÔTE D'IVOIRE", 4.3f, 10.5f, -8.6f, -2.6f, 7.6f, -5.6f),
-    CountryGeoEntry("GUINEA", 7.3f, 12.6f, -15.1f, -7.8f, 10.4f, -11.1f),
-    CountryGeoEntry("GUINEA-BISSAU", 11.0f, 12.6f, -16.7f, -13.7f, 12.0f, -15.1f),
-    CountryGeoEntry("LIBERIA", 4.4f, 8.5f, -11.4f, -7.5f, 6.4f, -9.4f),
-    CountryGeoEntry("SIERRA LEONE", 6.8f, 10.0f, -13.2f, -10.2f, 8.5f, -11.8f),
-    CountryGeoEntry("BURKINA FASO", 9.6f, 15.1f, -5.5f, 2.2f, 12.3f, -1.8f),
-    CountryGeoEntry("CENTRAL AFRICAN REP.", 2.3f, 11.1f, 14.5f, 27.4f, 6.5f, 20.4f),
-    CountryGeoEntry("CONGO", -5.0f, 3.7f, 11.1f, 18.5f, -0.8f, 15.1f),
-    CountryGeoEntry("GABON", -4.0f, 2.3f, 8.8f, 14.4f, -0.6f, 11.7f),
-    CountryGeoEntry("EQ. GUINEA", 1.0f, 2.3f, 9.3f, 11.3f, 1.6f, 10.4f),
-    CountryGeoEntry("ZAMBIA", -18.0f, -8.2f, 21.9f, 33.5f, -13.4f, 27.7f),
-    CountryGeoEntry("MALAWI", -16.8f, -9.2f, 32.7f, 35.8f, -13.2f, 34.2f),
-    CountryGeoEntry("MOZAMBIQUE", -26.7f, -10.3f, 30.2f, 40.8f, -17.2f, 35.5f),
-    CountryGeoEntry("ESWATINI", -27.3f, -25.7f, 30.7f, 32.1f, -26.5f, 31.4f),
-    CountryGeoEntry("ANGOLA", -17.9f, -4.4f, 11.6f, 24.1f, -12.2f, 17.5f),
-    CountryGeoEntry("BURUNDI", -4.5f, -2.3f, 29.0f, 30.8f, -3.4f, 29.9f),
-    CountryGeoEntry("ISRAEL", 29.5f, 33.3f, 34.3f, 35.8f, 31.5f, 35.0f),
-    CountryGeoEntry("LEBANON", 33.1f, 34.6f, 35.1f, 36.6f, 33.9f, 35.9f),
-    CountryGeoEntry("MADAGASCAR", -25.6f, -12.0f, 43.3f, 50.5f, -19.4f, 46.7f),
-    CountryGeoEntry("PALESTINE", 31.4f, 32.5f, 34.9f, 35.5f, 31.9f, 35.3f),
-    CountryGeoEntry("GAMBIA", 13.1f, 13.9f, -16.8f, -13.8f, 13.5f, -15.4f),
-    CountryGeoEntry("TUNISIA", 30.3f, 37.3f, 7.5f, 11.5f, 34.2f, 9.5f),
-    CountryGeoEntry("ALGERIA", 19.1f, 37.1f, -8.7f, 12.0f, 28.2f, 2.6f),
-    CountryGeoEntry("JORDAN", 29.2f, 33.4f, 34.9f, 39.2f, 31.2f, 36.8f),
-    CountryGeoEntry("UNITED ARAB EMIRATES", 22.5f, 26.1f, 51.6f, 56.4f, 23.9f, 54.2f),
-    CountryGeoEntry("QATAR", 24.6f, 26.1f, 50.7f, 51.6f, 25.3f, 51.2f),
-    CountryGeoEntry("KUWAIT", 28.5f, 30.1f, 46.6f, 48.4f, 29.3f, 47.6f),
-    CountryGeoEntry("IRAQ", 29.1f, 37.4f, 38.8f, 48.6f, 33.0f, 43.8f),
-    CountryGeoEntry("OMAN", 16.7f, 26.4f, 52.0f, 59.8f, 20.6f, 56.1f),
-    CountryGeoEntry("VANUATU", -16.6f, -14.6f, 166.6f, 167.8f, -15.5f, 167.1f),
-    CountryGeoEntry("CAMBODIA", 10.5f, 14.6f, 102.3f, 107.6f, 12.7f, 104.9f),
-    CountryGeoEntry("THAILAND", 5.7f, 20.4f, 97.4f, 105.6f, 15.0f, 101.0f),
-    CountryGeoEntry("LAOS", 13.9f, 22.5f, 100.1f, 107.6f, 18.4f, 103.8f),
-    CountryGeoEntry("MYANMAR", 9.9f, 28.3f, 92.3f, 101.2f, 21.0f, 96.5f),
-    CountryGeoEntry("VIETNAM", 8.6f, 23.4f, 102.2f, 109.3f, 16.7f, 106.3f),
-    CountryGeoEntry("NORTH KOREA", 37.7f, 43.0f, 124.3f, 130.8f, 40.1f, 127.2f),
-    CountryGeoEntry("SOUTH KOREA", 34.4f, 38.6f, 126.1f, 129.5f, 36.4f, 127.8f),
-    CountryGeoEntry("MONGOLIA", 41.6f, 52.0f, 87.8f, 119.8f, 46.8f, 102.9f),
-    CountryGeoEntry("BANGLADESH", 20.7f, 26.4f, 88.1f, 92.7f, 23.8f, 90.3f),
-    CountryGeoEntry("BHUTAN", 26.7f, 28.3f, 88.8f, 92.1f, 27.4f, 90.5f),
-    CountryGeoEntry("NEPAL", 26.4f, 30.4f, 80.1f, 88.2f, 28.2f, 84.0f),
-    CountryGeoEntry("PAKISTAN", 23.7f, 37.1f, 60.9f, 76.0f, 29.2f, 68.7f),
-    CountryGeoEntry("AFGHANISTAN", 29.3f, 38.5f, 60.5f, 75.2f, 33.9f, 66.1f),
-    CountryGeoEntry("TAJIKISTAN", 36.7f, 41.0f, 67.4f, 75.0f, 38.6f, 71.0f),
-    CountryGeoEntry("KYRGYZSTAN", 39.3f, 43.3f, 69.5f, 80.3f, 41.5f, 74.6f),
-    CountryGeoEntry("TURKMENISTAN", 35.3f, 42.8f, 52.5f, 66.5f, 39.1f, 59.3f),
-    CountryGeoEntry("IRAN", 25.1f, 39.7f, 44.1f, 63.3f, 32.5f, 54.3f),
-    CountryGeoEntry("SYRIA", 32.3f, 37.2f, 35.7f, 42.3f, 35.0f, 38.5f),
-    CountryGeoEntry("ARMENIA", 38.7f, 41.2f, 43.6f, 46.5f, 40.2f, 45.0f),
-    CountryGeoEntry("SWEDEN", 55.4f, 69.1f, 11.0f, 23.9f, 62.8f, 16.6f),
-    CountryGeoEntry("BELARUS", 51.3f, 56.2f, 23.2f, 32.7f, 53.5f, 28.0f),
-    CountryGeoEntry("UKRAINE", 45.3f, 52.3f, 22.1f, 40.1f, 49.1f, 31.2f),
-    CountryGeoEntry("POLAND", 49.0f, 54.9f, 14.1f, 24.0f, 52.1f, 19.3f),
-    CountryGeoEntry("AUSTRIA", 46.4f, 49.0f, 9.5f, 17.0f, 47.6f, 14.1f),
-    CountryGeoEntry("HUNGARY", 45.8f, 48.6f, 16.2f, 22.7f, 47.2f, 19.4f),
-    CountryGeoEntry("MOLDOVA", 45.5f, 48.5f, 26.6f, 30.0f, 47.2f, 28.4f),
-    CountryGeoEntry("ROMANIA", 43.7f, 48.2f, 20.2f, 29.6f, 45.9f, 24.9f),
-    CountryGeoEntry("LITHUANIA", 53.9f, 56.4f, 21.1f, 26.6f, 55.3f, 23.9f),
-    CountryGeoEntry("LATVIA", 55.6f, 58.0f, 21.1f, 28.2f, 56.8f, 24.8f),
-    CountryGeoEntry("ESTONIA", 57.5f, 59.6f, 23.3f, 28.1f, 58.6f, 25.8f),
-    CountryGeoEntry("GERMANY", 47.3f, 55.0f, 6.0f, 15.0f, 51.1f, 10.3f),
-    CountryGeoEntry("BULGARIA", 41.2f, 44.2f, 22.4f, 28.6f, 42.8f, 25.2f),
-    CountryGeoEntry("GREECE", 34.9f, 41.8f, 20.2f, 26.6f, 39.1f, 22.7f),
-    CountryGeoEntry("TURKEY", 35.8f, 42.1f, 26.0f, 44.8f, 39.1f, 35.1f),
-    CountryGeoEntry("ALBANIA", 39.6f, 42.7f, 19.3f, 21.0f, 41.1f, 20.0f),
-    CountryGeoEntry("CROATIA", 42.5f, 46.5f, 13.7f, 19.4f, 45.0f, 16.6f),
-    CountryGeoEntry("SWITZERLAND", 45.8f, 47.8f, 6.0f, 10.4f, 46.8f, 8.1f),
-    CountryGeoEntry("LUXEMBOURG", 49.4f, 50.1f, 5.7f, 6.2f, 49.8f, 6.0f),
-    CountryGeoEntry("BELGIUM", 49.5f, 51.5f, 2.5f, 6.2f, 50.7f, 4.6f),
-    CountryGeoEntry("NETHERLANDS", 50.8f, 53.5f, 3.3f, 7.1f, 52.3f, 5.5f),
-    CountryGeoEntry("PORTUGAL", 36.8f, 42.3f, -9.5f, -6.4f, 39.6f, -8.1f),
-    CountryGeoEntry("SPAIN", 35.9f, 43.7f, -9.4f, 3.0f, 40.3f, -3.6f),
-    CountryGeoEntry("IRELAND", 51.7f, 55.1f, -10.0f, -6.0f, 53.2f, -8.0f),
-    CountryGeoEntry("NEW CALEDONIA", -22.4f, -20.1f, 164.0f, 167.1f, -21.3f, 165.5f),
-    CountryGeoEntry("SOLOMON IS.", -10.8f, -6.6f, 156.5f, 162.4f, -8.9f, 160.0f),
-    CountryGeoEntry("NEW ZEALAND", -46.6f, -34.5f, 166.5f, 178.5f, -41.7f, 172.7f),
-    CountryGeoEntry("AUSTRALIA", -43.6f, -10.7f, 113.3f, 153.6f, -25.7f, 134.5f),
-    CountryGeoEntry("SRI LANKA", 6.0f, 9.8f, 79.7f, 81.8f, 7.7f, 80.7f),
-    CountryGeoEntry("CHINA", 18.2f, 53.5f, 73.7f, 135.0f, 36.6f, 104.0f),
-    CountryGeoEntry("TAIWAN", 22.0f, 25.3f, 120.1f, 122.0f, 23.7f, 121.0f),
-    CountryGeoEntry("ITALY", 36.6f, 47.1f, 6.7f, 18.5f, 42.8f, 12.1f),
-    CountryGeoEntry("DENMARK", 54.8f, 57.7f, 8.1f, 12.7f, 56.1f, 9.9f),
-    CountryGeoEntry("UNITED KINGDOM", 50.0f, 58.6f, -7.6f, 1.7f, 53.9f, -2.9f),
-    CountryGeoEntry("ICELAND", 63.5f, 66.5f, -24.3f, -13.6f, 65.1f, -18.8f),
-    CountryGeoEntry("AZERBAIJAN", 38.3f, 41.9f, 44.8f, 50.4f, 40.2f, 47.6f),
-    CountryGeoEntry("GEORGIA", 41.1f, 43.6f, 40.0f, 46.6f, 42.2f, 43.5f),
-    CountryGeoEntry("PHILIPPINES", 5.6f, 18.5f, 117.2f, 126.5f, 11.8f, 122.9f),
-    CountryGeoEntry("MALAYSIA", 0.8f, 6.9f, 100.1f, 119.2f, 3.7f, 109.7f),
-    CountryGeoEntry("BRUNEI", 4.0f, 5.4f, 114.2f, 115.5f, 4.7f, 114.9f),
-    CountryGeoEntry("SLOVENIA", 45.5f, 46.9f, 13.7f, 16.6f, 46.1f, 14.9f),
-    CountryGeoEntry("FINLAND", 59.8f, 70.2f, 20.6f, 31.5f, 64.5f, 26.2f),
-    CountryGeoEntry("SLOVAKIA", 47.8f, 49.6f, 16.9f, 22.6f, 48.7f, 19.5f),
-    CountryGeoEntry("CZECHIA", 48.6f, 51.1f, 12.2f, 18.9f, 49.8f, 15.3f),
-    CountryGeoEntry("ERITREA", 12.5f, 18.0f, 36.3f, 43.1f, 15.4f, 38.7f),
-    CountryGeoEntry("JAPAN", 31.0f, 45.6f, 129.4f, 145.5f, 37.7f, 138.1f),
-    CountryGeoEntry("PARAGUAY", -27.5f, -19.3f, -62.7f, -54.3f, -23.2f, -58.4f),
-    CountryGeoEntry("YEMEN", 12.6f, 19.0f, 42.6f, 53.1f, 15.9f, 47.5f),
-    CountryGeoEntry("SAUDI ARABIA", 16.3f, 32.2f, 34.6f, 55.7f, 24.1f, 44.5f),
-    CountryGeoEntry("ANTARCTICA", -90.0f, -63.3f, -180.0f, 180.0f, -80.5f, 20.6f),
-    CountryGeoEntry("N. CYPRUS", 35.0f, 35.7f, 32.7f, 34.6f, 35.3f, 33.6f),
-    CountryGeoEntry("CYPRUS", 34.6f, 35.2f, 32.3f, 34.0f, 34.9f, 33.0f),
-    CountryGeoEntry("MOROCCO", 21.4f, 35.8f, -17.0f, -1.1f, 29.9f, -8.4f),
-    CountryGeoEntry("EGYPT", 22.0f, 31.6f, 24.7f, 36.9f, 26.5f, 29.8f),
-    CountryGeoEntry("LIBYA", 19.6f, 33.1f, 9.3f, 25.2f, 27.0f, 18.0f),
-    CountryGeoEntry("ETHIOPIA", 3.4f, 15.0f, 33.0f, 47.8f, 8.7f, 39.6f),
-    CountryGeoEntry("DJIBOUTI", 10.9f, 12.7f, 41.7f, 43.3f, 11.8f, 42.5f),
-    CountryGeoEntry("SOMALILAND", 8.0f, 11.5f, 42.6f, 48.9f, 9.8f, 46.2f),
-    CountryGeoEntry("UGANDA", -1.4f, 4.2f, 29.6f, 35.0f, 1.3f, 32.4f),
-    CountryGeoEntry("RWANDA", -2.9f, -1.1f, 29.0f, 30.8f, -2.0f, 29.9f),
-    CountryGeoEntry("BOSNIA AND HERZ.", 42.6f, 45.2f, 15.8f, 19.6f, 44.2f, 17.8f),
-    CountryGeoEntry("MACEDONIA", 40.8f, 42.3f, 20.5f, 23.0f, 41.6f, 21.7f),
-    CountryGeoEntry("SERBIA", 42.2f, 46.2f, 18.8f, 23.0f, 44.2f, 20.8f),
-    CountryGeoEntry("MONTENEGRO", 41.9f, 43.5f, 18.5f, 20.3f, 42.8f, 19.3f),
-    CountryGeoEntry("KOSOVO", 41.8f, 43.3f, 20.1f, 21.8f, 42.6f, 20.9f),
-    CountryGeoEntry("TRINIDAD AND TOBAGO", 10.0f, 10.9f, -62.0f, -60.9f, 10.4f, -61.3f),
-    CountryGeoEntry("S. SUDAN", 3.5f, 12.2f, 23.9f, 35.3f, 7.3f, 30.2f)
+    CountryGeoEntry("CUBA", 19.8f, 23.3f, -85.0f, -74.1f, 21.5f, -79.5f),
+    CountryGeoEntry("JAMAICA", 17.7f, 18.6f, -78.4f, -76.2f, 18.1f, -77.3f),
+    CountryGeoEntry("HAITI", 18.0f, 20.1f, -74.5f, -71.6f, 19.0f, -72.5f),
+    CountryGeoEntry("DOMINICAN REPUBLIC", 17.5f, 20.0f, -72.0f, -68.3f, 18.8f, -70.2f),
+    // South America
+    CountryGeoEntry("COLOMBIA", -4.2f, 12.5f, -79.0f, -66.9f, 4.6f, -74.1f),
+    CountryGeoEntry("VENEZUELA", 0.6f, 12.2f, -73.4f, -59.8f, 7.1f, -66.2f),
+    CountryGeoEntry("GUYANA", 1.2f, 8.6f, -61.4f, -56.5f, 5.0f, -58.9f),
+    CountryGeoEntry("SURINAME", 1.8f, 6.0f, -58.1f, -54.0f, 4.0f, -56.0f),
+    CountryGeoEntry("ECUADOR", -5.0f, 1.5f, -81.1f, -75.2f, -1.8f, -78.2f),
+    CountryGeoEntry("PERU", -18.4f, -0.0f, -81.3f, -68.7f, -9.2f, -75.0f),
+    CountryGeoEntry("BRAZIL", -33.7f, 5.3f, -74.0f, -34.8f, -12.0f, -52.0f),
+    CountryGeoEntry("BOLIVIA", -22.9f, -9.7f, -69.6f, -57.5f, -16.3f, -63.6f),
+    CountryGeoEntry("PARAGUAY", -27.6f, -19.3f, -62.6f, -54.3f, -23.4f, -58.4f),
+    CountryGeoEntry("URUGUAY", -35.0f, -30.1f, -58.4f, -53.1f, -32.5f, -55.8f),
+    CountryGeoEntry("CHILE", -55.9f, -17.5f, -75.6f, -66.9f, -35.7f, -71.5f),
+    CountryGeoEntry("ARGENTINA", -55.1f, -21.8f, -73.6f, -53.6f, -36.5f, -64.0f),
+    // Europe
+    CountryGeoEntry("ICELAND", 63.3f, 66.6f, -24.5f, -13.5f, 65.0f, -19.0f),
+    CountryGeoEntry("IRELAND", 51.4f, 55.4f, -10.5f, -6.0f, 53.3f, -8.2f),
+    CountryGeoEntry("UNITED KINGDOM", 49.9f, 58.7f, -8.2f, 1.8f, 54.0f, -2.5f),
+    CountryGeoEntry("PORTUGAL", 36.9f, 42.2f, -9.5f, -6.2f, 39.5f, -8.0f),
+    CountryGeoEntry("SPAIN", 36.0f, 43.8f, -9.3f, 3.3f, 40.2f, -3.7f),
+    CountryGeoEntry("FRANCE", 41.3f, 51.1f, -4.8f, 8.2f, 46.6f, 2.4f),
+    CountryGeoEntry("BELGIUM", 49.5f, 51.5f, 2.5f, 6.4f, 50.6f, 4.6f),
+    CountryGeoEntry("NETHERLANDS", 50.8f, 53.5f, 3.4f, 7.2f, 52.2f, 5.5f),
+    CountryGeoEntry("SWITZERLAND", 45.8f, 47.8f, 6.0f, 10.5f, 46.8f, 8.2f),
+    CountryGeoEntry("ITALY", 36.6f, 47.1f, 6.6f, 18.5f, 42.5f, 12.6f),
+    CountryGeoEntry("GERMANY", 47.3f, 55.1f, 5.9f, 15.0f, 51.2f, 10.4f),
+    CountryGeoEntry("DENMARK", 54.5f, 57.8f, 8.1f, 12.7f, 56.1f, 10.0f),
+    CountryGeoEntry("NORWAY", 58.0f, 71.2f, 4.6f, 31.1f, 62.5f, 10.5f),
+    CountryGeoEntry("SWEDEN", 55.3f, 69.1f, 11.1f, 24.2f, 62.0f, 16.0f),
+    CountryGeoEntry("FINLAND", 59.8f, 70.1f, 20.5f, 31.6f, 64.5f, 26.0f),
+    CountryGeoEntry("ESTONIA", 57.5f, 59.7f, 21.8f, 28.2f, 58.6f, 25.0f),
+    CountryGeoEntry("LATVIA", 55.7f, 58.1f, 21.0f, 28.2f, 56.9f, 24.6f),
+    CountryGeoEntry("LITHUANIA", 53.9f, 56.5f, 21.0f, 26.8f, 55.2f, 23.9f),
+    CountryGeoEntry("POLAND", 49.0f, 54.8f, 14.1f, 24.1f, 52.0f, 19.1f),
+    CountryGeoEntry("CZECHIA", 48.5f, 51.1f, 12.1f, 18.9f, 49.8f, 15.5f),
+    CountryGeoEntry("AUSTRIA", 46.4f, 49.0f, 9.5f, 17.2f, 47.7f, 14.0f),
+    CountryGeoEntry("SLOVAKIA", 47.7f, 49.6f, 16.8f, 22.6f, 48.7f, 19.7f),
+    CountryGeoEntry("HUNGARY", 45.7f, 48.6f, 16.1f, 22.9f, 47.2f, 19.5f),
+    CountryGeoEntry("ROMANIA", 43.6f, 48.3f, 20.3f, 29.7f, 45.9f, 25.0f),
+    CountryGeoEntry("BULGARIA", 41.2f, 44.2f, 22.4f, 28.6f, 42.7f, 25.5f),
+    CountryGeoEntry("GREECE", 35.0f, 41.7f, 19.4f, 28.2f, 38.5f, 23.0f),
+    CountryGeoEntry("SERBIA", 42.2f, 46.2f, 18.8f, 23.0f, 44.2f, 20.9f),
+    CountryGeoEntry("CROATIA", 42.4f, 46.6f, 13.5f, 19.4f, 45.1f, 16.0f),
+    CountryGeoEntry("BELARUS", 51.3f, 56.2f, 23.2f, 32.8f, 53.7f, 28.0f),
+    CountryGeoEntry("UKRAINE", 44.4f, 52.4f, 22.1f, 40.2f, 48.8f, 31.4f),
+    CountryGeoEntry("RUSSIA", 41.2f, 77.7f, 28.0f, 180.0f, 61.5f, 95.0f),
+    // Africa
+    CountryGeoEntry("MOROCCO", 27.7f, 35.9f, -13.2f, -1.0f, 31.8f, -6.5f),
+    CountryGeoEntry("WESTERN SAHARA", 20.8f, 27.7f, -17.1f, -8.7f, 24.2f, -13.0f),
+    CountryGeoEntry("ALGERIA", 19.0f, 37.1f, -8.7f, 12.0f, 28.0f, 2.6f),
+    CountryGeoEntry("TUNISIA", 30.2f, 37.5f, 7.5f, 11.6f, 34.0f, 9.5f),
+    CountryGeoEntry("LIBYA", 19.5f, 33.2f, 9.4f, 25.2f, 26.8f, 17.2f),
+    CountryGeoEntry("EGYPT", 22.0f, 31.7f, 24.7f, 36.9f, 26.8f, 30.8f),
+    CountryGeoEntry("MAURITANIA", 14.7f, 27.3f, -17.1f, -4.8f, 20.5f, -10.5f),
+    CountryGeoEntry("MALI", 10.1f, 25.0f, -12.2f, 4.2f, 17.5f, -3.5f),
+    CountryGeoEntry("NIGER", 11.7f, 23.5f, 0.2f, 16.0f, 17.6f, 8.1f),
+    CountryGeoEntry("CHAD", 7.4f, 23.5f, 13.5f, 24.0f, 15.4f, 18.7f),
+    CountryGeoEntry("SUDAN", 8.7f, 22.0f, 21.8f, 38.6f, 15.5f, 30.2f),
+    CountryGeoEntry("SOUTH SUDAN", 3.5f, 12.2f, 24.1f, 35.9f, 7.5f, 30.0f),
+    CountryGeoEntry("ERITREA", 12.4f, 18.0f, 36.4f, 43.1f, 15.2f, 39.8f),
+    CountryGeoEntry("ETHIOPIA", 3.4f, 14.9f, 33.0f, 48.0f, 9.1f, 40.5f),
+    CountryGeoEntry("SOMALIA", -1.7f, 12.0f, 41.0f, 51.4f, 5.2f, 46.2f),
+    CountryGeoEntry("SENEGAL", 12.3f, 16.7f, -17.5f, -11.4f, 14.5f, -14.5f),
+    CountryGeoEntry("GUINEA", 7.2f, 12.7f, -15.1f, -7.6f, 10.4f, -11.0f),
+    CountryGeoEntry("COTE D'IVOIRE", 4.3f, 10.7f, -8.6f, -2.5f, 7.5f, -5.5f),
+    CountryGeoEntry("GHANA", 4.7f, 11.2f, -3.3f, 1.2f, 7.9f, -1.0f),
+    CountryGeoEntry("BURKINA FASO", 9.4f, 15.1f, -5.5f, 2.4f, 12.2f, -1.6f),
+    CountryGeoEntry("NIGERIA", 4.3f, 13.9f, 2.7f, 14.7f, 9.1f, 8.7f),
+    CountryGeoEntry("CAMEROON", 1.7f, 13.1f, 8.5f, 16.2f, 6.0f, 12.5f),
+    CountryGeoEntry("CENTRAL AFRICAN REP.", 2.2f, 11.0f, 14.4f, 27.5f, 6.6f, 20.9f),
+    CountryGeoEntry("GABON", -4.0f, 2.3f, 8.7f, 14.5f, -0.8f, 11.6f),
+    CountryGeoEntry("CONGO", -5.0f, 3.7f, 11.2f, 18.6f, -0.7f, 15.2f),
+    CountryGeoEntry("DR CONGO", -13.5f, 5.4f, 12.2f, 31.3f, -4.0f, 23.5f),
+    CountryGeoEntry("UGANDA", -1.5f, 4.2f, 29.6f, 35.0f, 1.4f, 32.3f),
+    CountryGeoEntry("KENYA", -4.7f, 5.0f, 33.9f, 41.9f, 0.2f, 37.9f),
+    CountryGeoEntry("TANZANIA", -11.7f, -1.0f, 29.3f, 40.4f, -6.4f, 34.9f),
+    CountryGeoEntry("ANGOLA", -18.0f, -4.4f, 11.7f, 24.1f, -11.2f, 17.9f),
+    CountryGeoEntry("ZAMBIA", -18.1f, -8.2f, 22.0f, 33.7f, -13.1f, 27.8f),
+    CountryGeoEntry("MALAWI", -17.1f, -9.4f, 32.7f, 35.9f, -13.3f, 34.3f),
+    CountryGeoEntry("MOZAMBIQUE", -26.9f, -10.5f, 30.2f, 40.8f, -18.7f, 35.5f),
+    CountryGeoEntry("ZIMBABWE", -22.4f, -15.6f, 25.2f, 33.1f, -19.0f, 29.2f),
+    CountryGeoEntry("NAMIBIA", -29.0f, -17.0f, 11.7f, 25.3f, -22.6f, 17.1f),
+    CountryGeoEntry("BOTSWANA", -26.9f, -17.8f, 20.0f, 29.4f, -22.3f, 24.7f),
+    CountryGeoEntry("SOUTH AFRICA", -34.8f, -22.1f, 16.5f, 32.9f, -29.0f, 24.5f),
+    CountryGeoEntry("MADAGASCAR", -25.6f, -12.0f, 43.2f, 50.5f, -19.0f, 46.8f),
+    // Middle East & Asia
+    CountryGeoEntry("TURKEY", 35.8f, 42.1f, 26.0f, 44.8f, 39.0f, 35.2f),
+    CountryGeoEntry("SYRIA", 32.3f, 37.3f, 35.7f, 42.4f, 35.0f, 38.5f),
+    CountryGeoEntry("IRAQ", 29.1f, 37.4f, 38.8f, 48.6f, 33.2f, 43.7f),
+    CountryGeoEntry("JORDAN", 29.2f, 33.4f, 35.0f, 39.3f, 31.2f, 36.8f),
+    CountryGeoEntry("ISRAEL", 29.5f, 33.3f, 34.2f, 35.9f, 31.5f, 35.0f),
+    CountryGeoEntry("SAUDI ARABIA", 16.4f, 32.2f, 34.5f, 55.7f, 24.0f, 45.0f),
+    CountryGeoEntry("YEMEN", 12.1f, 19.0f, 42.5f, 54.5f, 15.6f, 48.5f),
+    CountryGeoEntry("OMAN", 16.6f, 26.4f, 52.0f, 59.8f, 21.0f, 57.0f),
+    CountryGeoEntry("UAE", 22.6f, 26.1f, 51.5f, 56.4f, 24.4f, 54.4f),
+    CountryGeoEntry("IRAN", 25.1f, 39.8f, 44.0f, 63.3f, 32.4f, 53.7f),
+    CountryGeoEntry("GEORGIA", 41.0f, 43.6f, 40.0f, 46.7f, 42.3f, 43.4f),
+    CountryGeoEntry("AZERBAIJAN", 38.4f, 41.9f, 44.8f, 50.4f, 40.1f, 47.6f),
+    CountryGeoEntry("KAZAKHSTAN", 40.6f, 55.4f, 46.5f, 87.3f, 48.0f, 67.0f),
+    CountryGeoEntry("UZBEKISTAN", 37.2f, 45.6f, 56.0f, 73.1f, 41.4f, 64.6f),
+    CountryGeoEntry("TURKMENISTAN", 35.1f, 42.8f, 52.4f, 66.7f, 39.0f, 59.6f),
+    CountryGeoEntry("KYRGYZSTAN", 39.2f, 43.3f, 69.3f, 80.3f, 41.2f, 74.8f),
+    CountryGeoEntry("TAJIKISTAN", 36.7f, 41.0f, 67.4f, 75.1f, 38.9f, 71.3f),
+    CountryGeoEntry("AFGHANISTAN", 29.4f, 38.5f, 60.5f, 74.9f, 33.9f, 67.7f),
+    CountryGeoEntry("PAKISTAN", 23.7f, 37.1f, 60.9f, 77.8f, 30.4f, 69.3f),
+    CountryGeoEntry("INDIA", 6.7f, 35.7f, 68.1f, 97.4f, 22.0f, 79.0f),
+    CountryGeoEntry("SRI LANKA", 5.9f, 9.9f, 79.6f, 81.9f, 7.9f, 80.8f),
+    CountryGeoEntry("NEPAL", 26.3f, 30.4f, 80.1f, 88.2f, 28.4f, 84.1f),
+    CountryGeoEntry("BHUTAN", 26.7f, 28.3f, 88.7f, 92.1f, 27.5f, 90.4f),
+    CountryGeoEntry("BANGLADESH", 20.7f, 26.6f, 88.0f, 92.7f, 23.7f, 90.4f),
+    CountryGeoEntry("MYANMAR", 9.8f, 28.5f, 92.2f, 101.2f, 21.0f, 96.5f),
+    CountryGeoEntry("THAILAND", 5.6f, 20.5f, 97.3f, 105.6f, 15.0f, 101.0f),
+    CountryGeoEntry("LAOS", 13.9f, 22.5f, 100.1f, 107.7f, 18.2f, 103.9f),
+    CountryGeoEntry("CAMBODIA", 10.4f, 14.7f, 102.3f, 107.6f, 12.6f, 105.0f),
+    CountryGeoEntry("VIETNAM", 8.5f, 23.4f, 102.1f, 109.5f, 16.0f, 107.8f),
+    CountryGeoEntry("MALAYSIA", 0.9f, 7.4f, 99.6f, 119.3f, 4.2f, 109.5f),
+    CountryGeoEntry("INDONESIA", -11.0f, 6.0f, 95.0f, 141.0f, -2.5f, 118.0f),
+    CountryGeoEntry("PHILIPPINES", 4.6f, 21.1f, 116.9f, 126.6f, 12.9f, 121.8f),
+    CountryGeoEntry("MONGOLIA", 41.6f, 52.1f, 87.7f, 119.9f, 46.9f, 103.8f),
+    CountryGeoEntry("CHINA", 18.2f, 53.6f, 73.5f, 134.8f, 35.9f, 104.2f),
+    CountryGeoEntry("TAIWAN", 21.9f, 25.3f, 120.0f, 122.0f, 23.7f, 121.0f),
+    CountryGeoEntry("NORTH KOREA", 37.7f, 43.0f, 124.2f, 130.7f, 40.0f, 127.0f),
+    CountryGeoEntry("SOUTH KOREA", 33.1f, 38.6f, 125.8f, 129.6f, 36.2f, 127.8f),
+    CountryGeoEntry("JAPAN", 30.0f, 45.5f, 129.5f, 145.8f, 36.5f, 138.2f),
+    // Oceania & Polar
+    CountryGeoEntry("PAPUA NEW GUINEA", -11.7f, -1.3f, 141.0f, 156.0f, -6.3f, 147.0f),
+    CountryGeoEntry("AUSTRALIA", -43.6f, -10.7f, 113.2f, 153.6f, -25.3f, 133.8f),
+    CountryGeoEntry("NEW ZEALAND", -47.3f, -34.4f, 166.4f, 178.6f, -41.5f, 172.5f),
+    CountryGeoEntry("ANTARCTICA", -90.0f, -62.0f, -180.0f, 180.0f, -78.0f, 0.0f)
 )
 
-private fun resolveCountryAtGlobeCrosshair(latDeg: Float, lonDeg: Float): String {
-    // Prioritize sovereign India check in Jammu & Kashmir / Ladakh crown (32.0N..37.1N, 72.5E..80.4E)
-    if (latDeg in 32.0f..37.1f && lonDeg in 72.5f..80.4f) {
-        return "INDIA"
+private fun isLatLonInsideLandPolygon(lat: Float, lon: Float): Boolean {
+    for (pIdx in WORLD_SPHERE_POLYGONS_3D.indices) {
+        val pts = WORLD_SPHERE_POLYGONS_3D[pIdx].latLonPairs
+        val n = pts.size
+        if (n < 3) continue
+        var inside = false
+        var j = n - 1
+        for (i in 0 until n) {
+            val yi = pts[i].first
+            val xi = pts[i].second
+            val yj = pts[j].first
+            val xj = pts[j].second
+            if (abs(xi - xj) < 120f) {
+                val intersect = ((yi > lat) != (yj > lat)) &&
+                    (lon < (xj - xi) * (lat - yi) / ((yj - yi).let { if (abs(it) < 1e-5f) 1e-5f else it }) + xi)
+                if (intersect) inside = !inside
+            }
+            j = i
+        }
+        if (inside) return true
     }
-    var bestMatch: CountryGeoEntry? = null
-    var bestDistSq = Float.MAX_VALUE
-    for (entry in WORLD_COUNTRY_GEO_TABLE) {
-        if (latDeg in entry.minLat..entry.maxLat && lonDeg in entry.minLon..entry.maxLon) {
+    return false
+}
+
+private fun resolveCountryAtGlobeCrosshair(latDeg: Float, lonDeg: Float): String {
+    val onLand = isLatLonInsideLandPolygon(latDeg, lonDeg)
+    val margin = if (onLand) 2.5f else 0.8f
+    var bestName: String? = null
+    var bestScore = Float.MAX_VALUE
+
+    for (entry in WORLD_COUNTRIES_GEO_DB) {
+        if (latDeg >= entry.minLat - margin &&
+            latDeg <= entry.maxLat + margin &&
+            lonDeg >= entry.minLon - margin &&
+            lonDeg <= entry.maxLon + margin
+        ) {
             val dLat = latDeg - entry.centerLat
-            val dLon = lonDeg - entry.centerLon
-            val d2 = dLat * dLat + dLon * dLon
-            if (d2 < bestDistSq) {
-                bestDistSq = d2
-                bestMatch = entry
+            val dLon = (lonDeg - entry.centerLon) * cos((latDeg * PI / 180.0).toFloat())
+            val distSq = dLat * dLat + dLon * dLon
+            val boxSpan = (entry.maxLat - entry.minLat) * (entry.maxLon - entry.minLon)
+            // Favor tighter country bounding boxes and closer centers so smaller countries win over huge neighbors
+            val score = distSq + boxSpan * 0.035f
+            if (score < bestScore) {
+                bestScore = score
+                bestName = entry.name
             }
         }
     }
-    if (bestMatch != null) return bestMatch.name
+
+    if (bestName != null && (onLand || bestScore < 42f)) {
+        return bestName
+    }
+
+    // If over open ocean, return the specific Ocean/Sea name
     return when {
+        latDeg < -60f -> "ANTARCTIC / SOUTHERN OCEAN"
         latDeg > 66f -> "ARCTIC OCEAN"
-        latDeg < -60f -> "ANTARCTIC SECTOR"
-        lonDeg in -70f..-10f && latDeg > 0f -> "NORTH ATLANTIC"
-        lonDeg in -45f..15f && latDeg <= 0f -> "SOUTH ATLANTIC"
-        lonDeg in 45f..105f && latDeg < 25f -> "INDIAN OCEAN"
-        else -> "PACIFIC OCEAN"
+        lonDeg in 20f..115f && latDeg < 25f -> "INDIAN OCEAN"
+        lonDeg in -75f..20f -> if (latDeg >= 0f) "NORTH ATLANTIC OCEAN" else "SOUTH ATLANTIC OCEAN"
+        else -> if (latDeg >= 0f) "NORTH PACIFIC OCEAN" else "SOUTH PACIFIC OCEAN"
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun RetroFuturisticGlobeView(
     globeTheme: String,
     globeWireframeColor: String,
-    hudOverrideColor: Color? = null,
     widgetStyle: String = "default",
     axisTilt2dDeg: Float = -3f,
     axisRotXDeg: Float = 14f,
@@ -4982,238 +6602,447 @@ fun RetroFuturisticGlobeView(
     widgetsActive: Boolean = true,
     onLongPressHome: () -> Unit = {},
     onInteractionModeChanged: (Boolean) -> Unit = {},
-    onTick: () -> Unit = {}
+    onTick: () -> Unit
 ) {
-    val rings = remember { PRECOMPUTED_GLOBE_RINGS }
-    val pose = remember {
-        GlobeInteractivePoseState().apply {
-            yaw = Math.toRadians(axisRotYDeg.toDouble()).toFloat()
-            pitch = Math.toRadians(axisRotXDeg.toDouble()).toFloat()
-            roll = Math.toRadians(axisTilt2dDeg.toDouble()).toFloat()
+    val targetRollRad = ((axisTilt2dDeg.coerceIn(-180f, 180f)) * PI / 180.0).toFloat()
+    val targetPitchRad = ((axisRotXDeg.coerceIn(-85f, 85f)) * PI / 180.0).toFloat()
+    val baseYawOffsetRad = ((axisRotYDeg.coerceIn(-180f, 180f)) * PI / 180.0).toFloat()
+    val currentTargetRoll by rememberUpdatedState(targetRollRad)
+    val currentTargetPitch by rememberUpdatedState(targetPitchRad)
+    val currentBaseYawOffset by rememberUpdatedState(baseYawOffsetRad)
+    val currentOnLongPressHome by rememberUpdatedState(onLongPressHome)
+    val baseSpinSpeed = 0.28f
+
+    // Pose state is stored in a plain object; only globeFrameTick is observed inside Canvas {} (Draw phase only -> 0 recompositions!)
+    val pose = remember { GlobePoseState(targetPitchRad, targetRollRad) }
+    var globeFrameTick by remember { mutableStateOf(0) }
+
+    // Pre-allocated vertex buffers & reusable Paths (Zero heap allocations per frame at 120 FPS!)
+    val sharedRx = remember { FloatArray(2048) }
+    val sharedRy = remember { FloatArray(2048) }
+    val sharedRz = remember { FloatArray(2048) }
+    val sharedFillPath = remember { Path() }
+    val sharedBorderPath = remember { Path() }
+
+    // Reusable native Paint for 120Hz zero-allocation compass degree labels & bottom country HUD readout
+    val hudDegreePaint = remember {
+        AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            textAlign = AndroidPaint.Align.CENTER
+            typeface = Typeface.MONOSPACE
+            isFakeBoldText = true
         }
     }
+    val hudCountryPaint = remember {
+        AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            textAlign = AndroidPaint.Align.CENTER
+            typeface = Typeface.MONOSPACE
+            isFakeBoldText = true
+        }
+    }
+
+    LaunchedEffect(targetRollRad) {
+        pose.roll = targetRollRad
+        globeFrameTick = (globeFrameTick + 1) and 0x7FFFFFFF
+    }
+    LaunchedEffect(targetPitchRad) {
+        pose.pitch = targetPitchRad
+        globeFrameTick = (globeFrameTick + 1) and 0x7FFFFFFF
+    }
+    LaunchedEffect(baseYawOffsetRad) {
+        globeFrameTick = (globeFrameTick + 1) and 0x7FFFFFFF
+    }
+
     var isInteractionUnlocked by remember { mutableStateOf(false) }
-    var autoSpinPhase by remember { mutableStateOf(0f) }
-    var frameInvalidateTick by remember { mutableStateOf(0L) }
+    var lastInteractionMs by remember { mutableStateOf(0L) }
+    val currentOnInteractionChanged by rememberUpdatedState(onInteractionModeChanged)
 
-    LaunchedEffect(axisRotYDeg, axisRotXDeg, axisTilt2dDeg) {
-        if (!isInteractionUnlocked) {
-            pose.yaw = Math.toRadians(axisRotYDeg.toDouble()).toFloat()
-            pose.pitch = Math.toRadians(axisRotXDeg.toDouble()).toFloat()
-            pose.roll = Math.toRadians(axisTilt2dDeg.toDouble()).toFloat()
+    LaunchedEffect(isInteractionUnlocked) {
+        currentOnInteractionChanged(isInteractionUnlocked)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            currentOnInteractionChanged(false)
         }
     }
 
-    LaunchedEffect(widgetsActive, isInteractionUnlocked) {
+    LaunchedEffect(interactive) {
+        if (!interactive) isInteractionUnlocked = false
+    }
+
+    LaunchedEffect(isInteractionUnlocked, lastInteractionMs) {
+        if (isInteractionUnlocked && !pose.isDragging) {
+            delay(8_000L)
+            if (!pose.isDragging && System.currentTimeMillis() - lastInteractionMs >= 7_800L) {
+                isInteractionUnlocked = false
+            }
+        }
+    }
+
+    // 120Hz physics & smooth spring posture recovery loop (updates pose + draw-phase globeFrameTick; zero recomposition!)
+    LaunchedEffect(widgetsActive) {
         if (!widgetsActive) return@LaunchedEffect
-        var lastNs = System.nanoTime()
-        while (isActive && widgetsActive) {
-            withFrameNanos { nowNs ->
-                val dt = ((nowNs - lastNs) / 1_000_000_000f).coerceIn(0f, 0.05f)
-                lastNs = nowNs
-                if (!pose.isDragging) {
-                    if (isInteractionUnlocked) {
-                        pose.yaw += pose.velYaw * dt
-                        pose.pitch = (pose.pitch + pose.velPitch * dt).coerceIn(-1.45f, 1.45f)
-                        pose.velYaw *= 0.92f
-                        pose.velPitch *= 0.92f
-                    } else {
-                        autoSpinPhase = (autoSpinPhase + dt * 0.28f) % (2f * PI.toFloat())
-                    }
+        var lastFrameNanos = 0L
+        while (widgetsActive) {
+            withFrameNanos { frameNanos ->
+                val dt = if (lastFrameNanos == 0L) {
+                    0.016f
+                } else {
+                    ((frameNanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
                 }
-                frameInvalidateTick = nowNs
+                lastFrameNanos = frameNanos
+
+                if (!pose.isDragging) {
+                    pose.spinYawDelta += pose.velYaw * dt
+                    pose.pitch = (pose.pitch + pose.velPitch * dt).coerceIn(-1.48f, 1.48f)
+                    pose.roll = (pose.roll + pose.velRoll * dt).coerceIn(-3.1416f, 3.1416f)
+
+                    val decay = exp(-3.1f * dt)
+                    pose.velYaw = baseSpinSpeed + (pose.velYaw - baseSpinSpeed) * decay
+                    pose.velPitch *= decay
+                    pose.velRoll *= decay
+
+                    val restoreFactor = (1f - exp(-2.6f * dt)).coerceIn(0f, 1f)
+                    pose.pitch += (currentTargetPitch - pose.pitch) * restoreFactor
+                    pose.roll += (currentTargetRoll - pose.roll) * restoreFactor
+                }
+                globeFrameTick = (globeFrameTick + 1) and 0x7FFFFFFF
             }
         }
     }
 
     val wfColor = remember(globeWireframeColor) {
-        resolveLauncherAccentColor(globeWireframeColor)
-    }
-    val isWireframe = globeTheme == "wireframe" || widgetStyle == "80s_retro" || widgetStyle == "cyber_hud"
-
-    val sharedRx = remember { FloatArray(1024) }
-    val sharedRy = remember { FloatArray(1024) }
-    val sharedRz = remember { FloatArray(1024) }
-    val sharedFillPath = remember { Path() }
-    val sharedBorderPath = remember { Path() }
-
-    val hudDegreePaint = remember {
-        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            textAlign = android.graphics.Paint.Align.CENTER
-            typeface = android.graphics.Typeface.MONOSPACE
-            isFakeBoldText = true
+        when (globeWireframeColor.uppercase(Locale.US)) {
+            "#FF8800" -> Color(0xFFFF8800)
+            "#7CFF5B" -> Color(0xFF7CFF5B)
+            "#00FF66" -> Color(0xFF00FF66)
+            "#00E5FF" -> Color(0xFF00E5FF)
+            "#FFFFFF" -> Color(0xFFFFFFFF)
+            "#D71921" -> Color(0xFFD71921)
+            "#FFB000" -> Color(0xFFFFB000)
+            "#3B82F6" -> Color(0xFF3B82F6)
+            else -> Color(0xFFFF3B00)
         }
     }
-    val hudCountryPaint = remember {
-        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            textAlign = android.graphics.Paint.Align.CENTER
-            typeface = android.graphics.Typeface.MONOSPACE
-            isFakeBoldText = true
-        }
-    }
+
+    val isWireframe = globeTheme == "wireframe"
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(interactive, isInteractionUnlocked) {
-                if (!interactive) return@pointerInput
+            .pointerInput(interactive) {
                 detectTapGestures(
-                    onDoubleTap = {
-                        val next = !isInteractionUnlocked
-                        if (next) {
-                            pose.yaw = Math.toRadians(axisRotYDeg.toDouble()).toFloat() + autoSpinPhase
-                            autoSpinPhase = 0f
-                        }
-                        isInteractionUnlocked = next
-                        onInteractionModeChanged(next)
-                        onTick()
+                    onTap = {
+                        // Single tap intentionally does nothing
                     },
-                    onLongPress = { onLongPressHome() }
+                    onDoubleTap = {
+                        if (interactive) {
+                            onTick()
+                            isInteractionUnlocked = !isInteractionUnlocked
+                            lastInteractionMs = System.currentTimeMillis()
+                        }
+                    },
+                    onLongPress = {
+                        pose.isDragging = false
+                        currentOnLongPressHome()
+                    }
                 )
             }
             .pointerInput(interactive, isInteractionUnlocked) {
                 if (!interactive || !isInteractionUnlocked) return@pointerInput
-                detectDragGestures(
-                    onDragStart = {
-                        pose.isDragging = true
-                        pose.velYaw = 0f
-                        pose.velPitch = 0f
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        val sens = 0.0075f
-                        pose.yaw += dragAmount.x * sens
-                        pose.pitch = (pose.pitch - dragAmount.y * sens).coerceIn(-1.45f, 1.45f)
-                        pose.velYaw = dragAmount.x * sens * 18f
-                        pose.velPitch = -dragAmount.y * sens * 18f
-                    },
-                    onDragEnd = { pose.isDragging = false },
-                    onDragCancel = { pose.isDragging = false }
-                )
-            }
+                var lastHapticStep = 0
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    var prevPos = down.position
+                    var prevTime = down.uptimeMillis
+                    var movedEnough = false
+                    lastInteractionMs = System.currentTimeMillis()
+
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull()
+                        if (change != null && change.pressed) {
+                            val curPos = change.position
+                            val curTime = change.uptimeMillis
+                            val dx = curPos.x - prevPos.x
+                            val dy = curPos.y - prevPos.y
+                            if (!movedEnough && hypot(dx, dy) > 3.5f) {
+                                movedEnough = true
+                                pose.isDragging = true
+                                pose.velYaw = 0f
+                                pose.velPitch = 0f
+                                pose.velRoll = 0f
+                            }
+                            if (movedEnough) {
+                                change.consume()
+                                lastInteractionMs = System.currentTimeMillis()
+                                val dtMs = (curTime - prevTime).coerceAtLeast(1L)
+                                val dtSec = dtMs / 1000f
+
+                                val sens = 0.0034f
+                                pose.spinYawDelta += dx * sens
+                                pose.pitch = (pose.pitch - dy * sens).coerceIn(-1.45f, 1.45f)
+                                pose.roll = (pose.roll + (dx * dy) * 0.000045f).coerceIn(-3.1416f, 3.1416f)
+
+                                val instVelYaw = (dx * sens) / dtSec
+                                val instVelPitch = (-dy * sens) / dtSec
+                                val instVelRoll = ((dx * dy) * 0.000045f) / dtSec
+                                pose.velYaw = (pose.velYaw * 0.55f + instVelYaw * 0.45f).coerceIn(-4.2f, 4.2f)
+                                pose.velPitch = (pose.velPitch * 0.55f + instVelPitch * 0.45f).coerceIn(-3.6f, 3.6f)
+                                pose.velRoll = (pose.velRoll * 0.55f + instVelRoll * 0.45f).coerceIn(-2.4f, 2.4f)
+
+                                val step = (((currentBaseYawOffset + pose.spinYawDelta) * 5f).toInt())
+                                if (step != lastHapticStep) {
+                                    lastHapticStep = step
+                                    onTick()
+                                }
+                                prevPos = curPos
+                                prevTime = curTime
+                                globeFrameTick = (globeFrameTick + 1) and 0x7FFFFFFF
+                            }
+                        }
+                    } while (event.changes.any { it.pressed })
+
+                    pose.isDragging = false
+                    lastInteractionMs = System.currentTimeMillis()
+                }
+            },
+        contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val tickRead = frameInvalidateTick
-            if (tickRead < 0L) return@Canvas
+            // Subscribe draw phase to globeFrameTick without triggering recomposition
+            if (globeFrameTick < 0) return@Canvas
+
             val w = size.width
             val h = size.height
             val cx = w * 0.5f
             val cy = h * 0.49f
-            val radius = (min(w, h) * 0.44f).coerceAtLeast(24f)
+            // Keep globe radius constant so double-tapping into interaction mode NEVER shrinks the globe!
+            val radius = (min(w, h) * 0.445f).coerceAtLeast(36f)
 
-            val effectiveYaw = if (isInteractionUnlocked) pose.yaw else (Math.toRadians(axisRotYDeg.toDouble()).toFloat() + autoSpinPhase)
+            val effectiveYaw = currentBaseYawOffset + pose.spinYawDelta
             val cosY = cos(effectiveYaw)
             val sinY = sin(effectiveYaw)
-            val cosX = cos(pose.pitch)
-            val sinX = sin(pose.pitch)
-            val cosZ = cos(pose.roll)
-            val sinZ = sin(pose.roll)
+            val cosP = cos(pose.pitch)
+            val sinP = sin(pose.pitch)
+            val cosR = cos(pose.roll)
+            val sinR = sin(pose.roll)
 
-            // 1. Deep Ocean Sphere Base
-            drawCircle(
-                color = if (isWireframe) Color(0xFF020604) else Color(0xFF041424),
-                radius = radius,
-                center = Offset(cx, cy)
-            )
-
-            // 2. Subtle Spherical Graticule (Latitude & Longitude parallels/meridians)
-            val gridColor = if (isWireframe) wfColor.copy(alpha = 0.14f) else Color(0xFF1E90FF).copy(alpha = 0.16f)
-            val gridStroke = 0.65.dp.toPx()
-            for (latDeg in -60..60 step 30) {
-                val latR = Math.toRadians(latDeg.toDouble()).toFloat()
-                val cosLat = cos(latR)
-                val y0 = -sin(latR)
-                sharedBorderPath.reset()
-                var pen = false
-                for (lonDeg in -180..180 step 8) {
-                    val lonR = Math.toRadians(lonDeg.toDouble()).toFloat()
-                    val x0 = cosLat * sin(lonR)
-                    val z0 = cosLat * cos(lonR)
-                    val x1 = x0 * cosY + z0 * sinY
-                    val z1 = -x0 * sinY + z0 * cosY
-                    val y2 = y0 * cosX - z1 * sinX
-                    val z2 = y0 * sinX + z1 * cosX
-                    val rx = x1 * cosZ - y2 * sinZ
-                    val ry = x1 * sinZ + y2 * cosZ
-                    if (z2 >= 0f) {
-                        val sx = cx + rx * radius
-                        val sy = cy + ry * radius
-                        if (!pen) {
-                            sharedBorderPath.moveTo(sx, sy)
-                            pen = true
-                        } else {
-                            sharedBorderPath.lineTo(sx, sy)
-                        }
-                    } else {
-                        pen = false
-                    }
-                }
-                drawPath(sharedBorderPath, color = gridColor, style = Stroke(width = gridStroke))
-            }
-            for (lonDeg in -150..180 step 30) {
-                val lonR = Math.toRadians(lonDeg.toDouble()).toFloat()
-                val sinLon = sin(lonR)
-                val cosLon = cos(lonR)
-                sharedBorderPath.reset()
-                var pen = false
-                for (latDeg in -80..80 step 8) {
-                    val latR = Math.toRadians(latDeg.toDouble()).toFloat()
-                    val cosLat = cos(latR)
-                    val x0 = cosLat * sinLon
-                    val y0 = -sin(latR)
-                    val z0 = cosLat * cosLon
-                    val x1 = x0 * cosY + z0 * sinY
-                    val z1 = -x0 * sinY + z0 * cosY
-                    val y2 = y0 * cosX - z1 * sinX
-                    val z2 = y0 * sinX + z1 * cosX
-                    val rx = x1 * cosZ - y2 * sinZ
-                    val ry = x1 * sinZ + y2 * cosZ
-                    if (z2 >= 0f) {
-                        val sx = cx + rx * radius
-                        val sy = cy + ry * radius
-                        if (!pen) {
-                            sharedBorderPath.moveTo(sx, sy)
-                            pen = true
-                        } else {
-                            sharedBorderPath.lineTo(sx, sy)
-                        }
-                    } else {
-                        pen = false
-                    }
-                }
-                drawPath(sharedBorderPath, color = gridColor, style = Stroke(width = gridStroke))
+            // 1. 3D Ocean Sphere
+            if (!isWireframe) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF1085BE).copy(alpha = 0.62f),
+                            Color(0xFF07507D).copy(alpha = 0.74f),
+                            Color(0xFF032844).copy(alpha = 0.88f),
+                            Color(0xFF011324).copy(alpha = 0.95f)
+                        ),
+                        center = Offset(cx - radius * 0.24f, cy - radius * 0.24f),
+                        radius = radius * 1.28f
+                    ),
+                    radius = radius,
+                    center = Offset(cx, cy)
+                )
+            } else {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            wfColor.copy(alpha = 0.08f),
+                            wfColor.copy(alpha = 0.03f),
+                            Color(0xFF040404).copy(alpha = 0.85f)
+                        ),
+                        center = Offset(cx - radius * 0.18f, cy - radius * 0.18f),
+                        radius = radius * 1.15f
+                    ),
+                    radius = radius,
+                    center = Offset(cx, cy)
+                )
             }
 
-            // 3. Accurate Country Borders & Coastlines (Zero low-poly interior triangulation lines!)
-            val holoStrokeOuter = Stroke(width = 2.1.dp.toPx(), join = StrokeJoin.Round, cap = StrokeCap.Round)
-            val holoStrokeInner = Stroke(width = 0.95.dp.toPx(), join = StrokeJoin.Round, cap = StrokeCap.Round)
-            val wfStroke = Stroke(width = 1.05.dp.toPx(), join = StrokeJoin.Round, cap = StrokeCap.Round)
+            // 2. Precomputed Geodesic Graticule Grid (Back & Front Hemispheres in a single zero-allocation pass)
+            val backGridColor = if (isWireframe) wfColor.copy(alpha = 0.09f) else Color(0xFF1E96C8).copy(alpha = 0.12f)
+            val frontGridColor = if (isWireframe) wfColor.copy(alpha = 0.22f) else Color(0xFF28B8E8).copy(alpha = 0.22f)
+            val frontEqColor = if (isWireframe) wfColor.copy(alpha = 0.44f) else Color(0xFF28B8E8).copy(alpha = 0.44f)
+            val thinStrokePx = 0.58.dp.toPx()
+            val eqStrokePx = 0.95.dp.toPx()
 
-            for (ring in rings) {
-                val nx1 = ring.nx * cosY + ring.nz * sinY
-                val nz1 = -ring.nx * sinY + ring.nz * cosY
-                val ny2 = ring.ny * cosX - nz1 * sinX
-                val rnz = ring.ny * sinX + nz1 * cosX
-                if (rnz < -0.42f) continue
+            for (ringIdx in GRATICULE_LAT_RINGS_3D.indices) {
+                val (isEq, packed) = GRATICULE_LAT_RINGS_3D[ringIdx]
+                val count = packed.size / 3
+                var prevX = 0f
+                var prevY = 0f
+                var prevZ = 0f
+                for (i in 0 until count) {
+                    val b = i * 3
+                    val x0 = packed[b]
+                    val y0 = packed[b + 1]
+                    val z0 = packed[b + 2]
+                    val x1 = x0 * cosY + z0 * sinY
+                    val z1 = -x0 * sinY + z0 * cosY
+                    val y2 = y0 * cosP - z1 * sinP
+                    val rz = y0 * sinP + z1 * cosP
+                    val rx = x1 * cosR - y2 * sinR
+                    val ry = x1 * sinR + y2 * cosR
+                    val sx = cx + rx * radius
+                    val sy = cy + ry * radius
+                    if (i > 0) {
+                        val zAvg = (prevZ + rz) * 0.5f
+                        if (zAvg >= 0f) {
+                            drawLine(
+                                color = if (isEq) frontEqColor else frontGridColor,
+                                start = Offset(prevX, prevY),
+                                end = Offset(sx, sy),
+                                strokeWidth = if (isEq) eqStrokePx else thinStrokePx
+                            )
+                        } else if (i % 2 == 0) {
+                            drawLine(
+                                color = backGridColor,
+                                start = Offset(prevX, prevY),
+                                end = Offset(sx, sy),
+                                strokeWidth = thinStrokePx
+                            )
+                        }
+                    }
+                    prevX = sx
+                    prevY = sy
+                    prevZ = rz
+                }
+            }
 
-                val n = min(ring.vx.size, sharedRx.size)
+            for (merIdx in GRATICULE_LON_MERIDIANS_3D.indices) {
+                val packed = GRATICULE_LON_MERIDIANS_3D[merIdx]
+                val count = packed.size / 3
+                var prevX = 0f
+                var prevY = 0f
+                var prevZ = 0f
+                for (i in 0 until count) {
+                    val b = i * 3
+                    val x0 = packed[b]
+                    val y0 = packed[b + 1]
+                    val z0 = packed[b + 2]
+                    val x1 = x0 * cosY + z0 * sinY
+                    val z1 = -x0 * sinY + z0 * cosY
+                    val y2 = y0 * cosP - z1 * sinP
+                    val rz = y0 * sinP + z1 * cosP
+                    val rx = x1 * cosR - y2 * sinR
+                    val ry = x1 * sinR + y2 * cosR
+                    val sx = cx + rx * radius
+                    val sy = cy + ry * radius
+                    if (i > 0) {
+                        val zAvg = (prevZ + rz) * 0.5f
+                        if (zAvg >= 0f) {
+                            drawLine(
+                                color = frontGridColor,
+                                start = Offset(prevX, prevY),
+                                end = Offset(sx, sy),
+                                strokeWidth = thinStrokePx
+                            )
+                        } else if (i % 2 == 0) {
+                            drawLine(
+                                color = backGridColor,
+                                start = Offset(prevX, prevY),
+                                end = Offset(sx, sy),
+                                strokeWidth = thinStrokePx
+                            )
+                        }
+                    }
+                    prevX = sx
+                    prevY = sy
+                    prevZ = rz
+                }
+            }
+
+            // 3. Back-Hemisphere Ghost Country Outlines (Zero Triple allocations)
+            val backBorderColor = if (isWireframe) wfColor.copy(alpha = 0.12f) else Color(0xFF18B868).copy(alpha = 0.13f)
+            for (polyIdx in WORLD_SPHERE_POLYGONS_3D.indices) {
+                val poly3d = WORLD_SPHERE_POLYGONS_3D[polyIdx]
+                val nx0 = poly3d.normalX
+                val ny0 = poly3d.normalY
+                val nz0 = poly3d.normalZ
+                val nz1 = -nx0 * sinY + nz0 * cosY
+                val rnz = ny0 * sinP + nz1 * cosP
+                if (rnz > 0.45f) continue
+
+                val xyz = poly3d.xyzPacked
+                val count = xyz.size / 3
+                var prevX = 0f
+                var prevY = 0f
+                var prevZ = 1f
+                for (i in 0 until count) {
+                    val base = i * 3
+                    val x0 = xyz[base]
+                    val y0 = xyz[base + 1]
+                    val z0 = xyz[base + 2]
+                    val x1 = x0 * cosY + z0 * sinY
+                    val z1 = -x0 * sinY + z0 * cosY
+                    val y2 = y0 * cosP - z1 * sinP
+                    val rz = y0 * sinP + z1 * cosP
+                    val rx = x1 * cosR - y2 * sinR
+                    val ry = x1 * sinR + y2 * cosR
+                    val sx = cx + rx * radius
+                    val sy = cy + ry * radius
+                    if (i > 0 && prevZ < 0f && rz < 0f) {
+                        drawLine(
+                            color = backBorderColor,
+                            start = Offset(prevX, prevY),
+                            end = Offset(sx, sy),
+                            strokeWidth = thinStrokePx
+                        )
+                    }
+                    prevX = sx
+                    prevY = sy
+                    prevZ = rz
+                }
+            }
+
+            // 4. Front-Hemisphere 3D Country Mesh (Reuses sharedRx/Ry/Rz and sharedFillPath/sharedBorderPath -> Zero Allocations!)
+            val lightX = -0.38f
+            val lightY = -0.44f
+            val lightZ = 0.81f
+            val holoStrokeOuter = Stroke(width = 1.85.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            val holoStrokeInner = Stroke(width = 0.92.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            val wfStroke = Stroke(width = 1.15.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            val triMeshColor = if (isWireframe) wfColor.copy(alpha = 0.32f) else Color(0xFF42FF8C).copy(alpha = 0.26f)
+            val triStrokePx = 0.55.dp.toPx()
+
+            for (polyIdx in WORLD_SPHERE_POLYGONS_3D.indices) {
+                val poly3d = WORLD_SPHERE_POLYGONS_3D[polyIdx]
+                val nx0 = poly3d.normalX
+                val ny0 = poly3d.normalY
+                val nz0 = poly3d.normalZ
+                val nx1 = nx0 * cosY + nz0 * sinY
+                val nz1 = -nx0 * sinY + nz0 * cosY
+                val ny2 = ny0 * cosP - nz1 * sinP
+                val rnz = ny0 * sinP + nz1 * cosP
+                if (rnz < -0.68f) continue
+                val rnx = nx1 * cosR - ny2 * sinR
+                val rny = nx1 * sinR + ny2 * cosR
+
+                val xyz = poly3d.xyzPacked
+                val n = (xyz.size / 3).coerceAtMost(sharedRx.size)
                 var anyFront = false
+
                 for (i in 0 until n) {
-                    val x0 = ring.vx[i]
-                    val y0 = ring.vy[i]
-                    val z0 = ring.vz[i]
+                    val base = i * 3
+                    val x0 = xyz[base]
+                    val y0 = xyz[base + 1]
+                    val z0 = xyz[base + 2]
                     val x1 = x0 * cosY + z0 * sinY
                     val z1 = -x0 * sinY + z0 * cosY
-                    val y2 = y0 * cosX - z1 * sinX
-                    val z2 = y0 * sinX + z1 * cosX
-                    sharedRx[i] = x1 * cosZ - y2 * sinZ
-                    sharedRy[i] = x1 * sinZ + y2 * cosZ
-                    sharedRz[i] = z2
-                    if (z2 >= 0f) anyFront = true
+                    val y2 = y0 * cosP - z1 * sinP
+                    val rz = y0 * sinP + z1 * cosP
+                    val rx = x1 * cosR - y2 * sinR
+                    val ry = x1 * sinR + y2 * cosR
+                    sharedRx[i] = rx
+                    sharedRy[i] = ry
+                    sharedRz[i] = rz
+                    if (rz >= -0.02f) anyFront = true
                 }
                 if (!anyFront) continue
 
-                val lambert = (nx1 * -0.25f + ny2 * -0.25f + rnz * 0.93f).coerceIn(0f, 1f)
+                val lambert = (rnx * lightX + rny * lightY + rnz * lightZ).coerceIn(0f, 1f)
+
                 sharedFillPath.reset()
                 var started = false
                 for (i in 0 until n) {
@@ -5248,12 +7077,36 @@ fun RetroFuturisticGlobeView(
                     } else {
                         drawPath(
                             path = sharedFillPath,
-                            color = wfColor.copy(alpha = (0.07f + 0.09f * lambert).coerceIn(0.05f, 0.16f))
+                            color = wfColor.copy(alpha = (0.06f + 0.08f * lambert).coerceIn(0.04f, 0.15f))
                         )
                     }
                 }
 
-                // Crisp Country Borders & Coastlines with Exact 3D Horizon Limb Interpolation
+                // Triangulated Geodesic Land Mesh Chords (Matches the 80s triangulated continent mesh in the reference image!)
+                if (n >= 12) {
+                    val stride = (n / 18).coerceAtLeast(3)
+                    var idxA = 0
+                    while (idxA < n) {
+                        val idxB = (idxA + stride * 3) % n
+                        if (sharedRz[idxA] > 0.05f && sharedRz[idxB] > 0.05f) {
+                            val ax = sharedRx[idxA]
+                            val ay = sharedRy[idxA]
+                            val bx = sharedRx[idxB]
+                            val by = sharedRy[idxB]
+                            val chordDist = hypot(ax - bx, ay - by)
+                            if (chordDist < 0.42f) {
+                                drawLine(
+                                    color = triMeshColor,
+                                    start = Offset(cx + ax * radius, cy + ay * radius),
+                                    end = Offset(cx + bx * radius, cy + by * radius),
+                                    strokeWidth = triStrokePx
+                                )
+                            }
+                        }
+                        idxA += stride
+                    }
+                }
+
                 sharedBorderPath.reset()
                 var penDown = false
                 for (i in 0 until n) {
@@ -5264,16 +7117,7 @@ fun RetroFuturisticGlobeView(
                         val sx = cx + rx1 * radius
                         val sy = cy + ry1 * radius
                         if (!penDown) {
-                            if (i > 0 && sharedRz[i - 1] < 0f) {
-                                val prevZ = sharedRz[i - 1]
-                                val tCross = (prevZ / (prevZ - rz1)).coerceIn(0f, 1f)
-                                val hx = sharedRx[i - 1] + (rx1 - sharedRx[i - 1]) * tCross
-                                val hy = sharedRy[i - 1] + (ry1 - sharedRy[i - 1]) * tCross
-                                sharedBorderPath.moveTo(cx + hx * radius, cy + hy * radius)
-                                sharedBorderPath.lineTo(sx, sy)
-                            } else {
-                                sharedBorderPath.moveTo(sx, sy)
-                            }
+                            sharedBorderPath.moveTo(sx, sy)
                             penDown = true
                         } else {
                             sharedBorderPath.lineTo(sx, sy)
@@ -5290,8 +7134,8 @@ fun RetroFuturisticGlobeView(
                     }
                 }
 
-                val depthVis = rnz.coerceIn(0.18f, 1f)
-                val edgeAlpha = (0.55f + 0.45f * depthVis).coerceIn(0.40f, 1f)
+                val depthVis = rnz.coerceIn(0.15f, 1f)
+                val edgeAlpha = (0.50f + 0.50f * depthVis).coerceIn(0.35f, 1f)
                 if (!isWireframe) {
                     drawPath(
                         path = sharedBorderPath,
@@ -5306,35 +7150,44 @@ fun RetroFuturisticGlobeView(
                 } else {
                     drawPath(
                         path = sharedBorderPath,
-                        color = wfColor.copy(alpha = edgeAlpha * 0.35f),
-                        style = holoStrokeOuter
-                    )
-                    drawPath(
-                        path = sharedBorderPath,
-                        color = wfColor.copy(alpha = edgeAlpha * 0.98f),
+                        color = wfColor.copy(alpha = edgeAlpha * 0.96f),
                         style = wfStroke
                     )
                 }
             }
 
-            // 4. Outer Planetary Horizon Rim with Neon Bloom
+            // 5. 3D Atmospheric Fresnel Rim Halo & Outer Planetary Horizon Ring
+            val rimGlowColor = when {
+                isInteractionUnlocked -> wfColor.copy(alpha = 0.48f)
+                isWireframe -> wfColor.copy(alpha = 0.28f)
+                else -> Color(0xFF28E098).copy(alpha = 0.32f)
+            }
+            val rimCoreColor = when {
+                isInteractionUnlocked -> wfColor
+                isWireframe -> wfColor.copy(alpha = 0.88f)
+                else -> Color(0xFF70FFBA).copy(alpha = 0.88f)
+            }
             drawCircle(
-                color = wfColor.copy(alpha = 0.35f),
+                color = rimGlowColor,
                 radius = radius,
                 center = Offset(cx, cy),
-                style = Stroke(width = 3.6.dp.toPx())
+                style = Stroke(width = if (isInteractionUnlocked) 4.0.dp.toPx() else 3.2.dp.toPx())
             )
             drawCircle(
-                color = wfColor,
+                color = rimCoreColor,
                 radius = radius,
                 center = Offset(cx, cy),
-                style = Stroke(width = 1.3.dp.toPx())
+                style = Stroke(width = if (isInteractionUnlocked) 1.5.dp.toPx() else 1.15.dp.toPx())
             )
 
-            // 5. Outer 360° Compass Angle Ring & Double-Tap Targeting Crosshair HUD
-            val hudColor = hudOverrideColor ?: wfColor
-            val showCompassRing = isInteractionUnlocked || widgetStyle == "80s_retro" || widgetStyle == "cyber_hud"
+            // 6. TACTICAL 80s TARGETING HUD ON DOUBLE-TAP ACTIVATION (isInteractionUnlocked):
+            //    - Light and thin intersecting Crosshair across the globe with reticle tick marks
+            //    - Outer 360° Compass / Protractor Angle Measurement Scale & Degree Numbers
+            //    - Live Country Name at the bottom for the exact point under the crosshair intersection!
+            val showCompassRing = isInteractionUnlocked || widgetStyle == "80s_retro"
             if (showCompassRing) {
+                val hudColor = if (isWireframe) wfColor else Color(0xFF7CFF5B)
+                // A. Outer 360° Compass / Azimuth Tick Marks & Degree Angle Labels (10°, 20°, 30° ... 350°)
                 val tickBaseR = radius * 1.015f
                 val minorTickLen = 2.5.dp.toPx()
                 val medTickLen = 4.5.dp.toPx()
@@ -5344,7 +7197,7 @@ fun RetroFuturisticGlobeView(
 
                 hudDegreePaint.textSize = 7.2.dp.toPx()
                 hudDegreePaint.color = android.graphics.Color.argb(
-                    235,
+                    220,
                     (hudColor.red * 255).toInt(),
                     (hudColor.green * 255).toInt(),
                     (hudColor.blue * 255).toInt()
@@ -5362,9 +7215,9 @@ fun RetroFuturisticGlobeView(
                         else -> minorTickLen
                     }
                     val tickAlpha = when {
-                        isMajor -> 0.92f
-                        isMed -> 0.74f
-                        else -> 0.40f
+                        isMajor -> 0.90f
+                        isMed -> 0.72f
+                        else -> 0.38f
                     }
                     drawLine(
                         color = hudColor.copy(alpha = tickAlpha),
@@ -5385,60 +7238,72 @@ fun RetroFuturisticGlobeView(
             }
 
             if (isInteractionUnlocked) {
+                val hudColor = if (isWireframe) wfColor else Color(0xFF7CFF5B)
+                val hudGlowColor = hudColor.copy(alpha = 0.30f)
+
+                // B. Light and Thin Intersecting Crosshair Over the Globe (with calibration reticle ticks)
                 val crossHalfSpan = radius * 1.14f
-                val crossCoreStroke = 0.9.dp.toPx()
-                val crossGlowStroke = 2.8.dp.toPx()
+                val crossCoreStroke = 0.85.dp.toPx()
+                val crossGlowStroke = 2.6.dp.toPx()
 
+                // Soft phosphor glow halo behind the crosshair
                 drawLine(
-                    color = hudColor.copy(alpha = 0.32f),
+                    color = hudGlowColor,
                     start = Offset(cx - crossHalfSpan, cy),
                     end = Offset(cx + crossHalfSpan, cy),
                     strokeWidth = crossGlowStroke
                 )
                 drawLine(
-                    color = hudColor.copy(alpha = 0.32f),
+                    color = hudGlowColor,
                     start = Offset(cx, cy - crossHalfSpan),
                     end = Offset(cx, cy + crossHalfSpan),
                     strokeWidth = crossGlowStroke
                 )
+
+                // Crisp thin horizontal & vertical crosshair lines intersecting at (cx, cy)
                 drawLine(
-                    color = hudColor,
+                    color = hudColor.copy(alpha = 0.92f),
                     start = Offset(cx - crossHalfSpan, cy),
                     end = Offset(cx + crossHalfSpan, cy),
                     strokeWidth = crossCoreStroke
                 )
                 drawLine(
-                    color = hudColor,
+                    color = hudColor.copy(alpha = 0.92f),
                     start = Offset(cx, cy - crossHalfSpan),
                     end = Offset(cx, cy + crossHalfSpan),
                     strokeWidth = crossCoreStroke
                 )
 
+                // Reticle calibration tick marks along both axes (matching the reference image!)
                 val reticleTickHalf = 4.2.dp.toPx()
                 val reticleFractions = floatArrayOf(-0.62f, -0.32f, 0.32f, 0.62f)
                 for (rf in reticleFractions) {
                     val offsetPx = rf * radius
+                    // Horizontal tick on vertical crosshair line
                     drawLine(
-                        color = hudColor,
+                        color = hudColor.copy(alpha = 0.88f),
                         start = Offset(cx - reticleTickHalf, cy + offsetPx),
                         end = Offset(cx + reticleTickHalf, cy + offsetPx),
                         strokeWidth = crossCoreStroke
                     )
+                    // Vertical tick on horizontal crosshair line
                     drawLine(
-                        color = hudColor,
+                        color = hudColor.copy(alpha = 0.88f),
                         start = Offset(cx + offsetPx, cy - reticleTickHalf),
                         end = Offset(cx + offsetPx, cy + reticleTickHalf),
                         strokeWidth = crossCoreStroke
                     )
                 }
 
+                // Center intersection micro-ring
                 drawCircle(
                     color = hudColor,
-                    radius = 2.4.dp.toPx(),
+                    radius = 2.2.dp.toPx(),
                     center = Offset(cx, cy),
-                    style = Stroke(width = 0.9.dp.toPx())
+                    style = Stroke(width = 0.85.dp.toPx())
                 )
 
+                // C. Exact Country Name at the Bottom of the Globe for the Point Under the Crosshair Intersection!
                 val centerLatDeg = (-(pose.pitch * 180.0 / PI).toFloat()).coerceIn(-90f, 90f)
                 var centerLonDeg = ((-effectiveYaw * 180.0 / PI).toFloat()) % 360f
                 if (centerLonDeg > 180f) centerLonDeg -= 360f
@@ -5465,68 +7330,117 @@ fun RetroFuturisticGlobeView(
                 val boxLeft = cx - boxW * 0.5f
                 val boxTop = pillY - boxH * 0.74f
 
-                drawRect(
-                    color = Color(0xFF050505).copy(alpha = 0.92f),
-                    topLeft = Offset(boxLeft, boxTop),
-                    size = Size(boxW, boxH)
-                )
-                drawRect(
-                    color = hudColor,
+                drawRoundRect(
+                    color = Color(0xFF050A05).copy(alpha = 0.90f),
                     topLeft = Offset(boxLeft, boxTop),
                     size = Size(boxW, boxH),
-                    style = Stroke(width = 1.2.dp.toPx())
+                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+                )
+                drawRoundRect(
+                    color = hudColor.copy(alpha = 0.78f),
+                    topLeft = Offset(boxLeft, boxTop),
+                    size = Size(boxW, boxH),
+                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                    style = Stroke(width = 1.dp.toPx())
                 )
                 drawIntoCanvas { canvas ->
-                    canvas.nativeCanvas.drawText(bottomReadout, cx, pillY - 2.dp.toPx(), hudCountryPaint)
+                    canvas.nativeCanvas.drawText(bottomReadout, cx, pillY, hudCountryPaint)
                 }
             }
         }
     }
 }
 
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AppDrawerView(
     apps: List<AppEntry>,
-    selectedFont: FontFamily,
     lomoFontFamily: FontFamily,
+    selectedFont: FontFamily,
     uppercaseHome: Boolean,
     drawerTextSizeSp: Int,
-    accentColor: Color,
-    secondaryRetroColor: Color = accentColor,
-    waveScrubMode: String,
-    drawerWaveIntensity: Float,
     drawerBgMode: String = "opaque",
     drawerBgIntensity: Int = 65,
-    isDrawerOpenNow: Boolean = true,
-    onDragDelta: (Float) -> Unit,
-    onSettle: (Float) -> Unit,
+    accentColor: Color,
+    waveScrubMode: String,
+    drawerWaveIntensity: Float,
+    screenHeightPx: Float,
+    getDrawerProgress: () -> Float,
+    searchResetToken: Int,
+    focusSearchOnOpen: Boolean,
+    onConsumedSearchFocus: () -> Unit,
+    onDragDrawerDelta: (Float) -> Unit,
+    onSettleDrawer: (Float) -> Unit,
     onLaunchApp: (String) -> Unit,
     onLongPressApp: (AppEntry) -> Unit,
+    onClose: () -> Unit,
     onWaveTick: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
+    var query by remember { mutableStateOf("") }
+    val searchFocusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
-    val searchFocusRequester = remember { FocusRequester() }
-    var query by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
-    val filteredApps = remember(apps, query) {
-        val q = query.trim()
-        if (q.isEmpty()) apps else apps.filter { it.label.contains(q, ignoreCase = true) }
+    val isDrawerOpenNow by remember { derivedStateOf { getDrawerProgress() > 0.5f } }
+
+    // Automatically clear search text, reset scroll position, and dismiss keyboard
+    // whenever an app is opened or the app drawer is closed!
+    LaunchedEffect(isDrawerOpenNow, searchResetToken) {
+        if (!isDrawerOpenNow || searchResetToken > 0) {
+            if (!isDrawerOpenNow) {
+                if (query.isNotEmpty()) query = ""
+                try {
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
+                } catch (_: Exception) {
+                }
+                if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) {
+                    listState.scrollToItem(0, 0)
+                }
+            }
+        }
     }
 
-    val currentOnDragDelta by rememberUpdatedState(onDragDelta)
-    val currentOnSettle by rememberUpdatedState(onSettle)
-    var isPullingDrawerClosed by remember { mutableStateOf(false) }
-    var totalPullDownPx by remember { mutableStateOf(0f) }
+    LaunchedEffect(searchResetToken) {
+        if (searchResetToken > 0) {
+            if (query.isNotEmpty()) query = ""
+            try {
+                focusManager.clearFocus(force = true)
+                keyboardController?.hide()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    LaunchedEffect(focusSearchOnOpen, isDrawerOpenNow) {
+        if (focusSearchOnOpen && isDrawerOpenNow) {
+            delay(160)
+            try {
+                searchFocusRequester.requestFocus()
+                keyboardController?.show()
+            } catch (_: Exception) {
+            }
+            onConsumedSearchFocus()
+        }
+    }
+
+    val filteredApps = remember(apps, query) {
+        apps
+            .filter { !it.isHidden && (query.isBlank() || it.label.contains(query, ignoreCase = true)) }
+            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
+    }
+
+    val currentOnDragDelta by rememberUpdatedState(onDragDrawerDelta)
+    val currentOnSettle by rememberUpdatedState(onSettleDrawer)
 
     val drawerNestedScroll = remember {
+        var isPullingDrawerClosed = false
+        var totalPullDownPx = 0f
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (isPullingDrawerClosed && source == NestedScrollSource.Drag) {
+                if (source == NestedScrollSource.Drag && isPullingDrawerClosed && available.y < 0f) {
                     totalPullDownPx = (totalPullDownPx + available.y).coerceAtLeast(0f)
                     currentOnDragDelta(available.y)
                     if (totalPullDownPx <= 0f) {
@@ -5600,11 +7514,10 @@ fun AppDrawerView(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .retroNeonBorder(
+                    .border(
                         if (is80sDrawer) 1.4.dp else 1.dp,
                         if (is80sDrawer) accentColor else Color(0xFF262626),
-                        RoundedCornerShape(if (is80sDrawer) 0.dp else 8.dp),
-                        glowEnabled = is80sDrawer
+                        RoundedCornerShape(if (is80sDrawer) 0.dp else 8.dp)
                     )
                     .background(Color(0xFF080808), RoundedCornerShape(if (is80sDrawer) 0.dp else 8.dp))
                     .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -5612,22 +7525,21 @@ fun AppDrawerView(
             ) {
                 Text(
                     text = if (is80sDrawer) "> " else "/ ",
-                    color = secondaryRetroColor,
+                    color = accentColor,
                     fontSize = if (is80sDrawer) 11.sp else 13.sp,
                     fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    style = glowTextStyle(secondaryRetroColor, 16f)
+                    fontWeight = FontWeight.Bold
                 )
                 BasicTextField(
                     value = query,
                     onValueChange = { query = it },
                     singleLine = true,
                     textStyle = TextStyle(
-                        color = if (is80sDrawer) accentColor else Color.White,
+                        color = Color.White,
                         fontSize = 13.sp,
                         fontFamily = lomoFontFamily
-                    ).merge(glowTextStyle(accentColor, 14f)),
-                    cursorBrush = SolidColor(secondaryRetroColor),
+                    ),
+                    cursorBrush = SolidColor(accentColor),
                     enabled = isDrawerOpenNow,
                     modifier = Modifier
                         .weight(1f)
@@ -5637,10 +7549,9 @@ fun AppDrawerView(
                         if (query.isEmpty()) {
                             Text(
                                 text = "Search apps...",
-                                color = if (is80sDrawer) accentColor.copy(alpha = 0.55f) else Color(0xFF525252),
+                                color = Color(0xFF525252),
                                 fontSize = 12.sp,
-                                fontFamily = lomoFontFamily,
-                                style = glowTextStyle(accentColor, 10f)
+                                fontFamily = lomoFontFamily
                             )
                         }
                         inner()
@@ -5649,10 +7560,9 @@ fun AppDrawerView(
                 if (query.isNotEmpty()) {
                     Text(
                         text = "×",
-                        color = secondaryRetroColor,
+                        color = Color(0xFF8A8A8A),
                         fontSize = 15.sp,
                         fontFamily = lomoFontFamily,
-                        style = glowTextStyle(secondaryRetroColor, 14f),
                         modifier = Modifier
                             .clickable {
                                 query = ""
@@ -5670,6 +7580,8 @@ fun AppDrawerView(
             val starFontSp = (drawerTextSizeSp * 0.65f).coerceIn(9f, 15f).sp
 
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                // Ultra-clean 120Hz LazyColumn:
+                // Zero app name highlighting & zero hover animation on app rows!
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
@@ -5702,18 +7614,17 @@ fun AppDrawerView(
                                 ) {
                                     Text(
                                         text = app.firstLetter.toString(),
-                                        color = secondaryRetroColor,
+                                        color = accentColor,
                                         fontSize = headerFontSp,
                                         fontFamily = lomoFontFamily,
-                                        fontWeight = FontWeight.SemiBold,
-                                        style = glowTextStyle(secondaryRetroColor, 16f)
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                     Spacer(modifier = Modifier.height(3.dp))
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(1.dp)
-                                            .background(if (is80sDrawer) accentColor.copy(alpha = 0.4f) else Color(0xFF1A1A1A))
+                                            .background(Color(0xFF1A1A1A))
                                     )
                                 }
                             }
@@ -5741,20 +7652,18 @@ fun AppDrawerView(
                                 ) {
                                     Text(
                                         text = displayLabel,
-                                        color = if (is80sDrawer) accentColor else Color(0xFFF5F5F5),
+                                        color = Color(0xFFF5F5F5),
                                         fontSize = drawerTextSizeSp.sp,
                                         fontFamily = selectedFont,
-                                        style = glowTextStyle(accentColor, 16f),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     if (app.isPinned) {
                                         Text(
                                             text = "★",
-                                            color = secondaryRetroColor,
+                                            color = accentColor,
                                             fontSize = starFontSp,
-                                            fontFamily = lomoFontFamily,
-                                            style = glowTextStyle(secondaryRetroColor, 16f)
+                                            fontFamily = lomoFontFamily
                                         )
                                     }
                                 }
@@ -5766,7 +7675,7 @@ fun AppDrawerView(
                                         .fillMaxWidth()
                                         .padding(top = 2.dp, bottom = 4.dp)
                                         .height(1.dp)
-                                        .background(if (is80sDrawer) accentColor.copy(alpha = 0.35f) else Color(0xFF222222))
+                                        .background(Color(0xFF222222))
                                 )
                             } else {
                                 Box(
@@ -5780,8 +7689,10 @@ fun AppDrawerView(
                     }
                 }
 
+                // Isolated A-Z Scrubber Rail Composable:
+                // Only the A-Z rail letters curve horizontally; app rows never highlight or hover-animate!
                 AlphabetScrubberRail(
-                    accentColor = secondaryRetroColor,
+                    accentColor = accentColor,
                     waveScrubMode = waveScrubMode,
                     drawerWaveIntensity = drawerWaveIntensity,
                     lomoFontFamily = lomoFontFamily,
@@ -5814,8 +7725,6 @@ private fun AlphabetScrubberRail(
     lomoFontFamily: FontFamily,
     onSelectLetter: (Char) -> Unit
 ) {
-    val is80s = LocalRetro80sMode.current
-    val primaryCol = rememberRetroPrimaryColor(accentColor)
     val density = LocalDensity.current
     val letters = remember { ('A'..'Z').toList() }
     var railHeightPx by remember { mutableStateOf(1f) }
@@ -5845,6 +7754,7 @@ private fun AlphabetScrubberRail(
         }
     }
 
+    // Smooth vertical finger-tracking offset for the Voxel Alphabet Box
     val targetIndicatorY = remember(scrubLocalY, railHeightPx, voxelBoxSizePx) {
         val sy = scrubLocalY ?: (railHeightPx * 0.5f)
         (sy - voxelBoxSizePx * 0.5f).coerceIn(0f, (railHeightPx - voxelBoxSizePx).coerceAtLeast(0f))
@@ -5909,19 +7819,12 @@ private fun AlphabetScrubberRail(
                     label = "letterWave"
                 )
 
-                val chColor = when {
-                    isCurrent -> accentColor
-                    animLetterFactor > 0.4f -> if (is80s) primaryCol else Color.White
-                    is80s -> primaryCol.copy(alpha = 0.65f)
-                    else -> Color(0xFF555555)
-                }
                 Text(
                     text = ch.toString(),
-                    color = chColor,
+                    color = if (isCurrent) accentColor else if (animLetterFactor > 0.4f) Color.White else Color(0xFF555555),
                     fontSize = if (isCurrent) 12.sp else 9.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                    style = glowTextStyle(chColor, 14f),
                     modifier = Modifier
                         .graphicsLayer {
                             if (animLetterFactor > 0.005f) {
@@ -5936,6 +7839,7 @@ private fun AlphabetScrubberRail(
             }
         }
 
+        // Minimalist Black & White Stepped Alphabet Indicator with Razor-Thin 1.dp Accent Stroke
         if (activeLetter != null && scrubLocalY != null) {
             Box(
                 modifier = Modifier
@@ -5948,9 +7852,10 @@ private fun AlphabetScrubberRail(
                     val w = size.width
                     val h = size.height
                     val step = 4.dp.toPx()
-                    val strokePx = 1.2.dp.toPx()
+                    val strokePx = 1.dp.toPx()
                     val half = strokePx * 0.5f
 
+                    // Stepped-corner minimal box path: pure #000000 black fill + razor-thin 1.dp accentColor stroke
                     val boxPath = Path().apply {
                         moveTo(step, half)
                         lineTo(w - step, half)
@@ -5976,17 +7881,20 @@ private fun AlphabetScrubberRail(
 
                 Text(
                     text = activeLetter.toString(),
-                    color = if (is80s) accentColor else Color.White,
+                    color = Color.White,
                     fontSize = 20.sp,
                     fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    style = glowTextStyle(accentColor, 18f)
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
     }
 }
 
+// ============================================================================
+// MODULAR OLED WIDGETS MANAGER (Relocate, Resize, Add/Remove & Full Widget Customization)
+// All widget customization controls shifted here from Launcher Settings!
+// ============================================================================
 @Composable
 fun WidgetsManagerView(
     activeWidgets: List<String>,
@@ -5998,7 +7906,6 @@ fun WidgetsManagerView(
     leftWidgetSizes: Map<String, String> = emptyMap(),
     leftWidgetStyles: Map<String, String> = emptyMap(),
     accentColor: Color,
-    secondaryRetroColor: Color = accentColor,
     lomoFontFamily: FontFamily,
     use24Hour: Boolean,
     batteryBarStyle: String = "retro_blocks",
@@ -6026,6 +7933,7 @@ fun WidgetsManagerView(
     val wmPillShape = RoundedCornerShape(if (is80sWm) 0.dp else 6.dp)
     var editingLeftPage by remember { mutableStateOf(leftPageEnabled && initialTargetLeftPage) }
     val targetWidgetsList = if (leftPageEnabled && editingLeftPage) leftPageWidgets else activeWidgets
+    val targetSizesMap = if (leftPageEnabled && editingLeftPage) leftWidgetSizes else widgetSizes
     val targetStylesMap = if (leftPageEnabled && editingLeftPage) leftWidgetStyles else widgetStyles
     val onUpdateTargetWidgets: (List<String>) -> Unit = if (leftPageEnabled && editingLeftPage) onUpdateLeftWidgets else onUpdateWidgets
     val onUpdateTargetStyle: (String, String) -> Unit = if (leftPageEnabled && editingLeftPage) onSetLeftWidgetStyle else onSetWidgetStyle
@@ -6067,6 +7975,7 @@ fun WidgetsManagerView(
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        // Clean Window Header: only Title + DONE button
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -6077,8 +7986,7 @@ fun WidgetsManagerView(
                 color = if (is80sWm) accentColor else Color.White,
                 fontSize = 16.sp,
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = glowTextStyle(accentColor, 20f)
+                fontWeight = FontWeight.Bold
             )
             Text(
                 text = "DONE",
@@ -6087,8 +7995,7 @@ fun WidgetsManagerView(
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
-                    .retroNeonBorder(1.dp, if (is80sWm) secondaryRetroColor else Color.White, wmPillShape, glowEnabled = is80sWm)
-                    .background(if (is80sWm) secondaryRetroColor else Color.White, wmPillShape)
+                    .background(if (is80sWm) accentColor else Color.White, wmPillShape)
                     .clickable { onBack() }
                     .padding(horizontal = 10.dp, vertical = 5.dp)
             )
@@ -6098,12 +8005,10 @@ fun WidgetsManagerView(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .retroNeonBorder(
+                    .border(
                         1.dp,
                         if (is80sWm) accentColor else Color(0xFF282828),
-                        RoundedCornerShape(if (is80sWm) 0.dp else 8.dp),
-                        glowEnabled = is80sWm,
-                        glowRadiusDp = 4.dp
+                        RoundedCornerShape(if (is80sWm) 0.dp else 8.dp)
                     )
                     .background(Color(0xFF0A0A0A), RoundedCornerShape(if (is80sWm) 0.dp else 8.dp))
                     .padding(4.dp),
@@ -6121,10 +8026,9 @@ fun WidgetsManagerView(
                         fontFamily = lomoFontFamily,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
-                        style = if (selected) TextStyle.Default else glowTextStyle(accentColor, 14f),
                         modifier = Modifier
                             .weight(1f)
-                            .background(if (selected) secondaryRetroColor else Color(0xFF141414), wmPillShape)
+                            .background(if (selected) accentColor else Color(0xFF141414), wmPillShape)
                             .clickable { editingLeftPage = isLeft }
                             .padding(vertical = 7.dp)
                     )
@@ -6143,12 +8047,10 @@ fun WidgetsManagerView(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .retroNeonBorder(
+                        .border(
                             if (is80sWm) 1.4.dp else 1.dp,
-                            if (is80sWm) (if (enabled) accentColor else accentColor.copy(alpha = 0.55f)) else (if (enabled) Color(0xFF333333) else Color(0xFF1A1A1A)),
-                            wmCardShape,
-                            glowEnabled = is80sWm && enabled,
-                            glowRadiusDp = 5.dp
+                            if (is80sWm) (if (enabled) accentColor else accentColor.copy(alpha = 0.4f)) else (if (enabled) Color(0xFF333333) else Color(0xFF1A1A1A)),
+                            wmCardShape
                         )
                         .background(if (enabled) Color(0xFF080808) else Color(0xFF040404), wmCardShape)
                         .padding(14.dp)
@@ -6158,32 +8060,24 @@ fun WidgetsManagerView(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val titleCol = when {
-                            is80sWm && enabled -> accentColor
-                            is80sWm -> accentColor.copy(alpha = 0.72f)
-                            enabled -> Color.White
-                            else -> Color(0xFF737373)
-                        }
                         Text(
                             text = title,
-                            color = titleCol,
+                            color = if (enabled) Color.White else Color(0xFF737373),
                             fontSize = 12.sp,
                             fontFamily = lomoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            style = glowTextStyle(titleCol, 16f),
+                            fontWeight = FontWeight.Medium,
                             modifier = Modifier.weight(1f)
                         )
                         Text(
                             text = if (enabled) "ACTIVE [×]" else "+ ADD",
-                            color = if (enabled) secondaryRetroColor else if (is80sWm) accentColor else Color(0xFF8A8A8A),
+                            color = if (enabled) accentColor else if (is80sWm) accentColor.copy(alpha = 0.7f) else Color(0xFF8A8A8A),
                             fontSize = 11.sp,
                             fontFamily = lomoFontFamily,
                             fontWeight = FontWeight.Bold,
-                            style = glowTextStyle(if (enabled) secondaryRetroColor else accentColor, 14f),
                             modifier = Modifier
                                 .border(
                                     1.dp,
-                                    if (enabled) secondaryRetroColor else if (is80sWm) accentColor.copy(alpha = 0.6f) else Color(0xFF262626),
+                                    if (enabled) accentColor else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF262626),
                                     wmPillShape
                                 )
                                 .clickable {
@@ -6202,9 +8096,7 @@ fun WidgetsManagerView(
                             text = "STYLE",
                             color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
                             fontSize = 9.sp,
-                            fontFamily = lomoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            style = glowTextStyle(accentColor, 14f)
+                            fontFamily = lomoFontFamily
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(
@@ -6220,15 +8112,14 @@ fun WidgetsManagerView(
                                     fontFamily = lomoFontFamily,
                                     fontWeight = FontWeight.Bold,
                                     textAlign = TextAlign.Center,
-                                    style = if (isSel) TextStyle.Default else glowTextStyle(accentColor, 12f),
                                     modifier = Modifier
                                         .weight(1f)
                                         .border(
                                             1.dp,
-                                            if (isSel) secondaryRetroColor else if (is80sWm) accentColor.copy(alpha = 0.55f) else Color(0xFF282828),
+                                            if (isSel) accentColor else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
                                             wmBtnShape
                                         )
-                                        .background(if (isSel) secondaryRetroColor else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
+                                        .background(if (isSel) accentColor else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
                                         .clickable { onUpdateTargetStyle(id, stId) }
                                         .padding(vertical = 5.dp)
                                 )
@@ -6241,9 +8132,7 @@ fun WidgetsManagerView(
                                 text = "BATTERY BAR STYLE",
                                 color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
                                 fontSize = 9.sp,
-                                fontFamily = lomoFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                style = glowTextStyle(accentColor, 14f)
+                                fontFamily = lomoFontFamily
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(
@@ -6259,15 +8148,14 @@ fun WidgetsManagerView(
                                         fontFamily = lomoFontFamily,
                                         fontWeight = FontWeight.Bold,
                                         textAlign = TextAlign.Center,
-                                        style = if (isSel) TextStyle.Default else glowTextStyle(accentColor, 12f),
                                         modifier = Modifier
                                             .weight(1f)
                                             .border(
                                                 1.dp,
-                                                if (isSel) secondaryRetroColor else if (is80sWm) accentColor.copy(alpha = 0.55f) else Color(0xFF282828),
+                                                if (isSel) accentColor else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
                                                 wmBtnShape
                                             )
-                                            .background(if (isSel) secondaryRetroColor else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
+                                            .background(if (isSel) accentColor else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
                                             .clickable { onChangeBatteryBarStyle(stId) }
                                             .padding(vertical = 5.dp)
                                     )
@@ -6286,25 +8174,22 @@ fun WidgetsManagerView(
                                     text = "CLOCK FORMAT",
                                     color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
                                     fontSize = 9.sp,
-                                    fontFamily = lomoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    style = glowTextStyle(accentColor, 14f)
+                                    fontFamily = lomoFontFamily
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     listOf(false to "12H", true to "24H").forEach { (is24, lbl) ->
                                         val sel = use24Hour == is24
-                                        val activeBg = if (is80sWm) secondaryRetroColor else Color.White
+                                        val activeBg = if (is80sWm) accentColor else Color.White
                                         Text(
                                             text = lbl,
                                             color = if (sel) Color.Black else if (is80sWm) accentColor else Color.White,
                                             fontSize = 9.sp,
                                             fontFamily = lomoFontFamily,
                                             fontWeight = FontWeight.Bold,
-                                            style = if (sel) TextStyle.Default else glowTextStyle(accentColor, 12f),
                                             modifier = Modifier
                                                 .border(
                                                     1.dp,
-                                                    if (sel) activeBg else if (is80sWm) accentColor.copy(alpha = 0.55f) else Color(0xFF282828),
+                                                    if (sel) activeBg else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
                                                     wmBtnShape
                                                 )
                                                 .background(if (sel) activeBg else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
@@ -6322,9 +8207,7 @@ fun WidgetsManagerView(
                                 text = "VISUAL THEME",
                                 color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
                                 fontSize = 9.sp,
-                                fontFamily = lomoFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                style = glowTextStyle(accentColor, 14f)
+                                fontFamily = lomoFontFamily
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -6333,24 +8216,84 @@ fun WidgetsManagerView(
                                     "wireframe" to "MONOCHROME VECTOR"
                                 ).forEach { (tId, tLabel) ->
                                     val isSel = globeTheme == tId
-                                    val activeBg = if (is80sWm) secondaryRetroColor else Color.White
+                                    val activeBg = if (is80sWm) accentColor else Color.White
                                     Text(
                                         text = tLabel,
                                         color = if (isSel) Color.Black else if (is80sWm) accentColor else Color.White,
                                         fontSize = 9.sp,
                                         fontFamily = lomoFontFamily,
                                         fontWeight = FontWeight.Bold,
-                                        style = if (isSel) TextStyle.Default else glowTextStyle(accentColor, 12f),
                                         modifier = Modifier
                                             .border(
                                                 1.dp,
-                                                if (isSel) activeBg else if (is80sWm) accentColor.copy(alpha = 0.55f) else Color(0xFF282828),
+                                                if (isSel) activeBg else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
                                                 wmBtnShape
                                             )
                                             .background(if (isSel) activeBg else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
                                             .clickable { onChangeGlobeTheme(tId) }
                                             .padding(horizontal = 8.dp, vertical = 5.dp)
                                     )
+                                }
+                            }
+
+                            if (globeTheme == "wireframe") {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "VECTOR COLOR",
+                                    color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
+                                    fontSize = 9.sp,
+                                    fontFamily = lomoFontFamily
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    listOf(
+                                        "#FF3B00" to "CMF",
+                                        "#00FF66" to "GRN",
+                                        "#00E5FF" to "CYN",
+                                        "#FFFFFF" to "WHT",
+                                        "#D71921" to "RED",
+                                        "#FFB000" to "AMB",
+                                        "#3B82F6" to "BLU"
+                                    ).forEach { (hex, name) ->
+                                        val selected = globeWireframeColor.equals(hex, ignoreCase = true)
+                                        val swatchColor = when (hex) {
+                                            "#00FF66" -> Color(0xFF00FF66)
+                                            "#00E5FF" -> Color(0xFF00E5FF)
+                                            "#FFFFFF" -> Color(0xFFFFFFFF)
+                                            "#D71921" -> Color(0xFFD71921)
+                                            "#FFB000" -> Color(0xFFFFB000)
+                                            "#3B82F6" -> Color(0xFF3B82F6)
+                                            else -> Color(0xFFFF3B00)
+                                        }
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier
+                                                .border(
+                                                    width = if (selected) 1.5.dp else 1.dp,
+                                                    color = if (selected) (if (is80sWm) accentColor else Color.White) else if (is80sWm) accentColor.copy(alpha = 0.4f) else Color(0xFF262626),
+                                                    shape = wmPillShape
+                                                )
+                                                .background(Color(0xFF111111), wmPillShape)
+                                                .clickable { onChangeGlobeWireframeColor(hex) }
+                                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(10.dp)
+                                                    .background(swatchColor, if (is80sWm) RoundedCornerShape(0.dp) else CircleShape)
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = name,
+                                                color = if (selected) Color.White else Color(0xFF737373),
+                                                fontSize = 8.sp,
+                                                fontFamily = lomoFontFamily
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -6366,25 +8309,22 @@ fun WidgetsManagerView(
                                     text = "SEQUENCE ORDER",
                                     color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
                                     fontSize = 9.sp,
-                                    fontFamily = lomoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    style = glowTextStyle(accentColor, 14f)
+                                    fontFamily = lomoFontFamily
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     listOf(true to "CUSTOM (↑/↓)", false to "A–Z AUTO").forEach { (isCust, lbl) ->
                                         val sel = customPinnedOrderEnabled == isCust
-                                        val activeBg = if (is80sWm) secondaryRetroColor else Color.White
+                                        val activeBg = if (is80sWm) accentColor else Color.White
                                         Text(
                                             text = lbl,
                                             color = if (sel) Color.Black else if (is80sWm) accentColor else Color.White,
                                             fontSize = 9.sp,
                                             fontFamily = lomoFontFamily,
                                             fontWeight = FontWeight.Bold,
-                                            style = if (sel) TextStyle.Default else glowTextStyle(accentColor, 12f),
                                             modifier = Modifier
                                                 .border(
                                                     1.dp,
-                                                    if (sel) activeBg else if (is80sWm) accentColor.copy(alpha = 0.55f) else Color(0xFF282828),
+                                                    if (sel) activeBg else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
                                                     wmBtnShape
                                                 )
                                                 .background(if (sel) activeBg else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
@@ -6403,11 +8343,11 @@ fun WidgetsManagerView(
                                 onValueChange = { onChangeQuickNote(it) },
                                 singleLine = true,
                                 textStyle = TextStyle(
-                                    color = if (is80sWm) secondaryRetroColor else Color.White,
+                                    color = Color.White,
                                     fontSize = 11.sp,
                                     fontFamily = lomoFontFamily
-                                ).merge(glowTextStyle(secondaryRetroColor, 14f)),
-                                cursorBrush = SolidColor(secondaryRetroColor),
+                                ),
+                                cursorBrush = SolidColor(accentColor),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .border(1.dp, if (is80sWm) accentColor else Color(0xFF262626), wmPillShape)
@@ -6422,104 +8362,11 @@ fun WidgetsManagerView(
     }
 }
 
-
-@Composable
-fun settingsGlowTextStyle(
-    color: Color,
-    blurRadius: Float = 8.5f
-): TextStyle {
-    val isRetro = LocalRetro80sMode.current
-    val theme = LocalRetro80sColorTheme.current
-    if (!isRetro) return TextStyle.Default
-    val haloColor = when {
-        color == Color.Black || color.alpha < 0.2f -> Color.Transparent
-        theme == "holomap" && color.red > color.blue -> Color(0xFFFF2200)
-        theme == "holomap" -> Color(0xFF00E5FF)
-        theme == "amber" -> Color(0xFFFF9100)
-        else -> Color(0xFF39FF14)
-    }
-    val tightRadius = (blurRadius * 0.45f).coerceIn(6.5f, 10.5f)
-    return if (haloColor == Color.Transparent) {
-        TextStyle.Default
-    } else {
-        TextStyle(
-            shadow = Shadow(
-                color = haloColor,
-                offset = Offset.Zero,
-                blurRadius = tightRadius
-            )
-        )
-    }
-}
-
-fun Modifier.settingsRetroTextGlow(enabled: Boolean, passes: Int = 3): Modifier = if (!enabled) {
-    this
-} else {
-    this.drawWithContent {
-        val count = passes.coerceIn(1, 3)
-        for (i in 0 until count) {
-            drawContent()
-        }
-    }
-}
-
-@Composable
-fun CollapsibleTriangleIndicator(
-    expanded: Boolean,
-    is80s: Boolean,
-    accentColor: Color,
-    secondaryCol: Color,
-    lomoFontFamily: FontFamily,
-    triangleSizeDp: Dp = 11.dp
-) {
-    if (is80s) {
-        Text(
-            text = if (expanded) "[-]" else "[+]",
-            color = secondaryCol,
-            fontSize = 11.sp,
-            fontFamily = lomoFontFamily,
-            fontWeight = FontWeight.Bold,
-            style = settingsGlowTextStyle(secondaryCol, 18f),
-            modifier = Modifier.settingsRetroTextGlow(true)
-        )
-    } else {
-        val rotationDeg by animateFloatAsState(
-            targetValue = if (expanded) 90f else 0f,
-            animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
-            label = "collapsibleTriangleRotation"
-        )
-        val triColor by animateColorAsState(
-            targetValue = if (expanded) accentColor else Color(0xFF737373),
-            animationSpec = tween(durationMillis = 200),
-            label = "collapsibleTriangleColor"
-        )
-        Box(
-            modifier = Modifier.size(triangleSizeDp + 4.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Canvas(modifier = Modifier.size(triangleSizeDp)) {
-                val w = size.width
-                val h = size.height
-                rotate(degrees = rotationDeg, pivot = Offset(w * 0.5f, h * 0.5f)) {
-                    val path = Path().apply {
-                        moveTo(w * 0.22f, h * 0.14f)
-                        lineTo(w * 0.84f, h * 0.50f)
-                        lineTo(w * 0.22f, h * 0.86f)
-                        close()
-                    }
-                    drawPath(path = path, color = triColor)
-                }
-            }
-        }
-    }
-}
-
 // ============================================================================
-// CLEAN & GLOWING LAUNCHER SETTINGS WITH COLLAPSIBLE ACCORDION MENUS (v5.1.0-cmf)
-// - Every text element & border genuinely glows in Old School & Red/Cyan Holomap modes
-// - Removed Battery Bar Style from Section 02 (Typography & Layout)
-// - Removed Phase Thread live wallpaper
-// - Added system-wide Retro-Futuristic (Glowing Red & Glowing Cyan) theme
+// CLEAN LAUNCHER SETTINGS WITH COLLAPSIBLE ACCORDION MENUS (v5.0.0-cmf)
+// - Header title: "Nocturnaa Settings" (Regular) / "Nocturna Configuration" (Old School)
+// - Collapsible menus show ONLY the section title and small theme-specific icon
+// - Every inner card, button & slider follows the Old School theme consistently
 // ============================================================================
 @Composable
 fun LauncherSettingsView(
@@ -6592,14 +8439,12 @@ fun LauncherSettingsView(
     var expandedStaticWallpapers by remember { mutableStateOf(false) }
     var expandedUserWallpapers by remember { mutableStateOf(false) }
 
-    val primaryCol = rememberRetroPrimaryColor(resolveLauncherAccentColor(accentHex))
-    val secondaryCol = rememberRetroSecondaryColor(resolveLauncherAccentColor(accentHex))
+    val accentColor = resolveLauncherAccentColor(accentHex)
     val innerCardShape = RoundedCornerShape(if (retro80sMode) 0.dp else 10.dp)
     val innerSubCardShape = RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp)
     val innerBtnShape = RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
-    val innerCardBorderColor = if (retro80sMode) primaryCol else Color(0xFF222222)
+    val innerCardBorderColor = if (retro80sMode) accentColor.copy(alpha = 0.75f) else Color(0xFF222222)
 
-    // Phase Thread ("live_lissajous") removed as requested!
     val liveWallpaperOptions = listOf(
         Triple("live_crt_scanlines", "OLD SCHOOL SCANLINES", "Faint Scanlines & Refresh Beam"),
         Triple("live_starfield_3d", "3D STARFIELD", "1,200-Star 3D Night Sky"),
@@ -6608,6 +8453,7 @@ fun LauncherSettingsView(
         Triple("live_starlight", "STARLIGHT BREATH", "Calm Twinkling Field"),
         Triple("live_kepler", "KEPLER ORBITS", "Planetary Ellipses"),
         Triple("live_quantum", "MICRO LATTICE", "Breathing Dot Matrix"),
+        Triple("live_lissajous", "PHASE THREAD", "Slow Harmonic Curve"),
         Triple("live_glow_horizon", "AURORA GLOW FADE", "Breathing Ambient Fade"),
         Triple("live_halftone_pulse", "HALFTONE WAVE", "Glowing Halftone Pulse")
     )
@@ -6665,12 +8511,11 @@ fun LauncherSettingsView(
             .windowInsetsPadding(WindowInsets.statusBars)
             .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
             .windowInsetsPadding(WindowInsets.navigationBars)
-            .settingsRetroTextGlow(enabled = retro80sMode, passes = 3)
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
-        // Clean Settings Header with Luminous Neon Glow
+        // Clean Settings Header: ONLY "Nocturnaa Settings" (Regular) or "Nocturna Configuration" (Old School) + DONE
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -6679,11 +8524,10 @@ fun LauncherSettingsView(
             ) {
                 Text(
                     text = if (retro80sMode) "Nocturna Configuration" else "Nocturnaa Settings",
-                    color = if (retro80sMode) primaryCol else Color.White,
+                    color = if (retro80sMode) accentColor else Color.White,
                     fontSize = 16.sp,
                     fontFamily = launcherFont,
-                    fontWeight = FontWeight.Bold,
-                    style = settingsGlowTextStyle(primaryCol, 22f)
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = "DONE",
@@ -6692,82 +8536,77 @@ fun LauncherSettingsView(
                     fontFamily = launcherFont,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
-                        .retroNeonBorder(
-                            1.dp,
-                            if (retro80sMode) secondaryCol else Color.White,
-                            innerBtnShape,
-                            glowEnabled = retro80sMode
-                        )
-                        .background(if (retro80sMode) secondaryCol else Color.White, innerBtnShape)
+                        .background(if (retro80sMode) accentColor else Color.White, innerBtnShape)
                         .clickable { onBack() }
                         .padding(horizontal = 10.dp, vertical = 5.dp)
                 )
             }
         }
 
-        // SECTION 01: System & Home Integration
+        // SECTION 01
         item {
             CollapsibleSettingsSection(
                 indexTag = "01",
                 title = "System & Home Integration",
+                subtitle = "",
+                badge = "",
                 expanded = expandedSystem,
-                accentColor = primaryCol,
+                accentColor = accentColor,
                 lomoFontFamily = launcherFont,
                 onToggle = { expandedSystem = !expandedSystem }
             ) {
                 SettingCard(
                     title = "Default Home Launcher",
+                    subtitle = "",
                     actionLabel = "CHOOSE HOME",
                     lomoFontFamily = launcherFont,
                     onClick = onRequestDefaultHomeRole
                 )
                 SettingCard(
                     title = "Old School Mode",
+                    subtitle = "",
                     actionLabel = if (retro80sMode) "ON" else "OFF",
                     lomoFontFamily = launcherFont,
                     onClick = onToggleRetro80sMode
                 )
-                // Old School Color Theme Selector (Green Phosphor, Amber Orange, Red & Cyan) included under Old School Mode
+                // Old School Color Theme Selector (Green Phosphor vs Amber Orange)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .retroNeonBorder(1.dp, innerCardBorderColor, innerCardShape, glowEnabled = retro80sMode, glowRadiusDp = 4.dp)
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
                         .background(Color(0xFF050505), innerCardShape)
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
                         text = "OLD SCHOOL COLOR THEME",
-                        color = if (retro80sMode) primaryCol else Color(0xFF8A8A8A),
+                        color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
                         fontSize = 9.sp,
                         fontFamily = launcherFont,
-                        fontWeight = FontWeight.Bold,
-                        style = settingsGlowTextStyle(primaryCol, 16f)
+                        fontWeight = FontWeight.Bold
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         listOf(
-                            "green" to "GREEN",
-                            "amber" to "AMBER",
-                            "holomap" to "RED & CYAN"
+                            "green" to "GREEN PHOSPHOR",
+                            "amber" to "AMBER ORANGE"
                         ).forEach { (thId, thLbl) ->
                             val isSel = retro80sColorTheme == thId
-                            val activeBg = if (retro80sMode) secondaryCol else Color.White
+                            val activeBg = if (retro80sMode) accentColor else Color.White
                             Text(
                                 text = thLbl,
-                                color = if (isSel) Color.Black else if (retro80sMode) primaryCol else Color.White,
+                                color = if (isSel) Color.Black else if (retro80sMode) accentColor else Color.White,
                                 fontSize = 9.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
-                                style = if (isSel) TextStyle.Default else settingsGlowTextStyle(primaryCol, 14f),
                                 modifier = Modifier
                                     .weight(1f)
                                     .border(
                                         1.dp,
-                                        if (isSel) activeBg else if (retro80sMode) primaryCol.copy(alpha = 0.6f) else Color(0xFF282828),
+                                        if (isSel) activeBg else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
                                         innerBtnShape
                                     )
                                     .background(
@@ -6782,18 +8621,21 @@ fun LauncherSettingsView(
                 }
                 SettingCard(
                     title = "Additional Left Home Page",
+                    subtitle = "",
                     actionLabel = if (enableLeftPage) "ON" else "OFF",
                     lomoFontFamily = launcherFont,
                     onClick = onToggleLeftPage
                 )
                 SettingCard(
                     title = "Hide Android Status Bar",
+                    subtitle = "",
                     actionLabel = if (hideAndroidBar) "ON" else "OFF",
                     lomoFontFamily = launcherFont,
                     onClick = onToggleAndroidBar
                 )
                 SettingCard(
                     title = "Pause Wallpapers & Widgets in Apps",
+                    subtitle = "",
                     actionLabel = if (pauseWhenAppOpen) "ON" else "OFF",
                     lomoFontFamily = launcherFont,
                     onClick = onTogglePauseWhenAppOpen
@@ -6803,7 +8645,7 @@ fun LauncherSettingsView(
                     cardTitle = "SETTINGS BACKGROUND",
                     settingsBgMode = settingsBgMode,
                     settingsBgIntensity = settingsBgIntensity,
-                    accentColor = primaryCol,
+                    accentColor = accentColor,
                     lomoFontFamily = launcherFont,
                     onChangeMode = onChangeSettingsBgMode,
                     onChangeIntensity = onChangeSettingsBgIntensity
@@ -6811,21 +8653,23 @@ fun LauncherSettingsView(
             }
         }
 
-        // SECTION 02: Typography & Layout (Battery Bar Style removed from here as requested!)
+        // SECTION 02
         item {
             val activeFontName = PrebuiltFont.fromId(fontId).displayName.substringBefore(" (")
             CollapsibleSettingsSection(
                 indexTag = "02",
                 title = "Typography & Layout",
+                subtitle = "",
+                badge = "",
                 expanded = expandedTypography,
-                accentColor = primaryCol,
+                accentColor = accentColor,
                 lomoFontFamily = launcherFont,
                 onToggle = { expandedTypography = !expandedTypography }
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .retroNeonBorder(1.dp, innerCardBorderColor, innerCardShape, glowEnabled = retro80sMode, glowRadiusDp = 4.dp)
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
                         .background(Color(0xFF070707), innerCardShape)
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -6840,27 +8684,29 @@ fun LauncherSettingsView(
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
                                 text = "LAUNCHER FONT",
-                                color = if (retro80sMode) primaryCol else Color(0xFF8A8A8A),
+                                color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
                                 fontSize = 9.sp,
                                 fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold,
-                                style = settingsGlowTextStyle(primaryCol, 16f)
+                                fontWeight = FontWeight.Bold
                             )
                             Text(
                                 text = activeFontName,
-                                color = if (retro80sMode) secondaryCol else Color.White,
+                                color = Color.White,
                                 fontSize = 13.sp,
                                 fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold,
-                                style = settingsGlowTextStyle(secondaryCol, 16f)
+                                fontWeight = FontWeight.Bold
                             )
                         }
-                        CollapsibleTriangleIndicator(
-                            expanded = expandedFontMenu,
-                            is80s = retro80sMode,
-                            accentColor = secondaryCol,
-                            secondaryCol = secondaryCol,
-                            lomoFontFamily = launcherFont
+                        Text(
+                            text = if (retro80sMode) {
+                                if (expandedFontMenu) "[-]" else "[+]"
+                            } else {
+                                if (expandedFontMenu) "▾" else "▸"
+                            },
+                            color = accentColor,
+                            fontSize = if (retro80sMode) 11.sp else 14.sp,
+                            fontFamily = launcherFont,
+                            fontWeight = FontWeight.Bold
                         )
                     }
 
@@ -6882,7 +8728,7 @@ fun LauncherSettingsView(
                                         .fillMaxWidth()
                                         .border(
                                             1.dp,
-                                            if (selected) secondaryCol else if (retro80sMode) primaryCol.copy(alpha = 0.45f) else Color(0xFF171717),
+                                            if (selected) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.35f) else Color(0xFF171717),
                                             innerSubCardShape
                                         )
                                         .background(
@@ -6894,17 +8740,11 @@ fun LauncherSettingsView(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    val rowTextCol = when {
-                                        selected && retro80sMode -> secondaryCol
-                                        retro80sMode -> primaryCol
-                                        else -> Color.White
-                                    }
                                     Text(
                                         text = f.displayName.substringBefore(" ("),
-                                        color = rowTextCol,
+                                        color = if (selected && retro80sMode) accentColor else Color.White,
                                         fontSize = 12.sp,
                                         fontFamily = f.resolveFontFamily(lomoFontFamily),
-                                        style = settingsGlowTextStyle(rowTextCol, 14f),
                                         modifier = Modifier.weight(1f)
                                     )
                                     Text(
@@ -6913,11 +8753,10 @@ fun LauncherSettingsView(
                                         } else {
                                             if (selected) "●" else "○"
                                         },
-                                        color = if (selected) secondaryCol else if (retro80sMode) primaryCol.copy(alpha = 0.6f) else Color(0xFF525252),
+                                        color = if (selected) accentColor else Color(0xFF525252),
                                         fontSize = 10.sp,
                                         fontFamily = launcherFont,
-                                        fontWeight = FontWeight.Bold,
-                                        style = settingsGlowTextStyle(if (selected) secondaryCol else primaryCol, 14f)
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
@@ -6929,18 +8768,17 @@ fun LauncherSettingsView(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .retroNeonBorder(1.dp, innerCardBorderColor, innerCardShape, glowEnabled = retro80sMode, glowRadiusDp = 4.dp)
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
                         .background(Color(0xFF070707), innerCardShape)
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
                         text = "HOME APP FONT SIZE",
-                        color = if (retro80sMode) primaryCol else Color(0xFF8A8A8A),
+                        color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
                         fontSize = 9.sp,
                         fontFamily = launcherFont,
-                        fontWeight = FontWeight.Bold,
-                        style = settingsGlowTextStyle(primaryCol, 16f)
+                        fontWeight = FontWeight.Bold
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -6948,20 +8786,19 @@ fun LauncherSettingsView(
                     ) {
                         listOf(16, 18, 20, 22, 24).forEach { spVal ->
                             val sel = textSizeSp == spVal
-                            val activeBg = if (retro80sMode) secondaryCol else Color.White
+                            val activeBg = if (retro80sMode) accentColor else Color.White
                             Text(
                                 text = "${spVal}SP",
-                                color = if (sel) Color.Black else if (retro80sMode) primaryCol else Color.White,
+                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color.White,
                                 fontSize = 10.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
-                                style = if (sel) TextStyle.Default else settingsGlowTextStyle(primaryCol, 14f),
                                 modifier = Modifier
                                     .weight(1f)
                                     .border(
                                         1.dp,
-                                        if (sel) activeBg else if (retro80sMode) primaryCol.copy(alpha = 0.55f) else Color(0xFF242424),
+                                        if (sel) activeBg else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
                                         innerBtnShape
                                     )
                                     .background(if (sel) activeBg else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
@@ -6974,6 +8811,7 @@ fun LauncherSettingsView(
 
                 SettingCard(
                     title = "Clock Time Format",
+                    subtitle = "",
                     actionLabel = if (use24Hour) "24-HOUR" else "12-HOUR",
                     lomoFontFamily = launcherFont,
                     onClick = onToggle24h
@@ -6981,6 +8819,7 @@ fun LauncherSettingsView(
 
                 SettingCard(
                     title = "Home Text Alignment",
+                    subtitle = "",
                     actionLabel = textAlignMode.uppercase(Locale.US),
                     lomoFontFamily = launcherFont,
                     onClick = {
@@ -6995,10 +8834,55 @@ fun LauncherSettingsView(
 
                 SettingCard(
                     title = "Custom Pinned Apps Order",
+                    subtitle = "",
                     actionLabel = if (customPinnedOrderEnabled) "ON" else "OFF",
                     lomoFontFamily = launcherFont,
                     onClick = onToggleCustomPinnedOrder
                 )
+
+                // Battery Progress Bar Style Selector
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
+                        .background(Color(0xFF070707), innerCardShape)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "BATTERY BAR STYLE",
+                        color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
+                        fontSize = 9.sp,
+                        fontFamily = launcherFont,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        BATTERY_BAR_STYLES.forEach { (stId, stLbl) ->
+                            val sel = batteryBarStyle == stId
+                            Text(
+                                text = stLbl,
+                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color.White,
+                                fontSize = 8.sp,
+                                fontFamily = launcherFont,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .border(
+                                        1.dp,
+                                        if (sel) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
+                                        innerBtnShape
+                                    )
+                                    .background(if (sel) accentColor else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
+                                    .clickable { onChangeBatteryBarStyle(stId) }
+                                    .padding(vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -7007,8 +8891,10 @@ fun LauncherSettingsView(
             CollapsibleSettingsSection(
                 indexTag = "03",
                 title = "Wallpapers and Settings",
+                subtitle = "",
+                badge = "",
                 expanded = expandedWallpaper,
-                accentColor = primaryCol,
+                accentColor = accentColor,
                 lomoFontFamily = launcherFont,
                 onToggle = { expandedWallpaper = !expandedWallpaper }
             ) {
@@ -7016,7 +8902,7 @@ fun LauncherSettingsView(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .retroNeonBorder(1.dp, innerCardBorderColor, innerCardShape, glowEnabled = retro80sMode, glowRadiusDp = 4.dp)
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
                         .background(Color(0xFF070707), innerCardShape)
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -7025,7 +8911,7 @@ fun LauncherSettingsView(
                         label = "WALLPAPER DIMMER",
                         valueText = "${wallpaperDimPercent}%",
                         fraction = (wallpaperDimPercent / 90f).coerceIn(0f, 1f),
-                        accentColor = primaryCol,
+                        accentColor = accentColor,
                         lomoFontFamily = launcherFont,
                         onFractionChange = { frac ->
                             val nextDim = (frac * 90f).roundToInt().coerceIn(0, 90)
@@ -7042,20 +8928,19 @@ fun LauncherSettingsView(
                             val sel = wallpaperDimPercent == dimVal
                             Text(
                                 text = "${dimVal}%",
-                                color = if (sel) Color.Black else if (retro80sMode) primaryCol else Color(0xFFD4D4D4),
+                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color(0xFFD4D4D4),
                                 fontSize = 9.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
-                                style = if (sel) TextStyle.Default else settingsGlowTextStyle(primaryCol, 14f),
                                 modifier = Modifier
                                     .weight(1f)
                                     .border(
                                         1.dp,
-                                        if (sel) secondaryCol else if (retro80sMode) primaryCol.copy(alpha = 0.55f) else Color(0xFF242424),
+                                        if (sel) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
                                         innerBtnShape
                                     )
-                                    .background(if (sel) secondaryCol else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF151515), innerBtnShape)
+                                    .background(if (sel) accentColor else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF151515), innerBtnShape)
                                     .clickable { onChangeWallpaperDim(dimVal) }
                                     .padding(vertical = 5.dp)
                             )
@@ -7063,11 +8948,13 @@ fun LauncherSettingsView(
                     }
                 }
 
-                // 1. Live Wallpapers (Phase Thread removed!)
+                // 1. Live Wallpapers
                 CollapsibleSubSection(
                     title = "Live Wallpapers",
+                    subtitle = "",
+                    badge = "",
                     expanded = expandedLiveWallpapers,
-                    accentColor = primaryCol,
+                    accentColor = accentColor,
                     lomoFontFamily = launcherFont,
                     onToggle = { expandedLiveWallpapers = !expandedLiveWallpapers }
                 ) {
@@ -7083,7 +8970,7 @@ fun LauncherSettingsView(
                                         .weight(1f)
                                         .border(
                                             1.dp,
-                                            if (active) secondaryCol else if (retro80sMode) primaryCol.copy(alpha = 0.5f) else Color(0xFF242424),
+                                            if (active) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.4f) else Color(0xFF242424),
                                             innerSubCardShape
                                         )
                                         .background(
@@ -7098,33 +8985,23 @@ fun LauncherSettingsView(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        val wCol = when {
-                                            active && retro80sMode -> secondaryCol
-                                            retro80sMode -> primaryCol
-                                            active -> Color.White
-                                            else -> Color(0xFFD4D4D4)
-                                        }
                                         Text(
                                             text = title,
-                                            color = wCol,
+                                            color = if (active) (if (retro80sMode) accentColor else Color.White) else Color(0xFFD4D4D4),
                                             fontSize = 10.sp,
                                             fontFamily = launcherFont,
-                                            fontWeight = FontWeight.Bold,
-                                            style = settingsGlowTextStyle(wCol, 14f)
+                                            fontWeight = FontWeight.Bold
                                         )
                                         Box(
                                             modifier = Modifier
                                                 .size(6.dp)
                                                 .background(
-                                                    if (active) secondaryCol else Color(0xFF383838),
+                                                    if (active) accentColor else Color(0xFF383838),
                                                     if (retro80sMode) RoundedCornerShape(0.dp) else CircleShape
                                                 )
                                         )
                                     }
                                 }
-                            }
-                            if (rowItems.size == 1) {
-                                Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }
@@ -7145,21 +9022,19 @@ fun LauncherSettingsView(
                         ) {
                             Text(
                                 text = "LIVE WALLPAPER TUNING",
-                                color = primaryCol,
+                                color = accentColor,
                                 fontSize = 9.sp,
                                 fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold,
-                                style = settingsGlowTextStyle(primaryCol, 16f)
+                                fontWeight = FontWeight.Bold
                             )
                             Text(
                                 text = "RESET",
-                                color = if (retro80sMode) secondaryCol else Color(0xFFA3A3A3),
+                                color = if (retro80sMode) accentColor else Color(0xFFA3A3A3),
                                 fontSize = 8.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
-                                style = settingsGlowTextStyle(secondaryCol, 14f),
                                 modifier = Modifier
-                                    .border(1.dp, if (retro80sMode) secondaryCol else Color(0xFF2E2E2E), innerBtnShape)
+                                    .border(1.dp, if (retro80sMode) accentColor else Color(0xFF2E2E2E), innerBtnShape)
                                     .background(Color(0xFF121212), innerBtnShape)
                                     .clickable { onResetWpTuning() }
                                     .padding(horizontal = 7.dp, vertical = 3.dp)
@@ -7170,7 +9045,7 @@ fun LauncherSettingsView(
                             label = "SPEED",
                             currentValue = wpSpeed,
                             options = listOf(0.25f to "0.25x", 0.5f to "0.5x", 1.0f to "1.0x", 1.5f to "1.5x", 2.2f to "2.2x"),
-                            accentColor = primaryCol,
+                            accentColor = accentColor,
                             lomoFontFamily = launcherFont,
                             onSelect = onChangeWpSpeed
                         )
@@ -7179,7 +9054,7 @@ fun LauncherSettingsView(
                             label = "DENSITY",
                             currentValue = wpDensity,
                             options = listOf(0.5f to "0.5x", 0.75f to "0.75x", 1.0f to "1.0x", 1.35f to "1.35x", 1.75f to "1.75x"),
-                            accentColor = primaryCol,
+                            accentColor = accentColor,
                             lomoFontFamily = launcherFont,
                             onSelect = onChangeWpDensity
                         )
@@ -7188,7 +9063,7 @@ fun LauncherSettingsView(
                             label = "OPACITY",
                             currentValue = wpOpacity,
                             options = listOf(0.4f to "40%", 0.7f to "70%", 1.0f to "100%", 1.35f to "135%", 1.75f to "175%"),
-                            accentColor = primaryCol,
+                            accentColor = accentColor,
                             lomoFontFamily = launcherFont,
                             onSelect = onChangeWpOpacity
                         )
@@ -7197,7 +9072,7 @@ fun LauncherSettingsView(
                             label = "SCALE",
                             currentValue = wpScale,
                             options = listOf(0.65f to "0.65x", 0.85f to "0.85x", 1.0f to "1.0x", 1.25f to "1.25x", 1.5f to "1.5x"),
-                            accentColor = primaryCol,
+                            accentColor = accentColor,
                             lomoFontFamily = launcherFont,
                             onSelect = onChangeWpScale
                         )
@@ -7207,8 +9082,10 @@ fun LauncherSettingsView(
                 // 2. Static Wallpapers
                 CollapsibleSubSection(
                     title = "Static Wallpapers",
+                    subtitle = "",
+                    badge = "",
                     expanded = expandedStaticWallpapers,
-                    accentColor = primaryCol,
+                    accentColor = accentColor,
                     lomoFontFamily = launcherFont,
                     onToggle = { expandedStaticWallpapers = !expandedStaticWallpapers }
                 ) {
@@ -7224,7 +9101,7 @@ fun LauncherSettingsView(
                                         .weight(1f)
                                         .border(
                                             1.dp,
-                                            if (active) (if (retro80sMode) secondaryCol else Color.White) else if (retro80sMode) primaryCol.copy(alpha = 0.5f) else Color(0xFF242424),
+                                            if (active) (if (retro80sMode) accentColor else Color.White) else if (retro80sMode) accentColor.copy(alpha = 0.4f) else Color(0xFF242424),
                                             innerSubCardShape
                                         )
                                         .background(
@@ -7239,26 +9116,19 @@ fun LauncherSettingsView(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        val wCol = when {
-                                            active && retro80sMode -> secondaryCol
-                                            retro80sMode -> primaryCol
-                                            active -> Color.White
-                                            else -> Color(0xFFD4D4D4)
-                                        }
                                         Text(
                                             text = title,
-                                            color = wCol,
+                                            color = if (active) (if (retro80sMode) accentColor else Color.White) else Color(0xFFD4D4D4),
                                             fontSize = 10.sp,
                                             fontFamily = launcherFont,
-                                            fontWeight = FontWeight.Bold,
-                                            style = settingsGlowTextStyle(wCol, 14f)
+                                            fontWeight = FontWeight.Bold
                                         )
                                         if (active) {
                                             Box(
                                                 modifier = Modifier
                                                     .size(6.dp)
                                                     .background(
-                                                        secondaryCol,
+                                                        accentColor,
                                                         if (retro80sMode) RoundedCornerShape(0.dp) else CircleShape
                                                     )
                                             )
@@ -7273,13 +9143,16 @@ fun LauncherSettingsView(
                 // 3. User Wallpapers
                 CollapsibleSubSection(
                     title = "User Wallpapers",
+                    subtitle = "",
+                    badge = "",
                     expanded = expandedUserWallpapers,
-                    accentColor = primaryCol,
+                    accentColor = accentColor,
                     lomoFontFamily = launcherFont,
                     onToggle = { expandedUserWallpapers = !expandedUserWallpapers }
                 ) {
                     SettingCard(
                         title = "Import Photo from Gallery",
+                        subtitle = "",
                         actionLabel = if (wallpaperPreset == "user_image") "CHANGE" else "PICK",
                         lomoFontFamily = launcherFont,
                         onClick = onPickCustomWallpaperImage
@@ -7288,6 +9161,7 @@ fun LauncherSettingsView(
                     if (hasCustomUserImage && wallpaperPreset != "user_image") {
                         SettingCard(
                             title = "Use Saved Custom Photo",
+                            subtitle = "",
                             actionLabel = "APPLY",
                             lomoFontFamily = launcherFont,
                             onClick = { onChangeWallpaperPreset("user_image") }
@@ -7296,6 +9170,7 @@ fun LauncherSettingsView(
 
                     SettingCard(
                         title = "System Wallpaper Picker",
+                        subtitle = "",
                         actionLabel = "OPEN",
                         lomoFontFamily = launcherFont,
                         onClick = onOpenSystemWallpaperPicker
@@ -7303,6 +9178,7 @@ fun LauncherSettingsView(
 
                     SettingCard(
                         title = "Use System Wallpaper",
+                        subtitle = "",
                         actionLabel = if (wallpaperPreset == "system_wallpaper") "ON" else "ENABLE",
                         lomoFontFamily = launcherFont,
                         onClick = { onChangeWallpaperPreset("system_wallpaper") }
@@ -7313,7 +9189,7 @@ fun LauncherSettingsView(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .retroNeonBorder(1.dp, innerCardBorderColor, innerCardShape, glowEnabled = retro80sMode, glowRadiusDp = 4.dp)
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
                         .background(Color(0xFF070707), innerCardShape)
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -7325,19 +9201,17 @@ fun LauncherSettingsView(
                     ) {
                         Text(
                             text = "ACCENT COLOR",
-                            color = if (retro80sMode) primaryCol else Color(0xFF8A8A8A),
+                            color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
                             fontSize = 9.sp,
                             fontFamily = launcherFont,
-                            fontWeight = FontWeight.Bold,
-                            style = settingsGlowTextStyle(primaryCol, 16f)
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = accentHex,
-                            color = secondaryCol,
+                            color = accentColor,
                             fontSize = 9.sp,
                             fontFamily = launcherFont,
-                            fontWeight = FontWeight.Bold,
-                            style = settingsGlowTextStyle(secondaryCol, 16f)
+                            fontWeight = FontWeight.Bold
                         )
                     }
 
@@ -7354,7 +9228,7 @@ fun LauncherSettingsView(
                                         .weight(1f)
                                         .border(
                                             width = if (isSel) 1.5.dp else 1.dp,
-                                            color = if (isSel) (if (retro80sMode) secondaryCol else Color.White) else if (retro80sMode) primaryCol.copy(alpha = 0.5f) else Color(0xFF242424),
+                                            color = if (isSel) (if (retro80sMode) accentColor else Color.White) else if (retro80sMode) accentColor.copy(alpha = 0.4f) else Color(0xFF242424),
                                             shape = innerSubCardShape
                                         )
                                         .background(
@@ -7373,11 +9247,10 @@ fun LauncherSettingsView(
                                     )
                                     Text(
                                         text = label,
-                                        color = if (isSel) (if (retro80sMode) secondaryCol else Color.White) else if (retro80sMode) primaryCol else Color(0xFF8A8A8A),
+                                        color = if (isSel) Color.White else Color(0xFF8A8A8A),
                                         fontSize = 8.sp,
                                         fontFamily = launcherFont,
-                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                                        style = settingsGlowTextStyle(if (isSel) secondaryCol else primaryCol, 12f)
+                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
                                     )
                                 }
                             }
@@ -7393,8 +9266,10 @@ fun LauncherSettingsView(
             CollapsibleSettingsSection(
                 indexTag = "04",
                 title = "App Drawer Settings",
+                subtitle = "",
+                badge = "",
                 expanded = expandedMotion,
-                accentColor = primaryCol,
+                accentColor = accentColor,
                 lomoFontFamily = launcherFont,
                 onToggle = { expandedMotion = !expandedMotion }
             ) {
@@ -7402,7 +9277,7 @@ fun LauncherSettingsView(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .retroNeonBorder(1.dp, innerCardBorderColor, innerCardShape, glowEnabled = retro80sMode, glowRadiusDp = 4.dp)
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
                         .background(Color(0xFF070707), innerCardShape)
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -7411,7 +9286,7 @@ fun LauncherSettingsView(
                         label = "APP DRAWER TEXT SIZE",
                         valueText = "${drawerTextSizeSp} SP",
                         fraction = ((drawerTextSizeSp - 12f) / 14f).coerceIn(0f, 1f),
-                        accentColor = primaryCol,
+                        accentColor = accentColor,
                         lomoFontFamily = launcherFont,
                         onFractionChange = { frac ->
                             val nextSp = (12f + frac * 14f).roundToInt().coerceIn(12, 26)
@@ -7428,20 +9303,19 @@ fun LauncherSettingsView(
                             val sel = drawerTextSizeSp == spVal
                             Text(
                                 text = "${spVal}",
-                                color = if (sel) Color.Black else if (retro80sMode) primaryCol else Color.White,
+                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color.White,
                                 fontSize = 9.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
-                                style = if (sel) TextStyle.Default else settingsGlowTextStyle(primaryCol, 14f),
                                 modifier = Modifier
                                     .weight(1f)
                                     .border(
                                         1.dp,
-                                        if (sel) secondaryCol else if (retro80sMode) primaryCol.copy(alpha = 0.55f) else Color(0xFF242424),
+                                        if (sel) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
                                         innerBtnShape
                                     )
-                                    .background(if (sel) secondaryCol else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
+                                    .background(if (sel) accentColor else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
                                     .clickable { onChangeDrawerTextSize(spVal) }
                                     .padding(vertical = 5.dp)
                             )
@@ -7453,7 +9327,7 @@ fun LauncherSettingsView(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .retroNeonBorder(1.dp, innerCardBorderColor, innerCardShape, glowEnabled = retro80sMode, glowRadiusDp = 4.dp)
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
                         .background(Color(0xFF070707), innerCardShape)
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -7462,7 +9336,7 @@ fun LauncherSettingsView(
                         label = "ALPHABET SCROLLER WAVE",
                         valueText = "${wavePct}%",
                         fraction = (drawerWaveIntensity / 2.0f).coerceIn(0f, 1f),
-                        accentColor = primaryCol,
+                        accentColor = accentColor,
                         lomoFontFamily = launcherFont,
                         onFractionChange = { frac ->
                             val nextVal = ((frac * 200f).roundToInt() / 100f).coerceIn(0f, 2.0f)
@@ -7477,20 +9351,19 @@ fun LauncherSettingsView(
                             val sel = abs(drawerWaveIntensity - wVal) < 0.08f
                             Text(
                                 text = wLbl,
-                                color = if (sel) Color.Black else if (retro80sMode) primaryCol else Color.White,
+                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color.White,
                                 fontSize = 9.sp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
-                                style = if (sel) TextStyle.Default else settingsGlowTextStyle(primaryCol, 14f),
                                 modifier = Modifier
                                     .weight(1f)
                                     .border(
                                         1.dp,
-                                        if (sel) secondaryCol else if (retro80sMode) primaryCol.copy(alpha = 0.55f) else Color(0xFF242424),
+                                        if (sel) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
                                         innerBtnShape
                                     )
-                                    .background(if (sel) secondaryCol else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
+                                    .background(if (sel) accentColor else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
                                     .clickable { onChangeDrawerWaveIntensity(wVal) }
                                     .padding(vertical = 5.dp)
                             )
@@ -7503,7 +9376,7 @@ fun LauncherSettingsView(
                     cardTitle = "APP DRAWER BACKGROUND",
                     settingsBgMode = drawerBgMode,
                     settingsBgIntensity = drawerBgIntensity,
-                    accentColor = primaryCol,
+                    accentColor = accentColor,
                     lomoFontFamily = launcherFont,
                     onChangeMode = onChangeDrawerBgMode,
                     onChangeIntensity = onChangeDrawerBgIntensity
@@ -7525,17 +9398,14 @@ fun CollapsibleSubSection(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val is80s = LocalRetro80sMode.current
-    val secondaryCol = rememberRetroSecondaryColor(accentColor)
     val subShape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .retroNeonBorder(
-                width = if (is80s) 1.3.dp else 1.dp,
-                color = if (is80s) accentColor else (if (expanded) accentColor.copy(alpha = 0.55f) else Color(0xFF222222)),
-                shape = subShape,
-                glowEnabled = is80s,
-                glowRadiusDp = 5.dp
+            .border(
+                width = if (is80s) 1.2.dp else 1.dp,
+                color = if (is80s) accentColor.copy(alpha = 0.75f) else (if (expanded) accentColor.copy(alpha = 0.55f) else Color(0xFF222222)),
+                shape = subShape
             )
             .background(Color(0xFF070707), subShape)
     ) {
@@ -7553,16 +9423,19 @@ fun CollapsibleSubSection(
                 fontSize = 13.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold,
-                style = settingsGlowTextStyle(accentColor, 20f),
                 modifier = Modifier.weight(1f).padding(end = 8.dp)
             )
-            CollapsibleTriangleIndicator(
-                expanded = expanded,
-                is80s = is80s,
-                accentColor = accentColor,
-                secondaryCol = secondaryCol,
-                lomoFontFamily = lomoFontFamily,
-                triangleSizeDp = 10.dp
+            // Only the small theme-specific expand/collapse icon shows on the right
+            Text(
+                text = if (is80s) {
+                    if (expanded) "[-]" else "[+]"
+                } else {
+                    if (expanded) "▾" else "▸"
+                },
+                color = if (expanded || is80s) accentColor else Color(0xFF737373),
+                fontSize = if (is80s) 11.sp else 13.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
             )
         }
 
@@ -7581,7 +9454,7 @@ fun CollapsibleSubSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(1.dp)
-                        .background(if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF1A1A1A))
+                        .background(if (is80s) accentColor.copy(alpha = 0.4f) else Color(0xFF1A1A1A))
                 )
                 content()
             }
@@ -7599,7 +9472,6 @@ fun MinimalistSliderRow(
     onFractionChange: (Float) -> Unit
 ) {
     val is80s = LocalRetro80sMode.current
-    val secondaryCol = rememberRetroSecondaryColor(accentColor)
     val currentOnChange by rememberUpdatedState(onFractionChange)
     val clamped = fraction.coerceIn(0f, 1f)
 
@@ -7614,16 +9486,14 @@ fun MinimalistSliderRow(
                 color = if (is80s) accentColor else Color(0xFF9E9E9E),
                 fontSize = 9.sp,
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = settingsGlowTextStyle(accentColor, 16f)
+                fontWeight = FontWeight.Bold
             )
             Text(
-                text = if (is80s) "[$valueText]" else valueText,
-                color = secondaryCol,
+                text = valueText,
+                color = accentColor,
                 fontSize = 10.sp,
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = settingsGlowTextStyle(secondaryCol, 16f)
+                fontWeight = FontWeight.Bold
             )
         }
 
@@ -7647,7 +9517,7 @@ fun MinimalistSliderRow(
             contentAlignment = Alignment.Center
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val trackH = if (is80s) 7.dp.toPx() else 4.dp.toPx()
+                val trackH = if (is80s) 6.dp.toPx() else 4.dp.toPx()
                 val cy = size.height * 0.5f
                 val thumbX = (clamped * size.width).coerceIn(6.dp.toPx(), size.width - 6.dp.toPx())
                 val cornerR = if (is80s) CornerRadius.Zero else CornerRadius(trackH * 0.5f, trackH * 0.5f)
@@ -7660,14 +9530,14 @@ fun MinimalistSliderRow(
                 )
                 if (is80s) {
                     drawRect(
-                        color = accentColor.copy(alpha = 0.6f),
+                        color = accentColor.copy(alpha = 0.5f),
                         topLeft = Offset(0f, cy - trackH * 0.5f),
                         size = Size(size.width, trackH),
                         style = Stroke(width = 1.dp.toPx())
                     )
                 }
                 drawRoundRect(
-                    color = secondaryCol,
+                    color = accentColor,
                     topLeft = Offset(0f, cy - trackH * 0.5f),
                     size = Size(thumbX, trackH),
                     cornerRadius = cornerR
@@ -7679,10 +9549,10 @@ fun MinimalistSliderRow(
                     size = Size(thumbSize, thumbSize)
                 )
                 drawRect(
-                    color = secondaryCol,
+                    color = accentColor,
                     topLeft = Offset(thumbX - thumbSize * 0.5f, cy - thumbSize * 0.5f),
                     size = Size(thumbSize, thumbSize),
-                    style = Stroke(width = 1.6.dp.toPx())
+                    style = Stroke(width = 1.5.dp.toPx())
                 )
             }
         }
@@ -7700,7 +9570,6 @@ fun SettingsBackdropControlCard(
     onChangeIntensity: (Int) -> Unit
 ) {
     val is80s = LocalRetro80sMode.current
-    val secondaryCol = rememberRetroSecondaryColor(accentColor)
     val cardShape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
     val btnShape = RoundedCornerShape(if (is80s) 0.dp else 6.dp)
     val pctShape = RoundedCornerShape(if (is80s) 0.dp else 5.dp)
@@ -7708,7 +9577,7 @@ fun SettingsBackdropControlCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .retroNeonBorder(1.dp, if (is80s) accentColor else Color(0xFF282828), cardShape, glowEnabled = is80s, glowRadiusDp = 4.dp)
+            .border(1.dp, if (is80s) accentColor.copy(alpha = 0.75f) else Color(0xFF282828), cardShape)
             .background(Color(0xFF070707).copy(alpha = 0.82f), cardShape)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -7723,16 +9592,14 @@ fun SettingsBackdropControlCard(
                 color = if (is80s) accentColor else Color(0xFF9E9E9E),
                 fontSize = 9.sp,
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = settingsGlowTextStyle(accentColor, 16f)
+                fontWeight = FontWeight.Bold
             )
             Text(
                 text = settingsBgMode.uppercase(Locale.US),
-                color = secondaryCol,
+                color = accentColor,
                 fontSize = 9.sp,
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = settingsGlowTextStyle(secondaryCol, 16f)
+                fontWeight = FontWeight.Bold
             )
         }
 
@@ -7753,16 +9620,15 @@ fun SettingsBackdropControlCard(
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
-                    style = if (selected) TextStyle.Default else settingsGlowTextStyle(accentColor, 14f),
                     modifier = Modifier
                         .weight(1f)
                         .border(
                             1.dp,
-                            if (selected) secondaryCol else if (is80s) accentColor.copy(alpha = 0.55f) else Color(0xFF262626),
+                            if (selected) accentColor else if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF262626),
                             btnShape
                         )
                         .background(
-                            if (selected) secondaryCol else if (is80s) Color(0xFF0A0A0A) else Color(0xFF141414),
+                            if (selected) accentColor else if (is80s) Color(0xFF0A0A0A) else Color(0xFF141414),
                             btnShape
                         )
                         .clickable { onChangeMode(modeId) }
@@ -7804,15 +9670,14 @@ fun SettingsBackdropControlCard(
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
-                    style = if (sel) TextStyle.Default else settingsGlowTextStyle(accentColor, 12f),
                     modifier = Modifier
                         .weight(1f)
                         .border(
                             1.dp,
-                            if (sel) secondaryCol else if (is80s) accentColor.copy(alpha = 0.55f) else Color(0xFF242424),
+                            if (sel) accentColor else if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
                             pctShape
                         )
-                        .background(if (sel) secondaryCol else if (is80s) Color(0xFF0A0A0A) else Color(0xFF151515), pctShape)
+                        .background(if (sel) accentColor else if (is80s) Color(0xFF0A0A0A) else Color(0xFF151515), pctShape)
                         .clickable { onChangeIntensity(pctVal) }
                         .padding(vertical = 4.dp)
                 )
@@ -7834,19 +9699,16 @@ fun CollapsibleSettingsSection(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val is80s = LocalRetro80sMode.current
-    val secondaryCol = rememberRetroSecondaryColor(accentColor)
     val secShape = RoundedCornerShape(if (is80s) 0.dp else 14.dp)
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .retroNeonBorder(
+            .border(
                 width = if (is80s) 1.5.dp else 1.dp,
                 color = if (is80s) accentColor else (if (expanded) Color(0xFF383838) else Color(0xFF222222)),
-                shape = secShape,
-                glowEnabled = is80s,
-                glowRadiusDp = 7.dp
+                shape = secShape
             )
-            .background(if (is80s) Color(0xFF030503) else Color(0xFF0A0A0A).copy(alpha = 0.72f), secShape)
+            .background(if (is80s) Color(0xFF040404) else Color(0xFF0A0A0A).copy(alpha = 0.72f), secShape)
     ) {
         Row(
             modifier = Modifier
@@ -7867,7 +9729,6 @@ fun CollapsibleSettingsSection(
                     fontSize = 11.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
-                    style = settingsGlowTextStyle(accentColor, 20f),
                     modifier = if (is80s) Modifier else Modifier
                         .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(4.dp))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
@@ -7878,17 +9739,20 @@ fun CollapsibleSettingsSection(
                     fontSize = if (is80s) 13.sp else 14.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
-                    style = settingsGlowTextStyle(accentColor, 20f),
                     modifier = Modifier.weight(1f)
                 )
             }
-            CollapsibleTriangleIndicator(
-                expanded = expanded,
-                is80s = is80s,
-                accentColor = accentColor,
-                secondaryCol = secondaryCol,
-                lomoFontFamily = lomoFontFamily,
-                triangleSizeDp = 11.dp
+            // Only the small theme-specific icon shows on the right
+            Text(
+                text = if (is80s) {
+                    if (expanded) "[-]" else "[+]"
+                } else {
+                    if (expanded) "▾" else "▸"
+                },
+                color = if (expanded || is80s) accentColor else Color(0xFF737373),
+                fontSize = if (is80s) 11.sp else 14.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
             )
         }
 
@@ -7907,7 +9771,7 @@ fun CollapsibleSettingsSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(1.dp)
-                        .background(if (is80s) accentColor.copy(alpha = 0.55f) else Color(0xFF1C1C1C))
+                        .background(if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF1C1C1C))
                 )
                 content()
             }
@@ -7924,19 +9788,12 @@ fun SettingCard(
     onClick: () -> Unit
 ) {
     val is80s = LocalRetro80sMode.current
-    val primaryCol = rememberRetroPrimaryColor()
-    val secondaryCol = rememberRetroSecondaryColor()
+    val thCol = if (LocalRetro80sColorTheme.current == "amber") Color(0xFFFF8800) else Color(0xFF7CFF5B)
     val cardShape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .retroNeonBorder(
-                1.dp,
-                if (is80s) primaryCol else Color(0xFF242424),
-                cardShape,
-                glowEnabled = is80s,
-                glowRadiusDp = 4.dp
-            )
+            .border(1.dp, if (is80s) thCol.copy(alpha = 0.75f) else Color(0xFF242424), cardShape)
             .background(Color(0xFF050505), cardShape)
             .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 11.dp),
@@ -7945,11 +9802,10 @@ fun SettingCard(
     ) {
         Text(
             text = title,
-            color = if (is80s) primaryCol else Color.White,
+            color = Color.White,
             fontSize = 12.sp,
             fontFamily = lomoFontFamily,
             fontWeight = if (is80s) FontWeight.Bold else FontWeight.Normal,
-            style = settingsGlowTextStyle(primaryCol, 18f),
             modifier = Modifier.weight(1f).padding(end = 8.dp)
         )
         Text(
@@ -7959,19 +9815,15 @@ fun SettingCard(
             fontFamily = lomoFontFamily,
             fontWeight = FontWeight.Bold,
             modifier = Modifier
-                .retroNeonBorder(
-                    1.dp,
-                    if (is80s) secondaryCol else Color.White,
-                    RoundedCornerShape(if (is80s) 0.dp else 6.dp),
-                    glowEnabled = is80s,
-                    glowRadiusDp = 4.dp
-                )
-                .background(if (is80s) secondaryCol else Color.White, RoundedCornerShape(if (is80s) 0.dp else 6.dp))
+                .background(if (is80s) thCol else Color.White, RoundedCornerShape(if (is80s) 0.dp else 6.dp))
                 .padding(horizontal = 9.dp, vertical = 5.dp)
         )
     }
 }
 
+// ============================================================================
+// INTERACTIVE WALLPAPER TUNING ROW COMPOSABLE
+// ============================================================================
 @Composable
 fun WallpaperTuningRow(
     label: String,
@@ -7982,7 +9834,6 @@ fun WallpaperTuningRow(
     onSelect: (Float) -> Unit
 ) {
     val is80s = LocalRetro80sMode.current
-    val secondaryCol = rememberRetroSecondaryColor(accentColor)
     val btnShape = RoundedCornerShape(if (is80s) 0.dp else 5.dp)
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(
@@ -7995,17 +9846,15 @@ fun WallpaperTuningRow(
                 color = if (is80s) accentColor else Color(0xFF9E9E9E),
                 fontSize = 8.sp,
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = settingsGlowTextStyle(accentColor, 14f)
+                fontWeight = FontWeight.Bold
             )
             val activeLabel = options.minByOrNull { abs(it.first - currentValue) }?.second ?: "${currentValue}x"
             Text(
                 text = activeLabel,
-                color = secondaryCol,
+                color = accentColor,
                 fontSize = 8.sp,
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = settingsGlowTextStyle(secondaryCol, 14f)
+                fontWeight = FontWeight.Bold
             )
         }
         Row(
@@ -8021,16 +9870,15 @@ fun WallpaperTuningRow(
                     fontFamily = lomoFontFamily,
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                     textAlign = TextAlign.Center,
-                    style = if (selected) TextStyle.Default else settingsGlowTextStyle(accentColor, 12f),
                     modifier = Modifier
                         .weight(1f)
                         .border(
                             1.dp,
-                            if (selected) secondaryCol else if (is80s) accentColor.copy(alpha = 0.55f) else Color(0xFF242424),
+                            if (selected) accentColor else if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
                             btnShape
                         )
                         .background(
-                            if (selected) secondaryCol else if (is80s) Color(0xFF0A0A0A) else Color(0xFF121212),
+                            if (selected) accentColor else if (is80s) Color(0xFF0A0A0A) else Color(0xFF121212),
                             btnShape
                         )
                         .clickable { onSelect(value) }
@@ -8041,7 +9889,22 @@ fun WallpaperTuningRow(
     }
 }
 
-
+// ============================================================================
+// FULL-BLEED AMOLED LIVE, STATIC & USER WALLPAPER ENGINE CANVAS (v3.1.0-cmf)
+// - Every single Live & Static wallpaper fills 100% of the screen (0..w, 0..h) without gaps
+// - Universal Wallpaper Dimmer (dimPercent: 0%..90%) dims Live, Static, Custom Photo & 3rd-Party Wallpapers
+// - 8 Live Wallpapers + 36 Static Wallpapers (including Halftone, Glowing & Fade series)
+// ============================================================================
+// ============================================================================
+// ZERO-GC 1,200-STAR 3D NIGHT SKY SIMULATION ENGINE (v4.9.1-cmf)
+// - Pre-allocates all primitive FloatArray/IntArray buffers and a single native Paint once
+// - Zero object allocations inside step() or draw() -> 0 bytes/frame GC overhead
+// - Features >= 1,000 stars (1,200 default, up to 1,800 with density slider)
+// - Varied tiny pinpoint sizes, distinct baseline opacities, realistic spectral color tints
+//   (~78% pure/crisp stellar white, ~13% faint O/B celestial blue, ~9% soft K/M orange/amber)
+// - Gentle autonomous sinusoidal twinkling & slow continuous 3D forward drift (ignores all touch/user inputs)
+// - Clean pause() and resume() methods that completely freeze animation (0% CPU/GPU) when screen is hidden
+// ============================================================================
 class DeepSpaceStarfieldSimulation {
     companion object {
         const val MIN_STAR_COUNT = 1000
@@ -8049,6 +9912,7 @@ class DeepSpaceStarfieldSimulation {
         const val MAX_STAR_COUNT = 1800
     }
 
+    // Flat primitive arrays allocated once (Zero GC during animation loop)
     private val starX = FloatArray(MAX_STAR_COUNT)
     private val starY = FloatArray(MAX_STAR_COUNT)
     private val starZ = FloatArray(MAX_STAR_COUNT)
@@ -8058,6 +9922,7 @@ class DeepSpaceStarfieldSimulation {
     private val starTwinkleFreq = FloatArray(MAX_STAR_COUNT)
     private val starRgbNoAlpha = IntArray(MAX_STAR_COUNT)
 
+    // Single reusable native Paint (Zero GC during Canvas rendering)
     private val starPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
         style = android.graphics.Paint.Style.FILL
     }
@@ -8065,12 +9930,16 @@ class DeepSpaceStarfieldSimulation {
     private var rngState: Int = 0x6D2B79F5
     private var twinkleClockSec: Float = 0f
 
+    var isPaused: Boolean = false
+        private set
+
     init {
         for (i in 0 until MAX_STAR_COUNT) {
             initStar(i, randomDepth = true)
         }
     }
 
+    // Fast allocation-free Xorshift32 PRNG returning [0f, 1f)
     private fun nextFloat01(): Float {
         var x = rngState
         x = x xor (x shl 13)
@@ -8081,322 +9950,717 @@ class DeepSpaceStarfieldSimulation {
     }
 
     private fun initStar(index: Int, randomDepth: Boolean) {
+        // Spread across 3D view frustum [-1f, 1f]
         starX[index] = (nextFloat01() * 2f - 1f)
         starY[index] = (nextFloat01() * 2f - 1f)
-        starZ[index] = if (randomDepth) 0.04f + nextFloat01() * 0.96f else 0.90f + nextFloat01() * 0.10f
+        starZ[index] = if (randomDepth) {
+            0.04f + nextFloat01() * 0.96f
+        } else {
+            0.90f + nextFloat01() * 0.10f
+        }
+
+        // Varied tiny sizes: 82% micro pinpoints (0.36..0.72dp), 14% subtle mid-stars (0.72..1.08dp), 4% crisp bright stars (1.08..1.42dp)
         val sizeRoll = nextFloat01()
         starBaseRadiusDp[index] = when {
             sizeRoll < 0.82f -> 0.36f + nextFloat01() * 0.36f
             sizeRoll < 0.96f -> 0.72f + nextFloat01() * 0.36f
             else -> 1.08f + nextFloat01() * 0.34f
         }
+
+        // Distinct baseline opacities (0.22..0.98)
         starBaseAlpha[index] = 0.22f + nextFloat01() * 0.76f
+
+        // Gentle autonomous ambient twinkling parameters
         starTwinklePhase[index] = nextFloat01() * 6.2831855f
-        starTwinkleFreq[index] = 0.65f + nextFloat01() * 2.15f
-        val colorRoll = nextFloat01()
+        starTwinkleFreq[index] = 0.55f + nextFloat01() * 1.75f
+
+        // Realistic stellar spectral color tints:
+        // ~78% white, ~13% faint celestial blue, ~9% soft warm orange
+        val tintRoll = nextFloat01()
         starRgbNoAlpha[index] = when {
-            colorRoll < 0.78f -> 0x00FFFFFF
-            colorRoll < 0.91f -> 0x00D8ECFF
-            else -> 0x00FFE6C8
+            tintRoll < 0.52f -> 0x00FFFFFF // Pure Stellar White
+            tintRoll < 0.78f -> 0x00F4F7FB // Crisp Ice-White
+            tintRoll < 0.85f -> 0x00BFDBFE // Faint O-Type Celestial Blue
+            tintRoll < 0.91f -> 0x0093C5FD // Soft B-Type Sky Blue
+            tintRoll < 0.96f -> 0x00FED7AA // Soft K-Type Warm Orange
+            else -> 0x00FDE68A             // Gentle Amber-Orange Tint
         }
     }
 
-    fun step(dtSec: Float, speedMult: Float) {
-        val dt = dtSec.coerceIn(0f, 0.05f)
-        twinkleClockSec += dt * (0.6f + 0.4f * speedMult)
-        val zStep = dt * 0.032f * speedMult.coerceIn(0.2f, 2.5f)
-        for (i in 0 until MAX_STAR_COUNT) {
-            var z = starZ[i] - zStep
-            if (z <= 0.035f) {
+    /**
+     * Completely freezes the 3D starfield simulation when the screen is hidden or paused.
+     */
+    fun pause() {
+        isPaused = true
+    }
+
+    /**
+     * Cleanly resumes the 3D starfield simulation when the screen becomes visible again.
+     */
+    fun resume() {
+        isPaused = false
+    }
+
+    /**
+     * Advances the slow 3D forward drift and ambient twinkling by dtSec (Zero allocations).
+     */
+    fun step(dtSec: Float, speedMultiplier: Float, activeCount: Int) {
+        if (isPaused) return
+        val clampedCount = activeCount.coerceIn(MIN_STAR_COUNT, MAX_STAR_COUNT)
+        // Slow, calm default forward drift / gentle warp speed along the Z depth axis
+        val forwardDrift = dtSec * 0.038f * speedMultiplier
+        twinkleClockSec = (twinkleClockSec + dtSec) % 3600f
+
+        for (i in 0 until clampedCount) {
+            val nextZ = starZ[i] - forwardDrift
+            if (nextZ <= 0.025f) {
                 initStar(i, randomDepth = false)
             } else {
-                starZ[i] = z
+                starZ[i] = nextZ
             }
         }
     }
 
+    /**
+     * Renders all >= 1,000 3D stars directly onto the hardware-accelerated native Canvas with zero GC overhead.
+     */
     fun draw(
         nativeCanvas: android.graphics.Canvas,
-        widthPx: Float,
-        heightPx: Float,
+        width: Float,
+        height: Float,
         densityPxPerDp: Float,
-        densityMult: Float,
-        opacityMult: Float,
-        scaleMult: Float
+        activeCount: Int,
+        opacityMultiplier: Float,
+        scaleMultiplier: Float
     ) {
-        val count = (DEFAULT_STAR_COUNT * densityMult).toInt().coerceIn(MIN_STAR_COUNT, MAX_STAR_COUNT)
-        val cx = widthPx * 0.5f
-        val cy = heightPx * 0.5f
-        val focal = min(widthPx, heightPx) * 0.58f * scaleMult.coerceIn(0.5f, 1.8f)
+        if (width <= 0f || height <= 0f) return
+        val clampedCount = activeCount.coerceIn(MIN_STAR_COUNT, MAX_STAR_COUNT)
+        val cx = width * 0.5f
+        val cy = height * 0.5f
+        val halfSpan = max(width, height) * 0.62f
+        val t = twinkleClockSec
+        val sizeScale = densityPxPerDp * (0.75f + 0.25f * scaleMultiplier)
 
-        for (i in 0 until count) {
-            val z = starZ[i].coerceAtLeast(0.035f)
-            val invZ = 1f / z
-            val sx = cx + starX[i] * focal * invZ
-            val sy = cy + starY[i] * focal * invZ
-            if (sx < 0f || sx > widthPx || sy < 0f || sy > heightPx) continue
+        for (i in 0 until clampedCount) {
+            val z = starZ[i]
+            val invZ = 1.0f / z
+            val sx = cx + starX[i] * invZ * halfSpan
+            val sy = cy + starY[i] * invZ * halfSpan
 
-            val depthBoost = ((1.05f - z) * 1.15f).coerceIn(0.25f, 1.35f)
-            val twinkle = 0.72f + 0.28f * sin(twinkleClockSec * starTwinkleFreq[i] + starTwinklePhase[i])
-            val alphaFloat = (starBaseAlpha[i] * depthBoost * twinkle * opacityMult).coerceIn(0.05f, 1f)
-            val alphaInt = (alphaFloat * 255f).toInt().coerceIn(12, 255)
-            val rPx = (starBaseRadiusDp[i] * densityPxPerDp * (0.65f + 0.55f * depthBoost)).coerceIn(0.55f, 3.8f)
+            // If perspective projection moves the star outside the screen bounds, recycle it in the far field
+            if (sx < -4f || sx > width + 4f || sy < -4f || sy > height + 4f) {
+                if (!isPaused) {
+                    initStar(i, randomDepth = false)
+                }
+                continue
+            }
 
-            starPaint.color = (alphaInt shl 24) or starRgbNoAlpha[i]
-            nativeCanvas.drawCircle(sx, sy, rPx, starPaint)
+            // Depth-attenuated tiny radius (closer stars appear slightly crisper, distant stars are sub-pixel pinpoints)
+            val depthScale = (1.18f - z * 0.68f).coerceIn(0.42f, 1.35f)
+            val radiusPx = (starBaseRadiusDp[i] * depthScale * sizeScale).coerceAtLeast(0.65f)
+
+            // Gentle, automatic ambient sinusoidal twinkling
+            val twinkle = 0.74f + 0.26f * sin(t * starTwinkleFreq[i] + starTwinklePhase[i])
+            val depthAlpha = (1.12f - z * 0.65f).coerceIn(0.18f, 1.0f)
+            val alphaFloat = (starBaseAlpha[i] * twinkle * depthAlpha * opacityMultiplier).coerceIn(0.05f, 1.0f)
+            val alphaByte = (alphaFloat * 255f).toInt().coerceIn(12, 255)
+
+            starPaint.color = (alphaByte shl 24) or starRgbNoAlpha[i]
+            nativeCanvas.drawCircle(sx, sy, radiusPx, starPaint)
         }
     }
 }
 
 @Composable
-fun WallpaperCanvasView(
+fun OledWallpaperCanvas(
     preset: String,
     accentColor: Color,
-    dimPercent: Int = 0,
-    customImageBitmap: ImageBitmap? = null,
-    speedMult: Float = 1.0f,
-    densityMult: Float = 1.0f,
-    opacityMult: Float = 1.0f,
-    scaleMult: Float = 1.0f,
-    animationsActive: Boolean = true
+    dimPercent: Int,
+    wpSpeed: Float = 1.0f,
+    wpDensity: Float = 1.0f,
+    wpOpacity: Float = 1.0f,
+    wpScale: Float = 1.0f,
+    isScreenVisible: Boolean = true,
+    pauseWhenAppOpen: Boolean = true,
+    userWallpaperRefreshTrigger: Int = 0
 ) {
-    if (preset == "system_wallpaper") {
-        if (dimPercent > 0) {
-            val dimAlpha = (dimPercent.coerceIn(0, 90) / 100f)
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = dimAlpha))
-            )
-        }
-        return
-    }
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val isLive = preset.startsWith("live_")
+    var liveTimeSec by remember { mutableStateOf(0f) }
+    var starfieldFrameTick by remember { mutableStateOf(0) }
+    val currentSpeed by rememberUpdatedState(wpSpeed.coerceIn(0.15f, 3.0f))
+    val currentDensity by rememberUpdatedState(wpDensity.coerceIn(0.4f, 2.0f))
 
-    if (preset == "user_image" && customImageBitmap != null) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            Image(
-                bitmap = customImageBitmap,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-            if (dimPercent > 0) {
-                val dimAlpha = (dimPercent.coerceIn(0, 90) / 100f)
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = dimAlpha))
-                )
+    // Dedicated Zero-GC 3D Starfield Simulation Engine with pause() and resume()
+    val starfieldSimulation = remember { DeepSpaceStarfieldSimulation() }
+    var isLifecycleResumed by remember { mutableStateOf(true) }
+
+    // Automatically call pause() and resume() based on Activity lifecycle, screen visibility, and pauseWhenAppOpen setting
+    DisposableEffect(lifecycleOwner, isScreenVisible, pauseWhenAppOpen) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME, Lifecycle.Event.ON_START -> {
+                    isLifecycleResumed = true
+                    if (isScreenVisible) starfieldSimulation.resume()
+                }
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                    isLifecycleResumed = false
+                    if (pauseWhenAppOpen) {
+                        starfieldSimulation.pause()
+                    } else if (isScreenVisible) {
+                        starfieldSimulation.resume()
+                    }
+                }
+                else -> {}
             }
         }
-        return
+        lifecycleOwner.lifecycle.addObserver(observer)
+        val allowRun = isScreenVisible && (isLifecycleResumed || !pauseWhenAppOpen)
+        if (allowRun) {
+            starfieldSimulation.resume()
+        } else {
+            starfieldSimulation.pause()
+        }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            starfieldSimulation.pause()
+        }
     }
 
-    val isLive = preset.startsWith("live_")
-    val starfieldSim = remember { DeepSpaceStarfieldSimulation() }
-    var animTimeSec by remember { mutableStateOf(0f) }
+    // Load custom imported user wallpaper bitmap when preset == "user_image"
+    val customUserBitmap: ImageBitmap? = remember(preset, userWallpaperRefreshTrigger) {
+        if (preset == "user_image") {
+            try {
+                val file = File(context.filesDir, "user_custom_wallpaper.jpg")
+                if (file.exists()) {
+                    BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+                } else null
+            } catch (_: Exception) {
+                null
+            }
+        } else null
+    }
 
-    LaunchedEffect(isLive, preset, animationsActive, speedMult) {
-        if (!isLive || !animationsActive) return@LaunchedEffect
-        var lastNs = System.nanoTime()
-        while (isActive && animationsActive) {
-            withFrameNanos { nowNs ->
-                val dt = ((nowNs - lastNs) / 1_000_000_000f).coerceIn(0f, 0.05f)
-                lastNs = nowNs
-                animTimeSec += dt * speedMult
-                if (preset == "live_starfield_3d") {
-                    starfieldSim.step(dt, speedMult)
+    val shouldAnimateLive = isLive && isScreenVisible && (isLifecycleResumed || !pauseWhenAppOpen)
+    if (shouldAnimateLive) {
+        LaunchedEffect(preset, shouldAnimateLive) {
+            var lastNanos = 0L
+            while (true) {
+                withFrameNanos { nanos ->
+                    val dt = if (lastNanos == 0L) 0.016f else ((nanos - lastNanos) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
+                    lastNanos = nanos
+                    if (preset == "live_starfield_3d") {
+                        val targetStars = (DeepSpaceStarfieldSimulation.DEFAULT_STAR_COUNT * currentDensity)
+                            .roundToInt()
+                            .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_STAR_COUNT)
+                        starfieldSimulation.step(dt, currentSpeed, targetStars)
+                        starfieldFrameTick = (starfieldFrameTick + 1) and 0x7FFFFFFF
+                    } else {
+                        liveTimeSec = (liveTimeSec + dt * 0.42f * currentSpeed) % 7200f
+                    }
                 }
             }
         }
     }
+
+    val densityMult = wpDensity.coerceIn(0.4f, 2.0f)
+    val opacityMult = wpOpacity.coerceIn(0.25f, 2.0f)
+    val scaleMult = wpScale.coerceIn(0.5f, 1.8f)
 
     Canvas(modifier = Modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
         val minDim = min(w, h)
+        val maxDim = max(w, h)
         val fullDiag = hypot(w, h)
-
-        drawRect(color = Color.Black, size = Size(w, h))
+        val t = liveTimeSec
 
         when (preset) {
-            "oled" -> {
-                // Pure #000000 AMOLED Black
-            }
-
+            // ================================================================
+            // 0. REALISTIC 1,200-STAR 3D NIGHT SKY SIMULATION (Zero-GC Native Loop)
+            // ================================================================
+            // ================================================================
+            // 0A. 80s CRT SCANLINES LIVE WALLPAPER (Faint CRT Scanlines & Rolling Refresh Beam)
+            // ================================================================
             "live_crt_scanlines" -> {
-                val step = (3.6.dp.toPx() / densityMult.coerceIn(0.5f, 1.75f)).coerceAtLeast(2f)
-                val lineAlpha = (0.14f * opacityMult).coerceIn(0.04f, 0.38f)
+                // 1. Faint horizontal CRT raster scanlines across the entire display
+                val pitch = (3.2.dp.toPx() / densityMult.coerceIn(0.6f, 1.6f)).coerceAtLeast(2.0f)
+                val baseScanAlpha = (0.11f * opacityMult).coerceIn(0.03f, 0.34f)
+                val majorScanAlpha = (0.19f * opacityMult).coerceIn(0.05f, 0.48f)
+
+                // Slow vertical CRT refresh beam position (0..h)
+                val beamY = ((t * 0.24f) % 1.0f) * h
+                val beamHalfBand = (h * 0.14f * scaleMult).coerceAtLeast(36f)
+
+                var rowIdx = 0
                 var y = 0f
-                while (y < h) {
+                while (y <= h) {
+                    val distFromBeam = abs(y - beamY)
+                    val wrapDist = min(distFromBeam, h - distFromBeam)
+                    val beamBoost = if (wrapDist < beamHalfBand) {
+                        val f = 1f - (wrapDist / beamHalfBand)
+                        f * f * 0.22f * opacityMult
+                    } else 0f
+
+                    val isMajorLine = (rowIdx % 4 == 0)
+                    val lineAlpha = ((if (isMajorLine) majorScanAlpha else baseScanAlpha) + beamBoost).coerceIn(0.02f, 0.65f)
                     drawLine(
                         color = accentColor.copy(alpha = lineAlpha),
                         start = Offset(0f, y),
                         end = Offset(w, y),
-                        strokeWidth = 1f
+                        strokeWidth = if (isMajorLine) 1.15f else 0.75f
                     )
-                    y += step
+                    y += pitch
+                    rowIdx++
                 }
-                val beamY = ((animTimeSec * 0.14f) % 1f) * h
-                val beamH = (h * 0.16f * scaleMult).coerceAtLeast(36f)
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            accentColor.copy(alpha = (0.16f * opacityMult).coerceIn(0.04f, 0.36f)),
-                            Color.Transparent
+
+                // 2. Faint rolling CRT cathode-ray refresh band
+                val bandTop = (beamY - beamHalfBand).coerceAtLeast(0f)
+                val bandBottom = (beamY + beamHalfBand).coerceAtMost(h)
+                if (bandBottom > bandTop) {
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                accentColor.copy(alpha = (0.065f * opacityMult).coerceIn(0.01f, 0.20f)),
+                                Color.Transparent
+                            ),
+                            startY = bandTop,
+                            endY = bandBottom
                         ),
-                        startY = beamY - beamH * 0.5f,
-                        endY = beamY + beamH * 0.5f
-                    ),
-                    topLeft = Offset(0f, (beamY - beamH * 0.5f).coerceAtLeast(0f)),
-                    size = Size(w, beamH)
-                )
+                        topLeft = Offset(0f, bandTop),
+                        size = Size(w, bandBottom - bandTop)
+                    )
+                }
             }
 
             "live_starfield_3d" -> {
-                val tRead = animTimeSec
-                if (tRead >= 0f) {
-                    drawIntoCanvas { canvas ->
-                        starfieldSim.draw(
-                            nativeCanvas = canvas.nativeCanvas,
-                            widthPx = w,
-                            heightPx = h,
+                // Read starfieldFrameTick to subscribe Canvas draw phase to frame updates without allocating
+                if (starfieldFrameTick >= 0) {
+                    val activeStars = (DeepSpaceStarfieldSimulation.DEFAULT_STAR_COUNT * densityMult)
+                        .roundToInt()
+                        .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_STAR_COUNT)
+                    drawIntoCanvas { composeCanvas ->
+                        starfieldSimulation.draw(
+                            nativeCanvas = composeCanvas.nativeCanvas,
+                            width = w,
+                            height = h,
                             densityPxPerDp = 1.dp.toPx(),
-                            densityMult = densityMult,
-                            opacityMult = opacityMult,
-                            scaleMult = scaleMult
+                            activeCount = activeStars,
+                            opacityMultiplier = opacityMult,
+                            scaleMultiplier = scaleMult
                         )
                     }
                 }
             }
+            "oled", "system_wallpaper" -> {
+                // "oled" stays pure #000000; "system_wallpaper" lets Android's FLAG_SHOW_WALLPAPER shine through
+                // and then applies the universal dimmer overlay below!
+            }
 
-            "live_constellation" -> {
-                val nodeCount = (26 * densityMult).toInt().coerceIn(12, 48)
-                val connectDist = minDim * 0.28f * scaleMult
-                val pts = Array(nodeCount) { idx ->
-                    val seed = idx * 1.618034f
-                    val px = ((sin(seed * 7.1f + animTimeSec * 0.18f) * 0.5f + 0.5f) * w)
-                    val py = ((cos(seed * 5.3f + animTimeSec * 0.14f) * 0.5f + 0.5f) * h)
-                    Offset(px, py)
+            "user_image" -> {
+                val img = customUserBitmap
+                if (img != null && img.width > 0 && img.height > 0) {
+                    // Center-crop full-screen edge-to-edge rendering without leaving any gaps
+                    val srcRatio = img.width.toFloat() / img.height.toFloat()
+                    val dstRatio = w / h.coerceAtLeast(1f)
+                    val srcW: Int
+                    val srcH: Int
+                    val srcX: Int
+                    val srcY: Int
+                    if (srcRatio > dstRatio) {
+                        srcH = img.height
+                        srcW = (img.height * dstRatio).roundToInt().coerceIn(1, img.width)
+                        srcX = ((img.width - srcW) / 2).coerceAtLeast(0)
+                        srcY = 0
+                    } else {
+                        srcW = img.width
+                        srcH = (img.width / dstRatio).roundToInt().coerceIn(1, img.height)
+                        srcX = 0
+                        srcY = ((img.height - srcH) / 2).coerceAtLeast(0)
+                    }
+                    drawImage(
+                        image = img,
+                        srcOffset = IntOffset(srcX, srcY),
+                        srcSize = IntSize(srcW, srcH),
+                        dstOffset = IntOffset.Zero,
+                        dstSize = IntSize(w.roundToInt(), h.roundToInt())
+                    )
                 }
+            }
+
+            // ================================================================
+            // 1. ORBITAL NODES (Full-Screen Edge-to-Edge 0..w, 0..h)
+            // ================================================================
+            "live_constellation" -> {
+                val nodeCount = (32 * densityMult).roundToInt().coerceIn(12, 64)
+                val pts = ArrayList<Offset>(nodeCount)
+                val driftSpanX = (0.14f * scaleMult).coerceIn(0.05f, 0.28f)
+                val driftSpanY = (0.12f * scaleMult).coerceIn(0.05f, 0.24f)
+                for (i in 0 until nodeCount) {
+                    val seedX = ((i * 73 + 11) % 100) / 100f
+                    val seedY = ((i * 139 + 23) % 100) / 100f
+                    val speedX = 0.16f + (i % 5) * 0.04f
+                    val speedY = 0.13f + (i % 7) * 0.03f
+                    val nx = (((seedX + sin(t * speedX + i * 1.7f) * driftSpanX) % 1f) + 1f) % 1f
+                    val ny = (((seedY + cos(t * speedY + i * 2.3f) * driftSpanY) % 1f) + 1f) % 1f
+                    pts.add(Offset(nx * w, ny * h))
+                }
+                val connectRadius = minDim * (0.28f * scaleMult).coerceIn(0.15f, 0.48f)
                 for (i in 0 until nodeCount) {
                     for (j in i + 1 until nodeCount) {
-                        val d = hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y)
-                        if (d < connectDist) {
-                            val a = ((1f - d / connectDist) * 0.25f * opacityMult).coerceIn(0.02f, 0.65f)
-                            drawLine(accentColor.copy(alpha = a), pts[i], pts[j], strokeWidth = 0.85.dp.toPx())
+                        val d = (pts[i] - pts[j]).getDistance()
+                        if (d < connectRadius) {
+                            val lineAlpha = ((1f - d / connectRadius) * 0.34f * opacityMult).coerceIn(0f, 0.78f)
+                            drawLine(
+                                color = if ((i + j) % 3 == 0) accentColor.copy(alpha = lineAlpha) else Color.White.copy(alpha = lineAlpha * 0.8f),
+                                start = pts[i],
+                                end = pts[j],
+                                strokeWidth = 0.9.dp.toPx()
+                            )
                         }
                     }
+                }
+                for (i in 0 until nodeCount) {
+                    val isAccent = i % 4 == 0
+                    val dotAlpha = ((if (isAccent) 0.78f else 0.52f) * opacityMult).coerceIn(0.08f, 0.98f)
                     drawCircle(
-                        color = Color.White.copy(alpha = (0.65f * opacityMult).coerceIn(0.15f, 0.95f)),
-                        radius = 1.8.dp.toPx(),
+                        color = if (isAccent) accentColor.copy(alpha = dotAlpha) else Color.White.copy(alpha = dotAlpha),
+                        radius = (if (isAccent) 2.2.dp.toPx() else 1.5.dp.toPx()) * (0.8f + 0.2f * scaleMult),
                         center = pts[i]
                     )
                 }
             }
 
+            // ================================================================
+            // 2. DEEP EMBERS (Full-Screen Edge-to-Edge Rising Micro Dust)
+            // ================================================================
             "live_embers" -> {
-                val count = (42 * densityMult).toInt().coerceIn(18, 80)
-                for (i in 0 until count) {
-                    val seed = i * 2.39996f
-                    val x = ((sin(seed * 11.3f) * 0.5f + 0.5f) * w + sin(animTimeSec * 0.6f + i) * 14.dp.toPx())
-                    val rawY = ((seed * 97.1f - animTimeSec * 28f) % h + h) % h
-                    val r = (1.2f + (i % 4) * 0.55f).dp.toPx() * scaleMult
-                    val a = ((0.18f + 0.35f * sin(animTimeSec + i).absoluteValue) * opacityMult).coerceIn(0.05f, 0.85f)
-                    drawCircle(
-                        color = if (i % 3 == 0) accentColor.copy(alpha = a) else Color.White.copy(alpha = a * 0.7f),
-                        radius = r,
-                        center = Offset(x.coerceIn(0f, w), rawY)
-                    )
-                }
-            }
+                val emberCount = (34 * densityMult).roundToInt().coerceIn(14, 68)
+                val swaySpan = w * 0.045f * scaleMult
+                for (i in 0 until emberCount) {
+                    val baseX = ((i * 61 + 7) % 100) / 100f * w
+                    val riseRate = 0.032f + (i % 6) * 0.009f
+                    val phaseOffset = i * 0.37f
+                    val cyc = ((t * riseRate + phaseOffset) % 1f)
+                    val y = h * (1.0f - cyc)
+                    val x = (((baseX + sin(t * (0.35f + (i % 4) * 0.08f) + i * 1.9f) * swaySpan) % w) + w) % w
 
-            "live_starlight" -> {
-                val count = (75 * densityMult).toInt().coerceIn(30, 140)
-                for (i in 0 until count) {
-                    val sx = ((sin(i * 12.9898f) * 43758.5453f).let { it - floor(it) }) * w
-                    val sy = ((sin(i * 78.233f) * 19341.123f).let { it - floor(it) }) * h
-                    val tw = 0.5f + 0.5f * sin(animTimeSec * (0.9f + (i % 5) * 0.3f) + i)
-                    val a = (tw * 0.65f * opacityMult).coerceIn(0.05f, 0.95f)
-                    drawCircle(
-                        color = if (i % 7 == 0) accentColor.copy(alpha = a) else Color.White.copy(alpha = a),
-                        radius = (0.8f + (i % 3) * 0.5f).dp.toPx() * scaleMult,
-                        center = Offset(sx, sy)
-                    )
-                }
-            }
+                    val envelope = sin(cyc * PI.toFloat()).coerceIn(0f, 1f)
+                    val isAccent = i % 3 == 0
+                    val coreAlpha = (envelope * (if (isAccent) 0.70f else 0.46f) * opacityMult).coerceIn(0f, 0.94f)
+                    val rPx = (1.1f + (i % 3) * 0.45f).dp.toPx() * scaleMult
 
-            "live_kepler" -> {
-                val center = Offset(w * 0.5f, h * 0.5f)
-                val orbits = 5
-                for (o in 1..orbits) {
-                    val rx = minDim * (0.12f * o) * scaleMult
-                    val ry = rx * 0.62f
-                    drawOval(
-                        color = Color.White.copy(alpha = (0.14f * opacityMult).coerceIn(0.03f, 0.45f)),
-                        topLeft = Offset(center.x - rx, center.y - ry),
-                        size = Size(rx * 2f, ry * 2f),
-                        style = Stroke(width = 0.8.dp.toPx())
-                    )
-                    val ang = animTimeSec * (0.55f / o) + o * 1.2f
-                    val px = center.x + cos(ang) * rx
-                    val py = center.y + sin(ang) * ry
-                    drawCircle(
-                        color = if (o % 2 == 1) accentColor else Color.White,
-                        radius = 2.8.dp.toPx(),
-                        center = Offset(px, py)
-                    )
-                }
-            }
-
-            "live_quantum" -> {
-                val step = (26.dp.toPx() / densityMult.coerceIn(0.6f, 1.6f)).coerceAtLeast(14.dp.toPx())
-                var y = step * 0.5f
-                while (y < h) {
-                    var x = step * 0.5f
-                    while (x < w) {
-                        val d = hypot(x - w * 0.5f, y - h * 0.5f) / fullDiag
-                        val wave = 0.5f + 0.5f * sin(d * 18f - animTimeSec * 1.8f)
-                        val r = (0.8f + wave * 1.8f).dp.toPx() * scaleMult
+                    if (isAccent && coreAlpha > 0.12f) {
                         drawCircle(
-                            color = accentColor.copy(alpha = (wave * 0.42f * opacityMult).coerceIn(0.04f, 0.82f)),
-                            radius = r,
+                            color = accentColor.copy(alpha = (coreAlpha * 0.22f).coerceIn(0f, 0.38f)),
+                            radius = rPx * 2.9f,
                             center = Offset(x, y)
                         )
-                        x += step
                     }
-                    y += step
+                    drawCircle(
+                        color = if (isAccent) accentColor.copy(alpha = coreAlpha) else Color.White.copy(alpha = coreAlpha),
+                        radius = rPx,
+                        center = Offset(x, y)
+                    )
                 }
             }
 
+            // ================================================================
+            // 3. STARLIGHT BREATH (Full-Screen Edge-to-Edge Twinkling Starfield)
+            // ================================================================
+            "live_starlight" -> {
+                val starCount = (46 * densityMult).roundToInt().coerceIn(18, 90)
+                for (i in 0 until starCount) {
+                    val gx = ((i * 0.6180339887f + 0.01f) % 1f)
+                    val gy = (((i * 0.3819660112f) + (i % 7) * 0.071f + 0.01f) % 1f)
+                    val x = gx * w
+                    val y = gy * h
+
+                    val breathSpeed = 0.55f + (i % 7) * 0.16f
+                    val breath = (0.5f + 0.5f * sin(t * breathSpeed + i * 2.17f)).coerceIn(0.05f, 1f)
+                    val isAccent = i % 5 == 0
+                    val alpha = (breath * (if (isAccent) 0.74f else 0.50f) * opacityMult).coerceIn(0.03f, 0.96f)
+                    val rad = (0.9f + (i % 3) * 0.35f).dp.toPx() * scaleMult
+
+                    drawCircle(
+                        color = if (isAccent) accentColor.copy(alpha = alpha) else Color.White.copy(alpha = alpha),
+                        radius = rad,
+                        center = Offset(x, y)
+                    )
+
+                    if (i % 6 == 0 && breath > 0.78f) {
+                        val glintFactor = ((breath - 0.78f) / 0.22f).coerceIn(0f, 1f)
+                        val arm = (4.5f * glintFactor * scaleMult).dp.toPx()
+                        val glintCol = (if (isAccent) accentColor else Color.White).copy(alpha = (alpha * 0.55f * glintFactor).coerceIn(0f, 0.65f))
+                        drawLine(glintCol, Offset(x - arm, y), Offset(x + arm, y), strokeWidth = 0.7.dp.toPx())
+                        drawLine(glintCol, Offset(x, y - arm), Offset(x, y + arm), strokeWidth = 0.7.dp.toPx())
+                    }
+                }
+            }
+
+            // ================================================================
+            // 4. KEPLER ORBITS (Full-Screen Elliptical Planetary Tracks)
+            // ================================================================
+            "live_kepler" -> {
+                val center = Offset(w * 0.5f, h * 0.5f)
+                val orbitCount = (6 * densityMult).roundToInt().coerceIn(3, 10)
+                drawCircle(
+                    color = accentColor.copy(alpha = (0.68f * opacityMult).coerceIn(0.1f, 0.95f)),
+                    radius = 2.4.dp.toPx() * scaleMult,
+                    center = center
+                )
+                for (k in 1..orbitCount) {
+                    val frac = k.toFloat() / orbitCount.toFloat()
+                    val rx = maxDim * (0.08f + frac * 0.48f) * scaleMult
+                    val ry = rx * (0.48f + (k % 3) * 0.10f)
+                    val tiltDeg = -24f + k * 11f
+                    val isAccentOrbit = k % 2 == 1
+                    val trackAlpha = ((0.14f + (1f - frac) * 0.08f) * opacityMult).coerceIn(0.04f, 0.48f)
+
+                    val steps = 72
+                    val tiltRad = Math.toRadians(tiltDeg.toDouble())
+                    val cosT = cos(tiltRad).toFloat()
+                    val sinT = sin(tiltRad).toFloat()
+                    val orbitPath = Path()
+                    for (s in 0..steps) {
+                        val ang = (s.toFloat() / steps) * (2f * PI.toFloat())
+                        val ex = rx * cos(ang)
+                        val ey = ry * sin(ang)
+                        val px = center.x + (ex * cosT - ey * sinT)
+                        val py = center.y + (ex * sinT + ey * cosT)
+                        if (s == 0) orbitPath.moveTo(px, py) else orbitPath.lineTo(px, py)
+                    }
+                    drawPath(
+                        path = orbitPath,
+                        color = if (isAccentOrbit) accentColor.copy(alpha = trackAlpha) else Color.White.copy(alpha = trackAlpha),
+                        style = Stroke(width = 0.75.dp.toPx())
+                    )
+
+                    val dir = if (k % 2 == 0) -1f else 1f
+                    val satAng = t * (0.38f / sqrt(k.toFloat())) * dir + k * 1.4f
+                    val sx = rx * cos(satAng)
+                    val sy = ry * sin(satAng)
+                    val satPt = Offset(
+                        center.x + (sx * cosT - sy * sinT),
+                        center.y + (sx * sinT + sy * cosT)
+                    )
+                    val satAlpha = ((if (isAccentOrbit) 0.82f else 0.64f) * opacityMult).coerceIn(0.1f, 1f)
+                    drawCircle(
+                        color = if (isAccentOrbit) accentColor.copy(alpha = satAlpha) else Color.White.copy(alpha = satAlpha),
+                        radius = (if (isAccentOrbit) 2.3.dp.toPx() else 1.8.dp.toPx()) * (0.85f + 0.15f * scaleMult),
+                        center = satPt
+                    )
+                }
+            }
+
+            // ================================================================
+            // 5. MICRO LATTICE (Full-Screen Edge-to-Edge Breathing Dot Field)
+            // ================================================================
+            "live_quantum" -> {
+                val cols = (11 * densityMult).roundToInt().coerceIn(6, 20)
+                val rows = (22 * densityMult).roundToInt().coerceIn(12, 38)
+                val spacingX = w / cols.toFloat()
+                val spacingY = h / rows.toFloat()
+                val waveCenter = Offset(
+                    w * (0.5f + 0.25f * sin(t * 0.28f)),
+                    h * (0.5f + 0.25f * cos(t * 0.22f))
+                )
+                val waveLength = minDim * 0.42f * scaleMult
+
+                for (r in 0 until rows) {
+                    for (c in 0 until cols) {
+                        val pt = Offset((c + 0.5f) * spacingX, (r + 0.5f) * spacingY)
+                        val dist = (pt - waveCenter).getDistance()
+                        val wave = 0.5f + 0.5f * cos((dist / waveLength) * PI.toFloat() * 2f - t * 1.15f)
+                        val smoothWave = (wave * wave * wave).coerceIn(0f, 1f)
+                        val isAccentDot = (r + c) % 4 == 0 && smoothWave > 0.55f
+                        val alpha = ((0.09f + smoothWave * 0.44f) * opacityMult).coerceIn(0.03f, 0.90f)
+                        val radiusPx = (0.9f + smoothWave * 1.25f).dp.toPx() * (0.8f + 0.2f * scaleMult)
+
+                        drawCircle(
+                            color = if (isAccentDot) accentColor.copy(alpha = alpha) else Color.White.copy(alpha = alpha * 0.85f),
+                            radius = radiusPx,
+                            center = pt
+                        )
+                    }
+                }
+            }
+
+            // ================================================================
+            // 6. PHASE THREAD (Full-Screen Harmonic Lissajous Ribbons)
+            // ================================================================
+            "live_lissajous" -> {
+                val center = Offset(w * 0.5f, h * 0.5f)
+                val ampX = w * 0.46f * scaleMult.coerceIn(0.5f, 1.1f)
+                val ampY = h * 0.44f * scaleMult.coerceIn(0.5f, 1.1f)
+                val segments = (110 * densityMult).roundToInt().coerceIn(55, 180)
+                val tailSpan = 3.2f
+                var prevPt: Offset? = null
+
+                for (s in 0..segments) {
+                    val f = s.toFloat() / segments.toFloat()
+                    val tau = t * 0.42f - (1f - f) * tailSpan
+                    val px = center.x + sin(tau * 1.0f + sin(t * 0.12f)) * ampX * cos(tau * 0.22f)
+                    val py = center.y + sin(tau * 1.5f + PI.toFloat() * 0.25f) * ampY
+                    val curPt = Offset(px, py)
+                    if (prevPt != null) {
+                        val segAlpha = (f * f * 0.48f * opacityMult).coerceIn(0.02f, 0.88f)
+                        drawLine(
+                            color = if (f > 0.62f) accentColor.copy(alpha = segAlpha) else Color.White.copy(alpha = segAlpha * 0.75f),
+                            start = prevPt,
+                            end = curPt,
+                            strokeWidth = (0.7f + f * 0.65f).dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
+                    }
+                    prevPt = curPt
+                }
+                prevPt?.let { head ->
+                    drawCircle(
+                        color = accentColor.copy(alpha = (0.88f * opacityMult).coerceIn(0.15f, 1f)),
+                        radius = 2.5.dp.toPx() * scaleMult,
+                        center = head
+                    )
+                }
+            }
+
+            // ================================================================
+            // 7. AURORA GLOW FADE (Slow-Breathing Full-Screen Glowing Atmospheric Fade)
+            // ================================================================
             "live_glow_horizon" -> {
-                val pulse = 0.75f + 0.25f * sin(animTimeSec * 0.9f)
-                val glowAlpha = (0.36f * pulse * opacityMult).coerceIn(0.06f, 0.82f)
+                val c1 = Offset(
+                    w * (0.5f + 0.24f * sin(t * 0.32f)),
+                    h * (0.78f + 0.08f * cos(t * 0.26f))
+                )
+                val c2 = Offset(
+                    w * (0.5f - 0.22f * cos(t * 0.24f)),
+                    h * (0.24f + 0.08f * sin(t * 0.30f))
+                )
+                val a1 = ((0.26f + 0.08f * sin(t * 0.5f)) * opacityMult).coerceIn(0.05f, 0.68f)
+                val a2 = ((0.16f + 0.06f * cos(t * 0.4f)) * opacityMult).coerceIn(0.04f, 0.52f)
                 drawRect(
                     brush = Brush.radialGradient(
-                        colors = listOf(
-                            accentColor.copy(alpha = glowAlpha),
-                            accentColor.copy(alpha = glowAlpha * 0.32f),
-                            Color.Transparent
-                        ),
-                        center = Offset(w * 0.5f, h * 0.88f),
-                        radius = fullDiag * 0.62f * scaleMult
+                        colors = listOf(accentColor.copy(alpha = a1), accentColor.copy(alpha = a1 * 0.35f), Color.Transparent),
+                        center = c1,
+                        radius = fullDiag * 0.58f * scaleMult
+                    ),
+                    size = Size(w, h)
+                )
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color.White.copy(alpha = a2), Color.Transparent),
+                        center = c2,
+                        radius = fullDiag * 0.48f * scaleMult
                     ),
                     size = Size(w, h)
                 )
             }
 
+            // ================================================================
+            // 8. HALFTONE WAVE (Full-Screen Glowing Halftone Pulse Matrix)
+            // ================================================================
             "live_halftone_pulse" -> {
-                val step = (22.dp.toPx() / densityMult.coerceIn(0.6f, 1.6f)).coerceAtLeast(12.dp.toPx())
-                var y = step * 0.5f
-                while (y < h) {
-                    var x = step * 0.5f
-                    while (x < w) {
-                        val wave = 0.5f + 0.5f * sin((x / w) * 6f + (y / h) * 8f - animTimeSec * 1.6f)
-                        val r = (wave * 3.2.dp.toPx() * scaleMult).coerceAtLeast(0.6.dp.toPx())
+                val step = (20.dp.toPx() / densityMult.coerceIn(0.6f, 1.5f)).coerceAtLeast(11.dp.toPx())
+                val cols = (w / step).toInt().coerceAtLeast(1)
+                val rows = (h / step).toInt().coerceAtLeast(1)
+                val cellW = w / cols.toFloat()
+                val cellH = h / rows.toFloat()
+
+                for (r in 0 until rows) {
+                    val ny = (r + 0.5f) / rows.toFloat()
+                    for (c in 0 until cols) {
+                        val nx = (c + 0.5f) / cols.toFloat()
+                        val phase = (nx * 2.4f + ny * 3.6f) * PI.toFloat() - t * 1.1f
+                        val wave = (0.5f + 0.5f * sin(phase)).coerceIn(0f, 1f)
+                        val dotR = (0.55f + wave * 2.15f).dp.toPx() * scaleMult
+                        val dotA = ((0.06f + wave * 0.36f) * opacityMult).coerceIn(0.02f, 0.85f)
                         drawCircle(
-                            color = accentColor.copy(alpha = ((0.12f + wave * 0.35f) * opacityMult).coerceIn(0.04f, 0.78f)),
+                            color = if (wave > 0.62f) accentColor.copy(alpha = dotA) else Color.White.copy(alpha = dotA * 0.8f),
+                            radius = dotR,
+                            center = Offset((c + 0.5f) * cellW, (r + 0.5f) * cellH)
+                        )
+                    }
+                }
+            }
+
+            // ================================================================
+            // 36 FULL-BLEED STATIC AMOLED WALLPAPERS (0..w, 0..h WITH ZERO GAPS)
+            // ================================================================
+            "dots" -> {
+                val step = (18.dp.toPx() * scaleMult).coerceAtLeast(10.dp.toPx())
+                val dotAlpha = (0.22f * opacityMult).coerceIn(0.05f, 0.75f)
+                val startX = (w % step) * 0.5f
+                val startY = (h % step) * 0.5f
+                var x = startX
+                while (x <= w) {
+                    var y = startY
+                    while (y <= h) {
+                        drawCircle(
+                            color = Color.White.copy(alpha = dotAlpha),
+                            radius = 1.3.dp.toPx(),
+                            center = Offset(x, y)
+                        )
+                        y += step
+                    }
+                    x += step
+                }
+            }
+
+            "blueprint" -> {
+                val step = (32.dp.toPx() * scaleMult).coerceAtLeast(16.dp.toPx())
+                val lineAlpha = (0.18f * opacityMult).coerceIn(0.05f, 0.65f)
+                var x = (w % step) * 0.5f
+                while (x <= w) {
+                    drawLine(accentColor.copy(alpha = lineAlpha), Offset(x, 0f), Offset(x, h), strokeWidth = 1f)
+                    x += step
+                }
+                var y = (h % step) * 0.5f
+                while (y <= h) {
+                    drawLine(accentColor.copy(alpha = lineAlpha), Offset(0f, y), Offset(w, y), strokeWidth = 1f)
+                    y += step
+                }
+            }
+
+            "circuit" -> {
+                val stroke = 1.3.dp.toPx()
+                val traceColor = Color.White.copy(alpha = (0.18f * opacityMult).coerceIn(0.05f, 0.65f))
+                val nodeColor = accentColor.copy(alpha = (0.48f * opacityMult).coerceIn(0.10f, 0.88f))
+                val paths = listOf(
+                    listOf(Offset(0f, h * 0.08f), Offset(w * 0.28f, h * 0.08f), Offset(w * 0.42f, h * 0.18f), Offset(w * 0.42f, h * 0.44f)),
+                    listOf(Offset(w, h * 0.14f), Offset(w * 0.70f, h * 0.14f), Offset(w * 0.56f, h * 0.26f), Offset(w * 0.56f, h * 0.58f)),
+                    listOf(Offset(0f, h * 0.52f), Offset(w * 0.22f, h * 0.52f), Offset(w * 0.36f, h * 0.64f), Offset(w * 0.36f, h)),
+                    listOf(Offset(w, h * 0.68f), Offset(w * 0.74f, h * 0.68f), Offset(w * 0.60f, h * 0.80f), Offset(w * 0.60f, h)),
+                    listOf(Offset(w * 0.18f, 0f), Offset(w * 0.18f, h * 0.24f), Offset(w * 0.30f, h * 0.34f)),
+                    listOf(Offset(w * 0.82f, 0f), Offset(w * 0.82f, h * 0.38f), Offset(w * 0.68f, h * 0.48f))
+                )
+                for (pts in paths) {
+                    for (k in 0 until pts.lastIndex) {
+                        drawLine(traceColor, pts[k], pts[k + 1], strokeWidth = stroke, cap = StrokeCap.Round)
+                    }
+                    drawCircle(color = nodeColor, radius = 3.0.dp.toPx(), center = pts.last())
+                }
+            }
+
+            // ================================================================
+            // NEW HALFTONE, GLOWING & FADE WALLPAPERS (FULL SCREEN EDGE-TO-EDGE)
+            // ================================================================
+            "static_halftone" -> {
+                // Full-Screen Radial Halftone Dot Gradient (reaches all 4 corners)
+                val step = (19.dp.toPx() * scaleMult).coerceAtLeast(11.dp.toPx())
+                val center = Offset(w * 0.5f, h * 0.5f)
+                val maxDist = hypot(w * 0.5f, h * 0.5f) * 1.05f
+                var y = (h % step) * 0.5f
+                while (y <= h) {
+                    var x = (w % step) * 0.5f
+                    while (x <= w) {
+                        val d = (Offset(x, y) - center).getDistance()
+                        val norm = (1f - (d / maxDist)).coerceIn(0.08f, 1f)
+                        val r = (0.55f + norm * 2.4f).dp.toPx()
+                        val a = ((0.06f + norm * 0.34f) * opacityMult).coerceIn(0.03f, 0.82f)
+                        drawCircle(
+                            color = if (norm > 0.62f) accentColor.copy(alpha = a) else Color.White.copy(alpha = a),
                             radius = r,
                             center = Offset(x, y)
                         )
@@ -8406,40 +10670,727 @@ fun WallpaperCanvasView(
                 }
             }
 
-            "dots" -> {
-                val step = (24.dp.toPx() / densityMult.coerceIn(0.5f, 1.75f)).coerceAtLeast(12.dp.toPx())
-                val a = (0.24f * opacityMult).coerceIn(0.05f, 0.75f)
-                var y = step * 0.5f
-                while (y < h) {
-                    var x = step * 0.5f
-                    while (x < w) {
-                        drawCircle(Color.White.copy(alpha = a), radius = 1.1.dp.toPx() * scaleMult, center = Offset(x, y))
+            "static_halftone_vertical" -> {
+                // Full-Screen Vertical Halftone Dot Fade (Bottom Horizon to Top Edge)
+                val step = (18.dp.toPx() * scaleMult).coerceAtLeast(10.dp.toPx())
+                var y = (h % step) * 0.5f
+                while (y <= h) {
+                    val fy = (y / h.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                    val r = (0.5f + fy * fy * 2.8f).dp.toPx()
+                    val a = ((0.05f + fy * 0.38f) * opacityMult).coerceIn(0.02f, 0.85f)
+                    var x = (w % step) * 0.5f
+                    while (x <= w) {
+                        drawCircle(
+                            color = if (fy > 0.58f) accentColor.copy(alpha = a) else Color.White.copy(alpha = a * 0.85f),
+                            radius = r,
+                            center = Offset(x, y)
+                        )
                         x += step
                     }
                     y += step
                 }
             }
 
-            "blueprint" -> {
-                val step = (32.dp.toPx() * scaleMult).coerceAtLeast(16.dp.toPx())
-                val a = (0.14f * opacityMult).coerceIn(0.04f, 0.55f)
-                var x = 0f
-                while (x <= w) {
-                    drawLine(accentColor.copy(alpha = a), Offset(x, 0f), Offset(x, h), strokeWidth = 0.75.dp.toPx())
-                    x += step
-                }
-                var y = 0f
+            "static_halftone_diagonal" -> {
+                // Full-Screen 45° Diagonal Halftone Gradient Matrix
+                val step = (18.dp.toPx() * scaleMult).coerceAtLeast(10.dp.toPx())
+                var y = (h % step) * 0.5f
                 while (y <= h) {
-                    drawLine(accentColor.copy(alpha = a), Offset(0f, y), Offset(w, y), strokeWidth = 0.75.dp.toPx())
+                    val ny = y / h.coerceAtLeast(1f)
+                    var x = (w % step) * 0.5f
+                    while (x <= w) {
+                        val nx = x / w.coerceAtLeast(1f)
+                        val diag = ((nx + ny) * 0.5f).coerceIn(0f, 1f)
+                        val r = (0.5f + diag * 2.6f).dp.toPx()
+                        val a = ((0.06f + diag * 0.36f) * opacityMult).coerceIn(0.03f, 0.85f)
+                        drawCircle(
+                            color = if (diag > 0.55f) accentColor.copy(alpha = a) else Color.White.copy(alpha = a * 0.8f),
+                            radius = r,
+                            center = Offset(x, y)
+                        )
+                        x += step
+                    }
                     y += step
                 }
             }
 
-            else -> {
-                val glowAlpha = (0.24f * opacityMult).coerceIn(0.05f, 0.68f)
+            "static_halftone_duotone" -> {
+                // Full-Screen Interleaved Dual-Grid Duotone Halftone
+                val step = (22.dp.toPx() * scaleMult).coerceAtLeast(12.dp.toPx())
+                var y = (h % step) * 0.5f
+                while (y <= h) {
+                    val ny = y / h.coerceAtLeast(1f)
+                    var x = (w % step) * 0.5f
+                    while (x <= w) {
+                        val nx = x / w.coerceAtLeast(1f)
+                        val w1 = (1f - ny).coerceIn(0.1f, 1f)
+                        val w2 = ny.coerceIn(0.1f, 1f)
+                        drawCircle(
+                            color = Color.White.copy(alpha = (0.24f * w1 * opacityMult).coerceIn(0.03f, 0.75f)),
+                            radius = (0.6f + w1 * 1.8f).dp.toPx(),
+                            center = Offset(x, y)
+                        )
+                        val ox = (x + step * 0.5f).coerceAtMost(w)
+                        val oy = (y + step * 0.5f).coerceAtMost(h)
+                        drawCircle(
+                            color = accentColor.copy(alpha = (0.32f * w2 * opacityMult).coerceIn(0.04f, 0.82f)),
+                            radius = (0.6f + w2 * 2.0f).dp.toPx(),
+                            center = Offset(ox, oy)
+                        )
+                        x += step
+                    }
+                    y += step
+                }
+            }
+
+            "static_halftone_wave" -> {
+                // Full-Screen Sinusoidal Wave Halftone Matrix
+                val step = (18.dp.toPx() * scaleMult).coerceAtLeast(10.dp.toPx())
+                var y = (h % step) * 0.5f
+                while (y <= h) {
+                    val ny = y / h.coerceAtLeast(1f)
+                    var x = (w % step) * 0.5f
+                    while (x <= w) {
+                        val nx = x / w.coerceAtLeast(1f)
+                        val wave = 0.5f + 0.5f * sin((nx * 2.5f + sin(ny * PI.toFloat() * 2f) * 0.6f) * PI.toFloat() * 2f)
+                        val r = (0.55f + wave * 2.25f).dp.toPx()
+                        val a = ((0.06f + wave * 0.34f) * opacityMult).coerceIn(0.03f, 0.82f)
+                        drawCircle(
+                            color = if (wave > 0.62f) accentColor.copy(alpha = a) else Color.White.copy(alpha = a * 0.8f),
+                            radius = r,
+                            center = Offset(x, y)
+                        )
+                        x += step
+                    }
+                    y += step
+                }
+            }
+
+            "static_glow_horizon" -> {
+                // Full-Screen Rising Horizon Glow Fade with Subtle Scanline Texture
+                val aGlow = (0.42f * opacityMult).coerceIn(0.08f, 0.88f)
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black,
+                            Color.Black,
+                            accentColor.copy(alpha = aGlow * 0.32f),
+                            accentColor.copy(alpha = aGlow)
+                        ),
+                        startY = 0f,
+                        endY = h
+                    ),
+                    size = Size(w, h)
+                )
                 drawRect(
                     brush = Brush.radialGradient(
-                        colors = listOf(accentColor.copy(alpha = glowAlpha), Color.Transparent),
+                        colors = listOf(Color.White.copy(alpha = aGlow * 0.35f), Color.Transparent),
+                        center = Offset(w * 0.5f, h * 0.96f),
+                        radius = w * 0.85f * scaleMult
+                    ),
+                    size = Size(w, h)
+                )
+            }
+
+            "static_glow_nebula" -> {
+                // Full-Screen Dual-Core Soft Atmospheric Nebula Glow
+                val a1 = (0.34f * opacityMult).coerceIn(0.06f, 0.80f)
+                val a2 = (0.22f * opacityMult).coerceIn(0.04f, 0.65f)
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(accentColor.copy(alpha = a1), accentColor.copy(alpha = a1 * 0.25f), Color.Transparent),
+                        center = Offset(w * 0.28f, h * 0.32f),
+                        radius = fullDiag * 0.52f * scaleMult
+                    ),
+                    size = Size(w, h)
+                )
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color.White.copy(alpha = a2), accentColor.copy(alpha = a2 * 0.4f), Color.Transparent),
+                        center = Offset(w * 0.74f, h * 0.72f),
+                        radius = fullDiag * 0.55f * scaleMult
+                    ),
+                    size = Size(w, h)
+                )
+            }
+
+            "static_glow_edge" -> {
+                // Full-Screen Edge-Lit Border Aura (Pure #000000 center, glowing edges)
+                val edgeAlpha = (0.36f * opacityMult).coerceIn(0.08f, 0.82f)
+                val borderDepth = minDim * 0.28f * scaleMult
+                // Top glow
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(accentColor.copy(alpha = edgeAlpha), Color.Transparent),
+                        startY = 0f,
+                        endY = borderDepth
+                    ),
+                    size = Size(w, borderDepth)
+                )
+                // Bottom glow
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, accentColor.copy(alpha = edgeAlpha)),
+                        startY = h - borderDepth,
+                        endY = h
+                    ),
+                    topLeft = Offset(0f, h - borderDepth),
+                    size = Size(w, borderDepth)
+                )
+                // Left glow
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(accentColor.copy(alpha = edgeAlpha * 0.75f), Color.Transparent),
+                        startX = 0f,
+                        endX = borderDepth * 0.75f
+                    ),
+                    size = Size(borderDepth * 0.75f, h)
+                )
+                // Right glow
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(Color.Transparent, accentColor.copy(alpha = edgeAlpha * 0.75f)),
+                        startX = w - borderDepth * 0.75f,
+                        endX = w
+                    ),
+                    topLeft = Offset(w - borderDepth * 0.75f, 0f),
+                    size = Size(borderDepth * 0.75f, h)
+                )
+            }
+
+            "static_glow_pillar" -> {
+                // Full-Screen Vertical Light Column Glow
+                val a = (0.32f * opacityMult).coerceIn(0.06f, 0.78f)
+                val beamCenter = w * 0.5f
+                val halfSpan = w * 0.42f * scaleMult
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            accentColor.copy(alpha = a * 0.45f),
+                            Color.White.copy(alpha = a * 0.65f),
+                            accentColor.copy(alpha = a * 0.45f),
+                            Color.Transparent
+                        ),
+                        startX = (beamCenter - halfSpan).coerceAtLeast(0f),
+                        endX = (beamCenter + halfSpan).coerceAtMost(w)
+                    ),
+                    size = Size(w, h)
+                )
+                drawLine(
+                    color = accentColor.copy(alpha = (a * 1.2f).coerceIn(0.1f, 0.9f)),
+                    start = Offset(beamCenter, 0f),
+                    end = Offset(beamCenter, h),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+
+            "static_fade_monolith" -> {
+                // Full-Screen Top-to-Bottom Monolith Ombré Fade
+                val a = (0.38f * opacityMult).coerceIn(0.08f, 0.85f)
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            accentColor.copy(alpha = a),
+                            Color.White.copy(alpha = a * 0.22f),
+                            Color.Black
+                        ),
+                        startY = 0f,
+                        endY = h
+                    ),
+                    size = Size(w, h)
+                )
+            }
+
+            "static_fade_twilight" -> {
+                // Full-Screen Diagonal Silk Gradient Fade & Fine Rules
+                val a = (0.36f * opacityMult).coerceIn(0.08f, 0.82f)
+                drawRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            accentColor.copy(alpha = a),
+                            Color.Black,
+                            Color.White.copy(alpha = a * 0.45f)
+                        ),
+                        start = Offset(0f, 0f),
+                        end = Offset(w, h)
+                    ),
+                    size = Size(w, h)
+                )
+            }
+
+            "static_fade_vignette" -> {
+                // Full-Screen Radial Spotlight Fade
+                val a = (0.34f * opacityMult).coerceIn(0.08f, 0.80f)
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            accentColor.copy(alpha = a),
+                            Color.White.copy(alpha = a * 0.25f),
+                            Color.Black
+                        ),
+                        center = Offset(w * 0.5f, h * 0.48f),
+                        radius = fullDiag * 0.52f * scaleMult
+                    ),
+                    size = Size(w, h)
+                )
+            }
+
+            "static_fade_prism" -> {
+                // Full-Screen Stepped Atmospheric Horizon Bands Fade
+                val bands = 16
+                val bandH = h / bands.toFloat()
+                for (b in 0 until bands) {
+                    val f = (b + 1).toFloat() / bands.toFloat()
+                    val a = ((f * f * 0.34f) * opacityMult).coerceIn(0.01f, 0.78f)
+                    drawRect(
+                        color = if (b % 3 == 0) accentColor.copy(alpha = a) else Color.White.copy(alpha = a * 0.55f),
+                        topLeft = Offset(0f, b * bandH),
+                        size = Size(w, bandH + 1f)
+                    )
+                }
+            }
+
+            "static_crosshair" -> {
+                val c = Offset(w * 0.5f, h * 0.5f)
+                val aWhite = (0.18f * opacityMult).coerceIn(0.05f, 0.65f)
+                val aAccent = (0.38f * opacityMult).coerceIn(0.08f, 0.80f)
+                for (ring in 1..6) {
+                    val r = (fullDiag * 0.09f * ring) * scaleMult
+                    drawCircle(
+                        color = if (ring % 2 == 0) accentColor.copy(alpha = aAccent) else Color.White.copy(alpha = aWhite),
+                        radius = r,
+                        center = c,
+                        style = Stroke(
+                            width = 0.9.dp.toPx(),
+                            pathEffect = if (ring % 2 == 0) PathEffect.dashPathEffect(floatArrayOf(12f, 10f), 0f) else null
+                        )
+                    )
+                }
+                drawLine(Color.White.copy(alpha = aWhite * 0.8f), Offset(0f, c.y), Offset(w, c.y), strokeWidth = 0.8.dp.toPx())
+                drawLine(Color.White.copy(alpha = aWhite * 0.8f), Offset(c.x, 0f), Offset(c.x, h), strokeWidth = 0.8.dp.toPx())
+                drawCircle(accentColor.copy(alpha = aAccent), radius = 2.5.dp.toPx(), center = c)
+            }
+
+            "static_topo" -> {
+                val center = Offset(w * 0.5f, h * 0.5f)
+                val rings = 14
+                for (i in 1..rings) {
+                    val baseR = (fullDiag * 0.042f * i) * scaleMult
+                    val path = Path()
+                    val steps = 80
+                    for (s in 0..steps) {
+                        val ang = (s.toFloat() / steps) * 2f * PI.toFloat()
+                        val warp = 1f + 0.14f * sin(ang * 3f + i * 0.7f) + 0.08f * cos(ang * 5f - i * 1.1f)
+                        val px = center.x + cos(ang) * baseR * warp
+                        val py = center.y + sin(ang) * baseR * warp * 1.25f
+                        if (s == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                    }
+                    val isIndexContour = i % 3 == 0
+                    val alpha = ((if (isIndexContour) 0.30f else 0.15f) * opacityMult).coerceIn(0.04f, 0.75f)
+                    drawPath(
+                        path = path,
+                        color = if (isIndexContour) accentColor.copy(alpha = alpha) else Color.White.copy(alpha = alpha),
+                        style = Stroke(width = if (isIndexContour) 1.1.dp.toPx() else 0.75.dp.toPx())
+                    )
+                }
+            }
+
+            "static_isometric" -> {
+                val step = (36.dp.toPx() * scaleMult).coerceAtLeast(18.dp.toPx())
+                val a = (0.14f * opacityMult).coerceIn(0.04f, 0.55f)
+                val tan30 = 0.57735f
+                var y = -h
+                while (y <= h * 2f) {
+                    drawLine(Color.White.copy(alpha = a), Offset(0f, y), Offset(w, y + w * tan30), strokeWidth = 0.8.dp.toPx())
+                    drawLine(Color.White.copy(alpha = a), Offset(0f, y + w * tan30), Offset(w, y), strokeWidth = 0.8.dp.toPx())
+                    y += step
+                }
+                var x = 0f
+                while (x <= w) {
+                    drawLine(accentColor.copy(alpha = a * 0.85f), Offset(x, 0f), Offset(x, h), strokeWidth = 0.7.dp.toPx())
+                    x += step * 0.866f
+                }
+            }
+
+            "static_star_chart" -> {
+                val pole = Offset(w * 0.5f, h * 0.45f)
+                val aLine = (0.16f * opacityMult).coerceIn(0.04f, 0.58f)
+                for (rIdx in 1..10) {
+                    drawCircle(
+                        color = Color.White.copy(alpha = aLine),
+                        radius = fullDiag * 0.065f * rIdx * scaleMult,
+                        center = pole,
+                        style = Stroke(width = 0.75.dp.toPx())
+                    )
+                }
+                for (angIdx in 0 until 12) {
+                    val rad = Math.toRadians((angIdx * 30).toDouble())
+                    val rInner = minDim * 0.06f * scaleMult
+                    val rOuter = fullDiag * 0.75f
+                    drawLine(
+                        color = if (angIdx % 3 == 0) accentColor.copy(alpha = aLine * 1.6f) else Color.White.copy(alpha = aLine * 0.8f),
+                        start = Offset(pole.x + cos(rad).toFloat() * rInner, pole.y + sin(rad).toFloat() * rInner),
+                        end = Offset(pole.x + cos(rad).toFloat() * rOuter, pole.y + sin(rad).toFloat() * rOuter),
+                        strokeWidth = 0.75.dp.toPx()
+                    )
+                }
+            }
+
+            "static_eclipse" -> {
+                val c = Offset(w * 0.5f, h * 0.46f)
+                val r = minDim * 0.28f * scaleMult
+                val glowAlpha = (0.32f * opacityMult).coerceIn(0.06f, 0.78f)
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color.Transparent, accentColor.copy(alpha = glowAlpha), accentColor.copy(alpha = glowAlpha * 0.18f), Color.Transparent),
+                        center = c,
+                        radius = fullDiag * 0.55f * scaleMult
+                    ),
+                    size = Size(w, h)
+                )
+                drawCircle(Color.Black, radius = r, center = c)
+                drawCircle(
+                    color = Color.White.copy(alpha = (0.58f * opacityMult).coerceIn(0.12f, 0.95f)),
+                    radius = r,
+                    center = c,
+                    style = Stroke(width = 1.1.dp.toPx())
+                )
+                for (outer in 2..5) {
+                    drawCircle(
+                        color = Color.White.copy(alpha = (0.10f * opacityMult).coerceIn(0.03f, 0.35f)),
+                        radius = r * (1f + outer * 0.45f),
+                        center = c,
+                        style = Stroke(width = 0.7.dp.toPx())
+                    )
+                }
+            }
+
+            "static_vinyl" -> {
+                val c = Offset(w * 0.5f, h * 0.5f)
+                for (i in 2..32) {
+                    val r = fullDiag * 0.02f * i * scaleMult
+                    val isAccent = i % 7 == 0
+                    val a = ((if (isAccent) 0.34f else 0.13f) * opacityMult).coerceIn(0.03f, 0.75f)
+                    drawCircle(
+                        color = if (isAccent) accentColor.copy(alpha = a) else Color.White.copy(alpha = a),
+                        radius = r,
+                        center = c,
+                        style = Stroke(width = 0.75.dp.toPx())
+                    )
+                }
+            }
+
+            "static_bauhaus" -> {
+                val aWhite = (0.20f * opacityMult).coerceIn(0.05f, 0.65f)
+                val aAccent = (0.42f * opacityMult).coerceIn(0.08f, 0.85f)
+                val xRule1 = w * 0.28f
+                val xRule2 = w * 0.76f
+                val yRule1 = h * 0.32f
+                val yRule2 = h * 0.68f
+                drawLine(Color.White.copy(alpha = aWhite), Offset(xRule1, 0f), Offset(xRule1, h), strokeWidth = 1.dp.toPx())
+                drawLine(Color.White.copy(alpha = aWhite * 0.6f), Offset(xRule2, 0f), Offset(xRule2, h), strokeWidth = 0.8.dp.toPx())
+                drawLine(Color.White.copy(alpha = aWhite), Offset(0f, yRule2), Offset(w, yRule2), strokeWidth = 1.dp.toPx())
+                drawLine(Color.White.copy(alpha = aWhite * 0.6f), Offset(0f, yRule1), Offset(w, yRule1), strokeWidth = 0.8.dp.toPx())
+                drawCircle(
+                    color = accentColor.copy(alpha = aAccent),
+                    radius = minDim * 0.22f * scaleMult,
+                    center = Offset(xRule1, yRule2),
+                    style = Stroke(width = 1.3.dp.toPx())
+                )
+                drawRect(
+                    color = Color.White.copy(alpha = aWhite),
+                    topLeft = Offset(xRule1, yRule1),
+                    size = Size(xRule2 - xRule1, yRule2 - yRule1),
+                    style = Stroke(width = 0.9.dp.toPx())
+                )
+            }
+
+            "static_horizon_lines" -> {
+                val lines = 32
+                for (i in 0 until lines) {
+                    val f = i.toFloat() / (lines - 1).toFloat()
+                    val y = f * h
+                    val a = ((0.06f + f * 0.30f) * opacityMult).coerceIn(0.03f, 0.78f)
+                    drawLine(
+                        color = if (i % 5 == 0) accentColor.copy(alpha = a) else Color.White.copy(alpha = a * 0.8f),
+                        start = Offset(0f, y),
+                        end = Offset(w, y),
+                        strokeWidth = 0.85.dp.toPx()
+                    )
+                }
+            }
+
+            "static_glyph_arcs" -> {
+                val c = Offset(w * 0.5f, h * 0.5f)
+                val aAccent = (0.48f * opacityMult).coerceIn(0.10f, 0.90f)
+                val aWhite = (0.28f * opacityMult).coerceIn(0.06f, 0.75f)
+                val stroke = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round)
+                for (ring in 1..3) {
+                    val r = minDim * (0.20f * ring) * scaleMult
+                    drawArc(accentColor.copy(alpha = aAccent), startAngle = -75f + ring * 20f, sweepAngle = 52f, useCenter = false, topLeft = Offset(c.x - r, c.y - r), size = Size(r * 2f, r * 2f), style = stroke)
+                    drawArc(Color.White.copy(alpha = aWhite), startAngle = 25f + ring * 15f, sweepAngle = 68f, useCenter = false, topLeft = Offset(c.x - r, c.y - r), size = Size(r * 2f, r * 2f), style = stroke)
+                    drawArc(Color.White.copy(alpha = aWhite), startAngle = 135f + ring * 10f, sweepAngle = 55f, useCenter = false, topLeft = Offset(c.x - r, c.y - r), size = Size(r * 2f, r * 2f), style = stroke)
+                    drawArc(accentColor.copy(alpha = aAccent), startAngle = 220f + ring * 15f, sweepAngle = 45f, useCenter = false, topLeft = Offset(c.x - r, c.y - r), size = Size(r * 2f, r * 2f), style = stroke)
+                }
+                drawLine(Color.White.copy(alpha = aWhite), Offset(c.x, 0f), Offset(c.x, h * 0.14f), strokeWidth = 2.2.dp.toPx(), cap = StrokeCap.Round)
+                drawLine(Color.White.copy(alpha = aWhite), Offset(c.x, h * 0.86f), Offset(c.x, h), strokeWidth = 2.2.dp.toPx(), cap = StrokeCap.Round)
+            }
+
+            "static_polar" -> {
+                val c = Offset(w * 0.5f, h * 0.5f)
+                val a = (0.18f * opacityMult).coerceIn(0.04f, 0.65f)
+                for (ring in 1..8) {
+                    val r = fullDiag * 0.075f * ring * scaleMult
+                    drawCircle(
+                        color = if (ring % 3 == 0) accentColor.copy(alpha = a * 1.5f) else Color.White.copy(alpha = a),
+                        radius = r,
+                        center = c,
+                        style = Stroke(width = 0.85.dp.toPx())
+                    )
+                }
+                for (deg in 0 until 360 step 15) {
+                    val rad = Math.toRadians(deg.toDouble())
+                    val innerR = minDim * 0.08f * scaleMult
+                    val outerR = fullDiag * 0.65f
+                    drawLine(
+                        color = if (deg % 90 == 0) accentColor.copy(alpha = a * 1.6f) else Color.White.copy(alpha = a * 0.85f),
+                        start = Offset(c.x + cos(rad).toFloat() * innerR, c.y + sin(rad).toFloat() * innerR),
+                        end = Offset(c.x + cos(rad).toFloat() * outerR, c.y + sin(rad).toFloat() * outerR),
+                        strokeWidth = 0.8.dp.toPx()
+                    )
+                }
+            }
+
+            "static_diagonal_hatch" -> {
+                val step = (24.dp.toPx() * scaleMult).coerceAtLeast(12.dp.toPx())
+                val a = (0.14f * opacityMult).coerceIn(0.04f, 0.55f)
+                var offset = -h
+                var idx = 0
+                while (offset <= w + h) {
+                    val isAccent = idx % 7 == 0
+                    drawLine(
+                        color = if (isAccent) accentColor.copy(alpha = a * 1.4f) else Color.White.copy(alpha = a),
+                        start = Offset(offset, 0f),
+                        end = Offset(offset + h, h),
+                        strokeWidth = 0.75.dp.toPx()
+                    )
+                    offset += step
+                    idx++
+                }
+            }
+
+            "static_golden_spiral" -> {
+                val aWhite = (0.18f * opacityMult).coerceIn(0.04f, 0.65f)
+                val aAccent = (0.38f * opacityMult).coerceIn(0.08f, 0.85f)
+                val splitY = h * 0.618f
+                val splitX = w * 0.618f
+                drawLine(Color.White.copy(alpha = aWhite), Offset(0f, splitY), Offset(w, splitY), strokeWidth = 0.9.dp.toPx())
+                drawLine(Color.White.copy(alpha = aWhite), Offset(splitX, splitY), Offset(splitX, h), strokeWidth = 0.9.dp.toPx())
+                drawLine(Color.White.copy(alpha = aWhite), Offset(splitX, splitY + (h - splitY) * 0.618f), Offset(w, splitY + (h - splitY) * 0.618f), strokeWidth = 0.9.dp.toPx())
+                drawArc(
+                    color = accentColor.copy(alpha = aAccent),
+                    startAngle = 180f,
+                    sweepAngle = 90f,
+                    useCenter = false,
+                    topLeft = Offset(0f, 0f),
+                    size = Size(w * 2f, splitY * 2f),
+                    style = Stroke(width = 1.2.dp.toPx())
+                )
+                drawArc(
+                    color = accentColor.copy(alpha = aAccent),
+                    startAngle = 270f,
+                    sweepAngle = 90f,
+                    useCenter = false,
+                    topLeft = Offset(splitX * 2f - w, splitY),
+                    size = Size((w - splitX) * 2f, (h - splitY) * 2f),
+                    style = Stroke(width = 1.2.dp.toPx())
+                )
+            }
+
+            "static_sine_interference" -> {
+                val waves = 20
+                val steps = 64
+                for (wIdx in 0 until waves) {
+                    val f = wIdx.toFloat() / (waves - 1).toFloat()
+                    val baseY = f * h
+                    val path = Path()
+                    for (s in 0..steps) {
+                        val xr = s.toFloat() / steps.toFloat()
+                        val x = xr * w
+                        val y = baseY + sin(xr * PI.toFloat() * 3f + wIdx * 0.38f) * (minDim * 0.045f * scaleMult)
+                        if (s == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    val isAccent = wIdx % 5 == 0
+                    val a = ((if (isAccent) 0.36f else 0.15f) * opacityMult).coerceIn(0.04f, 0.75f)
+                    drawPath(
+                        path = path,
+                        color = if (isAccent) accentColor.copy(alpha = a) else Color.White.copy(alpha = a),
+                        style = Stroke(width = if (isAccent) 1.1.dp.toPx() else 0.75.dp.toPx())
+                    )
+                }
+            }
+
+            "static_corner_frame" -> {
+                val aAccent = (0.45f * opacityMult).coerceIn(0.10f, 0.85f)
+                val aWhite = (0.14f * opacityMult).coerceIn(0.04f, 0.55f)
+                // Full-screen rule-of-thirds grid lines
+                drawLine(Color.White.copy(alpha = aWhite), Offset(w / 3f, 0f), Offset(w / 3f, h), 0.75.dp.toPx())
+                drawLine(Color.White.copy(alpha = aWhite), Offset(w * 2f / 3f, 0f), Offset(w * 2f / 3f, h), 0.75.dp.toPx())
+                drawLine(Color.White.copy(alpha = aWhite), Offset(0f, h / 3f), Offset(w, h / 3f), 0.75.dp.toPx())
+                drawLine(Color.White.copy(alpha = aWhite), Offset(0f, h * 2f / 3f), Offset(w, h * 2f / 3f), 0.75.dp.toPx())
+
+                val padX = 12.dp.toPx()
+                val padY = 12.dp.toPx()
+                val arm = 26.dp.toPx() * scaleMult
+                val sPx = 1.4.dp.toPx()
+                drawLine(accentColor.copy(alpha = aAccent), Offset(padX, padY), Offset(padX + arm, padY), sPx)
+                drawLine(accentColor.copy(alpha = aAccent), Offset(padX, padY), Offset(padX, padY + arm), sPx)
+                drawLine(accentColor.copy(alpha = aAccent), Offset(w - padX, padY), Offset(w - padX - arm, padY), sPx)
+                drawLine(accentColor.copy(alpha = aAccent), Offset(w - padX, padY), Offset(w - padX, padY + arm), sPx)
+                drawLine(accentColor.copy(alpha = aAccent), Offset(padX, h - padY), Offset(padX + arm, h - padY), sPx)
+                drawLine(accentColor.copy(alpha = aAccent), Offset(padX, h - padY), Offset(padX, h - padY - arm), sPx)
+                drawLine(accentColor.copy(alpha = aAccent), Offset(w - padX, h - padY), Offset(w - padX - arm, h - padY), sPx)
+                drawLine(accentColor.copy(alpha = aAccent), Offset(w - padX, h - padY), Offset(w - padX, h - padY - arm), sPx)
+            }
+
+            "static_hex_honeycomb" -> {
+                val r = (24.dp.toPx() * scaleMult).coerceAtLeast(14.dp.toPx())
+                val dx = r * 1.5f
+                val dy = r * sqrt(3f)
+                val aWhite = (0.15f * opacityMult).coerceIn(0.04f, 0.55f)
+                val aAccent = (0.32f * opacityMult).coerceIn(0.08f, 0.78f)
+                var col = 0
+                var x = 0f
+                while (x <= w + r) {
+                    var row = 0
+                    var y = if (col % 2 == 0) 0f else dy * 0.5f
+                    while (y <= h + dy) {
+                        if ((col + row) % 2 == 0) {
+                            val hexPath = Path()
+                            for (v in 0..5) {
+                                val ang = Math.toRadians((v * 60).toDouble())
+                                val vx = x + cos(ang).toFloat() * (r * 0.90f)
+                                val vy = y + sin(ang).toFloat() * (r * 0.90f)
+                                if (v == 0) hexPath.moveTo(vx, vy) else hexPath.lineTo(vx, vy)
+                            }
+                            hexPath.close()
+                            val isHighlight = (col * 3 + row) % 9 == 0
+                            drawPath(
+                                path = hexPath,
+                                color = if (isHighlight) accentColor.copy(alpha = aAccent) else Color.White.copy(alpha = aWhite),
+                                style = Stroke(width = 0.8.dp.toPx())
+                            )
+                        }
+                        y += dy
+                        row++
+                    }
+                    x += dx
+                    col++
+                }
+            }
+
+            "static_constellation_fixed" -> {
+                val coords = listOf(
+                    Offset(0.08f, 0.06f), Offset(0.32f, 0.12f), Offset(0.62f, 0.08f), Offset(0.90f, 0.14f),
+                    Offset(0.16f, 0.28f), Offset(0.46f, 0.26f), Offset(0.76f, 0.32f), Offset(0.92f, 0.48f),
+                    Offset(0.10f, 0.54f), Offset(0.38f, 0.50f), Offset(0.64f, 0.58f), Offset(0.86f, 0.72f),
+                    Offset(0.18f, 0.78f), Offset(0.48f, 0.82f), Offset(0.74f, 0.92f), Offset(0.12f, 0.95f)
+                ).map { Offset(it.x * w, it.y * h) }
+                val links = listOf(
+                    0 to 1, 1 to 2, 2 to 3, 0 to 4, 1 to 5, 2 to 6, 4 to 5, 5 to 6, 6 to 7,
+                    4 to 8, 5 to 9, 9 to 10, 10 to 11, 8 to 12, 9 to 13, 12 to 13, 13 to 14, 12 to 15
+                )
+                val aLine = (0.20f * opacityMult).coerceIn(0.05f, 0.65f)
+                for ((i, j) in links) {
+                    drawLine(Color.White.copy(alpha = aLine), coords[i], coords[j], strokeWidth = 0.85.dp.toPx())
+                }
+                coords.forEachIndexed { idx, pt ->
+                    val isMajor = idx % 3 == 0
+                    drawCircle(
+                        color = if (isMajor) accentColor.copy(alpha = (0.75f * opacityMult).coerceIn(0.15f, 0.95f)) else Color.White.copy(alpha = (0.50f * opacityMult).coerceIn(0.10f, 0.85f)),
+                        radius = (if (isMajor) 2.5.dp.toPx() else 1.6.dp.toPx()) * scaleMult,
+                        center = pt
+                    )
+                }
+            }
+
+            "static_vertical_flutes" -> {
+                val count = 18
+                val step = w / count.toFloat()
+                for (i in 0..count) {
+                    val x = i * step
+                    val isAccent = i == count / 2
+                    val a = ((if (isAccent) 0.32f else 0.13f) * opacityMult).coerceIn(0.03f, 0.72f)
+                    drawLine(
+                        color = if (isAccent) accentColor.copy(alpha = a) else Color.White.copy(alpha = a),
+                        start = Offset(x, 0f),
+                        end = Offset(x, h),
+                        strokeWidth = 0.85.dp.toPx()
+                    )
+                }
+            }
+
+            "static_zen_enso" -> {
+                val c = Offset(w * 0.5f, h * 0.5f)
+                val r = minDim * 0.34f * scaleMult
+                val aAccent = (0.42f * opacityMult).coerceIn(0.08f, 0.85f)
+                val aWhite = (0.20f * opacityMult).coerceIn(0.05f, 0.65f)
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(accentColor.copy(alpha = aAccent * 0.25f), Color.Transparent),
+                        center = c,
+                        radius = fullDiag * 0.5f * scaleMult
+                    ),
+                    size = Size(w, h)
+                )
+                drawArc(
+                    color = accentColor.copy(alpha = aAccent),
+                    startAngle = -40f,
+                    sweepAngle = 295f,
+                    useCenter = false,
+                    topLeft = Offset(c.x - r, c.y - r),
+                    size = Size(r * 2f, r * 2f),
+                    style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
+                )
+                drawArc(
+                    color = Color.White.copy(alpha = aWhite),
+                    startAngle = -25f,
+                    sweepAngle = 250f,
+                    useCenter = false,
+                    topLeft = Offset(c.x - r * 0.92f, c.y - r * 0.92f),
+                    size = Size(r * 1.84f, r * 1.84f),
+                    style = Stroke(width = 0.75.dp.toPx(), cap = StrokeCap.Round)
+                )
+            }
+
+            "static_micro_plus" -> {
+                val step = (32.dp.toPx() * scaleMult).coerceAtLeast(18.dp.toPx())
+                val arm = 3.2.dp.toPx()
+                val aWhite = (0.20f * opacityMult).coerceIn(0.05f, 0.65f)
+                val aAccent = (0.45f * opacityMult).coerceIn(0.10f, 0.85f)
+                var row = 0
+                var y = (h % step) * 0.5f
+                while (y <= h) {
+                    var col = 0
+                    var x = (w % step) * 0.5f
+                    while (x <= w) {
+                        val isAccent = (row + col) % 5 == 0
+                        val colStroke = if (isAccent) accentColor.copy(alpha = aAccent) else Color.White.copy(alpha = aWhite)
+                        drawLine(colStroke, Offset(x - arm, y), Offset(x + arm, y), strokeWidth = 0.85.dp.toPx())
+                        drawLine(colStroke, Offset(x, y - arm), Offset(x, y + arm), strokeWidth = 0.85.dp.toPx())
+                        x += step
+                        col++
+                    }
+                    y += step
+                    row++
+                }
+            }
+
+            else -> {
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(accentColor.copy(alpha = (0.22f * opacityMult).coerceIn(0.05f, 0.65f)), Color.Transparent),
                         center = Offset(w * 0.5f, h * 0.5f),
                         radius = fullDiag * 0.55f * scaleMult
                     ),
@@ -8448,6 +11399,10 @@ fun WallpaperCanvasView(
             }
         }
 
+        // ====================================================================
+        // UNIVERSAL WALLPAPER DIMMER OVERLAY
+        // Smoothly dims Built-In Live, Built-In Static, Custom Photo & 3rd-Party Wallpapers!
+        // ====================================================================
         if (dimPercent > 0) {
             val dimAlpha = (dimPercent.coerceIn(0, 90) / 100f)
             drawRect(
@@ -8458,6 +11413,11 @@ fun WallpaperCanvasView(
         }
     }
 }
+
+// ============================================================================
+// PREMIUM, ACCURATE, MINIMALIST RETRO CLOCK, CALENDAR & CRT WORLD MAP WIDGETS
+// Zero filler labels · 100% live-accurate · All resizable
+// ============================================================================
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -8470,7 +11430,6 @@ fun RetroSplitFlapClockWidget(
     sizeMode: String,
     widgetStyle: String = "default",
     accentColor: Color,
-    secondaryColor: Color = accentColor,
     lomoFontFamily: FontFamily,
     onOpenClockApp: () -> Unit,
     onLongPressHome: () -> Unit = {}
@@ -8493,20 +11452,18 @@ fun RetroSplitFlapClockWidget(
     val paddedMin = minStr.padStart(2, '0')
     val paddedSec = secStr.padStart(2, '0')
 
-    val is80s = widgetStyle == "80s_retro" || LocalRetro80sMode.current
+    val is80s = widgetStyle == "80s_retro"
     val isCyber = widgetStyle == "cyber_hud"
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .retroNeonBorder(
-                width = if (is80s || isCyber) 1.4.dp else 1.dp,
-                color = if (is80s || isCyber) accentColor else Color(0xFF222222),
-                shape = RoundedCornerShape(if (is80s || isCyber) 0.dp else 10.dp),
-                glowEnabled = is80s || isCyber,
-                glowRadiusDp = 5.dp
+            .border(
+                width = if (is80s) 1.4.dp else 1.dp,
+                color = if (is80s) accentColor else if (isCyber) accentColor.copy(alpha = 0.55f) else Color(0xFF222222),
+                shape = RoundedCornerShape(if (is80s) 2.dp else 10.dp)
             )
-            .background(if (is80s || isCyber) Color(0xFF030606) else Color(0xFF060606), RoundedCornerShape(if (is80s || isCyber) 0.dp else 10.dp))
+            .background(if (is80s) Color(0xFF030803) else Color(0xFF060606), RoundedCornerShape(if (is80s) 2.dp else 10.dp))
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -8524,20 +11481,18 @@ fun RetroSplitFlapClockWidget(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (isCyber) "HOLOMAP // CHRONO" else "OLD SCHOOL // CHRONO",
+                    text = if (is80s) "OLD SCHOOL // CHRONO" else "⟦ TERMINAL CLOCK ⟧",
                     color = accentColor,
                     fontSize = 8.sp,
                     fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    style = glowTextStyle(accentColor, 16f)
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = dateStr,
-                    color = secondaryColor,
+                    color = if (is80s) accentColor else Color(0xFFA3A3A3),
                     fontSize = 8.sp,
                     fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    style = glowTextStyle(secondaryColor, 16f)
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
@@ -8549,12 +11504,12 @@ fun RetroSplitFlapClockWidget(
         ) {
             SplitFlapMechanicalTile(
                 valueText = paddedHour,
-                subLabel = if (is80s || isCyber) "HR" else "",
+                subLabel = if (is80s) "HR" else "",
                 tileHeight = tileHeight,
                 fontSize = digitFontSize,
-                textColor = if (is80s || isCyber) secondaryColor else Color.White,
-                borderColor = if (is80s || isCyber) accentColor.copy(alpha = 0.75f) else Color(0xFF262626),
-                sharpCorners = is80s || isCyber,
+                textColor = if (is80s) accentColor else Color.White,
+                borderColor = if (is80s) accentColor.copy(alpha = 0.75f) else Color(0xFF262626),
+                sharpCorners = is80s,
                 lomoFontFamily = lomoFontFamily,
                 modifier = Modifier.weight(1f)
             )
@@ -8564,28 +11519,26 @@ fun RetroSplitFlapClockWidget(
                 color = accentColor,
                 fontSize = 20.sp,
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = glowTextStyle(accentColor, 16f)
+                fontWeight = FontWeight.Bold
             )
 
             SplitFlapMechanicalTile(
                 valueText = paddedMin,
-                subLabel = if (is80s || isCyber) "MN" else "",
+                subLabel = if (is80s) "MN" else "",
                 tileHeight = tileHeight,
                 fontSize = digitFontSize,
-                textColor = if (is80s || isCyber) secondaryColor else Color.White,
-                borderColor = if (is80s || isCyber) accentColor.copy(alpha = 0.75f) else Color(0xFF262626),
-                sharpCorners = is80s || isCyber,
+                textColor = if (is80s) accentColor else Color.White,
+                borderColor = if (is80s) accentColor.copy(alpha = 0.75f) else Color(0xFF262626),
+                sharpCorners = is80s,
                 lomoFontFamily = lomoFontFamily,
                 modifier = Modifier.weight(1f)
             )
 
             Text(
                 text = ":",
-                color = if (is80s || isCyber) accentColor else Color(0xFF454545),
+                color = if (is80s) accentColor else Color(0xFF454545),
                 fontSize = 18.sp,
-                fontFamily = lomoFontFamily,
-                style = glowTextStyle(accentColor, 16f)
+                fontFamily = lomoFontFamily
             )
 
             SplitFlapMechanicalTile(
@@ -8593,12 +11546,27 @@ fun RetroSplitFlapClockWidget(
                 subLabel = amPmStr,
                 tileHeight = tileHeight,
                 fontSize = (digitFontSize.value * 0.78f).sp,
-                textColor = secondaryColor,
-                borderColor = if (is80s || isCyber) accentColor.copy(alpha = 0.75f) else Color(0xFF262626),
-                sharpCorners = is80s || isCyber,
+                textColor = accentColor,
+                borderColor = if (is80s) accentColor.copy(alpha = 0.75f) else Color(0xFF262626),
+                sharpCorners = is80s,
                 lomoFontFamily = lomoFontFamily,
                 modifier = Modifier.weight(0.85f)
             )
+        }
+
+        if (sizeMode != "compact" && !is80s && !isCyber) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Text(
+                    text = dateStr,
+                    color = Color(0xFF8A8A8A),
+                    fontSize = 9.sp,
+                    fontFamily = lomoFontFamily
+                )
+            }
         }
     }
 }
@@ -8607,20 +11575,20 @@ fun RetroSplitFlapClockWidget(
 private fun SplitFlapMechanicalTile(
     valueText: String,
     subLabel: String,
-    tileHeight: Dp,
-    fontSize: TextUnit,
+    tileHeight: androidx.compose.ui.unit.Dp,
+    fontSize: androidx.compose.ui.unit.TextUnit,
     textColor: Color,
     borderColor: Color = Color(0xFF262626),
     sharpCorners: Boolean = false,
     lomoFontFamily: FontFamily,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(if (sharpCorners) 0.dp else 7.dp)
+    val shape = RoundedCornerShape(if (sharpCorners) 2.dp else 7.dp)
     Box(
         modifier = modifier
             .height(tileHeight)
             .border(1.dp, borderColor, shape)
-            .background(Color(0xFF0A0A0A), shape),
+            .background(Color(0xFF0D0D0D), shape),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -8628,16 +11596,32 @@ private fun SplitFlapMechanicalTile(
             color = textColor,
             fontSize = fontSize,
             fontFamily = lomoFontFamily,
-            fontWeight = FontWeight.Bold,
-            style = glowTextStyle(textColor, 18f)
+            fontWeight = FontWeight.Bold
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.2.dp)
+                .background(Color.Black.copy(alpha = 0.9f))
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .size(width = 3.dp, height = 6.dp)
+                .background(borderColor)
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .size(width = 3.dp, height = 6.dp)
+                .background(borderColor)
         )
         if (subLabel.isNotEmpty()) {
             Text(
                 text = subLabel,
-                color = borderColor,
+                color = Color(0xFF737373),
                 fontSize = 7.sp,
                 fontFamily = lomoFontFamily,
-                style = glowTextStyle(borderColor, 12f),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 5.dp, bottom = 2.dp)
@@ -8658,7 +11642,6 @@ fun RetroAnalogChronoWidget(
     sizeMode: String,
     widgetStyle: String = "default",
     accentColor: Color,
-    secondaryColor: Color = accentColor,
     lomoFontFamily: FontFamily,
     widgetsActive: Boolean = true,
     onOpenClockApp: () -> Unit,
@@ -8671,111 +11654,232 @@ fun RetroAnalogChronoWidget(
         "max" -> 154.dp
         else -> 84.dp
     }
-    val cal = remember(currentTimeMillis / 1000L) {
-        Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
+
+    var liveNowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(widgetsActive) {
+        if (!widgetsActive) return@LaunchedEffect
+        while (widgetsActive) {
+            withFrameNanos {
+                liveNowMs = System.currentTimeMillis()
+            }
+        }
+    }
+
+    val cal = remember(liveNowMs / 100L) {
+        Calendar.getInstance().apply { timeInMillis = liveNowMs }
     }
     val hour12 = cal.get(Calendar.HOUR)
     val minute = cal.get(Calendar.MINUTE)
     val second = cal.get(Calendar.SECOND)
+    val millis = cal.get(Calendar.MILLISECOND)
+    val exactSec = second + millis / 1000f
+    val exactMin = minute + exactSec / 60f
+    val exactHour = hour12 + exactMin / 60f
 
-    val is80s = widgetStyle == "80s_retro" || LocalRetro80sMode.current
+    val is80s = widgetStyle == "80s_retro"
     val isCyber = widgetStyle == "cyber_hud"
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .retroNeonBorder(
-                width = if (is80s || isCyber) 1.4.dp else 1.dp,
-                color = if (is80s || isCyber) accentColor else Color(0xFF222222),
-                shape = RoundedCornerShape(if (is80s || isCyber) 0.dp else 10.dp),
-                glowEnabled = is80s || isCyber,
-                glowRadiusDp = 5.dp
+            .border(
+                width = if (is80s) 1.4.dp else 1.dp,
+                color = if (is80s) accentColor else if (isCyber) accentColor.copy(alpha = 0.55f) else Color(0xFF222222),
+                shape = RoundedCornerShape(if (is80s) 2.dp else 10.dp)
             )
-            .background(Color(0xFF050606), RoundedCornerShape(if (is80s || isCyber) 0.dp else 10.dp))
+            .background(if (is80s) Color(0xFF030803) else Color(0xFF060606), RoundedCornerShape(if (is80s) 2.dp else 10.dp))
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = { onOpenClockApp() },
                 onLongClick = { onLongPressHome() }
             )
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = if (sizeMode == "compact") 8.dp else 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Canvas(modifier = Modifier.size(dialSize)) {
-            val r = size.minDimension * 0.46f
-            val c = Offset(size.width * 0.5f, size.height * 0.5f)
-            drawCircle(
-                color = if (is80s || isCyber) accentColor else Color(0xFF333333),
-                radius = r,
-                center = c,
-                style = Stroke(width = 1.4.dp.toPx())
-            )
-            for (t in 0 until 12) {
-                val ang = Math.toRadians((t * 30 - 90).toDouble()).toFloat()
-                val inR = if (t % 3 == 0) r * 0.78f else r * 0.86f
+        Box(
+            modifier = Modifier.size(dialSize),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val radius = min(cx, cy) - 2.dp.toPx()
+
+                if (is80s) {
+                    // 80s CRT RADAR SCOPE DIAL: Concentric range rings + intersecting radar crosshairs!
+                    drawCircle(
+                        color = accentColor,
+                        radius = radius,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 1.4.dp.toPx())
+                    )
+                    drawCircle(
+                        color = accentColor.copy(alpha = 0.35f),
+                        radius = radius * 0.66f,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 0.8.dp.toPx())
+                    )
+                    drawCircle(
+                        color = accentColor.copy(alpha = 0.25f),
+                        radius = radius * 0.33f,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 0.8.dp.toPx())
+                    )
+                    drawLine(
+                        color = accentColor.copy(alpha = 0.35f),
+                        start = Offset(cx - radius, cy),
+                        end = Offset(cx + radius, cy),
+                        strokeWidth = 0.8.dp.toPx()
+                    )
+                    drawLine(
+                        color = accentColor.copy(alpha = 0.35f),
+                        start = Offset(cx, cy - radius),
+                        end = Offset(cx, cy + radius),
+                        strokeWidth = 0.8.dp.toPx()
+                    )
+                } else {
+                    drawCircle(
+                        color = if (isCyber) accentColor.copy(alpha = 0.65f) else Color(0xFF2C2C2C),
+                        radius = radius,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 1.4.dp.toPx())
+                    )
+                    drawCircle(
+                        color = Color(0xFF0A0A0A),
+                        radius = radius - 1.5.dp.toPx(),
+                        center = Offset(cx, cy)
+                    )
+                }
+
+                for (i in 0 until 60) {
+                    val angleRad = Math.toRadians((i * 6 - 90).toDouble())
+                    val isCardinal = i % 15 == 0
+                    val isHour = i % 5 == 0
+                    val tickLen = when {
+                        isCardinal -> radius * 0.19f
+                        isHour -> radius * 0.12f
+                        else -> radius * 0.05f
+                    }
+                    val rOuter = radius * 0.92f
+                    val rInner = rOuter - tickLen
+                    drawLine(
+                        color = when {
+                            is80s -> if (isHour) accentColor else accentColor.copy(alpha = 0.35f)
+                            i == 0 -> accentColor
+                            isCardinal -> Color.White
+                            isHour -> Color(0xFFA3A3A3)
+                            else -> Color(0xFF303030)
+                        },
+                        start = Offset(
+                            cx + (rInner * cos(angleRad)).toFloat(),
+                            cy + (rInner * sin(angleRad)).toFloat()
+                        ),
+                        end = Offset(
+                            cx + (rOuter * cos(angleRad)).toFloat(),
+                            cy + (rOuter * sin(angleRad)).toFloat()
+                        ),
+                        strokeWidth = if (isHour) 1.5.dp.toPx() else 0.8.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+
+                // Hour hand
+                val hourAngle = Math.toRadians((exactHour * 30f - 90f).toDouble())
                 drawLine(
-                    color = if (is80s || isCyber) accentColor else Color.White,
-                    start = Offset(c.x + cos(ang) * inR, c.y + sin(ang) * inR),
-                    end = Offset(c.x + cos(ang) * r, c.y + sin(ang) * r),
-                    strokeWidth = if (t % 3 == 0) 1.6.dp.toPx() else 0.9.dp.toPx()
+                    color = if (is80s) accentColor else Color.White,
+                    start = Offset(cx, cy),
+                    end = Offset(
+                        cx + (radius * 0.50f * cos(hourAngle)).toFloat(),
+                        cy + (radius * 0.50f * sin(hourAngle)).toFloat()
+                    ),
+                    strokeWidth = 2.6.dp.toPx(),
+                    cap = StrokeCap.Round
                 )
+
+                // Minute hand
+                val minAngle = Math.toRadians((exactMin * 6f - 90f).toDouble())
+                drawLine(
+                    color = if (is80s) accentColor else Color(0xFFE5E5E5),
+                    start = Offset(cx, cy),
+                    end = Offset(
+                        cx + (radius * 0.74f * cos(minAngle)).toFloat(),
+                        cy + (radius * 0.74f * sin(minAngle)).toFloat()
+                    ),
+                    strokeWidth = 1.9.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+
+                // Smooth sweeping second hand
+                val secAngle = Math.toRadians((exactSec * 6f - 90f).toDouble())
+                drawLine(
+                    color = accentColor,
+                    start = Offset(
+                        cx - (radius * 0.18f * cos(secAngle)).toFloat(),
+                        cy - (radius * 0.18f * sin(secAngle)).toFloat()
+                    ),
+                    end = Offset(
+                        cx + (radius * 0.82f * cos(secAngle)).toFloat(),
+                        cy + (radius * 0.82f * sin(secAngle)).toFloat()
+                    ),
+                    strokeWidth = 1.2.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+
+                drawCircle(color = accentColor, radius = 3.dp.toPx(), center = Offset(cx, cy))
+                drawCircle(color = Color.Black, radius = 1.1.dp.toPx(), center = Offset(cx, cy))
             }
-            val hrAng = Math.toRadians(((hour12 + minute / 60f) * 30f - 90f).toDouble()).toFloat()
-            val mnAng = Math.toRadians(((minute + second / 60f) * 6f - 90f).toDouble()).toFloat()
-            val scAng = Math.toRadians((second * 6f - 90f).toDouble()).toFloat()
-            drawLine(
-                color = if (is80s || isCyber) accentColor else Color.White,
-                start = c,
-                end = Offset(c.x + cos(hrAng) * r * 0.52f, c.y + sin(hrAng) * r * 0.52f),
-                strokeWidth = 2.4.dp.toPx(),
-                cap = StrokeCap.Round
-            )
-            drawLine(
-                color = if (is80s || isCyber) accentColor else Color(0xFFE5E5E5),
-                start = c,
-                end = Offset(c.x + cos(mnAng) * r * 0.74f, c.y + sin(mnAng) * r * 0.74f),
-                strokeWidth = 1.7.dp.toPx(),
-                cap = StrokeCap.Round
-            )
-            drawLine(
-                color = secondaryColor,
-                start = c,
-                end = Offset(c.x + cos(scAng) * r * 0.84f, c.y + sin(scAng) * r * 0.84f),
-                strokeWidth = 1.1.dp.toPx(),
-                cap = StrokeCap.Round
-            )
-            drawCircle(color = secondaryColor, radius = 2.6.dp.toPx(), center = c)
         }
 
+        Spacer(modifier = Modifier.width(14.dp))
+
         Column(
+            modifier = Modifier.weight(1f),
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
             if (is80s || isCyber) {
                 Text(
-                    text = if (isCyber) "HOLOMAP // RADAR" else "OLD SCHOOL // RADAR",
+                    text = if (is80s) "OLD SCHOOL // RADAR" else "AVIONICS // UTC-SYNC",
                     color = accentColor,
                     fontSize = 8.sp,
                     fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    style = glowTextStyle(accentColor, 14f)
+                    fontWeight = FontWeight.Bold
                 )
             }
-            Text(
-                text = if (isCyber) "<<< $hourStr:$minStr:$secStr >>>" else "$hourStr:$minStr:$secStr",
-                color = if (is80s || isCyber) secondaryColor else Color.White,
-                fontSize = 16.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = glowTextStyle(secondaryColor, 18f)
-            )
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Text(
+                    text = "${hourStr.padStart(2, '0')}:${minStr.padStart(2, '0')}:${secStr.padStart(2, '0')}",
+                    color = if (is80s) accentColor else Color.White,
+                    fontSize = when (sizeMode) {
+                        "xlarge" -> 26.sp
+                        "large" -> 22.sp
+                        "compact" -> 16.sp
+                        else -> 19.sp
+                    },
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+                if (amPmStr.isNotEmpty()) {
+                    Text(
+                        text = amPmStr,
+                        color = accentColor,
+                        fontSize = 10.sp,
+                        fontFamily = lomoFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 2.dp)
+                    )
+                }
+            }
             Text(
                 text = dateStr,
-                color = if (is80s || isCyber) accentColor else Color(0xFF8A8A8A),
-                fontSize = 9.sp,
-                fontFamily = lomoFontFamily,
-                style = glowTextStyle(accentColor, 14f)
+                color = if (is80s) accentColor.copy(alpha = 0.8f) else Color(0xFF8A8A8A),
+                fontSize = 10.sp,
+                fontFamily = lomoFontFamily
             )
         }
     }
@@ -8787,158 +11891,323 @@ fun PrecisionChronographWidget(
     sizeMode: String,
     widgetStyle: String = "default",
     accentColor: Color,
-    secondaryColor: Color = accentColor,
     lomoFontFamily: FontFamily,
     widgetsActive: Boolean = true,
     onLongPressHome: () -> Unit = {},
-    onTick: () -> Unit = {}
+    onTick: () -> Unit
 ) {
     var running by remember { mutableStateOf(false) }
     var accumulatedMs by remember { mutableStateOf(0L) }
     var startRealtimeMs by remember { mutableStateOf(0L) }
-    var displayMs by remember { mutableStateOf(0L) }
+    var displayElapsedMs by remember { mutableStateOf(0L) }
+    var lastLapMs by remember { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(running, widgetsActive) {
-        if (!running || !widgetsActive) return@LaunchedEffect
-        while (isActive && running && widgetsActive) {
-            withFrameNanos {
-                displayMs = accumulatedMs + (SystemClock.elapsedRealtime() - startRealtimeMs)
+        if (running && widgetsActive) {
+            startRealtimeMs = System.currentTimeMillis()
+            while (running && widgetsActive) {
+                withFrameNanos {
+                    displayElapsedMs = accumulatedMs + (System.currentTimeMillis() - startRealtimeMs)
+                }
             }
+        } else {
+            displayElapsedMs = accumulatedMs
         }
     }
 
-    val totalSec = displayMs / 1000L
-    val mins = (totalSec / 60L).toString().padStart(2, '0')
-    val secs = (totalSec % 60L).toString().padStart(2, '0')
-    val centis = ((displayMs % 1000L) / 10L).toString().padStart(2, '0')
-    val is80s = widgetStyle == "80s_retro" || LocalRetro80sMode.current
+    val dialSize = when (sizeMode) {
+        "compact" -> 66.dp
+        "large" -> 112.dp
+        "xlarge" -> 136.dp
+        else -> 88.dp
+    }
+
+    val totalSec = displayElapsedMs / 1000f
+    val mins = ((displayElapsedMs / 60000L) % 60L).toInt()
+    val secs = ((displayElapsedMs / 1000L) % 60L).toInt()
+    val centis = ((displayElapsedMs % 1000L) / 10L).toInt()
+    val formattedChrono = String.format(Locale.US, "%02d:%02d.%02d", mins, secs, centis)
+
+    val is80s = widgetStyle == "80s_retro"
     val isCyber = widgetStyle == "cyber_hud"
-    val btnShape = RoundedCornerShape(if (is80s || isCyber) 0.dp else 5.dp)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .retroNeonBorder(
-                width = if (is80s || isCyber) 1.4.dp else 1.dp,
-                color = if (is80s || isCyber) accentColor else Color(0xFF222222),
-                shape = RoundedCornerShape(if (is80s || isCyber) 0.dp else 10.dp),
-                glowEnabled = is80s || isCyber,
-                glowRadiusDp = 5.dp
+            .border(
+                width = if (is80s) 1.4.dp else 1.dp,
+                color = if (is80s) accentColor else if (isCyber) accentColor.copy(alpha = 0.55f) else Color(0xFF242424),
+                shape = RoundedCornerShape(if (is80s) 2.dp else 10.dp)
             )
-            .background(Color(0xFF050606), RoundedCornerShape(if (is80s || isCyber) 0.dp else 10.dp))
-            .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = {},
-                onLongClick = { onLongPressHome() }
-            )
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .background(if (is80s) Color(0xFF030803) else Color(0xFF060606), RoundedCornerShape(if (is80s) 2.dp else 10.dp))
+            .padding(horizontal = 14.dp, vertical = if (sizeMode == "compact") 8.dp else 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = if (isCyber) "HOLOMAP // TIMER" else "OLD SCHOOL // TIMER",
-                color = accentColor,
-                fontSize = 8.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = glowTextStyle(accentColor, 14f)
-            )
-            Text(
-                text = if (isCyber) "<<< $mins:$secs.$centis >>>" else "$mins:$secs.$centis",
-                color = if (is80s || isCyber) secondaryColor else Color.White,
-                fontSize = if (sizeMode == "large") 20.sp else 16.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = glowTextStyle(secondaryColor, 18f)
-            )
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                text = if (running) "PAUSE" else "START",
-                color = if (running) Color.Black else if (is80s || isCyber) secondaryColor else Color.White,
-                fontSize = 9.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = if (running) TextStyle.Default else glowTextStyle(secondaryColor, 14f),
-                modifier = Modifier
-                    .border(1.dp, secondaryColor, btnShape)
-                    .background(if (running) secondaryColor else Color(0xFF101010), btnShape)
-                    .clickable {
+        Box(
+            modifier = Modifier
+                .size(dialSize)
+                .combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {
                         onTick()
                         if (running) {
-                            accumulatedMs += SystemClock.elapsedRealtime() - startRealtimeMs
-                            displayMs = accumulatedMs
+                            accumulatedMs += System.currentTimeMillis() - startRealtimeMs
                             running = false
                         } else {
-                            startRealtimeMs = SystemClock.elapsedRealtime()
+                            startRealtimeMs = System.currentTimeMillis()
                             running = true
                         }
-                    }
-                    .padding(horizontal = 8.dp, vertical = 5.dp)
-            )
+                    },
+                    onLongClick = { onLongPressHome() }
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val radius = min(cx, cy) - 2.dp.toPx()
+
+                drawCircle(
+                    color = if (is80s) accentColor else Color(0xFF2E2E2E),
+                    radius = radius,
+                    center = Offset(cx, cy),
+                    style = Stroke(width = 1.4.dp.toPx())
+                )
+                drawCircle(
+                    color = Color(0xFF0A0A0A),
+                    radius = radius - 1.5.dp.toPx(),
+                    center = Offset(cx, cy)
+                )
+
+                for (i in 0 until 60) {
+                    val angleRad = Math.toRadians((i * 6 - 90).toDouble())
+                    val isFive = i % 5 == 0
+                    val tickLen = if (isFive) radius * 0.14f else radius * 0.06f
+                    val rOut = radius * 0.92f
+                    val rIn = rOut - tickLen
+                    drawLine(
+                        color = if (is80s) {
+                            if (isFive) accentColor else accentColor.copy(alpha = 0.35f)
+                        } else {
+                            if (i == 0) accentColor else if (isFive) Color.White else Color(0xFF333333)
+                        },
+                        start = Offset(
+                            cx + (rIn * cos(angleRad)).toFloat(),
+                            cy + (rIn * sin(angleRad)).toFloat()
+                        ),
+                        end = Offset(
+                            cx + (rOut * cos(angleRad)).toFloat(),
+                            cy + (rOut * sin(angleRad)).toFloat()
+                        ),
+                        strokeWidth = if (isFive) 1.4.dp.toPx() else 0.8.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+
+                val subR = radius * 0.24f
+                val topSubCenter = Offset(cx, cy - radius * 0.36f)
+                drawCircle(
+                    color = if (is80s) accentColor.copy(alpha = 0.55f) else Color(0xFF262626),
+                    radius = subR,
+                    center = topSubCenter,
+                    style = Stroke(width = 1.dp.toPx())
+                )
+                val minSubAngle = Math.toRadians((((totalSec / 60f) % 30f) * 12f - 90f).toDouble())
+                drawLine(
+                    color = if (is80s) accentColor else Color.White,
+                    start = topSubCenter,
+                    end = Offset(
+                        topSubCenter.x + (subR * 0.78f * cos(minSubAngle)).toFloat(),
+                        topSubCenter.y + (subR * 0.78f * sin(minSubAngle)).toFloat()
+                    ),
+                    strokeWidth = 1.3.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+
+                val botSubCenter = Offset(cx, cy + radius * 0.36f)
+                drawCircle(
+                    color = if (is80s) accentColor.copy(alpha = 0.55f) else Color(0xFF262626),
+                    radius = subR,
+                    center = botSubCenter,
+                    style = Stroke(width = 1.dp.toPx())
+                )
+                val tenthAngle = Math.toRadians((((displayElapsedMs % 1000L) / 1000f) * 360f - 90f).toDouble())
+                drawLine(
+                    color = accentColor,
+                    start = botSubCenter,
+                    end = Offset(
+                        botSubCenter.x + (subR * 0.78f * cos(tenthAngle)).toFloat(),
+                        botSubCenter.y + (subR * 0.78f * sin(tenthAngle)).toFloat()
+                    ),
+                    strokeWidth = 1.2.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+
+                val mainSecAngle = Math.toRadians(((totalSec % 60f) * 6f - 90f).toDouble())
+                drawLine(
+                    color = accentColor,
+                    start = Offset(
+                        cx - (radius * 0.18f * cos(mainSecAngle)).toFloat(),
+                        cy - (radius * 0.18f * sin(mainSecAngle)).toFloat()
+                    ),
+                    end = Offset(
+                        cx + (radius * 0.82f * cos(mainSecAngle)).toFloat(),
+                        cy + (radius * 0.82f * sin(mainSecAngle)).toFloat()
+                    ),
+                    strokeWidth = 1.5.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+
+                drawCircle(color = if (is80s) accentColor else Color.White, radius = 2.8.dp.toPx(), center = Offset(cx, cy))
+                drawCircle(color = accentColor, radius = 1.2.dp.toPx(), center = Offset(cx, cy))
+            }
+        }
+
+        Spacer(modifier = Modifier.width(14.dp))
+
+        Column(
+            modifier = Modifier.weight(1f),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            if (is80s || isCyber) {
+                Text(
+                    text = if (is80s) "OLD SCHOOL // TIMER" else "TELEMETRY // SPLIT",
+                    color = accentColor,
+                    fontSize = 8.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+            }
             Text(
-                text = "RESET",
-                color = if (is80s || isCyber) accentColor else Color(0xFFA3A3A3),
-                fontSize = 9.sp,
+                text = formattedChrono,
+                color = if (is80s) accentColor else Color.White,
+                fontSize = when (sizeMode) {
+                    "xlarge" -> 26.sp
+                    "large" -> 22.sp
+                    "compact" -> 16.sp
+                    else -> 19.sp
+                },
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = glowTextStyle(accentColor, 14f),
-                modifier = Modifier
-                    .border(1.dp, if (is80s || isCyber) accentColor else Color(0xFF282828), btnShape)
-                    .background(Color(0xFF101010), btnShape)
-                    .clickable {
-                        onTick()
-                        running = false
-                        accumulatedMs = 0L
-                        displayMs = 0L
-                    }
-                    .padding(horizontal = 8.dp, vertical = 5.dp)
+                fontWeight = FontWeight.Bold
             )
+
+            if (lastLapMs != null && sizeMode != "compact") {
+                val lm = ((lastLapMs!! / 60000L) % 60L).toInt()
+                val ls = ((lastLapMs!! / 1000L) % 60L).toInt()
+                val lc = ((lastLapMs!! % 1000L) / 10L).toInt()
+                Text(
+                    text = String.format(Locale.US, "LAP %02d:%02d.%02d", lm, ls, lc),
+                    color = if (is80s) accentColor.copy(alpha = 0.78f) else Color(0xFF737373),
+                    fontSize = 9.sp,
+                    fontFamily = lomoFontFamily
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = if (running) "PAUSE" else "START",
+                    color = if (running) Color.Black else if (is80s) accentColor else Color.White,
+                    fontSize = 9.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .background(
+                            if (running) accentColor else Color(0xFF171717),
+                            RoundedCornerShape(if (is80s) 2.dp else 5.dp)
+                        )
+                        .border(
+                            1.dp,
+                            if (running || is80s) accentColor else Color(0xFF2E2E2E),
+                            RoundedCornerShape(if (is80s) 2.dp else 5.dp)
+                        )
+                        .clickable {
+                            onTick()
+                            if (running) {
+                                accumulatedMs += System.currentTimeMillis() - startRealtimeMs
+                                running = false
+                            } else {
+                                startRealtimeMs = System.currentTimeMillis()
+                                running = true
+                            }
+                        }
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+
+                Text(
+                    text = if (running) "LAP" else "RESET",
+                    color = if (is80s) accentColor else Color(0xFFA3A3A3),
+                    fontSize = 9.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .border(1.dp, if (is80s) accentColor.copy(alpha = 0.7f) else Color(0xFF282828), RoundedCornerShape(if (is80s) 2.dp else 5.dp))
+                        .background(Color(0xFF101010), RoundedCornerShape(if (is80s) 2.dp else 5.dp))
+                        .clickable {
+                            onTick()
+                            if (running) {
+                                lastLapMs = displayElapsedMs
+                            } else {
+                                accumulatedMs = 0L
+                                displayElapsedMs = 0L
+                                lastLapMs = null
+                            }
+                        }
+                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                )
+            }
         }
     }
 }
 
+// ============================================================================
+// ACCURATE DOT-MATRIX MONTH CALENDAR WIDGET ("retro_calendar")
+// Includes "80s_retro" (80s CRT Grid Table with full cell dividers), "default", and "cyber_hud"!
+// ============================================================================
 @Composable
 fun RetroDotMatrixCalendarWidget(
     currentTimeMillis: Long,
     sizeMode: String,
     widgetStyle: String = "default",
     accentColor: Color,
-    secondaryColor: Color = accentColor,
     lomoFontFamily: FontFamily
 ) {
     val cal = remember(currentTimeMillis / 60_000L) {
         Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
     }
     val todayDay = cal.get(Calendar.DAY_OF_MONTH)
-    val daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
     val monthTitle = remember(currentTimeMillis / 60_000L) {
-        SimpleDateFormat("MMMM yyyy", Locale.US).format(Date(currentTimeMillis)).uppercase(Locale.US)
+        SimpleDateFormat("MMMM yyyy", Locale.ENGLISH).format(cal.time).uppercase(Locale.ENGLISH)
     }
-    val firstDayOffset = remember(currentTimeMillis / 60_000L) {
-        val temp = (cal.clone() as Calendar).apply { set(Calendar.DAY_OF_MONTH, 1) }
-        ((temp.get(Calendar.DAY_OF_WEEK) - Calendar.MONDAY) + 7) % 7
+
+    val (leadingBlanks, daysInMonth) = remember(currentTimeMillis / 60_000L) {
+        val temp = Calendar.getInstance().apply {
+            timeInMillis = currentTimeMillis
+            set(Calendar.DAY_OF_MONTH, 1)
+        }
+        val dow = temp.get(Calendar.DAY_OF_WEEK)
+        val mondayOffset = if (dow == Calendar.SUNDAY) 6 else dow - Calendar.MONDAY
+        val maxDay = temp.getActualMaximum(Calendar.DAY_OF_MONTH)
+        mondayOffset to maxDay
     }
-    val totalCells = firstDayOffset + daysInMonth
-    val rows = (totalCells + 6) / 7
-    val is80s = widgetStyle == "80s_retro" || LocalRetro80sMode.current
+
+    val totalCells = ((leadingBlanks + daysInMonth + 6) / 7) * 7
+    val dayHeaders = listOf("MO", "TU", "WE", "TH", "FR", "SA", "SU")
+    val is80s = widgetStyle == "80s_retro"
     val isCyber = widgetStyle == "cyber_hud"
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .retroNeonBorder(
-                width = if (is80s || isCyber) 1.4.dp else 1.dp,
-                color = if (is80s || isCyber) accentColor else Color(0xFF222222),
-                shape = RoundedCornerShape(if (is80s || isCyber) 0.dp else 10.dp),
-                glowEnabled = is80s || isCyber,
-                glowRadiusDp = 5.dp
+            .border(
+                width = if (is80s) 1.4.dp else 1.dp,
+                color = if (is80s) accentColor else if (isCyber) accentColor.copy(alpha = 0.55f) else Color(0xFF222222),
+                shape = RoundedCornerShape(if (is80s) 2.dp else 10.dp)
             )
-            .background(Color(0xFF040606), RoundedCornerShape(if (is80s || isCyber) 0.dp else 10.dp))
-            .padding(horizontal = 12.dp, vertical = if (sizeMode == "compact") 8.dp else 10.dp)
+            .background(if (is80s) Color(0xFF030803) else Color(0xFF050505), RoundedCornerShape(if (is80s) 2.dp else 10.dp))
+            .padding(horizontal = 12.dp, vertical = if (sizeMode == "compact") 8.dp else 12.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -8946,35 +12215,32 @@ fun RetroDotMatrixCalendarWidget(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = monthTitle,
-                color = if (is80s || isCyber) accentColor else Color.White,
-                fontSize = 11.sp,
+                text = if (is80s) monthTitle else monthTitle,
+                color = if (is80s) accentColor else Color.White,
+                fontSize = if (sizeMode == "large") 13.sp else 11.sp,
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = glowTextStyle(accentColor, 16f)
+                fontWeight = FontWeight.Bold
             )
             Text(
-                text = "[${todayDay.toString().padStart(2, '0')}/${daysInMonth}]",
-                color = secondaryColor,
+                text = "${todayDay.toString().padStart(2, '0')} / $daysInMonth",
+                color = accentColor,
                 fontSize = 9.sp,
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = glowTextStyle(secondaryColor, 16f)
+                fontWeight = FontWeight.Bold
             )
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         Row(modifier = Modifier.fillMaxWidth()) {
-            listOf("MO", "TU", "WE", "TH", "FR", "SA", "SU").forEachIndexed { idx, dName ->
+            dayHeaders.forEachIndexed { idx, dName ->
                 Text(
                     text = dName,
-                    color = if (idx >= 5) secondaryColor else if (is80s || isCyber) accentColor else Color(0xFF737373),
-                    fontSize = 8.sp,
+                    color = if (is80s) accentColor else if (idx >= 5) accentColor.copy(alpha = 0.85f) else Color(0xFF737373),
+                    fontSize = 9.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
-                    style = glowTextStyle(if (idx >= 5) secondaryColor else accentColor, 12f),
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -8985,41 +12251,59 @@ fun RetroDotMatrixCalendarWidget(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(if (is80s || isCyber) accentColor.copy(alpha = 0.6f) else Color(0xFF1A1A1A))
+                .background(if (is80s) accentColor.copy(alpha = 0.75f) else Color(0xFF1A1A1A))
         )
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        Column(verticalArrangement = Arrangement.spacedBy(if (sizeMode == "large") 5.dp else 3.dp)) {
-            for (r in 0 until rows) {
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    for (c in 0 until 7) {
-                        val cellIdx = r * 7 + c
-                        val dayNum = cellIdx - firstDayOffset + 1
+        val rows = (0 until totalCells).chunked(7)
+        Column(verticalArrangement = Arrangement.spacedBy(if (is80s) 0.dp else if (sizeMode == "large") 6.dp else 3.dp)) {
+            rows.forEach { weekCells ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    weekCells.forEachIndexed { colIdx, cellIndex ->
+                        val dayNum = cellIndex - leadingBlanks + 1
                         val isValidDay = dayNum in 1..daysInMonth
                         val isToday = isValidDay && dayNum == todayDay
+                        val isWeekend = colIdx >= 5
+                        val rawNumStr = dayNum.toString().padStart(2, '0')
+                        val cellText = when {
+                            !isValidDay -> if (is80s) "  " else "··"
+                            isCyber && isToday -> "[$rawNumStr]"
+                            else -> rawNumStr
+                        }
+
                         Box(
                             modifier = Modifier
                                 .weight(1f)
+                                .height(if (sizeMode == "large") 26.dp else if (sizeMode == "compact") 18.dp else 21.dp)
                                 .then(
-                                    if (isToday) {
-                                        Modifier.background(secondaryColor, RoundedCornerShape(if (is80s || isCyber) 0.dp else 4.dp))
+                                    if (is80s) {
+                                        Modifier.border(0.6.dp, accentColor.copy(alpha = 0.45f))
                                     } else Modifier
                                 )
-                                .padding(vertical = 2.dp),
+                                .then(
+                                    if (isToday) {
+                                        Modifier.background(accentColor, RoundedCornerShape(if (is80s) 0.dp else 4.dp))
+                                    } else {
+                                        Modifier
+                                    }
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
-                            val dCol = when {
-                                isToday -> Color.Black
-                                is80s || isCyber -> accentColor
-                                else -> Color(0xFFD4D4D4)
-                            }
                             Text(
-                                text = if (isValidDay) dayNum.toString().padStart(2, '0') else "  ",
-                                color = dCol,
-                                fontSize = if (sizeMode == "large") 10.sp else 9.sp,
+                                text = cellText,
+                                color = when {
+                                    isToday -> Color.Black
+                                    !isValidDay -> Color(0xFF222222)
+                                    is80s -> accentColor
+                                    isWeekend -> Color(0xFFA3A3A3)
+                                    else -> Color.White
+                                },
+                                fontSize = if (sizeMode == "large") 11.sp else 10.sp,
                                 fontFamily = lomoFontFamily,
-                                fontWeight = if (isToday || is80s || isCyber) FontWeight.Bold else FontWeight.Normal,
-                                style = if (isToday) TextStyle.Default else glowTextStyle(dCol, 12f)
+                                fontWeight = if (isToday || is80s) FontWeight.Bold else FontWeight.Normal
                             )
                         }
                     }
@@ -9029,15 +12313,21 @@ fun RetroDotMatrixCalendarWidget(
     }
 }
 
+// ============================================================================
+// 7-DAY TIMELINE STRIP + EXACT MONTH DAYS PROGRESS BLOCKS ("week_strip")
+// Includes:
+// - "80s_retro": Exact 4-column x 2-row bordered 80s CRT calendar grid from top-right of reference image!
+// - "default": 7-Day centered strip (today in middle slot) + Month days block bar
+// - "cyber_hud": Bracketed tactical 7-day timeline ruler
+// ============================================================================
 @Composable
 fun RetroWeekTimelineStripWidget(
     currentTimeMillis: Long,
     sizeMode: String,
     widgetStyle: String = "default",
     timeHeaderStr: String = "",
-    batteryPct: Int = 80,
+    batteryPct: Int = 86,
     accentColor: Color,
-    secondaryColor: Color = accentColor,
     lomoFontFamily: FontFamily
 ) {
     val cal = remember(currentTimeMillis / 60_000L) {
@@ -9046,18 +12336,18 @@ fun RetroWeekTimelineStripWidget(
     val todayDayOfMonth = cal.get(Calendar.DAY_OF_MONTH)
     val daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
     val shortMonth = remember(currentTimeMillis / 60_000L) {
-        SimpleDateFormat("MMM", Locale.US).format(Date(currentTimeMillis)).uppercase(Locale.US)
+        SimpleDateFormat("MMM", Locale.ENGLISH).format(cal.time).uppercase(Locale.ENGLISH)
     }
     val shortDow = remember(currentTimeMillis / 60_000L) {
-        SimpleDateFormat("EEE", Locale.US).format(Date(currentTimeMillis)).uppercase(Locale.US)
+        SimpleDateFormat("EEE", Locale.ENGLISH).format(cal.time).uppercase(Locale.ENGLISH)
     }
 
-    if (widgetStyle == "80s_retro" || widgetStyle == "cyber_hud" || LocalRetro80sMode.current) {
-        // 4x2 Bordered Table Grid with Today Highlighted in Secondary Color (Glowing Red in Holomap mode, Green/Amber in Old School)
+    if (widgetStyle == "80s_retro") {
+        // EXACT 80s 4x2 BORDERED CRT CALENDAR BOX FROM REFERENCE IMAGE (Top-Right of 1000059659.jpg!)
         val eightDays = remember(currentTimeMillis / 60_000L) {
             val temp = Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
-            temp.add(Calendar.DAY_OF_MONTH, -5)
-            (-5..2).map { offset ->
+            temp.add(Calendar.DAY_OF_MONTH, -4)
+            (-4..3).map { offset ->
                 val dow = temp.get(Calendar.DAY_OF_WEEK)
                 val lbl = when (dow) {
                     Calendar.MONDAY -> "MO"
@@ -9077,7 +12367,7 @@ fun RetroWeekTimelineStripWidget(
 
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(5.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -9089,24 +12379,23 @@ fun RetroWeekTimelineStripWidget(
                     color = accentColor,
                     fontSize = if (sizeMode == "large") 12.sp else 10.sp,
                     fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    style = glowTextStyle(accentColor, 16f)
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "[$shortMonth ${todayDayOfMonth.toString().padStart(2, '0')}/$daysInMonth]",
-                    color = secondaryColor,
+                    text = "$shortMonth ${todayDayOfMonth.toString().padStart(2, '0')}/$daysInMonth",
+                    color = accentColor,
                     fontSize = 9.sp,
                     fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    style = glowTextStyle(secondaryColor, 16f)
+                    fontWeight = FontWeight.Bold
                 )
             }
 
+            // 4-Column x 2-Row Crisp Bordered 80s CRT Table Grid
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .retroNeonBorder(1.4.dp, accentColor, RoundedCornerShape(0.dp), glowEnabled = true, glowRadiusDp = 5.dp)
-                    .background(Color(0xFF030606), RoundedCornerShape(0.dp))
+                    .border(1.4.dp, accentColor, RoundedCornerShape(2.dp))
+                    .background(Color(0xFF030803), RoundedCornerShape(2.dp))
             ) {
                 eightDays.chunked(4).forEachIndexed { rIdx, rowItems ->
                     if (rIdx > 0) {
@@ -9134,7 +12423,7 @@ fun RetroWeekTimelineStripWidget(
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .background(if (isToday) secondaryColor else Color.Transparent)
+                                    .background(if (isToday) accentColor else Color.Transparent)
                                     .padding(vertical = if (sizeMode == "large") 8.dp else 5.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -9144,16 +12433,14 @@ fun RetroWeekTimelineStripWidget(
                                     color = if (isToday) Color.Black else accentColor,
                                     fontSize = if (sizeMode == "large") 12.sp else 10.sp,
                                     fontFamily = lomoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    style = if (isToday) TextStyle.Default else glowTextStyle(accentColor, 14f)
+                                    fontWeight = FontWeight.Bold
                                 )
                                 Text(
                                     text = dayNum.toString().padStart(2, '0'),
                                     color = if (isToday) Color.Black else accentColor,
                                     fontSize = if (sizeMode == "large") 14.sp else 12.sp,
                                     fontFamily = lomoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    style = if (isToday) TextStyle.Default else glowTextStyle(accentColor, 14f)
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
@@ -9164,6 +12451,7 @@ fun RetroWeekTimelineStripWidget(
         return
     }
 
+    // Center the current date in the middle of the 7-day strip (3 days before today, TODAY in center, 3 days after today)
     val weekDays = remember(currentTimeMillis / 60_000L) {
         val temp = Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
         temp.add(Calendar.DAY_OF_MONTH, -3)
@@ -9185,10 +12473,12 @@ fun RetroWeekTimelineStripWidget(
         }
     }
 
+    val isCyber = widgetStyle == "cyber_hud"
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
+            .border(1.dp, if (isCyber) accentColor.copy(alpha = 0.55f) else Color(0xFF222222), RoundedCornerShape(10.dp))
             .background(Color(0xFF060606), RoundedCornerShape(10.dp))
             .padding(horizontal = 12.dp, vertical = if (sizeMode == "compact") 8.dp else 10.dp)
     ) {
@@ -9200,22 +12490,33 @@ fun RetroWeekTimelineStripWidget(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .border(1.dp, if (isToday) accentColor else Color(0xFF1F1F1F), RoundedCornerShape(6.dp))
-                        .background(if (isToday) accentColor.copy(alpha = 0.16f) else Color(0xFF0C0C0C), RoundedCornerShape(6.dp))
-                        .padding(vertical = if (sizeMode == "large") 8.dp else 5.dp),
+                        .border(
+                            1.dp,
+                            if (isToday) accentColor else Color(0xFF1F1F1F),
+                            RoundedCornerShape(if (isCyber) 2.dp else 6.dp)
+                        )
+                        .background(
+                            if (isToday) {
+                                if (isCyber) accentColor else accentColor.copy(alpha = 0.16f)
+                            } else Color(0xFF0C0C0C),
+                            RoundedCornerShape(if (isCyber) 2.dp else 6.dp)
+                        )
+                        .padding(vertical = if (sizeMode == "large") 8.dp else if (sizeMode == "compact") 4.dp else 6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Text(
                         text = dayLbl,
-                        color = if (isToday) accentColor else Color(0xFF737373),
+                        color = if (isToday) {
+                            if (isCyber) Color.Black else accentColor
+                        } else Color(0xFF737373),
                         fontSize = 8.sp,
                         fontFamily = lomoFontFamily,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = dayNum.toString().padStart(2, '0'),
-                        color = Color.White,
+                        color = if (isToday && isCyber) Color.Black else Color.White,
                         fontSize = if (sizeMode == "large") 14.sp else 12.sp,
                         fontFamily = lomoFontFamily,
                         fontWeight = FontWeight.Bold
@@ -9223,16 +12524,73 @@ fun RetroWeekTimelineStripWidget(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = shortMonth,
+                color = Color(0xFF8A8A8A),
+                fontSize = 8.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
+
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                for (dayIdx in 1..daysInMonth) {
+                    val isPast = dayIdx < todayDayOfMonth
+                    val isCurrent = dayIdx == todayDayOfMonth
+                    val blockHeight = when {
+                        sizeMode == "large" && isCurrent -> 11.dp
+                        sizeMode == "large" -> 8.dp
+                        isCurrent -> 8.dp
+                        else -> 5.dp
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(blockHeight)
+                            .background(
+                                color = when {
+                                    isCurrent -> accentColor
+                                    isPast -> Color.White.copy(alpha = 0.80f)
+                                    else -> Color(0xFF1D1D1D)
+                                },
+                                shape = RoundedCornerShape(1.dp)
+                            )
+                    )
+                }
+            }
+
+            Text(
+                text = "${todayDayOfMonth.toString().padStart(2, '0')}/$daysInMonth",
+                color = accentColor,
+                fontSize = 8.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
+        }
     }
 }
 
+// ============================================================================
+// 365-DAY DOT-MATRIX YEAR PROGRESS WIDGET ("year_matrix")
+// Includes "80s_retro" (80s CRT square memory sector blocks), "default" (365 dots), and "cyber_hud" (sector bars)!
+// ============================================================================
 @Composable
 fun RetroYearDotMatrixWidget(
     currentTimeMillis: Long,
     sizeMode: String,
     widgetStyle: String = "default",
     accentColor: Color,
-    secondaryColor: Color = accentColor,
     lomoFontFamily: FontFamily
 ) {
     val cal = remember(currentTimeMillis / 60_000L) {
@@ -9242,25 +12600,25 @@ fun RetroYearDotMatrixWidget(
     val dayOfYear = cal.get(Calendar.DAY_OF_YEAR)
     val totalDaysInYear = cal.getActualMaximum(Calendar.DAY_OF_YEAR)
     val yearPct = ((dayOfYear.toFloat() / totalDaysInYear.toFloat()) * 100f).roundToInt()
+
     val canvasHeight = when (sizeMode) {
         "compact" -> 44.dp
         "large" -> 82.dp
         else -> 62.dp
     }
-    val is80s = widgetStyle == "80s_retro" || LocalRetro80sMode.current
+
+    val is80s = widgetStyle == "80s_retro"
     val isCyber = widgetStyle == "cyber_hud"
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .retroNeonBorder(
-                width = if (is80s || isCyber) 1.4.dp else 1.dp,
-                color = if (is80s || isCyber) accentColor else Color(0xFF222222),
-                shape = RoundedCornerShape(if (is80s || isCyber) 0.dp else 10.dp),
-                glowEnabled = is80s || isCyber,
-                glowRadiusDp = 5.dp
+            .border(
+                width = if (is80s) 1.4.dp else 1.dp,
+                color = if (is80s) accentColor else if (isCyber) accentColor.copy(alpha = 0.55f) else Color(0xFF222222),
+                shape = RoundedCornerShape(if (is80s) 2.dp else 10.dp)
             )
-            .background(Color(0xFF030606), RoundedCornerShape(if (is80s || isCyber) 0.dp else 10.dp))
+            .background(if (is80s) Color(0xFF030803) else Color(0xFF060606), RoundedCornerShape(if (is80s) 2.dp else 10.dp))
             .padding(horizontal = 12.dp, vertical = if (sizeMode == "compact") 8.dp else 10.dp)
     ) {
         Row(
@@ -9269,20 +12627,18 @@ fun RetroYearDotMatrixWidget(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "$yearNum SECTORS",
-                color = if (is80s || isCyber) accentColor else Color.White,
+                text = if (is80s) "$yearNum SECTORS" else if (isCyber) "⟦ YEAR MATRIX $yearNum ⟧" else yearNum.toString(),
+                color = if (is80s) accentColor else Color.White,
                 fontSize = 11.sp,
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = glowTextStyle(accentColor, 16f)
+                fontWeight = FontWeight.Bold
             )
             Text(
-                text = "[$dayOfYear/$totalDaysInYear · $yearPct%]",
-                color = secondaryColor,
+                text = "$dayOfYear / $totalDaysInYear ($yearPct%)",
+                color = accentColor,
                 fontSize = 9.sp,
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = glowTextStyle(secondaryColor, 16f)
+                fontWeight = FontWeight.Bold
             )
         }
 
@@ -9305,16 +12661,16 @@ fun RetroYearDotMatrixWidget(
                 val r = idx / cols
                 val cx = c * cellW + cellW * 0.5f
                 val cy = r * cellH + cellH * 0.5f
-                if (is80s || isCyber) {
+                if (is80s) {
                     val bw = (cellW * 0.72f).coerceAtLeast(2f)
                     val bh = (cellH * 0.72f).coerceAtLeast(2f)
-                    val blockCol = when {
-                        d == dayOfYear -> secondaryColor
-                        d < dayOfYear -> accentColor.copy(alpha = 0.85f)
-                        else -> accentColor.copy(alpha = 0.16f)
+                    val alpha = when {
+                        d == dayOfYear -> 1f
+                        d < dayOfYear -> 0.82f
+                        else -> 0.16f
                     }
                     drawRect(
-                        color = blockCol,
+                        color = accentColor.copy(alpha = alpha),
                         topLeft = Offset(cx - bw * 0.5f, cy - bh * 0.5f),
                         size = Size(bw, bh)
                     )
@@ -9334,3 +12690,6 @@ fun RetroYearDotMatrixWidget(
         }
     }
 }
+
+
+
