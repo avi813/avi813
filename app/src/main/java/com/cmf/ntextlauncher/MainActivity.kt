@@ -23,6 +23,7 @@ import android.app.ActivityManager
 import android.os.StatFs
 import android.os.Environment
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -380,37 +381,37 @@ enum class PrebuiltFont(
 // ============================================================================
 private fun estimateSingleWidgetHeightDp(widgetId: String, sizeMode: String): Float = when (widgetId) {
     "clock" -> when (sizeMode) {
-        "compact" -> 28f
-        "large" -> 108f
-        "xlarge" -> 128f
-        "max" -> 152f
-        else -> 84f
+        "compact" -> 26f
+        "large" -> 96f
+        "xlarge" -> 114f
+        "max" -> 136f
+        else -> 76f
     }
     "battery_bar" -> when (sizeMode) {
-        "compact" -> 42f
-        "large" -> 68f
-        else -> 54f
+        "compact" -> 38f
+        "large" -> 60f
+        else -> 48f
     }
     "retro_flip_clock" -> when (sizeMode) {
-        "compact" -> 54f
-        "large" -> 92f
-        "xlarge" -> 106f
-        "max" -> 122f
-        else -> 80f
+        "compact" -> 50f
+        "large" -> 84f
+        "xlarge" -> 98f
+        "max" -> 114f
+        else -> 70f
     }
     "analog_chrono" -> when (sizeMode) {
-        "compact" -> 76f
-        "large" -> 124f
-        "xlarge" -> 146f
-        "max" -> 172f
-        else -> 102f
+        "compact" -> 72f
+        "large" -> 116f
+        "xlarge" -> 138f
+        "max" -> 164f
+        else -> 94f
     }
     "precision_chrono" -> when (sizeMode) {
-        "compact" -> 78f
-        "large" -> 130f
-        "xlarge" -> 154f
-        "max" -> 174f
-        else -> 106f
+        "compact" -> 74f
+        "large" -> 122f
+        "xlarge" -> 146f
+        "max" -> 166f
+        else -> 98f
     }
     "globe" -> when (sizeMode) {
         "compact" -> 135f
@@ -420,30 +421,30 @@ private fun estimateSingleWidgetHeightDp(widgetId: String, sizeMode: String): Fl
         else -> 195f
     }
     "week_strip" -> when (sizeMode) {
-        "compact" -> 54f
-        "large" -> 92f
-        else -> 72f
+        "compact" -> 48f
+        "large" -> 82f
+        else -> 64f
     }
     "retro_calendar" -> when (sizeMode) {
-        "compact" -> 122f
-        "large" -> 188f
-        else -> 154f
+        "compact" -> 114f
+        "large" -> 172f
+        else -> 142f
     }
     "year_matrix" -> when (sizeMode) {
-        "compact" -> 78f
-        "large" -> 124f
-        else -> 98f
+        "compact" -> 72f
+        "large" -> 114f
+        else -> 90f
     }
     "storage" -> when (sizeMode) {
-        "compact" -> 24f
-        "large" -> 48f
-        else -> 36f
+        "compact" -> 22f
+        "large" -> 42f
+        else -> 32f
     }
     "pinned_apps" -> 0f
     else -> when (sizeMode) { // torch, zen, quote, scratchpad
-        "compact" -> 24f
-        "large" -> 40f
-        else -> 30f
+        "compact" -> 22f
+        "large" -> 36f
+        else -> 28f
     }
 }
 
@@ -1477,6 +1478,10 @@ fun NTextLauncherApp(
     var measuredPinnedAppsHeightDp by remember { mutableStateOf(0f) }
     var measuredLeftWidgetsHeightDp by remember { mutableStateOf(0f) }
     var measuredLeftPinnedAppsHeightDp by remember { mutableStateOf(0f) }
+    val measuredMainWidgetMap = remember { mutableStateMapOf<String, Pair<String, Float>>() }
+    val measuredLeftWidgetMap = remember { mutableStateMapOf<String, Pair<String, Float>>() }
+    var measuredMainAppsInfo by remember { mutableStateOf<Triple<Int, Int, Float>?>(null) }
+    var measuredLeftAppsInfo by remember { mutableStateOf<Triple<Int, Int, Float>?>(null) }
     var isGlobeInteractionActive by remember { mutableStateOf(false) }
 
     fun currentPinnedAppsCount(): Int {
@@ -1491,45 +1496,70 @@ fun NTextLauncherApp(
         showNoSpacePopup = true
     }
 
+    fun computeCandidateStackHeightDp(
+        candidateWidgets: List<String>,
+        candidateSizes: Map<String, String>,
+        measuredMap: Map<String, Pair<String, Float>>,
+        measuredApps: Triple<Int, Int, Float>?,
+        candidatePinnedCount: Int,
+        candidateTextSizeSp: Int
+    ): Float {
+        var totalH = 0f
+        var itemCount = 0
+        for (id in candidateWidgets) {
+            if (id == "pinned_apps") {
+                if (candidatePinnedCount > 0) {
+                    val appsH = if (measuredApps != null && measuredApps.third > 5f && measuredApps.first > 0) {
+                        val (recCount, recSp, recH) = measuredApps
+                        val delta = estimatePinnedAppsHeightDp(candidatePinnedCount, candidateTextSizeSp) -
+                            estimatePinnedAppsHeightDp(recCount, recSp)
+                        (recH + delta).coerceAtLeast(0f)
+                    } else {
+                        estimatePinnedAppsHeightDp(candidatePinnedCount, candidateTextSizeSp)
+                    }
+                    totalH += appsH
+                    itemCount++
+                }
+            } else {
+                val targetSize = candidateSizes[id] ?: "standard"
+                val rec = measuredMap[id]
+                val wH = if (rec != null && rec.second > 5f) {
+                    if (rec.first == targetSize) {
+                        rec.second
+                    } else {
+                        val delta = estimateSingleWidgetHeightDp(id, targetSize) -
+                            estimateSingleWidgetHeightDp(id, rec.first)
+                        (rec.second + delta).coerceAtLeast(16f)
+                    }
+                } else {
+                    estimateSingleWidgetHeightDp(id, targetSize)
+                }
+                totalH += wH
+                itemCount++
+            }
+        }
+        if (itemCount > 1) {
+            totalH += (itemCount - 1) * 10f
+        }
+        return totalH
+    }
+
     fun canFitOnHomeScreen(
         candidateWidgets: List<String>,
         candidateSizes: Map<String, String>,
         candidatePinnedCount: Int = currentPinnedAppsCount(),
         candidateTextSizeSp: Int = textSizeSp
     ): Boolean {
-        // Use actual measured Home container height if available, leaving just a tiny 4dp padding gap!
-        val effectiveContainerH = if (measuredHomeInnerHeightDp > 200f) {
-            measuredHomeInnerHeightDp - 4f
-        } else {
-            usableHomeHeightDp - 4f
-        }
-
-        val nonAppActiveWidgets = activeWidgets.filter { it != "pinned_apps" }
-        val nonAppCandidateWidgets = candidateWidgets.filter { it != "pinned_apps" }
-        val currentEstimatedWidgetsH = estimateWidgetsStackHeightDp(nonAppActiveWidgets, widgetSizes)
-        val candidateEstimatedWidgetsH = estimateWidgetsStackHeightDp(nonAppCandidateWidgets, candidateSizes)
-        val widgetsDeltaH = candidateEstimatedWidgetsH - currentEstimatedWidgetsH
-        val effectiveWidgetsH = if (measuredWidgetsHeightDp > 10f && nonAppActiveWidgets.isNotEmpty()) {
-            (measuredWidgetsHeightDp + widgetsDeltaH).coerceAtLeast(0f)
-        } else {
-            candidateEstimatedWidgetsH
-        }
-
-        val effectiveAppsH = if (!candidateWidgets.contains("pinned_apps") || candidatePinnedCount <= 0) {
-            0f
-        } else {
-            val curPinCount = currentPinnedAppsCount()
-            val currentEstimatedAppsH = estimatePinnedAppsHeightDp(curPinCount, textSizeSp)
-            val candidateEstimatedAppsH = estimatePinnedAppsHeightDp(candidatePinnedCount, candidateTextSizeSp)
-            val appsDeltaH = candidateEstimatedAppsH - currentEstimatedAppsH
-            if (measuredPinnedAppsHeightDp > 10f && curPinCount > 0 && activeWidgets.contains("pinned_apps")) {
-                (measuredPinnedAppsHeightDp + appsDeltaH).coerceAtLeast(0f)
-            } else {
-                candidateEstimatedAppsH
-            }
-        }
-
-        return (effectiveWidgetsH + effectiveAppsH) <= effectiveContainerH
+        val effectiveContainerH = max(measuredHomeInnerHeightDp, usableHomeHeightDp)
+        val requiredH = computeCandidateStackHeightDp(
+            candidateWidgets = candidateWidgets,
+            candidateSizes = candidateSizes,
+            measuredMap = measuredMainWidgetMap,
+            measuredApps = measuredMainAppsInfo,
+            candidatePinnedCount = candidatePinnedCount,
+            candidateTextSizeSp = candidateTextSizeSp
+        )
+        return requiredH <= effectiveContainerH
     }
 
     // Reset measured widget heights when switching between Regular Mode and 80s CRT Mode so boundary checks use the active profile!
@@ -1538,6 +1568,10 @@ fun NTextLauncherApp(
         measuredPinnedAppsHeightDp = 0f
         measuredLeftWidgetsHeightDp = 0f
         measuredLeftPinnedAppsHeightDp = 0f
+        measuredMainWidgetMap.clear()
+        measuredLeftWidgetMap.clear()
+        measuredMainAppsInfo = null
+        measuredLeftAppsInfo = null
     }
 
     fun saveWidgetList(updated: List<String>) {
@@ -1754,35 +1788,16 @@ fun NTextLauncherApp(
         candidatePinnedCount: Int = currentPinnedAppsCount(),
         candidateTextSizeSp: Int = textSizeSp
     ): Boolean {
-        val effectiveContainerH = if (measuredHomeInnerHeightDp > 200f) {
-            measuredHomeInnerHeightDp - 4f
-        } else {
-            usableHomeHeightDp - 4f
-        }
-        val nonAppActive = leftPageWidgets.filter { it != "pinned_apps" }
-        val nonAppCandidate = candidateWidgets.filter { it != "pinned_apps" }
-        val currentEstH = estimateWidgetsStackHeightDp(nonAppActive, leftWidgetSizes)
-        val candidateEstH = estimateWidgetsStackHeightDp(nonAppCandidate, candidateSizes)
-        val deltaH = candidateEstH - currentEstH
-        val effectiveWidgetsH = if (measuredLeftWidgetsHeightDp > 10f && nonAppActive.isNotEmpty()) {
-            (measuredLeftWidgetsHeightDp + deltaH).coerceAtLeast(0f)
-        } else {
-            candidateEstH
-        }
-        val effectiveAppsH = if (!candidateWidgets.contains("pinned_apps") || candidatePinnedCount <= 0) {
-            0f
-        } else {
-            val curPinCount = currentPinnedAppsCount()
-            val curEstAppsH = estimatePinnedAppsHeightDp(curPinCount, textSizeSp)
-            val candEstAppsH = estimatePinnedAppsHeightDp(candidatePinnedCount, candidateTextSizeSp)
-            val appsDeltaH = candEstAppsH - curEstAppsH
-            if (measuredLeftPinnedAppsHeightDp > 10f && curPinCount > 0 && leftPageWidgets.contains("pinned_apps")) {
-                (measuredLeftPinnedAppsHeightDp + appsDeltaH).coerceAtLeast(0f)
-            } else {
-                candEstAppsH
-            }
-        }
-        return (effectiveWidgetsH + effectiveAppsH) <= effectiveContainerH
+        val effectiveContainerH = max(measuredHomeInnerHeightDp, usableHomeHeightDp)
+        val requiredH = computeCandidateStackHeightDp(
+            candidateWidgets = candidateWidgets,
+            candidateSizes = candidateSizes,
+            measuredMap = measuredLeftWidgetMap,
+            measuredApps = measuredLeftAppsInfo,
+            candidatePinnedCount = candidatePinnedCount,
+            candidateTextSizeSp = candidateTextSizeSp
+        )
+        return requiredH <= effectiveContainerH
     }
 
     fun saveLeftWidgetList(updated: List<String>) {
@@ -2516,10 +2531,19 @@ fun NTextLauncherApp(
                                         onGlobeInteractionChanged = { unlocked ->
                                             isGlobeInteractionActive = unlocked
                                         },
+                                        isLeftPage = true,
                                         onReportMeasuredSpace = { innerH, widgetsH, appsH ->
                                             if (innerH > 200f) measuredHomeInnerHeightDp = innerH
                                             measuredLeftWidgetsHeightDp = widgetsH
                                             measuredLeftPinnedAppsHeightDp = appsH
+                                        },
+                                        onReportWidgetMeasured = { wId, szMode, hDp ->
+                                            if (wId == "pinned_apps") {
+                                                val pCount = currentPinnedAppsCount()
+                                                if (pCount > 0) measuredLeftAppsInfo = Triple(pCount, textSizeSp, hDp)
+                                            } else {
+                                                measuredLeftWidgetMap[wId] = szMode to hDp
+                                            }
                                         },
                                         onWaveTick = { tickHaptic(heavy = false) }
                                     )
@@ -2624,10 +2648,19 @@ fun NTextLauncherApp(
                                     onGlobeInteractionChanged = { unlocked ->
                                         isGlobeInteractionActive = unlocked
                                     },
+                                    isLeftPage = false,
                                     onReportMeasuredSpace = { innerH, widgetsH, appsH ->
                                         if (innerH > 200f) measuredHomeInnerHeightDp = innerH
                                         measuredWidgetsHeightDp = widgetsH
                                         measuredPinnedAppsHeightDp = appsH
+                                    },
+                                    onReportWidgetMeasured = { wId, szMode, hDp ->
+                                        if (wId == "pinned_apps") {
+                                            val pCount = currentPinnedAppsCount()
+                                            if (pCount > 0) measuredMainAppsInfo = Triple(pCount, textSizeSp, hDp)
+                                        } else {
+                                            measuredMainWidgetMap[wId] = szMode to hDp
+                                        }
                                     },
                                     onWaveTick = { tickHaptic(heavy = false) }
                                 )
@@ -3715,8 +3748,10 @@ fun HomeScreenView(
     onLaunchApp: (String) -> Unit,
     onLongPressApp: (AppEntry) -> Unit,
     onLongPressHome: () -> Unit = {},
+    isLeftPage: Boolean = false,
     onGlobeInteractionChanged: (Boolean) -> Unit = {},
     onReportMeasuredSpace: (Float, Float, Float) -> Unit = { _, _, _ -> },
+    onReportWidgetMeasured: (String, String, Float) -> Unit = { _, _, _ -> },
     onWaveTick: () -> Unit
 ) {
     val density = LocalDensity.current
@@ -3762,8 +3797,9 @@ fun HomeScreenView(
                         .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 20.dp)
                 } else {
                     Modifier
-                        .windowInsetsPadding(WindowInsets.statusBars)
-                        .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+                        .windowInsetsPadding(
+                            WindowInsets.statusBars.union(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+                        )
                         .windowInsetsPadding(WindowInsets.navigationBars)
                         .padding(horizontal = 24.dp, vertical = 10.dp)
                         .onGloballyPositioned { coords ->
@@ -3777,13 +3813,25 @@ fun HomeScreenView(
             ),
         verticalArrangement = Arrangement.Top
     ) {
+        LaunchedEffect(activeWidgets, widgetSizes, pinnedApps.size, textSizeSp) {
+            measuredWidgetHeights.keys.retainAll(activeWidgets.toSet())
+            val nonAppWidgets = activeWidgets.filter { it != "pinned_apps" }
+            val sumH = nonAppWidgets.sumOf { (measuredWidgetHeights[it] ?: 0f).toDouble() }.toFloat() +
+                ((nonAppWidgets.size - 1).coerceAtLeast(0) * 10f)
+            lastMeasWidgetsH = if (nonAppWidgets.isEmpty()) 0f else sumH
+            if (!activeWidgets.contains("pinned_apps") || pinnedApps.isEmpty()) {
+                lastMeasAppsH = 0f
+            }
+            onReportMeasuredSpace(lastMeasInnerH, lastMeasWidgetsH, lastMeasAppsH)
+        }
+
         // UNIFIED MODULAR OLED WIDGETS STACK (Includes "pinned_apps" as a single unified widget!)
         // In normal Home mode (!editMode), no verticalScroll is attached so swipe-up (App Drawer)
         // and swipe-down (Notification Panel) gestures work over every widget!
         activeWidgets.forEachIndexed { widgetIndex, widgetId ->
             if (widgetIndex > 0) {
-                if (!editMode && widgetIndex == activeWidgets.lastIndex) {
-                    // Flexible spacer before the bottom-most widget (e.g. Pinned Apps by default)
+                if (!editMode && !isLeftPage && widgetId == "pinned_apps" && widgetIndex == activeWidgets.lastIndex) {
+                    // Flexible spacer before the bottom-most Pinned Apps widget on the Main Page
                     // anchors it cleanly at the bottom while leaving a tiny 4dp minimum gap when full!
                     Spacer(modifier = Modifier.weight(1f).heightIn(min = 4.dp))
                 } else {
@@ -3818,11 +3866,13 @@ fun HomeScreenView(
                             Modifier.onGloballyPositioned { coords ->
                                 val hDp = with(density) { coords.size.height.toDp().value }
                                 if (widgetId == "pinned_apps") {
+                                    onReportWidgetMeasured(widgetId, sizeMode, hDp)
                                     if (abs(hDp - lastMeasAppsH) > 0.5f) {
                                         lastMeasAppsH = hDp
                                         onReportMeasuredSpace(lastMeasInnerH, lastMeasWidgetsH, lastMeasAppsH)
                                     }
                                 } else {
+                                    onReportWidgetMeasured(widgetId, sizeMode, hDp)
                                     val prev = measuredWidgetHeights[widgetId] ?: 0f
                                     if (abs(hDp - prev) > 0.5f) {
                                         measuredWidgetHeights[widgetId] = hDp
@@ -4116,16 +4166,29 @@ fun HomeScreenView(
                                                 fontWeight = FontWeight.Bold
                                             )
                                         }
+                                        val wFontArrowRot by animateFloatAsState(
+                                            targetValue = if (isWidgetFontMenuExpanded) 90f else 0f,
+                                            animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
+                                            label = "wFontArrowRot"
+                                        )
+                                        val wFontArrowColor by animateColorAsState(
+                                            targetValue = if (isWidgetFontMenuExpanded || retro80sMode) accentColor else Color(0xFF737373),
+                                            animationSpec = tween(durationMillis = 240),
+                                            label = "wFontArrowColor"
+                                        )
                                         Text(
                                             text = if (retro80sMode) {
                                                 if (isWidgetFontMenuExpanded) "[-]" else "[+]"
                                             } else {
-                                                if (isWidgetFontMenuExpanded) "▾" else "▸"
+                                                "▸"
                                             },
-                                            color = accentColor,
+                                            color = wFontArrowColor,
                                             fontSize = 10.sp,
                                             fontFamily = selectedFont,
-                                            fontWeight = FontWeight.Bold
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.graphicsLayer {
+                                                rotationZ = if (retro80sMode) 0f else wFontArrowRot
+                                            }
                                         )
                                     }
 
@@ -8705,16 +8768,30 @@ fun LauncherSettingsView(
                                 fontWeight = FontWeight.Bold
                             )
                         }
+                        val fontMenuArrowRot by animateFloatAsState(
+                            targetValue = if (expandedFontMenu) 90f else 0f,
+                            animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
+                            label = "fontMenuArrowRot"
+                        )
+                        val fontMenuArrowColor by animateColorAsState(
+                            targetValue = if (expandedFontMenu || retro80sMode) accentColor else Color(0xFF737373),
+                            animationSpec = tween(durationMillis = 240),
+                            label = "fontMenuArrowColor"
+                        )
                         Text(
                             text = if (retro80sMode) {
                                 if (expandedFontMenu) "[-]" else "[+]"
                             } else {
-                                if (expandedFontMenu) "▾" else "▸"
+                                "▸"
                             },
-                            color = accentColor,
+                            color = fontMenuArrowColor,
                             fontSize = if (retro80sMode) 11.sp else 14.sp,
                             fontFamily = launcherFont,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            style = settingsGlowStyle,
+                            modifier = Modifier.graphicsLayer {
+                                rotationZ = if (retro80sMode) 0f else fontMenuArrowRot
+                            }
                         )
                     }
 
@@ -8847,50 +8924,6 @@ fun LauncherSettingsView(
                     lomoFontFamily = launcherFont,
                     onClick = onToggleCustomPinnedOrder
                 )
-
-                // Battery Progress Bar Style Selector
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, innerCardBorderColor, innerCardShape)
-                        .background(Color(0xFF070707), innerCardShape)
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "BATTERY BAR STYLE",
-                        color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
-                        fontSize = 9.sp,
-                        fontFamily = launcherFont,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        BATTERY_BAR_STYLES.forEach { (stId, stLbl) ->
-                            val sel = batteryBarStyle == stId
-                            Text(
-                                text = stLbl,
-                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color.White,
-                                fontSize = 8.sp,
-                                fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .border(
-                                        1.dp,
-                                        if (sel) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
-                                        innerBtnShape
-                                    )
-                                    .background(if (sel) accentColor else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
-                                    .clickable { onChangeBatteryBarStyle(stId) }
-                                    .padding(vertical = 6.dp)
-                            )
-                        }
-                    }
-                }
             }
         }
 
@@ -9436,17 +9469,30 @@ fun CollapsibleSubSection(
                 modifier = Modifier.weight(1f).padding(end = 8.dp)
             )
             // Only the small theme-specific expand/collapse icon shows on the right
+            val subArrowRot by animateFloatAsState(
+                targetValue = if (expanded) 90f else 0f,
+                animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
+                label = "subArrowRot"
+            )
+            val subArrowColor by animateColorAsState(
+                targetValue = if (expanded || is80s) accentColor else Color(0xFF737373),
+                animationSpec = tween(durationMillis = 240),
+                label = "subArrowColor"
+            )
             Text(
                 text = if (is80s) {
                     if (expanded) "[-]" else "[+]"
                 } else {
-                    if (expanded) "▾" else "▸"
+                    "▸"
                 },
-                color = if (expanded || is80s) accentColor else Color(0xFF737373),
+                color = subArrowColor,
                 fontSize = if (is80s) 11.sp else 13.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold,
-                style = subGlowStyle
+                style = subGlowStyle,
+                modifier = Modifier.graphicsLayer {
+                    rotationZ = if (is80s) 0f else subArrowRot
+                }
             )
         }
 
@@ -9757,17 +9803,30 @@ fun CollapsibleSettingsSection(
                 )
             }
             // Only the small theme-specific icon shows on the right
+            val secArrowRot by animateFloatAsState(
+                targetValue = if (expanded) 90f else 0f,
+                animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
+                label = "secArrowRot"
+            )
+            val secArrowColor by animateColorAsState(
+                targetValue = if (expanded || is80s) accentColor else Color(0xFF737373),
+                animationSpec = tween(durationMillis = 240),
+                label = "secArrowColor"
+            )
             Text(
                 text = if (is80s) {
                     if (expanded) "[-]" else "[+]"
                 } else {
-                    if (expanded) "▾" else "▸"
+                    "▸"
                 },
-                color = if (expanded || is80s) accentColor else Color(0xFF737373),
+                color = secArrowColor,
                 fontSize = if (is80s) 11.sp else 14.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold,
-                style = secGlowStyle
+                style = secGlowStyle,
+                modifier = Modifier.graphicsLayer {
+                    rotationZ = if (is80s) 0f else secArrowRot
+                }
             )
         }
 
