@@ -7643,16 +7643,23 @@ fun AppDrawerView(
 
             val headerFontSp = (drawerTextSizeSp * 0.68f).coerceIn(10f, 16f).sp
             val starFontSp = (drawerTextSizeSp * 0.65f).coerceIn(9f, 15f).sp
+            val currentVisibleLetter by remember(filteredApps) {
+                derivedStateOf {
+                    val idx = listState.firstVisibleItemIndex.coerceIn(0, (filteredApps.size - 1).coerceAtLeast(0))
+                    filteredApps.getOrNull(idx)?.firstLetter ?: 'A'
+                }
+            }
 
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 // Ultra-clean 120Hz LazyColumn:
-                // Zero app name highlighting & zero hover animation on app rows!
+                // Only one horizontal line per first-letter group (inline with the letter header like the reference image)
+                // and NO horizontal lines after individual apps!
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight(),
-                    contentPadding = PaddingValues(top = 4.dp, bottom = 20.dp)
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 20.dp, end = 8.dp)
                 ) {
                     itemsIndexed(
                         items = filteredApps,
@@ -7660,9 +7667,7 @@ fun AppDrawerView(
                         contentType = { _, _ -> "app_row" }
                     ) { index, app ->
                         val prevLetter = if (index > 0) filteredApps[index - 1].firstLetter else null
-                        val nextLetter = if (index < filteredApps.lastIndex) filteredApps[index + 1].firstLetter else null
                         val isFirstInAlphabetGroup = app.firstLetter != prevLetter
-                        val isLastInAlphabetGroup = app.firstLetter != nextLetter
 
                         val displayLabel = if (uppercaseHome) {
                             app.label.uppercase(Locale.getDefault())
@@ -7672,24 +7677,25 @@ fun AppDrawerView(
 
                         Column(modifier = Modifier.fillMaxWidth()) {
                             if (isFirstInAlphabetGroup) {
-                                Column(
+                                Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(top = if (index == 0) 4.dp else 10.dp, bottom = 2.dp)
+                                        .padding(top = if (index == 0) 6.dp else 16.dp, bottom = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
                                         text = app.firstLetter.toString(),
-                                        color = accentColor,
+                                        color = if (is80sDrawer) accentColor else Color(0xFFD4D4D4),
                                         fontSize = headerFontSp,
                                         fontFamily = lomoFontFamily,
-                                        fontWeight = FontWeight.SemiBold
+                                        fontWeight = FontWeight.Bold
                                     )
-                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Spacer(modifier = Modifier.width(14.dp))
                                     Box(
                                         modifier = Modifier
-                                            .fillMaxWidth()
+                                            .weight(1f)
                                             .height(1.dp)
-                                            .background(Color(0xFF1A1A1A))
+                                            .background(if (is80sDrawer) accentColor.copy(alpha = 0.35f) else Color(0xFF262626))
                                     )
                                 }
                             }
@@ -7706,7 +7712,7 @@ fun AppDrawerView(
                                         },
                                         onLongClick = { onLongPressApp(app) }
                                     )
-                                    .padding(vertical = 10.dp, horizontal = 4.dp),
+                                    .padding(start = 16.dp, end = 4.dp, top = 9.dp, bottom = 9.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -7733,31 +7739,16 @@ fun AppDrawerView(
                                     }
                                 }
                             }
-
-                            if (isLastInAlphabetGroup) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 2.dp, bottom = 4.dp)
-                                        .height(1.dp)
-                                        .background(Color(0xFF222222))
-                                )
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(1.dp)
-                                        .background(Color(0xFF0D0D0D))
-                                )
-                            }
                         }
                     }
                 }
 
-                // Isolated A-Z Scrubber Rail Composable:
-                // Only the A-Z rail letters curve horizontally; app rows never highlight or hover-animate!
+                // Redesigned Vertical A-Z Pill Scrubber Rail:
+                // Encloses the active/hovered alphabet in a rounded-rectangle pill that smoothly enlarges on hover
+                // with a faint shade of the current accentColor, replacing the old floating indicator box.
                 AlphabetScrubberRail(
                     accentColor = accentColor,
+                    currentVisibleLetter = currentVisibleLetter,
                     waveScrubMode = waveScrubMode,
                     drawerWaveIntensity = drawerWaveIntensity,
                     lomoFontFamily = lomoFontFamily,
@@ -7785,12 +7776,14 @@ fun AppDrawerView(
 @Composable
 private fun AlphabetScrubberRail(
     accentColor: Color,
+    currentVisibleLetter: Char,
     waveScrubMode: String,
     drawerWaveIntensity: Float,
     lomoFontFamily: FontFamily,
     onSelectLetter: (Char) -> Unit
 ) {
     val density = LocalDensity.current
+    val is80sRail = LocalRetro80sMode.current
     val letters = remember { ('A'..'Z').toList() }
     var railHeightPx by remember { mutableStateOf(1f) }
     var scrubLocalY by remember { mutableStateOf<Float?>(null) }
@@ -7799,9 +7792,7 @@ private fun AlphabetScrubberRail(
 
     val effectiveWaveMult = if (waveScrubMode == "off") 0f else drawerWaveIntensity.coerceIn(0f, 2.0f)
     val letterWaveRadiusPx = with(density) { (65.dp + 55.dp * effectiveWaveMult).toPx() }
-    val maxLetterShiftPx = with(density) { (22.dp * effectiveWaveMult).toPx() }
-    val voxelBoxSizeDp = 54.dp
-    val voxelBoxSizePx = with(density) { voxelBoxSizeDp.toPx() }
+    val maxLetterShiftPx = with(density) { (18.dp * effectiveWaveMult).toPx() }
 
     fun updateScrubFromLocalY(localY: Float, currentRailHeight: Float) {
         val validHeight = currentRailHeight.coerceAtLeast(1f)
@@ -7819,137 +7810,142 @@ private fun AlphabetScrubberRail(
         }
     }
 
-    // Smooth vertical finger-tracking offset for the Voxel Alphabet Box
-    val targetIndicatorY = remember(scrubLocalY, railHeightPx, voxelBoxSizePx) {
-        val sy = scrubLocalY ?: (railHeightPx * 0.5f)
-        (sy - voxelBoxSizePx * 0.5f).coerceIn(0f, (railHeightPx - voxelBoxSizePx).coerceAtLeast(0f))
-    }
-    val animatedIndicatorY by animateFloatAsState(
-        targetValue = targetIndicatorY,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessHigh
-        ),
-        label = "voxelBubbleY"
-    )
+    val isHoveringRail = activeLetter != null && scrubLocalY != null
+    val highlightedLetter = activeLetter ?: currentVisibleLetter
 
-    Box(
-        modifier = Modifier.fillMaxHeight(),
-        contentAlignment = Alignment.TopEnd
-    ) {
-        Column(
-            modifier = Modifier
-                .width(36.dp)
-                .fillMaxHeight()
-                .onGloballyPositioned { coords ->
-                    railHeightPx = coords.size.height.toFloat().coerceAtLeast(1f)
+    Column(
+        modifier = Modifier
+            .width(38.dp)
+            .fillMaxHeight()
+            .padding(vertical = 4.dp)
+            .onGloballyPositioned { coords ->
+                railHeightPx = coords.size.height.toFloat().coerceAtLeast(1f)
+            }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    updateScrubFromLocalY(down.position.y, size.height.toFloat())
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull()
+                        if (change != null && change.pressed) {
+                            change.consume()
+                            updateScrubFromLocalY(change.position.y, size.height.toFloat())
+                        }
+                    } while (event.changes.any { it.pressed })
+                    scrubLocalY = null
+                    activeLetter = null
                 }
-                .pointerInput(Unit) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        down.consume()
-                        updateScrubFromLocalY(down.position.y, size.height.toFloat())
-                        do {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull()
-                            if (change != null && change.pressed) {
-                                change.consume()
-                                updateScrubFromLocalY(change.position.y, size.height.toFloat())
-                            }
-                        } while (event.changes.any { it.pressed })
-                        scrubLocalY = null
-                        activeLetter = null
-                    }
-                },
-            verticalArrangement = Arrangement.SpaceEvenly,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            letters.forEachIndexed { lIdx, ch ->
-                val isCurrent = activeLetter == ch
-                val currentScrub = scrubLocalY
-                val targetLetterFactor = if (currentScrub != null && effectiveWaveMult > 0.01f) {
-                    val lCenterY = ((lIdx + 0.5f) / letters.size.toFloat()) * railHeightPx
-                    val d = abs(currentScrub - lCenterY)
-                    if (d < letterWaveRadiusPx) {
-                        cos((d / letterWaveRadiusPx) * (PI / 2)).toFloat().coerceIn(0f, 1f)
-                    } else 0f
+            },
+        verticalArrangement = Arrangement.SpaceBetween,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        letters.forEachIndexed { lIdx, ch ->
+            val isPillEnclosed = ch == highlightedLetter
+            val isHoveredNow = isHoveringRail && ch == activeLetter
+            val currentScrub = scrubLocalY
+            val targetLetterFactor = if (currentScrub != null && effectiveWaveMult > 0.01f) {
+                val lCenterY = ((lIdx + 0.5f) / letters.size.toFloat()) * railHeightPx
+                val d = abs(currentScrub - lCenterY)
+                if (d < letterWaveRadiusPx) {
+                    cos((d / letterWaveRadiusPx) * (PI / 2)).toFloat().coerceIn(0f, 1f)
                 } else 0f
+            } else 0f
 
-                val animLetterFactor by animateFloatAsState(
-                    targetValue = targetLetterFactor,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessHigh
-                    ),
-                    label = "letterWave"
-                )
+            val animLetterFactor by animateFloatAsState(
+                targetValue = targetLetterFactor,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessHigh
+                ),
+                label = "letterWave"
+            )
 
+            // Smooth enlargement animation when finger hovers over the alphabet pill
+            val pillScale by animateFloatAsState(
+                targetValue = when {
+                    isHoveredNow -> 1.48f
+                    isPillEnclosed -> 1.0f
+                    else -> 1.0f + animLetterFactor * (0.22f * effectiveWaveMult.coerceIn(0.4f, 1.4f))
+                },
+                animationSpec = spring(
+                    dampingRatio = 0.68f,
+                    stiffness = Spring.StiffnessMedium
+                ),
+                label = "pillScale"
+            )
+
+            val hoverOffsetX by animateFloatAsState(
+                targetValue = if (isHoveredNow) {
+                    with(density) { -10.dp.toPx() } - (animLetterFactor * maxLetterShiftPx)
+                } else {
+                    -animLetterFactor * maxLetterShiftPx
+                },
+                animationSpec = spring(
+                    dampingRatio = 0.75f,
+                    stiffness = Spring.StiffnessMediumHigh
+                ),
+                label = "hoverOffsetX"
+            )
+
+            val pillShape = RoundedCornerShape(if (is80sRail) 0.dp else 50)
+            // Faint shade of the current accentColor inside the hovered/active alphabet pill
+            val pillBgColor = when {
+                isHoveredNow -> accentColor.copy(alpha = 0.28f)
+                isPillEnclosed -> Color(0xFFDEDEDE).copy(alpha = 0.92f)
+                else -> Color.Transparent
+            }
+            val pillBorderColor = when {
+                isHoveredNow -> accentColor.copy(alpha = 0.85f)
+                isPillEnclosed && is80sRail -> accentColor
+                else -> Color.Transparent
+            }
+            val letterTextColor = when {
+                isHoveredNow -> Color.White
+                isPillEnclosed -> Color.Black
+                animLetterFactor > 0.4f -> Color.White
+                else -> Color(0xFF6E6E6E)
+            }
+
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .graphicsLayer {
+                        translationX = hoverOffsetX
+                        scaleX = pillScale
+                        scaleY = pillScale
+                    }
+                    .then(
+                        if (isPillEnclosed) {
+                            Modifier
+                                .width(26.dp)
+                                .height(18.dp)
+                                .background(
+                                    color = if (isHoveredNow) Color(0xFF121212) else Color.Transparent,
+                                    shape = pillShape
+                                )
+                                .background(
+                                    color = pillBgColor,
+                                    shape = pillShape
+                                )
+                                .border(
+                                    width = if (isHoveredNow || is80sRail) 1.dp else 0.dp,
+                                    color = pillBorderColor,
+                                    shape = pillShape
+                                )
+                        } else {
+                            Modifier.height(18.dp)
+                        }
+                    )
+            ) {
                 Text(
                     text = ch.toString(),
-                    color = if (isCurrent) accentColor else if (animLetterFactor > 0.4f) Color.White else Color(0xFF555555),
-                    fontSize = if (isCurrent) 12.sp else 9.sp,
+                    color = letterTextColor,
+                    fontSize = if (isPillEnclosed) 10.sp else 9.sp,
                     fontFamily = lomoFontFamily,
-                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                    modifier = Modifier
-                        .graphicsLayer {
-                            if (animLetterFactor > 0.005f) {
-                                translationX = -animLetterFactor * maxLetterShiftPx
-                                val sc = 1f + animLetterFactor * (0.35f * effectiveWaveMult.coerceIn(0.4f, 1.5f))
-                                scaleX = sc
-                                scaleY = sc
-                            }
-                        }
-                        .padding(vertical = 0.5.dp)
-                )
-            }
-        }
-
-        // Minimalist Black & White Stepped Alphabet Indicator with Razor-Thin 1.dp Accent Stroke
-        if (activeLetter != null && scrubLocalY != null) {
-            Box(
-                modifier = Modifier
-                    .padding(end = 42.dp)
-                    .offset { IntOffset(x = 0, y = animatedIndicatorY.roundToInt()) }
-                    .size(46.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val w = size.width
-                    val h = size.height
-                    val step = 4.dp.toPx()
-                    val strokePx = 1.dp.toPx()
-                    val half = strokePx * 0.5f
-
-                    // Stepped-corner minimal box path: pure #000000 black fill + razor-thin 1.dp accentColor stroke
-                    val boxPath = Path().apply {
-                        moveTo(step, half)
-                        lineTo(w - step, half)
-                        lineTo(w - step, step)
-                        lineTo(w - half, step)
-                        lineTo(w - half, h - step)
-                        lineTo(w - step, h - step)
-                        lineTo(w - step, h - half)
-                        lineTo(step, h - half)
-                        lineTo(step, h - step)
-                        lineTo(half, h - step)
-                        lineTo(half, step)
-                        lineTo(step, step)
-                        close()
-                    }
-                    drawPath(path = boxPath, color = Color.Black)
-                    drawPath(
-                        path = boxPath,
-                        color = accentColor,
-                        style = Stroke(width = strokePx)
-                    )
-                }
-
-                Text(
-                    text = activeLetter.toString(),
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = if (isPillEnclosed) FontWeight.Bold else FontWeight.Medium,
+                    textAlign = TextAlign.Center
                 )
             }
         }
