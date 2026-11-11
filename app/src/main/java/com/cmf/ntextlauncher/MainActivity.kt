@@ -7884,12 +7884,12 @@ private fun AlphabetScrubberRail(
                 },
                 animationSpec = spring(
                     dampingRatio = 0.75f,
-                    stiffness = Spring.StiffnessMediumHigh
+                    stiffness = Spring.StiffnessHigh
                 ),
                 label = "hoverOffsetX"
             )
 
-            val pillShape = RoundedCornerShape(if (is80sRail) 0.dp else 50)
+            val pillShape = RoundedCornerShape(if (is80sRail) 0.dp else 9.dp)
             // Faint shade of the current accentColor inside the hovered/active alphabet pill
             val pillBgColor = when {
                 isHoveredNow -> accentColor.copy(alpha = 0.28f)
