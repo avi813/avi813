@@ -98,6 +98,7 @@ import kotlin.math.exp
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -7555,11 +7556,11 @@ fun AppDrawerView(
         }
     }
 
-    val normDrawerBg = (drawerBgIntensity.coerceIn(0, 100) / 100f)
+    val normDrawerBg = (drawerBgIntensity.coerceIn(15, 100) / 100f)
     val drawerRootBgColor = when (drawerBgMode) {
-        "transparent" -> Color.Black.copy(alpha = (1f - normDrawerBg * 0.92f).coerceIn(0.06f, 0.96f))
-        "blurry" -> Color(0xFF050505).copy(alpha = (0.76f - normDrawerBg * 0.56f).coerceIn(0.16f, 0.82f))
-        else -> Color.Black
+        "transparent" -> Color.Black.copy(alpha = (normDrawerBg * 0.88f).coerceIn(0.12f, 0.90f))
+        "blurry" -> Color(0xFF050505).copy(alpha = 0.52f)
+        else -> Color.Black.copy(alpha = (0.75f + normDrawerBg * 0.25f).coerceIn(0.78f, 1.0f))
     }
 
     val is80sDrawer = LocalRetro80sMode.current
@@ -8713,11 +8714,11 @@ fun LauncherSettingsView(
         Triple("static_micro_plus", "SWISS CROSSES", "Full-Screen + Matrix")
     )
 
-    val normBg = (settingsBgIntensity.coerceIn(0, 100) / 100f)
+    val normBg = (settingsBgIntensity.coerceIn(15, 100) / 100f)
     val rootBgColor = when (settingsBgMode) {
-        "transparent" -> Color.Black.copy(alpha = (1f - normBg * 0.90f).coerceIn(0.08f, 0.96f))
-        "blurry" -> Color(0xFF060606).copy(alpha = (0.78f - normBg * 0.52f).coerceIn(0.20f, 0.82f))
-        else -> Color.Black
+        "transparent" -> Color.Black.copy(alpha = (normBg * 0.88f).coerceIn(0.12f, 0.90f))
+        "blurry" -> Color(0xFF060606).copy(alpha = 0.54f)
+        else -> Color.Black.copy(alpha = (0.75f + normBg * 0.25f).coerceIn(0.78f, 1.0f))
     }
 
     LazyColumn(
@@ -8859,10 +8860,12 @@ fun LauncherSettingsView(
                 )
 
                 SettingsBackdropControlCard(
-                    cardTitle = "SETTINGS BACKGROUND",
+                    isDrawerPreview = false,
                     settingsBgMode = settingsBgMode,
                     settingsBgIntensity = settingsBgIntensity,
                     accentColor = accentColor,
+                    innerCardBorderColor = innerCardBorderColor,
+                    innerCardShape = innerCardShape,
                     lomoFontFamily = launcherFont,
                     onChangeMode = onChangeSettingsBgMode,
                     onChangeIntensity = onChangeSettingsBgIntensity
@@ -8872,7 +8875,9 @@ fun LauncherSettingsView(
 
         // SECTION 02
         item {
-            val activeFontName = PrebuiltFont.fromId(fontId).displayName.substringBefore(" (")
+            val activePrebuiltFont = PrebuiltFont.fromId(fontId)
+            val activeFontName = activePrebuiltFont.displayName.substringBefore(" (")
+            val activeHomeFontFamily = activePrebuiltFont.resolveFontFamily(lomoFontFamily)
             CollapsibleSettingsSection(
                 indexTag = "02",
                 title = "Typography & Layout",
@@ -8995,46 +9000,49 @@ fun LauncherSettingsView(
                     }
                 }
 
-                // Home Screen App Font Size
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, innerCardBorderColor, innerCardShape)
-                        .background(Color(0xFF070707), innerCardShape)
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "HOME APP FONT SIZE",
-                        color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
-                        fontSize = 9.sp,
-                        fontFamily = launcherFont,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                // Home Screen App Font Size converted to the unified reusable slider with live preview
+                NocturnaaSettingSlider(
+                    title = "Home text size",
+                    description = "How big your pinned app names look on the home screen. Smaller fits more apps, bigger is easier to tap.",
+                    value = textSizeSp.toFloat(),
+                    valueRange = 16f..24f,
+                    step = 1f,
+                    unit = "sp",
+                    defaultValue = 20f,
+                    hapticStep = 1f,
+                    accentColor = accentColor,
+                    innerCardBorderColor = innerCardBorderColor,
+                    innerCardShape = innerCardShape,
+                    lomoFontFamily = launcherFont,
+                    presetChips = listOf(16f to "16", 18f to "18", 20f to "20", 22f to "22", 24f to "24"),
+                    onValueChange = { nextVal ->
+                        val targetSp = nextVal.roundToInt().coerceIn(16, 24)
+                        if (targetSp != textSizeSp) {
+                            onChangeTextSize(targetSp)
+                        }
+                    }
+                ) { previewVal ->
+                    val pSp = previewVal.roundToInt().coerceIn(16, 24)
+                    val align = when (textAlignMode) {
+                        "center" -> Alignment.CenterHorizontally
+                        "right" -> Alignment.End
+                        else -> Alignment.Start
+                    }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, Color(0x24FFFFFF), innerCardShape)
+                            .background(Color.Black, innerCardShape)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalAlignment = align,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf(16, 18, 20, 22, 24).forEach { spVal ->
-                            val sel = textSizeSp == spVal
-                            val activeBg = if (retro80sMode) accentColor else Color.White
+                        listOf("Camera", "Messages", "Phone").forEach { appName ->
                             Text(
-                                text = "${spVal}SP",
-                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color.White,
-                                fontSize = 10.sp,
-                                fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .border(
-                                        1.dp,
-                                        if (sel) activeBg else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
-                                        innerBtnShape
-                                    )
-                                    .background(if (sel) activeBg else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
-                                    .clickable { onChangeTextSize(spVal) }
-                                    .padding(vertical = 6.dp)
+                                text = if (activePrebuiltFont.uppercaseHome) appName.uppercase(Locale.US) else appName,
+                                color = Color(0xFFF5F5F5),
+                                fontSize = pSp.sp,
+                                fontFamily = activeHomeFontFamily
                             )
                         }
                     }
@@ -9085,52 +9093,76 @@ fun LauncherSettingsView(
                 lomoFontFamily = launcherFont,
                 onToggle = { expandedWallpaper = !expandedWallpaper }
             ) {
-                // 0. Universal Wallpaper Dimmer
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, innerCardBorderColor, innerCardShape)
-                        .background(Color(0xFF070707), innerCardShape)
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    MinimalistSliderRow(
-                        label = "WALLPAPER DIMMER",
-                        valueText = "${wallpaperDimPercent}%",
-                        fraction = (wallpaperDimPercent / 90f).coerceIn(0f, 1f),
-                        accentColor = accentColor,
-                        lomoFontFamily = launcherFont,
-                        onFractionChange = { frac ->
-                            val nextDim = (frac * 90f).roundToInt().coerceIn(0, 90)
-                            if (nextDim != wallpaperDimPercent) {
-                                onChangeWallpaperDim(nextDim)
-                            }
+                // 0. Universal Wallpaper Dimmer converted to unified reusable slider with live preview
+                NocturnaaSettingSlider(
+                    title = "Wallpaper dimmer",
+                    description = "Darkens your wallpaper so text stays readable. 0% is the original wallpaper, 90% is almost black.",
+                    value = wallpaperDimPercent.toFloat(),
+                    valueRange = 0f..90f,
+                    step = 1f,
+                    unit = "%",
+                    defaultValue = 0f,
+                    hapticStep = 10f,
+                    accentColor = accentColor,
+                    innerCardBorderColor = innerCardBorderColor,
+                    innerCardShape = innerCardShape,
+                    lomoFontFamily = launcherFont,
+                    presetChips = listOf(0f to "0%", 20f to "20%", 40f to "40%", 60f to "60%", 75f to "75%", 90f to "90%"),
+                    onValueChange = { nextVal ->
+                        val nextDim = nextVal.roundToInt().coerceIn(0, 90)
+                        if (nextDim != wallpaperDimPercent) {
+                            onChangeWallpaperDim(nextDim)
                         }
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    }
+                ) { previewDim ->
+                    val dimAlpha = (previewDim / 100f).coerceIn(0f, 0.90f)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(128.dp)
+                            .clip(innerCardShape)
+                            .border(1.dp, Color(0x24FFFFFF), innerCardShape)
                     ) {
-                        listOf(0, 20, 40, 60, 75, 90).forEach { dimVal ->
-                            val sel = wallpaperDimPercent == dimVal
+                        WallpaperSampleBackdrop(
+                            blurFraction = 0f,
+                            accentColor = accentColor,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        // Dimmer overlay at the selected percentage
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer { alpha = dimAlpha }
+                                .background(Color.Black)
+                        )
+                        // Sample Home-screen text (Clock "12:30" + two app names)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
                             Text(
-                                text = "${dimVal}%",
-                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color(0xFFD4D4D4),
-                                fontSize = 9.sp,
+                                text = "12:30",
+                                color = Color.White,
+                                fontSize = 24.sp,
                                 fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .border(
-                                        1.dp,
-                                        if (sel) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
-                                        innerBtnShape
-                                    )
-                                    .background(if (sel) accentColor else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF151515), innerBtnShape)
-                                    .clickable { onChangeWallpaperDim(dimVal) }
-                                    .padding(vertical = 5.dp)
+                                fontWeight = FontWeight.Bold
                             )
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "Camera",
+                                    color = Color(0xFFF5F5F5),
+                                    fontSize = 14.sp,
+                                    fontFamily = launcherFont
+                                )
+                                Text(
+                                    text = "Messages",
+                                    color = Color(0xFFF5F5F5),
+                                    fontSize = 14.sp,
+                                    fontFamily = launcherFont
+                                )
+                            }
                         }
                     }
                 }
@@ -9194,74 +9226,109 @@ fun LauncherSettingsView(
                     }
 
                     Spacer(modifier = Modifier.height(4.dp))
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, innerCardBorderColor, innerSubCardShape)
-                            .background(Color(0xFF090909), innerSubCardShape)
-                            .padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "LIVE WALLPAPER TUNING",
-                                color = accentColor,
-                                fontSize = 9.sp,
-                                fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "RESET",
-                                color = if (retro80sMode) accentColor else Color(0xFFA3A3A3),
-                                fontSize = 8.sp,
-                                fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier
-                                    .border(1.dp, if (retro80sMode) accentColor else Color(0xFF2E2E2E), innerBtnShape)
-                                    .background(Color(0xFF121212), innerBtnShape)
-                                    .clickable { onResetWpTuning() }
-                                    .padding(horizontal = 7.dp, vertical = 3.dp)
-                            )
+
+                    // Live Wallpaper Tuning controls converted to the unified reusable slider with live previews
+                    NocturnaaSettingSlider(
+                        title = "Motion speed",
+                        description = "How fast live wallpaper stars and particles move across your screen.",
+                        value = (wpSpeed * 100f).coerceIn(25f, 220f),
+                        valueRange = 25f..220f,
+                        step = 5f,
+                        unit = "%",
+                        defaultValue = 100f,
+                        hapticStep = 10f,
+                        accentColor = accentColor,
+                        innerCardBorderColor = innerCardBorderColor,
+                        innerCardShape = innerSubCardShape,
+                        lomoFontFamily = launcherFont,
+                        presetChips = listOf(25f to "25%", 50f to "50%", 100f to "100%", 150f to "150%", 220f to "220%"),
+                        onValueChange = { pctVal ->
+                            onChangeWpSpeed((pctVal / 100f).coerceIn(0.25f, 2.2f))
                         }
-
-                        WallpaperTuningRow(
-                            label = "SPEED",
-                            currentValue = wpSpeed,
-                            options = listOf(0.25f to "0.25x", 0.5f to "0.5x", 1.0f to "1.0x", 1.5f to "1.5x", 2.2f to "2.2x"),
+                    ) { previewPct ->
+                        LiveWallpaperTuningPreviewBox(
+                            mode = "speed",
+                            percentValue = previewPct,
                             accentColor = accentColor,
-                            lomoFontFamily = launcherFont,
-                            onSelect = onChangeWpSpeed
+                            shape = innerSubCardShape
                         )
+                    }
 
-                        WallpaperTuningRow(
-                            label = "DENSITY",
-                            currentValue = wpDensity,
-                            options = listOf(0.5f to "0.5x", 0.75f to "0.75x", 1.0f to "1.0x", 1.35f to "1.35x", 1.75f to "1.75x"),
+                    NocturnaaSettingSlider(
+                        title = "Particle density",
+                        description = "How many stars, dots, or lines are drawn in your live wallpaper.",
+                        value = (wpDensity * 100f).coerceIn(50f, 175f),
+                        valueRange = 50f..175f,
+                        step = 5f,
+                        unit = "%",
+                        defaultValue = 100f,
+                        hapticStep = 10f,
+                        accentColor = accentColor,
+                        innerCardBorderColor = innerCardBorderColor,
+                        innerCardShape = innerSubCardShape,
+                        lomoFontFamily = launcherFont,
+                        presetChips = listOf(50f to "50%", 75f to "75%", 100f to "100%", 135f to "135%", 175f to "175%"),
+                        onValueChange = { pctVal ->
+                            onChangeWpDensity((pctVal / 100f).coerceIn(0.5f, 1.75f))
+                        }
+                    ) { previewPct ->
+                        LiveWallpaperTuningPreviewBox(
+                            mode = "density",
+                            percentValue = previewPct,
                             accentColor = accentColor,
-                            lomoFontFamily = launcherFont,
-                            onSelect = onChangeWpDensity
+                            shape = innerSubCardShape
                         )
+                    }
 
-                        WallpaperTuningRow(
-                            label = "OPACITY",
-                            currentValue = wpOpacity,
-                            options = listOf(0.4f to "40%", 0.7f to "70%", 1.0f to "100%", 1.35f to "135%", 1.75f to "175%"),
+                    NocturnaaSettingSlider(
+                        title = "Wallpaper brightness",
+                        description = "How bright and vivid the live wallpaper elements look against the black background.",
+                        value = (wpOpacity * 100f).coerceIn(40f, 175f),
+                        valueRange = 40f..175f,
+                        step = 5f,
+                        unit = "%",
+                        defaultValue = 100f,
+                        hapticStep = 10f,
+                        accentColor = accentColor,
+                        innerCardBorderColor = innerCardBorderColor,
+                        innerCardShape = innerSubCardShape,
+                        lomoFontFamily = launcherFont,
+                        presetChips = listOf(40f to "40%", 70f to "70%", 100f to "100%", 135f to "135%", 175f to "175%"),
+                        onValueChange = { pctVal ->
+                            onChangeWpOpacity((pctVal / 100f).coerceIn(0.4f, 1.75f))
+                        }
+                    ) { previewPct ->
+                        LiveWallpaperTuningPreviewBox(
+                            mode = "opacity",
+                            percentValue = previewPct,
                             accentColor = accentColor,
-                            lomoFontFamily = launcherFont,
-                            onSelect = onChangeWpOpacity
+                            shape = innerSubCardShape
                         )
+                    }
 
-                        WallpaperTuningRow(
-                            label = "SCALE",
-                            currentValue = wpScale,
-                            options = listOf(0.65f to "0.65x", 0.85f to "0.85x", 1.0f to "1.0x", 1.25f to "1.25x", 1.5f to "1.5x"),
+                    NocturnaaSettingSlider(
+                        title = "Pattern scale",
+                        description = "How zoomed-in the live wallpaper pattern and orbits appear.",
+                        value = (wpScale * 100f).coerceIn(65f, 150f),
+                        valueRange = 65f..150f,
+                        step = 5f,
+                        unit = "%",
+                        defaultValue = 100f,
+                        hapticStep = 10f,
+                        accentColor = accentColor,
+                        innerCardBorderColor = innerCardBorderColor,
+                        innerCardShape = innerSubCardShape,
+                        lomoFontFamily = launcherFont,
+                        presetChips = listOf(65f to "65%", 85f to "85%", 100f to "100%", 125f to "125%", 150f to "150%"),
+                        onValueChange = { pctVal ->
+                            onChangeWpScale((pctVal / 100f).coerceIn(0.65f, 1.5f))
+                        }
+                    ) { previewPct ->
+                        LiveWallpaperTuningPreviewBox(
+                            mode = "scale",
+                            percentValue = previewPct,
                             accentColor = accentColor,
-                            lomoFontFamily = launcherFont,
-                            onSelect = onChangeWpScale
+                            shape = innerSubCardShape
                         )
                     }
                 }
@@ -9449,6 +9516,8 @@ fun LauncherSettingsView(
 
         // SECTION 04: App Drawer Settings
         item {
+            val activePrebuiltFont = PrebuiltFont.fromId(fontId)
+            val realSelectedFont = activePrebuiltFont.resolveFontFamily(lomoFontFamily)
             CollapsibleSettingsSection(
                 indexTag = "04",
                 title = "App Drawer Settings",
@@ -9459,57 +9528,89 @@ fun LauncherSettingsView(
                 lomoFontFamily = launcherFont,
                 onToggle = { expandedMotion = !expandedMotion }
             ) {
-                // 1. App Drawer App Name Scale
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, innerCardBorderColor, innerCardShape)
-                        .background(Color(0xFF070707), innerCardShape)
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    MinimalistSliderRow(
-                        label = "APP DRAWER TEXT SIZE",
-                        valueText = "${drawerTextSizeSp} SP",
-                        fraction = ((drawerTextSizeSp - 12f) / 14f).coerceIn(0f, 1f),
-                        accentColor = accentColor,
-                        lomoFontFamily = launcherFont,
-                        onFractionChange = { frac ->
-                            val nextSp = (12f + frac * 14f).roundToInt().coerceIn(12, 26)
-                            if (nextSp != drawerTextSizeSp) {
-                                onChangeDrawerTextSize(nextSp)
-                            }
+                // 1. App Drawer Text Size ("Text size")
+                NocturnaaSettingSlider(
+                    title = "Text size",
+                    description = "How big the app names look in the app drawer. Bigger is easier to read, smaller fits more apps on the screen.",
+                    value = drawerTextSizeSp.coerceIn(12, 24).toFloat(),
+                    valueRange = 12f..24f,
+                    step = 1f,
+                    unit = "sp",
+                    defaultValue = 16f,
+                    hapticStep = 1f,
+                    accentColor = accentColor,
+                    innerCardBorderColor = innerCardBorderColor,
+                    innerCardShape = innerCardShape,
+                    lomoFontFamily = launcherFont,
+                    presetChips = listOf(12f to "12", 14f to "14", 16f to "16", 18f to "18", 20f to "20", 22f to "22", 24f to "24"),
+                    onValueChange = { nextVal ->
+                        val nextSp = nextVal.roundToInt().coerceIn(12, 24)
+                        if (nextSp != drawerTextSizeSp) {
+                            onChangeDrawerTextSize(nextSp)
                         }
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    }
+                ) { previewVal ->
+                    val pSp = previewVal.roundToInt().coerceIn(12, 24)
+                    val headerSp = (pSp * 1.15f).coerceIn(18f, 24f).sp
+                    val starSp = (pSp * 0.65f).coerceIn(10f, 14f).sp
+                    val rowHeightDp = (34f + (pSp - 12f) * 1.8f).coerceIn(34f, 56f).dp
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, Color(0x24FFFFFF), innerCardShape)
+                            .background(Color.Black, innerCardShape)
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
                     ) {
-                        listOf(12, 14, 16, 18, 20, 22, 24).forEach { spVal ->
-                            val sel = drawerTextSizeSp == spVal
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
-                                text = "${spVal}",
-                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color.White,
-                                fontSize = 9.sp,
+                                text = "M",
+                                color = if (retro80sMode) accentColor else Color.White,
+                                fontSize = headerSp,
                                 fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .border(
-                                        1.dp,
-                                        if (sel) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
-                                        innerBtnShape
-                                    )
-                                    .background(if (sel) accentColor else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
-                                    .clickable { onChangeDrawerTextSize(spVal) }
-                                    .padding(vertical = 5.dp)
+                                    .height(1.dp)
+                                    .background(Color(0x24FFFFFF))
                             )
+                        }
+                        listOf("Maps" to false, "Messages" to true, "Phone" to true).forEach { (name, fav) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(rowHeightDp)
+                                    .padding(start = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (activePrebuiltFont.uppercaseHome) name.uppercase(Locale.US) else name,
+                                    color = Color(0xFFEDEDED),
+                                    fontSize = pSp.sp,
+                                    fontFamily = realSelectedFont
+                                )
+                                if (fav) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "★",
+                                        color = accentColor,
+                                        fontSize = starSp,
+                                        fontFamily = launcherFont
+                                    )
+                                }
+                            }
                         }
                     }
                 }
 
-                // 2. Letter Stretch Slider (0.10..1.00, default 75%) + Reset + Live Drag Preview (E..I with G hovered)
+                // 2. Letter Stretch ("Letter stretch") using the same unified reusable slider component
                 LetterStretchSettingCard(
                     letterStretch = drawerWaveIntensity,
                     retro80sMode = retro80sMode,
@@ -9520,16 +9621,296 @@ fun LauncherSettingsView(
                     onChangeLetterStretch = onChangeDrawerWaveIntensity
                 )
 
-                // 3. App Drawer Background Style
+                // 3. App Drawer Background ("Background style" + "Style strength")
                 SettingsBackdropControlCard(
-                    cardTitle = "APP DRAWER BACKGROUND",
+                    isDrawerPreview = true,
                     settingsBgMode = drawerBgMode,
                     settingsBgIntensity = drawerBgIntensity,
                     accentColor = accentColor,
+                    innerCardBorderColor = innerCardBorderColor,
+                    innerCardShape = innerCardShape,
                     lomoFontFamily = launcherFont,
                     onChangeMode = onChangeDrawerBgMode,
                     onChangeIntensity = onChangeDrawerBgIntensity
                 )
+            }
+        }
+    }
+}
+
+// ============================================================================
+// ONE REUSABLE SLIDER COMPONENT FOR ALL LAUNCHER SETTINGS
+// - Thin 2dp dim-grey track (white at 20% opacity), filled part & round thumb in current accentColor
+// - Title on the left, value + "Reset" text button on the right, 1-line helper description
+// - Haptic tick (every 10% for percentage sliders, every 1sp for text size)
+// - Optional quick-preset chips that spring-animate the thumb and trigger the live preview
+// - Live preview that appears while dragging or when a preset chip is tapped
+// ============================================================================
+@Composable
+fun NocturnaaSettingSlider(
+    title: String,
+    description: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    step: Float = 1f,
+    unit: String = "%",
+    defaultValue: Float,
+    hapticStep: Float = 10f,
+    accentColor: Color,
+    innerCardBorderColor: Color,
+    innerCardShape: RoundedCornerShape,
+    lomoFontFamily: FontFamily,
+    presetChips: List<Pair<Float, String>> = emptyList(),
+    embedInCard: Boolean = true,
+    onValueChange: (Float) -> Unit,
+    previewContent: @Composable (Float) -> Unit
+) {
+    val is80s = LocalRetro80sMode.current
+    val context = LocalContext.current
+    val minV = valueRange.start
+    val maxV = valueRange.endInclusive
+    val span = (maxV - minV).coerceAtLeast(0.0001f)
+    val clampedTarget = value.coerceIn(minV, maxV)
+
+    var isDragging by remember { mutableStateOf(false) }
+    var dragRawValue by remember { mutableStateOf(clampedTarget) }
+    var chipPreviewTick by remember { mutableStateOf(0) }
+    var showChipPreview by remember { mutableStateOf(false) }
+
+    LaunchedEffect(clampedTarget, isDragging) {
+        if (!isDragging) {
+            dragRawValue = clampedTarget
+        }
+    }
+
+    LaunchedEffect(chipPreviewTick) {
+        if (chipPreviewTick > 0) {
+            showChipPreview = true
+            delay(950)
+            showChipPreview = false
+        }
+    }
+
+    val animatedDisplayValue by animateFloatAsState(
+        targetValue = if (isDragging) dragRawValue else clampedTarget,
+        animationSpec = if (isDragging) {
+            spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 5000f)
+        } else {
+            spring(dampingRatio = 0.82f, stiffness = 520f)
+        },
+        label = "sliderThumbSpring"
+    )
+
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    val currentDisplayVal by rememberUpdatedState(animatedDisplayValue)
+
+    fun fireSliderHaptic() {
+        val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
+        } else {
+            @Suppress("DEPRECATION")
+            VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
+        }
+        vib?.vibrate(effect)
+    }
+
+    fun snapToStep(raw: Float): Float {
+        val clamped = raw.coerceIn(minV, maxV)
+        return if (step > 0f) {
+            val steps = ((clamped - minV) / step).roundToInt()
+            (minV + steps * step).coerceIn(minV, maxV)
+        } else {
+            clamped
+        }
+    }
+
+    val roundedCurrent = snapToStep(animatedDisplayValue).roundToInt()
+    val roundedDefault = snapToStep(defaultValue).roundToInt()
+    val isAtDefault = roundedCurrent == roundedDefault
+    val chipBtnShape = RoundedCornerShape(if (is80s) 0.dp else 6.dp)
+
+    Column(
+        modifier = if (embedInCard) {
+            Modifier
+                .fillMaxWidth()
+                .border(1.dp, innerCardBorderColor, innerCardShape)
+                .background(Color.Black, innerCardShape)
+                .padding(12.dp)
+        } else {
+            Modifier.fillMaxWidth()
+        },
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // Header row: Title on the left, current value + "Reset" text button on the right
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 12.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${roundedCurrent}${unit}",
+                    color = accentColor,
+                    fontSize = 11.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Reset",
+                    color = if (isAtDefault) Color(0xFF555555) else Color(0xFFEDEDED),
+                    fontSize = 10.sp,
+                    fontFamily = lomoFontFamily,
+                    modifier = Modifier
+                        .clickable {
+                            if (!isAtDefault) {
+                                fireSliderHaptic()
+                                dragRawValue = defaultValue
+                                currentOnValueChange(defaultValue)
+                                chipPreviewTick++
+                            }
+                        }
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+            }
+        }
+
+        // One-line helper description
+        Text(
+            text = description,
+            color = Color(0xFF8A8A8A),
+            fontSize = 9.sp,
+            fontFamily = lomoFontFamily
+        )
+
+        // Thin 2dp track in dim grey (white at 20% opacity) + filled part & small round thumb in current accentColor
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(26.dp)
+                .pointerInput(minV, maxV, step, hapticStep) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        isDragging = true
+                        val w = size.width.toFloat().coerceAtLeast(1f)
+                        val initFrac = (down.position.x / w).coerceIn(0f, 1f)
+                        val initVal = snapToStep(minV + initFrac * span)
+                        var lastBucket = (initVal / hapticStep.coerceAtLeast(0.1f)).roundToInt()
+                        dragRawValue = initVal
+                        currentOnValueChange(initVal)
+
+                        do {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull()
+                            if (change != null && change.pressed) {
+                                change.consume()
+                                val curW = size.width.toFloat().coerceAtLeast(1f)
+                                val frac = (change.position.x / curW).coerceIn(0f, 1f)
+                                val nextVal = snapToStep(minV + frac * span)
+                                val nextBucket = (nextVal / hapticStep.coerceAtLeast(0.1f)).roundToInt()
+                                if (nextBucket != lastBucket) {
+                                    lastBucket = nextBucket
+                                    fireSliderHaptic()
+                                }
+                                dragRawValue = nextVal
+                                currentOnValueChange(nextVal)
+                            }
+                        } while (event.changes.any { it.pressed })
+
+                        isDragging = false
+                    }
+                },
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val trackH = 2.dp.toPx()
+                val thumbRadius = 5.5.dp.toPx()
+                val usableW = (size.width - thumbRadius * 2f).coerceAtLeast(1f)
+                val norm = ((currentDisplayVal - minV) / span).coerceIn(0f, 1f)
+                val thumbX = thumbRadius + norm * usableW
+                val centerY = size.height * 0.5f
+
+                // Unfilled 2dp track: white at 20% opacity
+                drawRect(
+                    color = Color(0x33FFFFFF),
+                    topLeft = Offset(thumbRadius, centerY - trackH * 0.5f),
+                    size = Size(usableW, trackH)
+                )
+                // Filled 2dp track in current accentColor
+                if (thumbX > thumbRadius) {
+                    drawRect(
+                        color = accentColor,
+                        topLeft = Offset(thumbRadius, centerY - trackH * 0.5f),
+                        size = Size(thumbX - thumbRadius, trackH)
+                    )
+                }
+                // Small round thumb in current accentColor
+                drawCircle(
+                    color = accentColor,
+                    radius = thumbRadius,
+                    center = Offset(thumbX, centerY)
+                )
+            }
+        }
+
+        // Optional quick-preset chips under the slider
+        if (presetChips.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                presetChips.forEach { (chipVal, chipLabel) ->
+                    val sel = abs(clampedTarget - chipVal) < (step * 0.45f).coerceAtLeast(0.4f)
+                    Text(
+                        text = chipLabel,
+                        color = if (sel) Color.Black else if (is80s) accentColor else Color(0xFFD4D4D4),
+                        fontSize = 9.sp,
+                        fontFamily = lomoFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .weight(1f)
+                            .border(
+                                1.dp,
+                                if (sel) accentColor else if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
+                                chipBtnShape
+                            )
+                            .background(
+                                if (sel) accentColor else if (is80s) Color(0xFF0A0A0A) else Color(0xFF141414),
+                                chipBtnShape
+                            )
+                            .clickable {
+                                fireSliderHaptic()
+                                dragRawValue = chipVal
+                                currentOnValueChange(chipVal)
+                                chipPreviewTick++
+                            }
+                            .padding(vertical = 5.dp)
+                    )
+                }
+            }
+        }
+
+        // Live preview: appears smoothly while dragging or briefly when tapping a preset chip
+        val isPreviewVisible = isDragging || showChipPreview
+        AnimatedVisibility(
+            visible = isPreviewVisible,
+            enter = fadeIn(tween(150)) + expandVertically(tween(150)),
+            exit = fadeOut(tween(150)) + shrinkVertically(tween(150))
+        ) {
+            Box(modifier = Modifier.fillMaxWidth().padding(top = 2.dp)) {
+                previewContent(currentDisplayVal)
             }
         }
     }
@@ -9545,25 +9926,338 @@ fun LetterStretchSettingCard(
     lomoFontFamily: FontFamily,
     onChangeLetterStretch: (Float) -> Unit
 ) {
-    val context = LocalContext.current
     val density = LocalDensity.current
-    val s = letterStretch.coerceIn(0.10f, 1.00f)
-    val pct = (s * 100f).roundToInt().coerceIn(10, 100)
-    val currentOnChange by rememberUpdatedState(onChangeLetterStretch)
-    val currentS by rememberUpdatedState(s)
-    val sliderOrange = if (retro80sMode) accentColor else Color(0xFFFF4A1C)
+    val pctValue = (letterStretch.coerceIn(0.10f, 1.00f) * 100f).coerceIn(10f, 100f)
 
-    var isDraggingSlider by remember { mutableStateOf(false) }
-
-    fun fireDecileTick() {
-        val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
-        } else {
-            @Suppress("DEPRECATION")
-            VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
+    NocturnaaSettingSlider(
+        title = "Letter stretch",
+        description = "How far the letters bend out while you slide your thumb",
+        value = pctValue,
+        valueRange = 10f..100f,
+        step = 1f,
+        unit = "%",
+        defaultValue = 75f,
+        hapticStep = 10f,
+        accentColor = accentColor,
+        innerCardBorderColor = innerCardBorderColor,
+        innerCardShape = innerCardShape,
+        lomoFontFamily = lomoFontFamily,
+        onValueChange = { nextPct ->
+            onChangeLetterStretch((nextPct / 100f).coerceIn(0.10f, 1.00f))
         }
-        vib?.vibrate(effect)
+    ) { previewPct ->
+        val curS = (previewPct / 100f).coerceIn(0.10f, 1.00f)
+        val previewLetters = remember { listOf('E', 'F', 'G', 'H', 'I') }
+        val hoveredPreviewIdx = 2 // 'G'
+        val base96DpPx = with(density) { 96.dp.toPx() }
+        val barWidthPx = with(density) { 3.dp.toPx() }
+        val barHeightPx = with(density) { 34.dp.toPx() }
+        val railRightPadPx = with(density) { 16.dp.toPx() }
+        val letterWidthPx = with(density) { 16.dp.toPx() }
+        val barGapPx = with(density) { 5.dp.toPx() }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(126.dp)
+                .border(1.dp, Color(0x24FFFFFF), innerCardShape)
+                .background(Color.Black, innerCardShape),
+            contentAlignment = Alignment.CenterEnd
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val maxShiftPx = base96DpPx * curS
+                val waveShiftX = -maxShiftPx
+                val letterExtraLeftWidth = (letterWidthPx * 0.45f) * 1.4f
+                val railLeftEdgeX = size.width - railRightPadPx - letterWidthPx
+                val barX = railLeftEdgeX + waveShiftX - letterExtraLeftWidth - barGapPx - barWidthPx
+                val barTopY = (size.height - barHeightPx) * 0.5f
+
+                drawRoundRect(
+                    color = accentColor,
+                    topLeft = Offset(barX, barTopY),
+                    size = Size(barWidthPx, barHeightPx),
+                    cornerRadius = CornerRadius(barWidthPx * 0.5f, barWidthPx * 0.5f)
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .padding(end = 16.dp, top = 8.dp, bottom = 8.dp)
+                    .width(16.dp)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.SpaceEvenly,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                previewLetters.forEachIndexed { idx, ch ->
+                    val isG = idx == hoveredPreviewIdx
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .graphicsLayer {
+                                val maxShiftPx = base96DpPx * curS
+                                val sigma = 0.9f + 0.9f * curS
+                                val d = abs(idx - hoveredPreviewIdx).toFloat()
+                                val inf = exp(-(d * d) / (2f * sigma * sigma))
+                                translationX = -maxShiftPx * inf
+                                val sc = 1f + 1.4f * inf
+                                scaleX = sc
+                                scaleY = sc
+                                alpha = if (isG) 1f else (0.25f + 0.75f * inf).coerceIn(0.25f, 1f)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = ch.toString(),
+                            color = if (isG) accentColor else Color(0xFFEDEDED),
+                            fontSize = 11.sp,
+                            fontFamily = lomoFontFamily,
+                            fontWeight = if (isG) FontWeight.Bold else FontWeight.Normal,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Downscaled custom wallpaper loader or built-in colorful gradient sample for settings previews
+@Composable
+fun rememberSmallPreviewWallpaperBitmap(): ImageBitmap? {
+    val context = LocalContext.current
+    var bmp by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            try {
+                val file = File(context.filesDir, "user_custom_wallpaper.jpg")
+                if (file.exists()) {
+                    val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                    val decoded = BitmapFactory.decodeFile(file.absolutePath, opts)
+                    if (decoded != null) {
+                        bmp = decoded.asImageBitmap()
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
+    return bmp
+}
+
+@Composable
+fun WallpaperSampleBackdrop(
+    blurFraction: Float,
+    accentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    val density = LocalDensity.current
+    val customBitmap = rememberSmallPreviewWallpaperBitmap()
+    val maxBlurPx = with(density) { 26.dp.toPx() }
+
+    Canvas(
+        modifier = modifier.graphicsLayer {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && blurFraction > 0.01f) {
+                val r = (blurFraction.coerceIn(0f, 1f) * maxBlurPx).coerceAtLeast(1f)
+                renderEffect = AndroidRenderEffect.createBlurEffect(
+                    r,
+                    r,
+                    AndroidShader.TileMode.CLAMP
+                ).asComposeRenderEffect()
+            }
+        }
+    ) {
+        if (customBitmap != null) {
+            drawImage(
+                image = customBitmap,
+                dstOffset = IntOffset.Zero,
+                dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
+            )
+        } else {
+            // Built-in colorful multi-stop gradient + geometric orbs & grid so see-through and blur are clearly visible
+            drawRect(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFF1D3557),
+                        Color(0xFF6A1B4D),
+                        accentColor.copy(alpha = 0.85f),
+                        Color(0xFF0F766E)
+                    ),
+                    start = Offset.Zero,
+                    end = Offset(size.width, size.height)
+                ),
+                size = size
+            )
+            drawCircle(
+                color = Color(0xFFFFB703).copy(alpha = 0.55f),
+                radius = size.minDimension * 0.28f,
+                center = Offset(size.width * 0.26f, size.height * 0.36f)
+            )
+            drawCircle(
+                color = Color(0xFF00E5FF).copy(alpha = 0.50f),
+                radius = size.minDimension * 0.24f,
+                center = Offset(size.width * 0.74f, size.height * 0.64f)
+            )
+            val step = size.width / 8f
+            for (i in 1..7) {
+                val x = i * step
+                drawLine(
+                    color = Color.White.copy(alpha = 0.16f),
+                    start = Offset(x, 0f),
+                    end = Offset(x, size.height),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun LiveWallpaperTuningPreviewBox(
+    mode: String,
+    percentValue: Float,
+    accentColor: Color,
+    shape: RoundedCornerShape
+) {
+    val norm = (percentValue / 100f).coerceIn(0.25f, 2.2f)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(104.dp)
+            .clip(shape)
+            .border(1.dp, Color(0x24FFFFFF), shape)
+            .background(Color.Black, shape)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val cx = w * 0.5f
+            val cy = h * 0.5f
+            when (mode) {
+                "speed" -> {
+                    val streakLen = (14.dp.toPx() * norm).coerceIn(6f, w * 0.35f)
+                    val rows = 7
+                    for (i in 0 until rows) {
+                        val y = h * (0.16f + 0.68f * (i / (rows - 1f)))
+                        val xStart = w * (0.15f + ((i * 37) % 55) / 100f)
+                        drawLine(
+                            color = if (i % 2 == 0) accentColor else Color.White.copy(alpha = 0.75f),
+                            start = Offset(xStart, y),
+                            end = Offset((xStart + streakLen).coerceAtMost(w - 12f), y),
+                            strokeWidth = 2.dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
+                        drawCircle(
+                            color = Color.White,
+                            radius = 2.2.dp.toPx(),
+                            center = Offset((xStart + streakLen).coerceAtMost(w - 12f), y)
+                        )
+                    }
+                }
+                "density" -> {
+                    val count = (18 * norm).roundToInt().coerceIn(8, 36)
+                    for (i in 0 until count) {
+                        val fx = ((i * 73 + 19) % 92) / 100f
+                        val fy = ((i * 41 + 11) % 84) / 100f
+                        val x = w * (0.04f + fx * 0.92f)
+                        val y = h * (0.08f + fy * 0.84f)
+                        drawCircle(
+                            color = if (i % 4 == 0) accentColor else Color.White.copy(alpha = 0.82f),
+                            radius = if (i % 3 == 0) 2.2.dp.toPx() else 1.5.dp.toPx(),
+                            center = Offset(x, y)
+                        )
+                    }
+                }
+                "opacity" -> {
+                    val a = (0.45f * norm).coerceIn(0.18f, 1f)
+                    val r1 = h * 0.26f
+                    val r2 = h * 0.38f
+                    drawCircle(
+                        color = accentColor.copy(alpha = a),
+                        radius = r1,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 1.5.dp.toPx())
+                    )
+                    drawCircle(
+                        color = Color.White.copy(alpha = (a * 0.85f).coerceIn(0.12f, 1f)),
+                        radius = r2,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+                    drawCircle(
+                        color = accentColor.copy(alpha = a),
+                        radius = 4.dp.toPx(),
+                        center = Offset(cx + r1, cy)
+                    )
+                }
+                else -> {
+                    val sc = norm.coerceIn(0.65f, 1.5f)
+                    val rOuter = (h * 0.26f * sc).coerceAtMost(h * 0.44f)
+                    val rInner = (h * 0.14f * sc).coerceAtMost(h * 0.28f)
+                    drawCircle(
+                        color = accentColor.copy(alpha = 0.85f),
+                        radius = rOuter,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 1.5.dp.toPx())
+                    )
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.65f),
+                        radius = rInner,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+                    drawCircle(
+                        color = accentColor,
+                        radius = (3.5.dp.toPx() * sc).coerceIn(2f, 8f),
+                        center = Offset(cx + rOuter, cy)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsBackdropControlCard(
+    isDrawerPreview: Boolean = false,
+    settingsBgMode: String,
+    settingsBgIntensity: Int,
+    accentColor: Color,
+    innerCardBorderColor: Color = Color(0xFF282828),
+    innerCardShape: RoundedCornerShape = RoundedCornerShape(10.dp),
+    lomoFontFamily: FontFamily = FontFamily.Monospace,
+    onChangeMode: (String) -> Unit,
+    onChangeIntensity: (Int) -> Unit
+) {
+    val is80s = LocalRetro80sMode.current
+    val btnShape = RoundedCornerShape(if (is80s) 0.dp else 6.dp)
+
+    val modeDescription = if (isDrawerPreview) {
+        when (settingsBgMode) {
+            "transparent" -> "See-through. Your wallpaper shows behind the app list."
+            "blurry" -> "Your wallpaper shows behind the app list, softly blurred."
+            else -> "A solid dark background. Nothing behind the drawer shows through."
+        }
+    } else {
+        when (settingsBgMode) {
+            "transparent" -> "See-through. Your wallpaper shows behind the settings cards."
+            "blurry" -> "Your wallpaper shows behind the settings cards, softly blurred."
+            else -> "A solid dark background. Nothing behind the settings screen shows through."
+        }
+    }
+
+    val strengthDescription = if (isDrawerPreview) {
+        when (settingsBgMode) {
+            "transparent" -> "How dark the tint over your wallpaper is. Higher makes text easier to read."
+            "blurry" -> "How strong the blur is."
+            else -> "How dark and solid the background is."
+        }
+    } else {
+        when (settingsBgMode) {
+            "transparent" -> "How dark the tint over your wallpaper is. Higher makes settings text easier to read."
+            "blurry" -> "How strong the blur behind the settings screen is."
+            else -> "How dark and solid the settings background is."
+        }
     }
 
     Column(
@@ -9572,198 +10266,239 @@ fun LetterStretchSettingCard(
             .border(1.dp, innerCardBorderColor, innerCardShape)
             .background(Color.Black, innerCardShape)
             .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Header row: Label + Percentage + tiny Reset button
+        // Mode buttons section: "Background style"
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Letter stretch",
+                text = "Background style",
                 color = Color.White,
                 fontSize = 12.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold
             )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Text(
+                text = settingsBgMode.uppercase(Locale.US),
+                color = accentColor,
+                fontSize = 10.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            listOf(
+                "opaque" to "OPAQUE",
+                "transparent" to "TRANSPARENT",
+                "blurry" to "BLURRY"
+            ).forEach { (modeId, modeLabel) ->
+                val selected = settingsBgMode == modeId
                 Text(
-                    text = "${pct}%",
-                    color = sliderOrange,
-                    fontSize = 11.sp,
+                    text = modeLabel,
+                    color = if (selected) Color.Black else if (is80s) accentColor else Color.White,
+                    fontSize = 9.sp,
                     fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Reset",
-                    color = if (pct == 75) Color(0xFF555555) else Color(0xFFEDEDED),
-                    fontSize = 10.sp,
-                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
                     modifier = Modifier
-                        .clickable {
-                            if (abs(currentS - 0.75f) > 0.004f) {
-                                fireDecileTick()
-                                currentOnChange(0.75f)
-                            }
-                        }
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                        .weight(1f)
+                        .border(
+                            1.dp,
+                            if (selected) accentColor else if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF262626),
+                            btnShape
+                        )
+                        .background(
+                            if (selected) accentColor else if (is80s) Color(0xFF0A0A0A) else Color(0xFF141414),
+                            btnShape
+                        )
+                        .clickable { onChangeMode(modeId) }
+                        .padding(vertical = 6.dp)
                 )
             }
         }
 
-        // Helper line under the label
+        // Dynamic one-line description under the mode buttons
         Text(
-            text = "How far the letters bend out while you slide your thumb",
+            text = modeDescription,
             color = Color(0xFF8A8A8A),
             fontSize = 9.sp,
             fontFamily = lomoFontFamily
         )
 
-        // Minimal Slider: 2dp track in white at 20% opacity, filled part & small round thumb in #FF4A1C orange, 10% haptic tick
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(26.dp)
-                .pointerInput(Unit) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        down.consume()
-                        isDraggingSlider = true
-                        val w = size.width.toFloat().coerceAtLeast(1f)
-                        val initFrac = (down.position.x / w).coerceIn(0f, 1f)
-                        val initS = (0.10f + initFrac * 0.90f).coerceIn(0.10f, 1.00f)
-                        var lastDecile = (initS * 10f).roundToInt()
-                        currentOnChange(initS)
+                .height(1.dp)
+                .background(Color(0x1AFFFFFF))
+        )
 
-                        do {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull()
-                            if (change != null && change.pressed) {
-                                change.consume()
-                                val curW = size.width.toFloat().coerceAtLeast(1f)
-                                val frac = (change.position.x / curW).coerceIn(0f, 1f)
-                                val nextS = (0.10f + frac * 0.90f).coerceIn(0.10f, 1.00f)
-                                val nextDecile = (nextS * 10f).roundToInt()
-                                if (nextDecile != lastDecile) {
-                                    lastDecile = nextDecile
-                                    fireDecileTick()
-                                }
-                                currentOnChange(nextS)
-                            }
-                        } while (event.changes.any { it.pressed })
-
-                        isDraggingSlider = false
-                    }
-                },
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val trackH = 2.dp.toPx()
-                val thumbRadius = 5.5.dp.toPx()
-                val usableW = (size.width - thumbRadius * 2f).coerceAtLeast(1f)
-                val norm = ((currentS - 0.10f) / 0.90f).coerceIn(0f, 1f)
-                val thumbX = thumbRadius + norm * usableW
-                val centerY = size.height * 0.5f
-
-                // Unfilled 2dp track: white at 20% opacity
-                drawRect(
-                    color = Color(0x33FFFFFF),
-                    topLeft = Offset(thumbRadius, centerY - trackH * 0.5f),
-                    size = Size(usableW, trackH)
-                )
-                // Filled 2dp track in orange #FF4A1C
-                if (thumbX > thumbRadius) {
-                    drawRect(
-                        color = sliderOrange,
-                        topLeft = Offset(thumbRadius, centerY - trackH * 0.5f),
-                        size = Size(thumbX - thumbRadius, trackH)
-                    )
+        // Unified slider for "Style strength" (range 15-100%, default 65%) with live mini-drawer / mini-settings preview
+        NocturnaaSettingSlider(
+            title = "Style strength",
+            description = strengthDescription,
+            value = settingsBgIntensity.coerceIn(15, 100).toFloat(),
+            valueRange = 15f..100f,
+            step = 1f,
+            unit = "%",
+            defaultValue = 65f,
+            hapticStep = 10f,
+            accentColor = accentColor,
+            innerCardBorderColor = innerCardBorderColor,
+            innerCardShape = innerCardShape,
+            lomoFontFamily = lomoFontFamily,
+            presetChips = listOf(15f to "15%", 35f to "35%", 50f to "50%", 70f to "70%", 85f to "85%", 100f to "100%"),
+            embedInCard = false,
+            onValueChange = { nextVal ->
+                val nextPct = nextVal.roundToInt().coerceIn(15, 100)
+                if (nextPct != settingsBgIntensity) {
+                    onChangeIntensity(nextPct)
                 }
-                // Small round thumb in orange #FF4A1C
-                drawCircle(
-                    color = sliderOrange,
-                    radius = thumbRadius,
-                    center = Offset(thumbX, centerY)
-                )
             }
-        }
-
-        // Live non-interactive preview (letters E to I with G hovered), shown and redrawn ONLY while dragging the slider
-        if (isDraggingSlider) {
-            val previewLetters = remember { listOf('E', 'F', 'G', 'H', 'I') }
-            val hoveredPreviewIdx = 2 // 'G'
-            val base96DpPx = with(density) { 96.dp.toPx() }
-            val barWidthPx = with(density) { 3.dp.toPx() }
-            val barHeightPx = with(density) { 34.dp.toPx() }
-            val railRightPadPx = with(density) { 16.dp.toPx() }
-            val letterWidthPx = with(density) { 16.dp.toPx() }
-            val barGapPx = with(density) { 5.dp.toPx() }
+        ) { previewStrengthPct ->
+            val norm = (previewStrengthPct.coerceIn(15f, 100f) / 100f)
+            val blurFrac = if (settingsBgMode == "blurry") norm else 0f
+            val overlayColor = when (settingsBgMode) {
+                "transparent" -> Color.Black.copy(alpha = (norm * 0.88f).coerceIn(0.12f, 0.90f))
+                "blurry" -> Color(0xFF050505).copy(alpha = 0.52f)
+                else -> Color.Black.copy(alpha = (0.75f + norm * 0.25f).coerceIn(0.78f, 1.0f))
+            }
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(126.dp)
+                    .height(140.dp)
+                    .clip(innerCardShape)
                     .border(1.dp, Color(0x24FFFFFF), innerCardShape)
-                    .background(Color.Black, innerCardShape),
-                contentAlignment = Alignment.CenterEnd
             ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val curS = currentS
-                    val maxShiftPx = base96DpPx * curS
-                    val waveShiftX = -maxShiftPx // influence = 1.0 at hovered G
-                    val letterExtraLeftWidth = (letterWidthPx * 0.45f) * 1.4f
-                    val railLeftEdgeX = size.width - railRightPadPx - letterWidthPx
-                    val barX = railLeftEdgeX + waveShiftX - letterExtraLeftWidth - barGapPx - barWidthPx
-                    val barTopY = (size.height - barHeightPx) * 0.5f
-
-                    drawRoundRect(
-                        color = sliderOrange,
-                        topLeft = Offset(barX, barTopY),
-                        size = Size(barWidthPx, barHeightPx),
-                        cornerRadius = CornerRadius(barWidthPx * 0.5f, barWidthPx * 0.5f)
-                    )
-                }
-
-                Column(
+                WallpaperSampleBackdrop(
+                    blurFraction = blurFrac,
+                    accentColor = accentColor,
+                    modifier = Modifier.fillMaxSize()
+                )
+                Box(
                     modifier = Modifier
-                        .padding(end = 16.dp, top = 8.dp, bottom = 8.dp)
-                        .width(16.dp)
-                        .fillMaxHeight(),
-                    verticalArrangement = Arrangement.SpaceEvenly,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    previewLetters.forEachIndexed { idx, ch ->
-                        val isG = idx == hoveredPreviewIdx
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .graphicsLayer {
-                                    val curS = currentS
-                                    val maxShiftPx = base96DpPx * curS
-                                    val sigma = 0.9f + 0.9f * curS
-                                    val d = abs(idx - hoveredPreviewIdx).toFloat()
-                                    val inf = exp(-(d * d) / (2f * sigma * sigma))
-                                    translationX = -maxShiftPx * inf
-                                    val sc = 1f + 1.4f * inf
-                                    scaleX = sc
-                                    scaleY = sc
-                                    alpha = if (isG) 1f else (0.25f + 0.75f * inf).coerceIn(0.25f, 1f)
-                                },
-                            contentAlignment = Alignment.Center
+                        .fillMaxSize()
+                        .background(overlayColor)
+                )
+
+                if (isDrawerPreview) {
+                    // Mini App Drawer preview with 3 sample app rows
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = ch.toString(),
-                                color = if (isG) sliderOrange else Color(0xFFEDEDED),
-                                fontSize = 11.sp,
+                                text = "M",
+                                color = Color.White,
+                                fontSize = 15.sp,
                                 fontFamily = lomoFontFamily,
-                                fontWeight = if (isG) FontWeight.Bold else FontWeight.Normal,
-                                textAlign = TextAlign.Center
+                                fontWeight = FontWeight.Bold
                             )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(1.dp)
+                                    .background(Color(0x24FFFFFF))
+                            )
+                        }
+                        listOf("Maps" to false, "Messages" to true, "Phone" to true).forEach { (appName, fav) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = appName,
+                                    color = Color(0xFFEDEDED),
+                                    fontSize = 13.sp,
+                                    fontFamily = lomoFontFamily
+                                )
+                                if (fav) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "★",
+                                        color = accentColor,
+                                        fontSize = 10.sp,
+                                        fontFamily = lomoFontFamily
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Mini Settings Screen preview (Header "Settings" + two small rows with ON/OFF pills)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Settings",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontFamily = lomoFontFamily,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "DONE",
+                                color = Color.Black,
+                                fontSize = 8.sp,
+                                fontFamily = lomoFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .background(Color.White, btnShape)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+
+                        listOf("Hide Android Status Bar" to "ON", "Old School Mode" to "OFF").forEach { (rowTitle, pillTxt) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, Color(0xFF282828), btnShape)
+                                    .background(Color(0xFF070707).copy(alpha = 0.85f), btnShape)
+                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = rowTitle,
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontFamily = lomoFontFamily
+                                )
+                                Text(
+                                    text = pillTxt,
+                                    color = Color.Black,
+                                    fontSize = 8.sp,
+                                    fontFamily = lomoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .background(Color.White, RoundedCornerShape(if (is80s) 0.dp else 4.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -9813,7 +10548,6 @@ fun CollapsibleSubSection(
                 style = subGlowStyle,
                 modifier = Modifier.weight(1f).padding(end = 8.dp)
             )
-            // Only the small theme-specific expand/collapse icon shows on the right
             val subArrowRot by animateFloatAsState(
                 targetValue = if (expanded) 90f else 0f,
                 animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
@@ -9859,230 +10593,6 @@ fun CollapsibleSubSection(
                         .background(if (is80s) accentColor.copy(alpha = 0.4f) else Color(0xFF1A1A1A))
                 )
                 content()
-            }
-        }
-    }
-}
-
-@Composable
-fun MinimalistSliderRow(
-    label: String,
-    valueText: String,
-    fraction: Float,
-    accentColor: Color,
-    lomoFontFamily: FontFamily = FontFamily.Monospace,
-    onFractionChange: (Float) -> Unit
-) {
-    val is80s = LocalRetro80sMode.current
-    val currentOnChange by rememberUpdatedState(onFractionChange)
-    val clamped = fraction.coerceIn(0f, 1f)
-
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = label,
-                color = if (is80s) accentColor else Color(0xFF9E9E9E),
-                fontSize = 9.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = valueText,
-                color = accentColor,
-                fontSize = 10.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(26.dp)
-                .pointerInput(Unit) {
-                    detectTapGestures { offset ->
-                        val w = size.width.toFloat().coerceAtLeast(1f)
-                        currentOnChange((offset.x / w).coerceIn(0f, 1f))
-                    }
-                }
-                .pointerInput(Unit) {
-                    detectHorizontalDragGestures { change, _ ->
-                        change.consume()
-                        val w = size.width.toFloat().coerceAtLeast(1f)
-                        currentOnChange((change.position.x / w).coerceIn(0f, 1f))
-                    }
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val trackH = if (is80s) 6.dp.toPx() else 4.dp.toPx()
-                val cy = size.height * 0.5f
-                val thumbX = (clamped * size.width).coerceIn(6.dp.toPx(), size.width - 6.dp.toPx())
-                val cornerR = if (is80s) CornerRadius.Zero else CornerRadius(trackH * 0.5f, trackH * 0.5f)
-
-                drawRoundRect(
-                    color = if (is80s) Color(0xFF0A0A0A) else Color(0xFF222222),
-                    topLeft = Offset(0f, cy - trackH * 0.5f),
-                    size = Size(size.width, trackH),
-                    cornerRadius = cornerR
-                )
-                if (is80s) {
-                    drawRect(
-                        color = accentColor.copy(alpha = 0.5f),
-                        topLeft = Offset(0f, cy - trackH * 0.5f),
-                        size = Size(size.width, trackH),
-                        style = Stroke(width = 1.dp.toPx())
-                    )
-                }
-                drawRoundRect(
-                    color = accentColor,
-                    topLeft = Offset(0f, cy - trackH * 0.5f),
-                    size = Size(thumbX, trackH),
-                    cornerRadius = cornerR
-                )
-                val thumbSize = 12.dp.toPx()
-                drawRect(
-                    color = Color.Black,
-                    topLeft = Offset(thumbX - thumbSize * 0.5f, cy - thumbSize * 0.5f),
-                    size = Size(thumbSize, thumbSize)
-                )
-                drawRect(
-                    color = accentColor,
-                    topLeft = Offset(thumbX - thumbSize * 0.5f, cy - thumbSize * 0.5f),
-                    size = Size(thumbSize, thumbSize),
-                    style = Stroke(width = 1.5.dp.toPx())
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun SettingsBackdropControlCard(
-    cardTitle: String = "SETTINGS BACKGROUND",
-    settingsBgMode: String,
-    settingsBgIntensity: Int,
-    accentColor: Color,
-    lomoFontFamily: FontFamily = FontFamily.Monospace,
-    onChangeMode: (String) -> Unit,
-    onChangeIntensity: (Int) -> Unit
-) {
-    val is80s = LocalRetro80sMode.current
-    val cardShape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
-    val btnShape = RoundedCornerShape(if (is80s) 0.dp else 6.dp)
-    val pctShape = RoundedCornerShape(if (is80s) 0.dp else 5.dp)
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, if (is80s) accentColor.copy(alpha = 0.75f) else Color(0xFF282828), cardShape)
-            .background(Color(0xFF070707).copy(alpha = 0.82f), cardShape)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = cardTitle,
-                color = if (is80s) accentColor else Color(0xFF9E9E9E),
-                fontSize = 9.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = settingsBgMode.uppercase(Locale.US),
-                color = accentColor,
-                fontSize = 9.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            listOf(
-                "opaque" to "OPAQUE",
-                "transparent" to "TRANSPARENT",
-                "blurry" to "BLURRY"
-            ).forEach { (modeId, modeLabel) ->
-                val selected = settingsBgMode == modeId
-                Text(
-                    text = modeLabel,
-                    color = if (selected) Color.Black else if (is80s) accentColor else Color.White,
-                    fontSize = 9.sp,
-                    fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .weight(1f)
-                        .border(
-                            1.dp,
-                            if (selected) accentColor else if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF262626),
-                            btnShape
-                        )
-                        .background(
-                            if (selected) accentColor else if (is80s) Color(0xFF0A0A0A) else Color(0xFF141414),
-                            btnShape
-                        )
-                        .clickable { onChangeMode(modeId) }
-                        .padding(vertical = 6.dp)
-                )
-            }
-        }
-
-        val sliderLabel = when (settingsBgMode) {
-            "transparent" -> "TRANSPARENCY"
-            "blurry" -> "BLUR INTENSITY"
-            else -> "INTENSITY"
-        }
-
-        MinimalistSliderRow(
-            label = sliderLabel,
-            valueText = "${settingsBgIntensity}%",
-            fraction = (settingsBgIntensity / 100f).coerceIn(0f, 1f),
-            accentColor = accentColor,
-            lomoFontFamily = lomoFontFamily,
-            onFractionChange = { frac ->
-                val nextVal = (frac * 100f).roundToInt().coerceIn(0, 100)
-                if (nextVal != settingsBgIntensity) {
-                    onChangeIntensity(nextVal)
-                }
-            }
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            listOf(15, 35, 50, 70, 85, 100).forEach { pctVal ->
-                val sel = settingsBgIntensity == pctVal
-                Text(
-                    text = "${pctVal}%",
-                    color = if (sel) Color.Black else if (is80s) accentColor else Color(0xFFD4D4D4),
-                    fontSize = 8.sp,
-                    fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .weight(1f)
-                        .border(
-                            1.dp,
-                            if (sel) accentColor else if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
-                            pctShape
-                        )
-                        .background(if (sel) accentColor else if (is80s) Color(0xFF0A0A0A) else Color(0xFF151515), pctShape)
-                        .clickable { onChangeIntensity(pctVal) }
-                        .padding(vertical = 4.dp)
-                )
             }
         }
     }
@@ -10147,7 +10657,6 @@ fun CollapsibleSettingsSection(
                     modifier = Modifier.weight(1f)
                 )
             }
-            // Only the small theme-specific icon shows on the right
             val secArrowRot by animateFloatAsState(
                 targetValue = if (expanded) 90f else 0f,
                 animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
@@ -10239,74 +10748,6 @@ fun SettingCard(
                 .background(if (is80s) thCol else Color.White, RoundedCornerShape(if (is80s) 0.dp else 6.dp))
                 .padding(horizontal = 9.dp, vertical = 5.dp)
         )
-    }
-}
-
-// ============================================================================
-// INTERACTIVE WALLPAPER TUNING ROW COMPOSABLE
-// ============================================================================
-@Composable
-fun WallpaperTuningRow(
-    label: String,
-    currentValue: Float,
-    options: List<Pair<Float, String>>,
-    accentColor: Color,
-    lomoFontFamily: FontFamily = FontFamily.Monospace,
-    onSelect: (Float) -> Unit
-) {
-    val is80s = LocalRetro80sMode.current
-    val btnShape = RoundedCornerShape(if (is80s) 0.dp else 5.dp)
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = label,
-                color = if (is80s) accentColor else Color(0xFF9E9E9E),
-                fontSize = 8.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold
-            )
-            val activeLabel = options.minByOrNull { abs(it.first - currentValue) }?.second ?: "${currentValue}x"
-            Text(
-                text = activeLabel,
-                color = accentColor,
-                fontSize = 8.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
-        ) {
-            options.forEach { (value, textLabel) ->
-                val selected = abs(currentValue - value) < 0.04f
-                Text(
-                    text = textLabel,
-                    color = if (selected) Color.Black else if (is80s) accentColor else Color(0xFFD4D4D4),
-                    fontSize = 8.sp,
-                    fontFamily = lomoFontFamily,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .weight(1f)
-                        .border(
-                            1.dp,
-                            if (selected) accentColor else if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
-                            btnShape
-                        )
-                        .background(
-                            if (selected) accentColor else if (is80s) Color(0xFF0A0A0A) else Color(0xFF121212),
-                            btnShape
-                        )
-                        .clickable { onSelect(value) }
-                        .padding(vertical = 4.dp)
-                )
-            }
-        }
     }
 }
 
