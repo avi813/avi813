@@ -7563,103 +7563,179 @@ fun AppDrawerView(
         else -> Color.Black
     }
 
+    val is80sDrawer = LocalRetro80sMode.current
+    // Visual Target: Single orange accent #FF4A1C in regular mode (or user custom accent if changed from default #FF3B00)
+    val drawerAccent = if (is80sDrawer) {
+        accentColor
+    } else if (accentColor == Color(0xFFFF3B00)) {
+        Color(0xFFFF4A1C)
+    } else {
+        accentColor
+    }
+
+    // Pre-compute section start indexes and nearest available section mapping once whenever filteredApps changes
+    val (hasAppsForLetter, nearestSectionAppIndex) = remember(filteredApps) {
+        val exactStart = IntArray(26) { -1 }
+        for (i in filteredApps.indices) {
+            val ch = filteredApps[i].firstLetter.uppercaseChar()
+            if (ch in 'A'..'Z') {
+                val lIdx = ch - 'A'
+                if (exactStart[lIdx] == -1) {
+                    exactStart[lIdx] = i
+                }
+            }
+        }
+        val hasApps = BooleanArray(26) { exactStart[it] >= 0 }
+        val nearest = IntArray(26) { -1 }
+        if (filteredApps.isNotEmpty()) {
+            for (i in 0..25) {
+                if (exactStart[i] >= 0) {
+                    nearest[i] = exactStart[i]
+                } else {
+                    var bestDist = 999
+                    var bestAppIdx = 0
+                    for (j in 0..25) {
+                        if (exactStart[j] >= 0) {
+                            val d = abs(j - i)
+                            if (d < bestDist) {
+                                bestDist = d
+                                bestAppIdx = exactStart[j]
+                            }
+                        }
+                    }
+                    nearest[i] = bestAppIdx
+                }
+            }
+        }
+        hasApps to nearest
+    }
+
+    val activeSectionIndex by remember(filteredApps) {
+        derivedStateOf {
+            val idx = listState.firstVisibleItemIndex.coerceIn(0, (filteredApps.size - 1).coerceAtLeast(0))
+            val ch = filteredApps.getOrNull(idx)?.firstLetter?.uppercaseChar() ?: 'A'
+            if (ch in 'A'..'Z') (ch - 'A') else 0
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(drawerRootBgColor)
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+            .windowInsetsPadding(
+                WindowInsets.statusBars.union(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+            )
             .windowInsetsPadding(WindowInsets.navigationBars)
             .nestedScroll(drawerNestedScroll)
-            .padding(horizontal = 20.dp, vertical = 10.dp)
+            .padding(start = 20.dp, top = 10.dp, bottom = 10.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            val is80sDrawer = LocalRetro80sMode.current
-            // Search Input Bar
-            Row(
+            // Floating Search Bar Pill with orange "/" and thin orange gradient line underneath
+            val searchShape = RoundedCornerShape(if (is80sDrawer) 0.dp else 24.dp)
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(end = 20.dp)
                     .border(
-                        if (is80sDrawer) 1.4.dp else 1.dp,
-                        if (is80sDrawer) accentColor else Color(0xFF262626),
-                        RoundedCornerShape(if (is80sDrawer) 0.dp else 8.dp)
+                        width = if (is80sDrawer) 1.4.dp else 1.dp,
+                        color = if (is80sDrawer) drawerAccent else Color(0xFF242424),
+                        shape = searchShape
                     )
-                    .background(Color(0xFF080808), RoundedCornerShape(if (is80sDrawer) 0.dp else 8.dp))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .background(Color(0xFF0A0A0A), searchShape)
             ) {
-                Text(
-                    text = if (is80sDrawer) "> " else "/ ",
-                    color = accentColor,
-                    fontSize = if (is80sDrawer) 11.sp else 13.sp,
-                    fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold
-                )
-                BasicTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    singleLine = true,
-                    textStyle = TextStyle(
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontFamily = lomoFontFamily
-                    ),
-                    cursorBrush = SolidColor(accentColor),
-                    enabled = isDrawerOpenNow,
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .focusProperties { canFocus = isDrawerOpenNow }
-                        .focusRequester(searchFocusRequester),
-                    decorationBox = { inner ->
-                        if (query.isEmpty()) {
-                            Text(
-                                text = "Search apps...",
-                                color = Color(0xFF525252),
-                                fontSize = 12.sp,
-                                fontFamily = lomoFontFamily
-                            )
-                        }
-                        inner()
-                    }
-                )
-                if (query.isNotEmpty()) {
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = "×",
-                        color = Color(0xFF8A8A8A),
+                        text = if (is80sDrawer) "> " else "/ ",
+                        color = drawerAccent,
                         fontSize = 15.sp,
                         fontFamily = lomoFontFamily,
-                        modifier = Modifier
-                            .clickable {
-                                query = ""
-                                focusManager.clearFocus()
-                                keyboardController?.hide()
-                            }
-                            .padding(horizontal = 4.dp)
+                        fontWeight = FontWeight.Bold
                     )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    BasicTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            color = Color(0xFFEDEDED),
+                            fontSize = 14.sp,
+                            fontFamily = lomoFontFamily
+                        ),
+                        cursorBrush = SolidColor(drawerAccent),
+                        enabled = isDrawerOpenNow,
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusProperties { canFocus = isDrawerOpenNow }
+                            .focusRequester(searchFocusRequester),
+                        decorationBox = { inner ->
+                            if (query.isEmpty()) {
+                                Text(
+                                    text = "Search apps...",
+                                    color = Color(0xFF666666),
+                                    fontSize = 13.sp,
+                                    fontFamily = lomoFontFamily
+                                )
+                            }
+                            inner()
+                        }
+                    )
+                    if (query.isNotEmpty()) {
+                        Text(
+                            text = "×",
+                            color = Color(0xFF8A8A8A),
+                            fontSize = 15.sp,
+                            fontFamily = lomoFontFamily,
+                            modifier = Modifier
+                                .clickable {
+                                    query = ""
+                                    focusManager.clearFocus()
+                                    keyboardController?.hide()
+                                }
+                                .padding(horizontal = 4.dp)
+                        )
+                    }
                 }
+                // Thin orange line under the floating search pill that fades at the edges
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = if (is80sDrawer) 0.dp else 20.dp)
+                        .height(1.dp)
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    drawerAccent.copy(alpha = 0.85f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            val headerFontSp = (drawerTextSizeSp * 0.68f).coerceIn(10f, 16f).sp
-            val starFontSp = (drawerTextSizeSp * 0.65f).coerceIn(9f, 15f).sp
-            val currentVisibleLetter by remember(filteredApps) {
-                derivedStateOf {
-                    val idx = listState.firstVisibleItemIndex.coerceIn(0, (filteredApps.size - 1).coerceAtLeast(0))
-                    filteredApps.getOrNull(idx)?.firstLetter ?: 'A'
-                }
-            }
+            val headerFontSp = (drawerTextSizeSp * 1.15f).coerceIn(18f, 24f).sp
+            val starFontSp = (drawerTextSizeSp * 0.65f).coerceIn(10f, 14f).sp
 
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                // Ultra-clean 120Hz LazyColumn:
-                // Only one horizontal line per first-letter group (inline with the letter header like the reference image)
-                // and NO horizontal lines after individual apps!
+                // Text-Only App Rows:
+                // - No icons, no row background/highlight/gradient/glow
+                // - Large white pixel section letters with a thin orange line fading out to the right
+                // - App names off-white, indented ~12dp, generous ~52dp row spacing, alpha-only pressed feedback
+                // - 24dp gap between section lines and the alphabet sidebar (4dp end padding + 20dp sidebar inner lead)
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight(),
-                    contentPadding = PaddingValues(top = 4.dp, bottom = 20.dp, end = 8.dp)
+                    contentPadding = PaddingValues(top = 6.dp, bottom = 24.dp, end = 4.dp)
                 ) {
                     itemsIndexed(
                         items = filteredApps,
@@ -7680,30 +7756,47 @@ fun AppDrawerView(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(top = if (index == 0) 6.dp else 16.dp, bottom = 6.dp),
+                                        .padding(top = if (index == 0) 6.dp else 18.dp, bottom = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
                                         text = app.firstLetter.toString(),
-                                        color = if (is80sDrawer) accentColor else Color(0xFFD4D4D4),
+                                        color = if (is80sDrawer) drawerAccent else Color.White,
                                         fontSize = headerFontSp,
                                         fontFamily = lomoFontFamily,
                                         fontWeight = FontWeight.Bold
                                     )
-                                    Spacer(modifier = Modifier.width(14.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
                                             .height(1.dp)
-                                            .background(if (is80sDrawer) accentColor.copy(alpha = 0.35f) else Color(0xFF262626))
+                                            .background(
+                                                Brush.horizontalGradient(
+                                                    colors = listOf(
+                                                        drawerAccent.copy(alpha = 0.85f),
+                                                        drawerAccent.copy(alpha = 0.25f),
+                                                        Color.Transparent
+                                                    )
+                                                )
+                                            )
                                     )
                                 }
                             }
 
+                            val rowInteraction = remember { MutableInteractionSource() }
+                            val isRowPressed by rowInteraction.collectIsPressedAsState()
+
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .height(52.dp)
+                                    .graphicsLayer {
+                                        alpha = if (isRowPressed) 0.62f else 1f
+                                    }
                                     .combinedClickable(
+                                        interactionSource = rowInteraction,
+                                        indication = null,
                                         onClick = {
                                             query = ""
                                             focusManager.clearFocus(force = true)
@@ -7712,61 +7805,48 @@ fun AppDrawerView(
                                         },
                                         onLongClick = { onLongPressApp(app) }
                                     )
-                                    .padding(start = 16.dp, end = 4.dp, top = 9.dp, bottom = 9.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
+                                    .padding(start = 12.dp, end = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier.weight(1f),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
+                                Text(
+                                    text = displayLabel,
+                                    color = Color(0xFFEDEDED),
+                                    fontSize = drawerTextSizeSp.sp,
+                                    fontFamily = selectedFont,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (app.isPinned) {
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = displayLabel,
-                                        color = Color(0xFFF5F5F5),
-                                        fontSize = drawerTextSizeSp.sp,
-                                        fontFamily = selectedFont,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        text = "★",
+                                        color = drawerAccent,
+                                        fontSize = starFontSp,
+                                        fontFamily = lomoFontFamily
                                     )
-                                    if (app.isPinned) {
-                                        Text(
-                                            text = "★",
-                                            color = accentColor,
-                                            fontSize = starFontSp,
-                                            fontFamily = lomoFontFamily
-                                        )
-                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                // Redesigned Vertical A-Z Pill Scrubber Rail:
-                // Encloses the active/hovered alphabet in a rounded-rectangle pill that smoothly enlarges on hover
-                // with a faint shade of the current accentColor, replacing the old floating indicator box.
+                // Niagara-Style Fluid Wave Alphabet Sidebar + Velocity-Stretching Small Orange Bar
                 AlphabetScrubberRail(
-                    accentColor = accentColor,
-                    currentVisibleLetter = currentVisibleLetter,
-                    waveScrubMode = waveScrubMode,
-                    drawerWaveIntensity = drawerWaveIntensity,
+                    accentColor = drawerAccent,
+                    activeSectionIndex = activeSectionIndex,
+                    hasAppsForLetter = hasAppsForLetter,
                     lomoFontFamily = lomoFontFamily,
-                    onSelectLetter = { chosenLetter ->
-                        onWaveTick()
-                        if (filteredApps.isNotEmpty()) {
-                            val exactIdx = filteredApps.indexOfFirst { it.firstLetter == chosenLetter }
-                            val targetIdx = if (exactIdx >= 0) {
-                                exactIdx
-                            } else {
-                                val nextIdx = filteredApps.indexOfFirst { it.firstLetter >= chosenLetter }
-                                if (nextIdx >= 0) nextIdx else filteredApps.lastIndex
-                            }
-                            scope.launch {
-                                listState.scrollToItem(targetIdx, scrollOffset = 0)
+                    onSelectLetterIndex = { letterIdx ->
+                        if (filteredApps.isNotEmpty() && letterIdx in 0..25) {
+                            val targetAppIdx = nearestSectionAppIndex[letterIdx]
+                            if (targetAppIdx >= 0) {
+                                scope.launch {
+                                    listState.scrollToItem(targetAppIdx, scrollOffset = 0)
+                                }
                             }
                         }
-                    }
+                    },
+                    onHapticTick = onWaveTick
                 )
             }
         }
@@ -7776,177 +7856,245 @@ fun AppDrawerView(
 @Composable
 private fun AlphabetScrubberRail(
     accentColor: Color,
-    currentVisibleLetter: Char,
-    waveScrubMode: String,
-    drawerWaveIntensity: Float,
+    activeSectionIndex: Int,
+    hasAppsForLetter: BooleanArray,
     lomoFontFamily: FontFamily,
-    onSelectLetter: (Char) -> Unit
+    onSelectLetterIndex: (Int) -> Unit,
+    onHapticTick: () -> Unit
 ) {
     val density = LocalDensity.current
-    val is80sRail = LocalRetro80sMode.current
+    val scope = rememberCoroutineScope()
     val letters = remember { ('A'..'Z').toList() }
-    var railHeightPx by remember { mutableStateOf(1f) }
-    var scrubLocalY by remember { mutableStateOf<Float?>(null) }
-    var activeLetter by remember { mutableStateOf<Char?>(null) }
-    val currentOnSelect by rememberUpdatedState(onSelectLetter)
+    val currentOnSelectIndex by rememberUpdatedState(onSelectLetterIndex)
+    val currentOnHapticTick by rememberUpdatedState(onHapticTick)
 
-    val effectiveWaveMult = if (waveScrubMode == "off") 0f else drawerWaveIntensity.coerceIn(0f, 2.0f)
-    val letterWaveRadiusPx = with(density) { (65.dp + 55.dp * effectiveWaveMult).toPx() }
-    val maxLetterShiftPx = with(density) { (18.dp * effectiveWaveMult).toPx() }
+    var stripHeightPx by remember { mutableStateOf(1f) }
+    var isTouching by remember { mutableStateOf(false) }
+    var hoveredIndex by remember { mutableStateOf(-1) }
 
-    fun updateScrubFromLocalY(localY: Float, currentRailHeight: Float) {
-        val validHeight = currentRailHeight.coerceAtLeast(1f)
-        railHeightPx = validHeight
-        val clampedLocalY = localY.coerceIn(0f, validHeight)
-        scrubLocalY = clampedLocalY
+    // Animatable states read strictly inside graphicsLayer and Canvas (Draw phase) -> 0 recompositions per frame!
+    val smoothFAnim = remember { Animatable(activeSectionIndex.toFloat()) }
+    val engagementAnim = remember { Animatable(0f) }
+    val barPosAnim = remember { Animatable(activeSectionIndex.toFloat()) }
+    val velocityStretchPxAnim = remember { Animatable(0f) }
 
-        val floatIdx = ((clampedLocalY / validHeight) * letters.size).coerceIn(0f, (letters.size - 1).toFloat())
-        val idx = floatIdx.toInt().coerceIn(0, letters.lastIndex)
-        val chosenLetter = letters[idx]
+    val maxWaveShiftPx = with(density) { 72.dp.toPx() }
+    val barIdleWidthPx = with(density) { 2.dp.toPx() }
+    val barTouchExtraWidthPx = with(density) { 1.dp.toPx() }
+    val barIdleHeightPx = with(density) { 14.dp.toPx() }
+    val barTouchExtraHeightPx = with(density) { 20.dp.toPx() }
+    val maxVelocityStretchPx = with(density) { 16.dp.toPx() }
+    val rightMarginPx = with(density) { 20.dp.toPx() }
+    val letterRailWidthPx = with(density) { 16.dp.toPx() }
+    val barGapFromLetterPx = with(density) { 5.dp.toPx() }
 
-        if (activeLetter != chosenLetter) {
-            activeLetter = chosenLetter
-            currentOnSelect(chosenLetter)
+    // Idle section glide: whenever activeSectionIndex changes while not touching, glide the orange bar with a spring
+    LaunchedEffect(activeSectionIndex, isTouching) {
+        if (!isTouching) {
+            barPosAnim.animateTo(
+                targetValue = activeSectionIndex.toFloat(),
+                animationSpec = spring(dampingRatio = 0.75f, stiffness = 500f)
+            )
+            smoothFAnim.snapTo(activeSectionIndex.toFloat())
         }
     }
 
-    val isHoveringRail = activeLetter != null && scrubLocalY != null
-    val highlightedLetter = activeLetter ?: currentVisibleLetter
-
-    Column(
+    // 56dp wide invisible thumb touch strip on the right edge (letters sit at 20dp right margin, leaving 24dp gap to section lines)
+    Box(
         modifier = Modifier
-            .width(38.dp)
+            .width(56.dp)
             .fillMaxHeight()
-            .padding(vertical = 4.dp)
             .onGloballyPositioned { coords ->
-                railHeightPx = coords.size.height.toFloat().coerceAtLeast(1f)
+                stripHeightPx = coords.size.height.toFloat().coerceAtLeast(1f)
             }
             .pointerInput(Unit) {
+                var lastTickMs = 0L
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
-                    updateScrubFromLocalY(down.position.y, size.height.toFloat())
+
+                    val h = size.height.toFloat().coerceAtLeast(1f)
+                    stripHeightPx = h
+                    val slotH = h / 26f
+                    val initialF = (((down.position.y / slotH) - 0.5f)).coerceIn(0f, 25f)
+                    val initialIdx = initialF.roundToInt().coerceIn(0, 25)
+
+                    isTouching = true
+                    hoveredIndex = initialIdx
+                    currentOnSelectIndex(initialIdx)
+                    val nowDown = System.currentTimeMillis()
+                    if (nowDown - lastTickMs >= 30L) {
+                        lastTickMs = nowDown
+                        currentOnHapticTick()
+                    }
+
+                    scope.launch {
+                        smoothFAnim.snapTo(initialF)
+                    }
+                    scope.launch {
+                        barPosAnim.animateTo(
+                            targetValue = initialF,
+                            animationSpec = spring(dampingRatio = 0.85f, stiffness = 700f)
+                        )
+                    }
+                    scope.launch {
+                        engagementAnim.animateTo(
+                            targetValue = 1f,
+                            animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f)
+                        )
+                    }
+
+                    var prevY = down.position.y
+                    var prevTimeMs = down.uptimeMillis
+
                     do {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull()
                         if (change != null && change.pressed) {
                             change.consume()
-                            updateScrubFromLocalY(change.position.y, size.height.toFloat())
+                            val curH = size.height.toFloat().coerceAtLeast(1f)
+                            val curSlotH = curH / 26f
+                            val rawF = (((change.position.y / curSlotH) - 0.5f)).coerceIn(0f, 25f)
+                            val newIdx = rawF.roundToInt().coerceIn(0, 25)
+
+                            val dtMs = (change.uptimeMillis - prevTimeMs).coerceAtLeast(1L)
+                            val dyPx = abs(change.position.y - prevY)
+                            prevY = change.position.y
+                            prevTimeMs = change.uptimeMillis
+
+                            val velPxPerSec = (dyPx / dtMs.toFloat()) * 1000f
+                            val velNorm = (velPxPerSec / (maxVelocityStretchPx * 65f)).coerceIn(0f, 1f)
+                            val targetStretchPx = velNorm * maxVelocityStretchPx
+
+                            scope.launch {
+                                smoothFAnim.animateTo(
+                                    targetValue = rawF,
+                                    animationSpec = spring(dampingRatio = 1.0f, stiffness = 700f)
+                                )
+                            }
+                            scope.launch {
+                                barPosAnim.animateTo(
+                                    targetValue = rawF,
+                                    animationSpec = spring(dampingRatio = 1.0f, stiffness = 700f)
+                                )
+                            }
+                            scope.launch {
+                                velocityStretchPxAnim.animateTo(
+                                    targetValue = targetStretchPx,
+                                    animationSpec = spring(dampingRatio = 0.85f, stiffness = 600f)
+                                )
+                            }
+
+                            if (newIdx != hoveredIndex) {
+                                hoveredIndex = newIdx
+                                currentOnSelectIndex(newIdx)
+                                val nowMove = System.currentTimeMillis()
+                                if (nowMove - lastTickMs >= 30L) {
+                                    lastTickMs = nowMove
+                                    currentOnHapticTick()
+                                }
+                            }
                         }
                     } while (event.changes.any { it.pressed })
-                    scrubLocalY = null
-                    activeLetter = null
+
+                    isTouching = false
+                    hoveredIndex = -1
+                    scope.launch {
+                        engagementAnim.animateTo(
+                            targetValue = 0f,
+                            animationSpec = spring(dampingRatio = 0.9f, stiffness = 300f)
+                        )
+                    }
+                    scope.launch {
+                        velocityStretchPxAnim.animateTo(
+                            targetValue = 0f,
+                            animationSpec = spring(dampingRatio = 0.85f, stiffness = 400f)
+                        )
+                    }
                 }
             },
-        verticalArrangement = Arrangement.SpaceBetween,
-        horizontalAlignment = Alignment.CenterHorizontally
+        contentAlignment = Alignment.CenterEnd
     ) {
-        letters.forEachIndexed { lIdx, ch ->
-            val isPillEnclosed = ch == highlightedLetter
-            val isHoveredNow = isHoveringRail && ch == activeLetter
-            val currentScrub = scrubLocalY
-            val targetLetterFactor = if (currentScrub != null && effectiveWaveMult > 0.01f) {
-                val lCenterY = ((lIdx + 0.5f) / letters.size.toFloat()) * railHeightPx
-                val d = abs(currentScrub - lCenterY)
-                if (d < letterWaveRadiusPx) {
-                    cos((d / letterWaveRadiusPx) * (PI / 2)).toFloat().coerceIn(0f, 1f)
-                } else 0f
-            } else 0f
+        // Single continuous physical orange bar drawn in Draw phase (0 recompositions)
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val h = size.height.coerceAtLeast(1f)
+            val slotH = h / 26f
+            val bPos = barPosAnim.value.coerceIn(0f, 25f)
+            val sf = smoothFAnim.value
+            val eng = engagementAnim.value.coerceAtLeast(0f)
 
-            val animLetterFactor by animateFloatAsState(
-                targetValue = targetLetterFactor,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessHigh
-                ),
-                label = "letterWave"
+            val d = abs(bPos - sf)
+            val rawInfluence = exp(-(d * d) / (2f * 1.6f * 1.6f))
+            val influence = rawInfluence * eng
+
+            val waveShiftX = -maxWaveShiftPx * influence
+            val letterExtraLeftWidth = (letterRailWidthPx * 0.45f) * (1.4f * influence)
+            val barW = barIdleWidthPx + barTouchExtraWidthPx * eng.coerceIn(0f, 1.2f)
+            val barH = barIdleHeightPx + (barTouchExtraHeightPx * eng.coerceIn(0f, 1.2f)) +
+                velocityStretchPxAnim.value.coerceIn(0f, maxVelocityStretchPx)
+
+            val railLeftEdgeX = size.width - rightMarginPx - letterRailWidthPx
+            val barX = railLeftEdgeX + waveShiftX - letterExtraLeftWidth - barGapFromLetterPx - barW
+            val barCenterY = (bPos + 0.5f) * slotH
+            val barTopY = (barCenterY - barH * 0.5f).coerceIn(0f, (h - barH).coerceAtLeast(0f))
+
+            drawRoundRect(
+                color = accentColor,
+                topLeft = Offset(barX, barTopY),
+                size = Size(barW, barH),
+                cornerRadius = CornerRadius(barW * 0.5f, barW * 0.5f)
             )
+        }
 
-            // Smooth enlargement animation when finger hovers over the alphabet pill
-            val pillScale by animateFloatAsState(
-                targetValue = when {
-                    isHoveredNow -> 1.48f
-                    isPillEnclosed -> 1.0f
-                    else -> 1.0f + animLetterFactor * (0.22f * effectiveWaveMult.coerceIn(0.4f, 1.4f))
-                },
-                animationSpec = spring(
-                    dampingRatio = 0.68f,
-                    stiffness = Spring.StiffnessMedium
-                ),
-                label = "pillScale"
-            )
+        // Slim vertical rail on the right edge with 20dp right margin
+        Column(
+            modifier = Modifier
+                .padding(end = 20.dp)
+                .width(16.dp)
+                .fillMaxHeight(),
+            verticalArrangement = Arrangement.SpaceEvenly,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            val highlightedIdx = if (isTouching && hoveredIndex in 0..25) hoveredIndex else activeSectionIndex
+            letters.forEachIndexed { i, ch ->
+                val isHighlighted = i == highlightedIdx
+                val hasApps = hasAppsForLetter.getOrElse(i) { true }
 
-            val hoverOffsetX by animateFloatAsState(
-                targetValue = if (isHoveredNow) {
-                    with(density) { -10.dp.toPx() } - (animLetterFactor * maxLetterShiftPx)
-                } else {
-                    -animLetterFactor * maxLetterShiftPx
-                },
-                animationSpec = spring(
-                    dampingRatio = 0.75f,
-                    stiffness = Spring.StiffnessHigh
-                ),
-                label = "hoverOffsetX"
-            )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            val eng = engagementAnim.value.coerceAtLeast(0f)
+                            val sf = smoothFAnim.value
+                            val d = abs(i.toFloat() - sf)
+                            val rawInf = exp(-(d * d) / (2f * 1.6f * 1.6f))
+                            val inf = rawInf * eng
 
-            val pillShape = RoundedCornerShape(if (is80sRail) 0.dp else 9.dp)
-            // Faint shade of the current accentColor inside the hovered/active alphabet pill
-            val pillBgColor = when {
-                isHoveredNow -> accentColor.copy(alpha = 0.28f)
-                isPillEnclosed -> Color(0xFFDEDEDE).copy(alpha = 0.92f)
-                else -> Color.Transparent
-            }
-            val pillBorderColor = when {
-                isHoveredNow -> accentColor.copy(alpha = 0.85f)
-                isPillEnclosed && is80sRail -> accentColor
-                else -> Color.Transparent
-            }
-            val letterTextColor = when {
-                isHoveredNow -> Color.White
-                isPillEnclosed -> Color.Black
-                animLetterFactor > 0.4f -> Color.White
-                else -> Color(0xFF6E6E6E)
-            }
+                            translationX = -maxWaveShiftPx * inf
+                            val sc = 1f + 1.4f * inf
+                            scaleX = sc
+                            scaleY = sc
 
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .graphicsLayer {
-                        translationX = hoverOffsetX
-                        scaleX = pillScale
-                        scaleY = pillScale
-                    }
-                    .then(
-                        if (isPillEnclosed) {
-                            Modifier
-                                .width(26.dp)
-                                .height(18.dp)
-                                .background(
-                                    color = if (isHoveredNow) Color(0xFF121212) else Color.Transparent,
-                                    shape = pillShape
-                                )
-                                .background(
-                                    color = pillBgColor,
-                                    shape = pillShape
-                                )
-                                .border(
-                                    width = if (isHoveredNow || is80sRail) 1.dp else 0.dp,
-                                    color = pillBorderColor,
-                                    shape = pillShape
-                                )
-                        } else {
-                            Modifier.height(18.dp)
-                        }
+                            val baseAlpha = when {
+                                isHighlighted -> 1f
+                                hasApps -> 0.25f
+                                else -> 0.12f
+                            }
+                            val waveAlpha = 0.25f + 0.75f * inf.coerceIn(0f, 1f)
+                            alpha = if (isHighlighted) 1f else max(baseAlpha, waveAlpha * (if (eng > 0.01f) 1f else 0f)).coerceIn(0.12f, 1f)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = ch.toString(),
+                        color = if (isHighlighted) accentColor else Color(0xFFEDEDED),
+                        fontSize = 11.sp,
+                        fontFamily = lomoFontFamily,
+                        fontWeight = if (isHighlighted) FontWeight.Bold else FontWeight.Normal,
+                        textAlign = TextAlign.Center
                     )
-            ) {
-                Text(
-                    text = ch.toString(),
-                    color = letterTextColor,
-                    fontSize = if (isPillEnclosed) 10.sp else 9.sp,
-                    fontFamily = lomoFontFamily,
-                    fontWeight = if (isPillEnclosed) FontWeight.Bold else FontWeight.Medium,
-                    textAlign = TextAlign.Center
-                )
+                }
             }
         }
     }
