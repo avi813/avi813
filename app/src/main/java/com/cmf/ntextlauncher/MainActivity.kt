@@ -898,7 +898,9 @@ fun NTextLauncherApp(
     var use24Hour by remember { mutableStateOf(prefs.getBoolean("use_24h_v4", false)) }
     var hideAndroidBar by remember { mutableStateOf(prefs.getBoolean("hide_android_bar", true)) }
     var waveScrubMode by remember { mutableStateOf(prefs.getString("wave_mode", "full") ?: "full") }
-    var drawerWaveIntensity by remember { mutableStateOf(prefs.getFloat("drawer_wave_intensity", 1.0f)) }
+    var drawerWaveIntensity by remember {
+        mutableStateOf(prefs.getFloat("drawer_letter_stretch_v1", 0.75f).coerceIn(0.10f, 1.00f))
+    }
     var wallpaperPreset by remember {
         val rawWp = prefs.getString("wallpaper", "oled") ?: "oled"
         val migratedWp = when (rawWp) {
@@ -2912,15 +2914,12 @@ fun NTextLauncherApp(
                                 prefs.edit().putString("wave_mode", it).apply()
                             },
                             onChangeDrawerWaveIntensity = {
-                                drawerWaveIntensity = it
-                                prefs.edit().putFloat("drawer_wave_intensity", it).apply()
-                                if (it <= 0.02f && waveScrubMode != "off") {
-                                    waveScrubMode = "off"
-                                    prefs.edit().putString("wave_mode", "off").apply()
-                                } else if (it > 0.02f && waveScrubMode == "off") {
-                                    waveScrubMode = "full"
-                                    prefs.edit().putString("wave_mode", "full").apply()
-                                }
+                                val clamped = it.coerceIn(0.10f, 1.00f)
+                                drawerWaveIntensity = clamped
+                                prefs.edit()
+                                    .putFloat("drawer_letter_stretch_v1", clamped)
+                                    .putFloat("drawer_wave_intensity", clamped)
+                                    .apply()
                             },
                             onChangeWallpaperPreset = {
                                 wallpaperPreset = it
@@ -7771,15 +7770,7 @@ fun AppDrawerView(
                                         modifier = Modifier
                                             .weight(1f)
                                             .height(1.dp)
-                                            .background(
-                                                Brush.horizontalGradient(
-                                                    colors = listOf(
-                                                        drawerAccent.copy(alpha = 0.85f),
-                                                        drawerAccent.copy(alpha = 0.25f),
-                                                        Color.Transparent
-                                                    )
-                                                )
-                                            )
+                                            .background(Color(0x24FFFFFF))
                                     )
                                 }
                             }
@@ -7833,6 +7824,7 @@ fun AppDrawerView(
                 // Niagara-Style Fluid Wave Alphabet Sidebar + Velocity-Stretching Small Orange Bar
                 AlphabetScrubberRail(
                     accentColor = drawerAccent,
+                    letterStretch = drawerWaveIntensity,
                     activeSectionIndex = activeSectionIndex,
                     hasAppsForLetter = hasAppsForLetter,
                     lomoFontFamily = lomoFontFamily,
@@ -7856,6 +7848,7 @@ fun AppDrawerView(
 @Composable
 private fun AlphabetScrubberRail(
     accentColor: Color,
+    letterStretch: Float,
     activeSectionIndex: Int,
     hasAppsForLetter: BooleanArray,
     lomoFontFamily: FontFamily,
@@ -7867,6 +7860,7 @@ private fun AlphabetScrubberRail(
     val letters = remember { ('A'..'Z').toList() }
     val currentOnSelectIndex by rememberUpdatedState(onSelectLetterIndex)
     val currentOnHapticTick by rememberUpdatedState(onHapticTick)
+    val currentStretch by rememberUpdatedState(letterStretch.coerceIn(0.10f, 1.00f))
 
     var stripHeightPx by remember { mutableStateOf(1f) }
     var isTouching by remember { mutableStateOf(false) }
@@ -7878,7 +7872,7 @@ private fun AlphabetScrubberRail(
     val barPosAnim = remember { Animatable(activeSectionIndex.toFloat()) }
     val velocityStretchPxAnim = remember { Animatable(0f) }
 
-    val maxWaveShiftPx = with(density) { 72.dp.toPx() }
+    val base96DpPx = with(density) { 96.dp.toPx() }
     val barIdleWidthPx = with(density) { 2.dp.toPx() }
     val barTouchExtraWidthPx = with(density) { 1.dp.toPx() }
     val barIdleHeightPx = with(density) { 14.dp.toPx() }
@@ -8022,12 +8016,16 @@ private fun AlphabetScrubberRail(
             val bPos = barPosAnim.value.coerceIn(0f, 25f)
             val sf = smoothFAnim.value
             val eng = engagementAnim.value.coerceAtLeast(0f)
+            val s = currentStretch
+            val maxShiftPx = base96DpPx * s
+            val sigma = 0.9f + 0.9f * s
+            val twoSigmaSq = 2f * sigma * sigma
 
             val d = abs(bPos - sf)
-            val rawInfluence = exp(-(d * d) / (2f * 1.6f * 1.6f))
+            val rawInfluence = exp(-(d * d) / twoSigmaSq)
             val influence = rawInfluence * eng
 
-            val waveShiftX = -maxWaveShiftPx * influence
+            val waveShiftX = -maxShiftPx * influence
             val letterExtraLeftWidth = (letterRailWidthPx * 0.45f) * (1.4f * influence)
             val barW = barIdleWidthPx + barTouchExtraWidthPx * eng.coerceIn(0f, 1.2f)
             val barH = barIdleHeightPx + (barTouchExtraHeightPx * eng.coerceIn(0f, 1.2f)) +
@@ -8067,11 +8065,15 @@ private fun AlphabetScrubberRail(
                         .graphicsLayer {
                             val eng = engagementAnim.value.coerceAtLeast(0f)
                             val sf = smoothFAnim.value
+                            val s = currentStretch
+                            val maxShiftPx = base96DpPx * s
+                            val sigma = 0.9f + 0.9f * s
+                            val twoSigmaSq = 2f * sigma * sigma
                             val d = abs(i.toFloat() - sf)
-                            val rawInf = exp(-(d * d) / (2f * 1.6f * 1.6f))
+                            val rawInf = exp(-(d * d) / twoSigmaSq)
                             val inf = rawInf * eng
 
-                            translationX = -maxWaveShiftPx * inf
+                            translationX = -maxShiftPx * inf
                             val sc = 1f + 1.4f * inf
                             scaleX = sc
                             scaleY = sc
@@ -9447,7 +9449,6 @@ fun LauncherSettingsView(
 
         // SECTION 04: App Drawer Settings
         item {
-            val wavePct = (drawerWaveIntensity * 100f).roundToInt()
             CollapsibleSettingsSection(
                 indexTag = "04",
                 title = "App Drawer Settings",
@@ -9508,53 +9509,16 @@ fun LauncherSettingsView(
                     }
                 }
 
-                // 2. Alphabet Scroller Wave Slider
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, innerCardBorderColor, innerCardShape)
-                        .background(Color(0xFF070707), innerCardShape)
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    MinimalistSliderRow(
-                        label = "ALPHABET SCROLLER WAVE",
-                        valueText = "${wavePct}%",
-                        fraction = (drawerWaveIntensity / 2.0f).coerceIn(0f, 1f),
-                        accentColor = accentColor,
-                        lomoFontFamily = launcherFont,
-                        onFractionChange = { frac ->
-                            val nextVal = ((frac * 200f).roundToInt() / 100f).coerceIn(0f, 2.0f)
-                            onChangeDrawerWaveIntensity(nextVal)
-                        }
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        listOf(0f to "OFF", 0.5f to "50%", 1.0f to "100%", 1.5f to "150%", 2.0f to "200%").forEach { (wVal, wLbl) ->
-                            val sel = abs(drawerWaveIntensity - wVal) < 0.08f
-                            Text(
-                                text = wLbl,
-                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color.White,
-                                fontSize = 9.sp,
-                                fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .border(
-                                        1.dp,
-                                        if (sel) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
-                                        innerBtnShape
-                                    )
-                                    .background(if (sel) accentColor else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
-                                    .clickable { onChangeDrawerWaveIntensity(wVal) }
-                                    .padding(vertical = 5.dp)
-                            )
-                        }
-                    }
-                }
+                // 2. Letter Stretch Slider (0.10..1.00, default 75%) + Reset + Live Drag Preview (E..I with G hovered)
+                LetterStretchSettingCard(
+                    letterStretch = drawerWaveIntensity,
+                    retro80sMode = retro80sMode,
+                    accentColor = accentColor,
+                    innerCardBorderColor = innerCardBorderColor,
+                    innerCardShape = innerCardShape,
+                    lomoFontFamily = launcherFont,
+                    onChangeLetterStretch = onChangeDrawerWaveIntensity
+                )
 
                 // 3. App Drawer Background Style
                 SettingsBackdropControlCard(
@@ -9566,6 +9530,243 @@ fun LauncherSettingsView(
                     onChangeMode = onChangeDrawerBgMode,
                     onChangeIntensity = onChangeDrawerBgIntensity
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun LetterStretchSettingCard(
+    letterStretch: Float,
+    retro80sMode: Boolean,
+    accentColor: Color,
+    innerCardBorderColor: Color,
+    innerCardShape: RoundedCornerShape,
+    lomoFontFamily: FontFamily,
+    onChangeLetterStretch: (Float) -> Unit
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val s = letterStretch.coerceIn(0.10f, 1.00f)
+    val pct = (s * 100f).roundToInt().coerceIn(10, 100)
+    val currentOnChange by rememberUpdatedState(onChangeLetterStretch)
+    val currentS by rememberUpdatedState(s)
+    val sliderOrange = if (retro80sMode) accentColor else Color(0xFFFF4A1C)
+
+    var isDraggingSlider by remember { mutableStateOf(false) }
+
+    fun fireDecileTick() {
+        val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
+        } else {
+            @Suppress("DEPRECATION")
+            VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
+        }
+        vib?.vibrate(effect)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, innerCardBorderColor, innerCardShape)
+            .background(Color.Black, innerCardShape)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // Header row: Label + Percentage + tiny Reset button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Letter stretch",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${pct}%",
+                    color = sliderOrange,
+                    fontSize = 11.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Reset",
+                    color = if (pct == 75) Color(0xFF555555) else Color(0xFFEDEDED),
+                    fontSize = 10.sp,
+                    fontFamily = lomoFontFamily,
+                    modifier = Modifier
+                        .clickable {
+                            if (abs(currentS - 0.75f) > 0.004f) {
+                                fireDecileTick()
+                                currentOnChange(0.75f)
+                            }
+                        }
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+            }
+        }
+
+        // Helper line under the label
+        Text(
+            text = "How far the letters bend out while you slide your thumb",
+            color = Color(0xFF8A8A8A),
+            fontSize = 9.sp,
+            fontFamily = lomoFontFamily
+        )
+
+        // Minimal Slider: 2dp track in white at 20% opacity, filled part & small round thumb in #FF4A1C orange, 10% haptic tick
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(26.dp)
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        isDraggingSlider = true
+                        val w = size.width.toFloat().coerceAtLeast(1f)
+                        val initFrac = (down.position.x / w).coerceIn(0f, 1f)
+                        val initS = (0.10f + initFrac * 0.90f).coerceIn(0.10f, 1.00f)
+                        var lastDecile = (initS * 10f).roundToInt()
+                        currentOnChange(initS)
+
+                        do {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull()
+                            if (change != null && change.pressed) {
+                                change.consume()
+                                val curW = size.width.toFloat().coerceAtLeast(1f)
+                                val frac = (change.position.x / curW).coerceIn(0f, 1f)
+                                val nextS = (0.10f + frac * 0.90f).coerceIn(0.10f, 1.00f)
+                                val nextDecile = (nextS * 10f).roundToInt()
+                                if (nextDecile != lastDecile) {
+                                    lastDecile = nextDecile
+                                    fireDecileTick()
+                                }
+                                currentOnChange(nextS)
+                            }
+                        } while (event.changes.any { it.pressed })
+
+                        isDraggingSlider = false
+                    }
+                },
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val trackH = 2.dp.toPx()
+                val thumbRadius = 5.5.dp.toPx()
+                val usableW = (size.width - thumbRadius * 2f).coerceAtLeast(1f)
+                val norm = ((currentS - 0.10f) / 0.90f).coerceIn(0f, 1f)
+                val thumbX = thumbRadius + norm * usableW
+                val centerY = size.height * 0.5f
+
+                // Unfilled 2dp track: white at 20% opacity
+                drawRect(
+                    color = Color(0x33FFFFFF),
+                    topLeft = Offset(thumbRadius, centerY - trackH * 0.5f),
+                    size = Size(usableW, trackH)
+                )
+                // Filled 2dp track in orange #FF4A1C
+                if (thumbX > thumbRadius) {
+                    drawRect(
+                        color = sliderOrange,
+                        topLeft = Offset(thumbRadius, centerY - trackH * 0.5f),
+                        size = Size(thumbX - thumbRadius, trackH)
+                    )
+                }
+                // Small round thumb in orange #FF4A1C
+                drawCircle(
+                    color = sliderOrange,
+                    radius = thumbRadius,
+                    center = Offset(thumbX, centerY)
+                )
+            }
+        }
+
+        // Live non-interactive preview (letters E to I with G hovered), shown and redrawn ONLY while dragging the slider
+        if (isDraggingSlider) {
+            val previewLetters = remember { listOf('E', 'F', 'G', 'H', 'I') }
+            val hoveredPreviewIdx = 2 // 'G'
+            val base96DpPx = with(density) { 96.dp.toPx() }
+            val barWidthPx = with(density) { 3.dp.toPx() }
+            val barHeightPx = with(density) { 34.dp.toPx() }
+            val railRightPadPx = with(density) { 16.dp.toPx() }
+            val letterWidthPx = with(density) { 16.dp.toPx() }
+            val barGapPx = with(density) { 5.dp.toPx() }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(126.dp)
+                    .border(1.dp, Color(0x24FFFFFF), innerCardShape)
+                    .background(Color.Black, innerCardShape),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val curS = currentS
+                    val maxShiftPx = base96DpPx * curS
+                    val waveShiftX = -maxShiftPx // influence = 1.0 at hovered G
+                    val letterExtraLeftWidth = (letterWidthPx * 0.45f) * 1.4f
+                    val railLeftEdgeX = size.width - railRightPadPx - letterWidthPx
+                    val barX = railLeftEdgeX + waveShiftX - letterExtraLeftWidth - barGapPx - barWidthPx
+                    val barTopY = (size.height - barHeightPx) * 0.5f
+
+                    drawRoundRect(
+                        color = sliderOrange,
+                        topLeft = Offset(barX, barTopY),
+                        size = Size(barWidthPx, barHeightPx),
+                        cornerRadius = CornerRadius(barWidthPx * 0.5f, barWidthPx * 0.5f)
+                    )
+                }
+
+                Column(
+                    modifier = Modifier
+                        .padding(end = 16.dp, top = 8.dp, bottom = 8.dp)
+                        .width(16.dp)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.SpaceEvenly,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    previewLetters.forEachIndexed { idx, ch ->
+                        val isG = idx == hoveredPreviewIdx
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .graphicsLayer {
+                                    val curS = currentS
+                                    val maxShiftPx = base96DpPx * curS
+                                    val sigma = 0.9f + 0.9f * curS
+                                    val d = abs(idx - hoveredPreviewIdx).toFloat()
+                                    val inf = exp(-(d * d) / (2f * sigma * sigma))
+                                    translationX = -maxShiftPx * inf
+                                    val sc = 1f + 1.4f * inf
+                                    scaleX = sc
+                                    scaleY = sc
+                                    alpha = if (isG) 1f else (0.25f + 0.75f * inf).coerceIn(0.25f, 1f)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = ch.toString(),
+                                color = if (isG) sliderOrange else Color(0xFFEDEDED),
+                                fontSize = 11.sp,
+                                fontFamily = lomoFontFamily,
+                                fontWeight = if (isG) FontWeight.Bold else FontWeight.Normal,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
             }
         }
     }
