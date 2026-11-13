@@ -11404,6 +11404,7 @@ fun SettingCard(
 // ============================================================================
 // ORIGINAL RETRO 80s CRT MODE VIEWS (Restored for Old School Mode Only)
 // ============================================================================
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Retro80sAppDrawerView(
     apps: List<AppEntry>,
@@ -11770,7 +11771,7 @@ fun Retro80sAppDrawerView(
 }
 
 @Composable
-private fun Retro80sRetro80sAlphabetScrubberRail(
+private fun Retro80sAlphabetScrubberRail(
     accentColor: Color,
     waveScrubMode: String,
     drawerWaveIntensity: Float,
