@@ -4440,6 +4440,7 @@ fun HomeScreenView(
                             rawWStyle = rawWStyle,
                             retro80sMode = retro80sMode,
                             accentColor = accentColor,
+                            lomoFontFamily = lomoFontFamily,
                             selectedFont = selectedFont,
                             batteryBarStyle = batteryBarStyle,
                             globeTilt2dDeg = globeTilt2dDeg,
@@ -4722,6 +4723,7 @@ private fun HomeWidgetEditHeader(
     rawWStyle: String,
     retro80sMode: Boolean,
     accentColor: Color,
+    lomoFontFamily: FontFamily,
     selectedFont: FontFamily,
     batteryBarStyle: String,
     globeTilt2dDeg: Float,
@@ -5171,6 +5173,7 @@ private fun HomeClockWidgetContent(
     onOpenClockApp: () -> Unit,
     onLongPressHome: () -> Unit
 ) {
+    val retro80sMode = LocalRetro80sMode.current
                             val horizontalAlign = when (textAlign) {
                                 TextAlign.Center -> Alignment.CenterHorizontally
                                 TextAlign.End -> Alignment.End
@@ -5607,6 +5610,7 @@ private fun HomeUtilityWidgetContent(
     onToggleZen: () -> Unit,
     onLongPressHome: () -> Unit
 ) {
+    val retro80sMode = LocalRetro80sMode.current
     when (widgetId) {
                         "torch" -> {
                             val padV = when (sizeMode) {
