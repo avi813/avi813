@@ -100,7 +100,14 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
@@ -2990,7 +2997,7 @@ fun NTextLauncherApp(
 
         // ====================================================================
         // FLUID SPRING-ANIMATED LONG-TAP HOME SCREEN "ACTIONS" MENU
-        // Clean title & buttons; styled with sharp Old School borders when retro80sMode is ON
+        // Uses flat hairline design, outlined DONE pill, and NocturnaaToggleSwitch for Edit Mode
         // ====================================================================
         val quickMenuProgress by rememberIosPopupProgress(
             isVisible = showHomeQuickMenu,
@@ -3008,58 +3015,40 @@ fun NTextLauncherApp(
                     .padding(horizontal = 24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                val modalShape = RoundedCornerShape(if (retro80sMode) 0.dp else 16.dp)
+                val modalShape = RoundedCornerShape(if (retro80sMode) 0.dp else 14.dp)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .iosPopupWindowLayer(progress = quickMenuProgress, initialScale = 0.80f)
-                        .border(
-                            if (retro80sMode) 1.5.dp else 1.dp,
-                            if (retro80sMode) accentColor else Color(0xFF2E2E2E),
-                            modalShape
-                        )
-                        .background(if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A), modalShape)
+                        .border(1.dp, Color(0x26FFFFFF), modalShape)
+                        .background(Color.Black, modalShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) { /* consume inside modal */ }
-                        .padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(horizontal = 18.dp, vertical = 16.dp)
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = "Actions",
-                            color = if (retro80sMode) accentColor else Color.White,
+                            color = Color.White,
                             fontSize = 16.sp,
                             fontFamily = selectedFont,
                             fontWeight = FontWeight.Bold
                         )
-                        Text(
-                            text = "DONE",
-                            color = Color.Black,
-                            fontSize = 10.sp,
-                            fontFamily = selectedFont,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .background(
-                                    if (retro80sMode) accentColor else Color.White,
-                                    RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
-                                )
-                                .clickable { showHomeQuickMenu = false }
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        OutlinedDonePillButton(
+                            lomoFontFamily = selectedFont,
+                            onClick = { showHomeQuickMenu = false }
                         )
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF1F1F1F))
-                    )
+                    SettingsHairlineDivider()
 
                     QuickMenuButton(
                         label = if (retro80sMode) "Widget Configuration" else "Widget Manager",
@@ -3072,16 +3061,20 @@ fun NTextLauncherApp(
                         }
                     )
 
-                    QuickMenuButton(
-                        label = if (editMode) "Exit Edit Mode" else "Edit Mode",
-                        badge = "",
+                    SettingsHairlineDivider()
+
+                    NocturnaaToggleRow(
+                        title = "Edit Mode",
+                        checked = editMode,
                         accentColor = accentColor,
                         lomoFontFamily = selectedFont,
-                        onClick = {
+                        onCheckedChange = { nextEdit ->
+                            editMode = nextEdit
                             showHomeQuickMenu = false
-                            editMode = !editMode
                         }
                     )
+
+                    SettingsHairlineDivider()
 
                     QuickMenuButton(
                         label = if (retro80sMode) "Nocturna Configuration" else "Nocturnaa Settings",
@@ -3093,6 +3086,8 @@ fun NTextLauncherApp(
                             currentView = LauncherView.SETTINGS
                         }
                     )
+
+                    SettingsHairlineDivider()
 
                     QuickMenuButton(
                         label = "Phone Settings",
@@ -3135,17 +3130,12 @@ fun NTextLauncherApp(
                     .padding(horizontal = 24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                val appModalShape = RoundedCornerShape(if (retro80sMode) 0.dp else 16.dp)
+                val appModalShape = RoundedCornerShape(if (retro80sMode) 0.dp else 14.dp)
                 val currentlyPinned = pinnedPackages.contains(targetApp.packageName)
-                val pinActionLabel = if (isFromHome || currentlyPinned) {
-                    "Remove from Pinned Apps"
-                } else {
-                    "Add to Home Screen"
-                }
-                val pinActionSymbol = if (isFromHome || currentlyPinned) "−" else "+"
+                val isAppPinned = isFromHome || currentlyPinned
 
                 val onPinToggleClick: () -> Unit = {
-                    if (isFromHome || currentlyPinned) {
+                    if (isAppPinned) {
                         pinnedPackages = pinnedPackages - targetApp.packageName
                         pinnedAppsOrder = pinnedAppsOrder.filter { it != targetApp.packageName }
                         prefs.edit()
@@ -3181,27 +3171,24 @@ fun NTextLauncherApp(
                     modifier = Modifier
                         .fillMaxWidth()
                         .iosPopupWindowLayer(progress = appMenuProgress, initialScale = 0.80f)
-                        .border(
-                            if (retro80sMode) 1.5.dp else 1.dp,
-                            if (retro80sMode) accentColor else Color(0xFF333333),
-                            appModalShape
-                        )
-                        .background(if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A), appModalShape)
+                        .border(1.dp, Color(0x26FFFFFF), appModalShape)
+                        .background(Color.Black, appModalShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) { /* consume inside modal */ }
-                        .padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(horizontal = 18.dp, vertical = 16.dp)
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = targetApp.label,
-                            color = if (retro80sMode) accentColor else Color.White,
+                            color = Color.White,
                             fontSize = 16.sp,
                             fontFamily = selectedFont,
                             fontWeight = FontWeight.Bold,
@@ -3209,66 +3196,34 @@ fun NTextLauncherApp(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f).padding(end = 8.dp)
                         )
-                        Text(
-                            text = "DONE",
-                            color = Color.Black,
-                            fontSize = 10.sp,
-                            fontFamily = selectedFont,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .background(
-                                    if (retro80sMode) accentColor else Color.White,
-                                    RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
-                                )
-                                .clickable { contextMenuTarget = null }
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        OutlinedDonePillButton(
+                            lomoFontFamily = selectedFont,
+                            onClick = { contextMenuTarget = null }
                         )
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF1F1F1F))
+                    SettingsHairlineDivider()
+
+                    NocturnaaToggleRow(
+                        title = "Pinned to Home Screen",
+                        checked = isAppPinned,
+                        accentColor = accentColor,
+                        lomoFontFamily = selectedFont,
+                        onCheckedChange = { onPinToggleClick() }
                     )
 
-                    val rowShape = RoundedCornerShape(if (retro80sMode) 0.dp else 10.dp)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, if (retro80sMode) accentColor else Color(0xFF262626), rowShape)
-                            .background(Color.Black, rowShape)
-                            .clickable { onPinToggleClick() }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = pinActionLabel,
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontFamily = selectedFont
-                        )
-                        Text(
-                            text = pinActionSymbol,
-                            color = accentColor,
-                            fontSize = 15.sp,
-                            fontFamily = selectedFont,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    SettingsHairlineDivider()
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, if (retro80sMode) accentColor else Color(0xFF262626), rowShape)
-                            .background(Color.Black, rowShape)
+                            .heightIn(min = 52.dp)
                             .clickable {
                                 val pkg = targetApp.packageName
                                 contextMenuTarget = null
                                 openAppInfo(pkg)
                             }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                            .padding(vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -3280,7 +3235,7 @@ fun NTextLauncherApp(
                         )
                         Text(
                             text = "↗",
-                            color = accentColor,
+                            color = Color(0xFF8A8A8A),
                             fontSize = 13.sp,
                             fontFamily = selectedFont,
                             fontWeight = FontWeight.Bold
@@ -3288,29 +3243,29 @@ fun NTextLauncherApp(
                     }
 
                     if (!targetApp.isSystemApp) {
+                        SettingsHairlineDivider()
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .border(1.dp, if (retro80sMode) accentColor else Color(0xFF451A1A), rowShape)
-                                .background(if (retro80sMode) Color.Black else Color(0xFF140707), rowShape)
+                                .heightIn(min = 52.dp)
                                 .clickable {
                                     val pkg = targetApp.packageName
                                     contextMenuTarget = null
                                     onRequestSystemUninstall(pkg)
                                 }
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                                .padding(vertical = 12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
                                 text = "Uninstall App",
-                                color = if (retro80sMode) accentColor else Color(0xFFF87171),
+                                color = Color(0xFFF87171),
                                 fontSize = 13.sp,
                                 fontFamily = selectedFont
                             )
                             Text(
                                 text = "×",
-                                color = if (retro80sMode) accentColor else Color(0xFFF87171),
+                                color = Color(0xFFF87171),
                                 fontSize = 14.sp,
                                 fontFamily = selectedFont,
                                 fontWeight = FontWeight.Bold
@@ -3340,13 +3295,13 @@ fun NTextLauncherApp(
                     .padding(horizontal = 24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                val alertShape = RoundedCornerShape(if (retro80sMode) 0.dp else 16.dp)
+                val alertShape = RoundedCornerShape(if (retro80sMode) 0.dp else 14.dp)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .iosPopupWindowLayer(progress = noSpaceProgress, initialScale = 0.80f)
-                        .border(if (retro80sMode) 1.5.dp else 1.dp, accentColor, alertShape)
-                        .background(if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A), alertShape)
+                        .border(1.dp, Color(0x26FFFFFF), alertShape)
+                        .background(Color.Black, alertShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
@@ -3354,46 +3309,34 @@ fun NTextLauncherApp(
                         .padding(18.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = "No Space Left",
-                        color = accentColor,
-                        fontSize = 15.sp,
-                        fontFamily = selectedFont,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF222222))
-                    )
-
-                    Text(
-                        text = noSpacePopupMessage,
-                        color = Color(0xFFE5E5E5),
-                        fontSize = 12.sp,
-                        fontFamily = selectedFont,
-                        lineHeight = 17.sp
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, accentColor, RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp))
-                            .background(if (retro80sMode) accentColor else Color(0xFF141414), RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp))
-                            .clickable { showNoSpacePopup = false }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "OK",
-                            color = if (retro80sMode) Color.Black else Color.White,
-                            fontSize = 11.sp,
+                            text = "No Space Left",
+                            color = accentColor,
+                            fontSize = 15.sp,
                             fontFamily = selectedFont,
                             fontWeight = FontWeight.Bold
                         )
+                        OutlinedDonePillButton(
+                            label = "OK",
+                            lomoFontFamily = selectedFont,
+                            onClick = { showNoSpacePopup = false }
+                        )
                     }
+
+                    SettingsHairlineDivider()
+
+                    Text(
+                        text = noSpacePopupMessage,
+                        color = Color.White.copy(alpha = 0.65f),
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.SansSerif,
+                        lineHeight = 18.sp
+                    )
                 }
             }
         }
@@ -3414,15 +3357,12 @@ fun QuickMenuButton(
     lomoFontFamily: FontFamily = FontFamily.Monospace,
     onClick: () -> Unit
 ) {
-    val is80s = LocalRetro80sMode.current
-    val shape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, if (is80s) accentColor else Color(0xFF262626), shape)
-            .background(Color.Black, shape)
+            .heightIn(min = 52.dp)
             .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -3430,15 +3370,13 @@ fun QuickMenuButton(
             text = label,
             color = Color.White,
             fontSize = 13.sp,
-            fontFamily = lomoFontFamily,
-            fontWeight = if (is80s) FontWeight.Bold else FontWeight.Normal
+            fontFamily = lomoFontFamily
         )
         Text(
-            text = if (is80s) "[+]" else "▸",
-            color = accentColor,
-            fontSize = 12.sp,
-            fontFamily = lomoFontFamily,
-            fontWeight = FontWeight.Bold
+            text = "›",
+            color = Color(0xFF8A8A8A),
+            fontSize = 16.sp,
+            fontFamily = lomoFontFamily
         )
     }
 }
@@ -4992,12 +4930,11 @@ fun HomeScreenView(
                                                 fontWeight = FontWeight.Medium
                                             )
                                         }
-                                        Text(
-                                            text = if (torchEnabled) "ON" else "OFF",
-                                            color = if (torchEnabled) accentColor else Color(0xFF737373),
-                                            fontSize = 10.sp,
-                                            fontFamily = wFontFamily,
-                                            fontWeight = FontWeight.Bold
+                                        NocturnaaToggleSwitch(
+                                            checked = torchEnabled,
+                                            accentColor = accentColor,
+                                            label = "Torch",
+                                            onCheckedChange = { onToggleTorch() }
                                         )
                                     }
                                 }
@@ -8107,6 +8044,366 @@ private fun AlphabetScrubberRail(
 // MODULAR OLED WIDGETS MANAGER (Relocate, Resize, Add/Remove & Full Widget Customization)
 // All widget customization controls shifted here from Launcher Settings!
 // ============================================================================
+// ============================================================================
+// PART 1: ONE REUSABLE TOGGLE SWITCH (Image 1 Style)
+// - Track: 52dp wide, 8dp tall, fully rounded
+// - Thumb: 26dp circle (grows to 30dp while pressed), overlapping track ends
+// - OFF: thumb on left, off-white at 75%, track white at 20% opacity
+// - ON: thumb on right, pure white, track in current accentColor
+// - Flat: only a faint 1dp edge on thumb (white at 12%)
+// - Spring (stiffness 500, dampingRatio 0.7) + horizontal squash-and-stretch (up to 1.25x)
+// - Supports both tap and thumb dragging; 1 light haptic tick on state change; Role.Switch semantics
+// ============================================================================
+@Composable
+fun NocturnaaToggleSwitch(
+    checked: Boolean,
+    accentColor: Color,
+    label: String = "",
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val currentOnCheckedChange by rememberUpdatedState(onCheckedChange)
+    val currentChecked by rememberUpdatedState(checked)
+
+    val thumbProgressAnim = remember { Animatable(if (checked) 1f else 0f) }
+    val pressProgressAnim = remember { Animatable(0f) }
+    var isDraggingThumb by remember { mutableStateOf(false) }
+
+    LaunchedEffect(checked, isDraggingThumb) {
+        if (!isDraggingThumb) {
+            thumbProgressAnim.animateTo(
+                targetValue = if (checked) 1f else 0f,
+                animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f)
+            )
+        }
+    }
+
+    fun fireToggleHaptic() {
+        val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
+        } else {
+            @Suppress("DEPRECATION")
+            VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
+        }
+        vib?.vibrate(effect)
+    }
+
+    Box(
+        modifier = modifier
+            .width(56.dp)
+            .height(48.dp)
+            .semantics(mergeDescendants = true) {
+                role = Role.Switch
+                if (label.isNotEmpty()) {
+                    contentDescription = label
+                }
+                stateDescription = if (checked) "On" else "Off"
+            }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    scope.launch {
+                        pressProgressAnim.animateTo(
+                            targetValue = 1f,
+                            animationSpec = spring(dampingRatio = 0.85f, stiffness = 600f)
+                        )
+                    }
+
+                    val w = size.width.toFloat().coerceAtLeast(1f)
+                    val startX = down.position.x
+                    val initialFrac = thumbProgressAnim.value.coerceIn(0f, 1f)
+                    var dragged = false
+                    var latestFrac = initialFrac
+
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull()
+                        if (change != null && change.pressed) {
+                            val dx = change.position.x - startX
+                            if (abs(dx) > 6f) {
+                                dragged = true
+                                isDraggingThumb = true
+                            }
+                            if (dragged) {
+                                change.consume()
+                                latestFrac = (initialFrac + dx / (w * 0.65f)).coerceIn(0f, 1f)
+                                scope.launch {
+                                    thumbProgressAnim.snapTo(latestFrac)
+                                }
+                            }
+                        }
+                    } while (event.changes.any { it.pressed })
+
+                    scope.launch {
+                        pressProgressAnim.animateTo(
+                            targetValue = 0f,
+                            animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f)
+                        )
+                    }
+
+                    val nextState = if (dragged) {
+                        latestFrac >= 0.5f
+                    } else {
+                        !currentChecked
+                    }
+                    isDraggingThumb = false
+
+                    if (nextState != currentChecked) {
+                        fireToggleHaptic()
+                        currentOnCheckedChange(nextState)
+                    } else {
+                        scope.launch {
+                            thumbProgressAnim.animateTo(
+                                targetValue = if (currentChecked) 1f else 0f,
+                                animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f)
+                            )
+                        }
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val rawP = thumbProgressAnim.value
+            val clampedP = rawP.coerceIn(0f, 1f)
+            val pressP = pressProgressAnim.value.coerceIn(0f, 1f)
+
+            val trackWidthPx = 52.dp.toPx()
+            val trackHeightPx = 8.dp.toPx()
+            val baseThumbDiaPx = (26.dp + 4.dp * pressP).toPx()
+            val baseThumbRadiusPx = baseThumbDiaPx * 0.5f
+
+            val cy = size.height * 0.5f
+            val trackLeft = (size.width - trackWidthPx) * 0.5f
+            val trackRight = trackLeft + trackWidthPx
+
+            // Track cross-fades from white at 20% opacity to current accentColor as thumb passes middle
+            val trackColor = lerp(Color(0x33FFFFFF), accentColor, clampedP)
+            drawRoundRect(
+                color = trackColor,
+                topLeft = Offset(trackLeft, cy - trackHeightPx * 0.5f),
+                size = Size(trackWidthPx, trackHeightPx),
+                cornerRadius = CornerRadius(trackHeightPx * 0.5f, trackHeightPx * 0.5f)
+            )
+
+            // Thumb center overlaps track ends like Image 1
+            val leftCenter = trackLeft + baseThumbRadiusPx * 0.55f
+            val rightCenter = trackRight - baseThumbRadiusPx * 0.55f
+            val thumbCenterX = leftCenter + (rightCenter - leftCenter) * rawP
+
+            // Squash-and-stretch horizontally up to 1.25x while moving in transit
+            val transit = (4f * clampedP * (1f - clampedP)).coerceIn(0f, 1f)
+            val velFactor = (abs(thumbProgressAnim.velocity) / 4.5f).coerceIn(0f, 1f)
+            val stretch = max(transit * 0.85f, velFactor).coerceIn(0f, 1f)
+            val stretchScaleX = 1f + 0.25f * stretch
+            val stretchScaleY = 1f - 0.05f * stretch
+
+            val thumbW = baseThumbDiaPx * stretchScaleX
+            val thumbH = baseThumbDiaPx * stretchScaleY
+            val thumbColor = lerp(Color(0xBFFFFFFF), Color.White, clampedP)
+
+            drawRoundRect(
+                color = thumbColor,
+                topLeft = Offset(thumbCenterX - thumbW * 0.5f, cy - thumbH * 0.5f),
+                size = Size(thumbW, thumbH),
+                cornerRadius = CornerRadius(thumbH * 0.5f, thumbH * 0.5f)
+            )
+            // Faint 1dp edge on thumb (white at 12%)
+            drawRoundRect(
+                color = Color(0x1FFFFFFF),
+                topLeft = Offset(thumbCenterX - thumbW * 0.5f, cy - thumbH * 0.5f),
+                size = Size(thumbW, thumbH),
+                cornerRadius = CornerRadius(thumbH * 0.5f, thumbH * 0.5f),
+                style = Stroke(width = 1.dp.toPx())
+            )
+        }
+    }
+}
+
+@Composable
+fun NocturnaaToggleRow(
+    title: String,
+    subtitle: String = "",
+    checked: Boolean,
+    accentColor: Color,
+    lomoFontFamily: FontFamily,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val context = LocalContext.current
+    val currentOnCheckedChange by rememberUpdatedState(onCheckedChange)
+    val currentChecked by rememberUpdatedState(checked)
+
+    fun fireRowTick() {
+        val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
+        } else {
+            @Suppress("DEPRECATION")
+            VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
+        }
+        vib?.vibrate(effect)
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                fireRowTick()
+                currentOnCheckedChange(!currentChecked)
+            }
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f).padding(end = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 13.sp,
+                fontFamily = lomoFontFamily
+            )
+            if (subtitle.isNotEmpty()) {
+                Text(
+                    text = subtitle,
+                    color = Color.White.copy(alpha = 0.60f),
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.SansSerif,
+                    lineHeight = 15.sp
+                )
+            }
+        }
+        NocturnaaToggleSwitch(
+            checked = checked,
+            accentColor = accentColor,
+            label = title,
+            onCheckedChange = onCheckedChange
+        )
+    }
+}
+
+@Composable
+fun SettingsHairlineDivider(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(Color(0x1AFFFFFF))
+    )
+}
+
+@Composable
+fun OutlinedDonePillButton(
+    label: String = "DONE",
+    lomoFontFamily: FontFamily,
+    onClick: () -> Unit
+) {
+    Text(
+        text = label,
+        color = Color.White,
+        fontSize = 11.sp,
+        fontFamily = lomoFontFamily,
+        modifier = Modifier
+            .border(1.dp, Color(0xFF4D4D4D), RoundedCornerShape(50))
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 6.dp)
+    )
+}
+
+@Composable
+fun NocturnaaSegmentedControl(
+    options: List<Pair<String, String>>,
+    selectedId: String,
+    accentColor: Color,
+    lomoFontFamily: FontFamily,
+    onSelect: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val selectedIndex = options.indexOfFirst { it.first == selectedId }.coerceAtLeast(0)
+    val animatedIndex by animateFloatAsState(
+        targetValue = selectedIndex.toFloat(),
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f),
+        label = "segmentedSlideSpring"
+    )
+
+    fun fireSegTick() {
+        val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
+        } else {
+            @Suppress("DEPRECATION")
+            VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
+        }
+        vib?.vibrate(effect)
+    }
+
+    val trackShape = RoundedCornerShape(8.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(36.dp)
+            .border(1.dp, Color(0x22FFFFFF), trackShape)
+            .background(Color(0xFF101010), trackShape)
+            .padding(2.dp)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val count = options.size.coerceAtLeast(1)
+            val segW = size.width / count.toFloat()
+            val x = (animatedIndex * segW).coerceIn(0f, (size.width - segW).coerceAtLeast(0f))
+            drawRoundRect(
+                color = accentColor,
+                topLeft = Offset(x, 0f),
+                size = Size(segW, size.height),
+                cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            options.forEachIndexed { idx, (optId, optLabel) ->
+                val isSel = idx == selectedIndex
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            if (optId != selectedId) {
+                                fireSegTick()
+                                onSelect(optId)
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = optLabel,
+                        color = if (isSel) Color.Black else Color.White.copy(alpha = 0.85f),
+                        fontSize = 11.sp,
+                        fontFamily = lomoFontFamily,
+                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun WidgetsManagerView(
     activeWidgets: List<String>,
@@ -8141,11 +8438,8 @@ fun WidgetsManagerView(
     onBack: () -> Unit
 ) {
     val is80sWm = LocalRetro80sMode.current
-    val wmBtnShape = RoundedCornerShape(if (is80sWm) 0.dp else 4.dp)
-    val wmPillShape = RoundedCornerShape(if (is80sWm) 0.dp else 6.dp)
     var editingLeftPage by remember { mutableStateOf(leftPageEnabled && initialTargetLeftPage) }
     val targetWidgetsList = if (leftPageEnabled && editingLeftPage) leftPageWidgets else activeWidgets
-    val targetSizesMap = if (leftPageEnabled && editingLeftPage) leftWidgetSizes else widgetSizes
     val targetStylesMap = if (leftPageEnabled && editingLeftPage) leftWidgetStyles else widgetStyles
     val onUpdateTargetWidgets: (List<String>) -> Unit = if (leftPageEnabled && editingLeftPage) onUpdateLeftWidgets else onUpdateWidgets
     val onUpdateTargetStyle: (String, String) -> Unit = if (leftPageEnabled && editingLeftPage) onSetLeftWidgetStyle else onSetWidgetStyle
@@ -8174,20 +8468,10 @@ fun WidgetsManagerView(
             .windowInsetsPadding(WindowInsets.statusBars)
             .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
             .windowInsetsPadding(WindowInsets.navigationBars)
-            .pointerInput(Unit) {
-                var totalDy = 0f
-                detectVerticalDragGestures(
-                    onDragStart = { totalDy = 0f },
-                    onVerticalDrag = { _, dragAmount -> totalDy += dragAmount },
-                    onDragEnd = {
-                        if (totalDy < -85f) onBack()
-                    }
-                )
-            }
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Clean Window Header: only Title + DONE button
+        // Header: Title + Outlined DONE pill
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -8195,271 +8479,158 @@ fun WidgetsManagerView(
         ) {
             Text(
                 text = if (is80sWm) "Widget Configuration" else "Widget Manager",
-                color = if (is80sWm) accentColor else Color.White,
-                fontSize = 16.sp,
+                color = Color.White,
+                fontSize = 18.sp,
                 fontFamily = lomoFontFamily,
                 fontWeight = FontWeight.Bold
             )
-            Text(
-                text = "DONE",
-                color = Color.Black,
-                fontSize = 11.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .background(if (is80sWm) accentColor else Color.White, wmPillShape)
-                    .clickable { onBack() }
-                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            OutlinedDonePillButton(
+                lomoFontFamily = lomoFontFamily,
+                onClick = onBack
             )
         }
 
         if (leftPageEnabled) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(
-                        1.dp,
-                        if (is80sWm) accentColor else Color(0xFF282828),
-                        RoundedCornerShape(if (is80sWm) 0.dp else 8.dp)
-                    )
-                    .background(Color(0xFF0A0A0A), RoundedCornerShape(if (is80sWm) 0.dp else 8.dp))
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                listOf(
-                    false to "MAIN PAGE",
-                    true to "LEFT PAGE"
-                ).forEach { (isLeft, tabLabel) ->
-                    val selected = editingLeftPage == isLeft
-                    Text(
-                        text = tabLabel,
-                        color = if (selected) Color.Black else if (is80sWm) accentColor else Color.White,
-                        fontSize = 10.sp,
-                        fontFamily = lomoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .weight(1f)
-                            .background(if (selected) accentColor else Color(0xFF141414), wmPillShape)
-                            .clickable { editingLeftPage = isLeft }
-                            .padding(vertical = 7.dp)
-                    )
-                }
-            }
+            NocturnaaSegmentedControl(
+                options = listOf("main" to "Main page", "left" to "Left page"),
+                selectedId = if (editingLeftPage) "left" else "main",
+                accentColor = accentColor,
+                lomoFontFamily = lomoFontFamily,
+                onSelect = { editingLeftPage = (it == "left") }
+            )
         }
+
+        SettingsHairlineDivider()
 
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(bottom = 20.dp)
+            contentPadding = PaddingValues(bottom = 24.dp)
         ) {
-            items(allWidgets) { (id, title) ->
+            itemsIndexed(allWidgets) { index, (id, title) ->
                 val enabled = targetWidgetsList.contains(id)
-                val wmCardShape = RoundedCornerShape(if (is80sWm) 0.dp else 12.dp)
+                if (index > 0) {
+                    SettingsHairlineDivider()
+                }
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(
-                            if (is80sWm) 1.4.dp else 1.dp,
-                            if (is80sWm) (if (enabled) accentColor else accentColor.copy(alpha = 0.4f)) else (if (enabled) Color(0xFF333333) else Color(0xFF1A1A1A)),
-                            wmCardShape
-                        )
-                        .background(if (enabled) Color(0xFF080808) else Color(0xFF040404), wmCardShape)
-                        .padding(14.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = title,
-                            color = if (enabled) Color.White else Color(0xFF737373),
-                            fontSize = 12.sp,
-                            fontFamily = lomoFontFamily,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = if (enabled) "ACTIVE [×]" else "+ ADD",
-                            color = if (enabled) accentColor else if (is80sWm) accentColor.copy(alpha = 0.7f) else Color(0xFF8A8A8A),
-                            fontSize = 11.sp,
-                            fontFamily = lomoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .border(
-                                    1.dp,
-                                    if (enabled) accentColor else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF262626),
-                                    wmPillShape
+                        .background(if (enabled) Color(0xFF0C0C0C) else Color.Black)
+                        .drawBehind {
+                            if (enabled) {
+                                drawRect(
+                                    color = accentColor,
+                                    topLeft = Offset.Zero,
+                                    size = Size(2.dp.toPx(), size.height)
                                 )
-                                .clickable {
-                                    val next = if (enabled) targetWidgetsList - id else targetWidgetsList + id
-                                    onUpdateTargetWidgets(next)
-                                }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
+                            }
+                        }
+                        .padding(vertical = 8.dp, horizontal = if (enabled) 12.dp else 0.dp)
+                ) {
+                    NocturnaaToggleRow(
+                        title = title,
+                        checked = enabled,
+                        accentColor = accentColor,
+                        lomoFontFamily = lomoFontFamily,
+                        onCheckedChange = { shouldEnable ->
+                            val next = if (shouldEnable) {
+                                if (targetWidgetsList.contains(id)) targetWidgetsList else targetWidgetsList + id
+                            } else {
+                                targetWidgetsList - id
+                            }
+                            onUpdateTargetWidgets(next)
+                        }
+                    )
 
                     if (enabled) {
                         val currentStyle = targetStylesMap[id] ?: if (id == "battery_bar") "80s_retro" else "default"
                         val styleChoices = getWidgetStyleChoices(id)
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "STYLE",
-                            color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
-                            fontSize = 9.sp,
-                            fontFamily = lomoFontFamily
+                            text = "Widget style",
+                            color = Color.White.copy(alpha = 0.60f),
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.SansSerif
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(5.dp)
-                        ) {
-                            styleChoices.forEach { (stId, stLbl) ->
-                                val isSel = currentStyle == stId
-                                Text(
-                                    text = stLbl,
-                                    color = if (isSel) Color.Black else if (is80sWm) accentColor else Color.White,
-                                    fontSize = 8.sp,
-                                    fontFamily = lomoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .border(
-                                            1.dp,
-                                            if (isSel) accentColor else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
-                                            wmBtnShape
-                                        )
-                                        .background(if (isSel) accentColor else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
-                                        .clickable { onUpdateTargetStyle(id, stId) }
-                                        .padding(vertical = 5.dp)
-                                )
-                            }
-                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        NocturnaaSegmentedControl(
+                            options = styleChoices,
+                            selectedId = currentStyle,
+                            accentColor = accentColor,
+                            lomoFontFamily = lomoFontFamily,
+                            onSelect = { stId -> onUpdateTargetStyle(id, stId) }
+                        )
 
                         if (id == "clock" || id == "battery_bar") {
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "BATTERY BAR STYLE",
-                                color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
-                                fontSize = 9.sp,
-                                fontFamily = lomoFontFamily
+                                text = "Battery bar style",
+                                color = Color.White.copy(alpha = 0.60f),
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.SansSerif
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                BATTERY_BAR_STYLES.forEach { (stId, stLbl) ->
-                                    val isSel = batteryBarStyle == stId
-                                    Text(
-                                        text = stLbl,
-                                        color = if (isSel) Color.Black else if (is80sWm) accentColor else Color.White,
-                                        fontSize = 8.sp,
-                                        fontFamily = lomoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .border(
-                                                1.dp,
-                                                if (isSel) accentColor else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
-                                                wmBtnShape
-                                            )
-                                            .background(if (isSel) accentColor else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
-                                            .clickable { onChangeBatteryBarStyle(stId) }
-                                            .padding(vertical = 5.dp)
-                                    )
-                                }
-                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            NocturnaaSegmentedControl(
+                                options = BATTERY_BAR_STYLES,
+                                selectedId = batteryBarStyle,
+                                accentColor = accentColor,
+                                lomoFontFamily = lomoFontFamily,
+                                onSelect = { stId -> onChangeBatteryBarStyle(stId) }
+                            )
                         }
 
                         if (id == "clock" || id == "battery_bar" || id == "retro_flip_clock" || id == "analog_chrono") {
                             Spacer(modifier = Modifier.height(10.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "CLOCK FORMAT",
-                                    color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
-                                    fontSize = 9.sp,
-                                    fontFamily = lomoFontFamily
-                                )
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    listOf(false to "12H", true to "24H").forEach { (is24, lbl) ->
-                                        val sel = use24Hour == is24
-                                        val activeBg = if (is80sWm) accentColor else Color.White
-                                        Text(
-                                            text = lbl,
-                                            color = if (sel) Color.Black else if (is80sWm) accentColor else Color.White,
-                                            fontSize = 9.sp,
-                                            fontFamily = lomoFontFamily,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier
-                                                .border(
-                                                    1.dp,
-                                                    if (sel) activeBg else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
-                                                    wmBtnShape
-                                                )
-                                                .background(if (sel) activeBg else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
-                                                .clickable { if (use24Hour != is24) onToggle24h() }
-                                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                                        )
-                                    }
+                            Text(
+                                text = "Clock format",
+                                color = Color.White.copy(alpha = 0.60f),
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            NocturnaaSegmentedControl(
+                                options = listOf("12h" to "12-hour", "24h" to "24-hour"),
+                                selectedId = if (use24Hour) "24h" else "12h",
+                                accentColor = accentColor,
+                                lomoFontFamily = lomoFontFamily,
+                                onSelect = { sel ->
+                                    val want24 = sel == "24h"
+                                    if (use24Hour != want24) onToggle24h()
                                 }
-                            }
+                            )
                         }
 
                         if (id == "globe") {
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "VISUAL THEME",
-                                color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
-                                fontSize = 9.sp,
-                                fontFamily = lomoFontFamily
+                                text = "Visual theme",
+                                color = Color.White.copy(alpha = 0.60f),
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.SansSerif
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf(
-                                    "retro_holo" to "HOLOGRAM (GRN/BLU)",
-                                    "wireframe" to "MONOCHROME VECTOR"
-                                ).forEach { (tId, tLabel) ->
-                                    val isSel = globeTheme == tId
-                                    val activeBg = if (is80sWm) accentColor else Color.White
-                                    Text(
-                                        text = tLabel,
-                                        color = if (isSel) Color.Black else if (is80sWm) accentColor else Color.White,
-                                        fontSize = 9.sp,
-                                        fontFamily = lomoFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .border(
-                                                1.dp,
-                                                if (isSel) activeBg else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
-                                                wmBtnShape
-                                            )
-                                            .background(if (isSel) activeBg else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
-                                            .clickable { onChangeGlobeTheme(tId) }
-                                            .padding(horizontal = 8.dp, vertical = 5.dp)
-                                    )
-                                }
-                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            NocturnaaSegmentedControl(
+                                options = listOf(
+                                    "retro_holo" to "Hologram",
+                                    "wireframe" to "Monochrome"
+                                ),
+                                selectedId = globeTheme,
+                                accentColor = accentColor,
+                                lomoFontFamily = lomoFontFamily,
+                                onSelect = { tId -> onChangeGlobeTheme(tId) }
+                            )
 
                             if (globeTheme == "wireframe") {
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(10.dp))
                                 Text(
-                                    text = "VECTOR COLOR",
-                                    color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
-                                    fontSize = 9.sp,
-                                    fontFamily = lomoFontFamily
+                                    text = "Vector color",
+                                    color = Color.White.copy(alpha = 0.60f),
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.SansSerif
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     listOf(
                                         "#FF3B00" to "CMF",
@@ -8471,37 +8642,35 @@ fun WidgetsManagerView(
                                         "#3B82F6" to "BLU"
                                     ).forEach { (hex, name) ->
                                         val selected = globeWireframeColor.equals(hex, ignoreCase = true)
-                                        val swatchColor = when (hex) {
-                                            "#00FF66" -> Color(0xFF00FF66)
-                                            "#00E5FF" -> Color(0xFF00E5FF)
-                                            "#FFFFFF" -> Color(0xFFFFFFFF)
-                                            "#D71921" -> Color(0xFFD71921)
-                                            "#FFB000" -> Color(0xFFFFB000)
-                                            "#3B82F6" -> Color(0xFF3B82F6)
-                                            else -> Color(0xFFFF3B00)
-                                        }
+                                        val swatchColor = resolveLauncherAccentColor(hex)
                                         Column(
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                             modifier = Modifier
-                                                .border(
-                                                    width = if (selected) 1.5.dp else 1.dp,
-                                                    color = if (selected) (if (is80sWm) accentColor else Color.White) else if (is80sWm) accentColor.copy(alpha = 0.4f) else Color(0xFF262626),
-                                                    shape = wmPillShape
-                                                )
-                                                .background(Color(0xFF111111), wmPillShape)
                                                 .clickable { onChangeGlobeWireframeColor(hex) }
-                                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                                                .padding(4.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
                                             Box(
-                                                modifier = Modifier
-                                                    .size(10.dp)
-                                                    .background(swatchColor, if (is80sWm) RoundedCornerShape(0.dp) else CircleShape)
-                                            )
-                                            Spacer(modifier = Modifier.height(2.dp))
+                                                modifier = Modifier.size(26.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (selected) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(26.dp)
+                                                            .border(1.5.dp, Color.White, CircleShape)
+                                                    )
+                                                }
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(18.dp)
+                                                        .background(swatchColor, CircleShape)
+                                                )
+                                            }
                                             Text(
                                                 text = name,
                                                 color = if (selected) Color.White else Color(0xFF737373),
-                                                fontSize = 8.sp,
+                                                fontSize = 9.sp,
                                                 fontFamily = lomoFontFamily
                                             )
                                         }
@@ -8511,60 +8680,33 @@ fun WidgetsManagerView(
                         }
 
                         if (id == "pinned_apps") {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "SEQUENCE ORDER",
-                                    color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
-                                    fontSize = 9.sp,
-                                    fontFamily = lomoFontFamily
-                                )
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    listOf(true to "CUSTOM (↑/↓)", false to "A–Z AUTO").forEach { (isCust, lbl) ->
-                                        val sel = customPinnedOrderEnabled == isCust
-                                        val activeBg = if (is80sWm) accentColor else Color.White
-                                        Text(
-                                            text = lbl,
-                                            color = if (sel) Color.Black else if (is80sWm) accentColor else Color.White,
-                                            fontSize = 9.sp,
-                                            fontFamily = lomoFontFamily,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier
-                                                .border(
-                                                    1.dp,
-                                                    if (sel) activeBg else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
-                                                    wmBtnShape
-                                                )
-                                                .background(if (sel) activeBg else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
-                                                .clickable { if (customPinnedOrderEnabled != isCust) onToggleCustomPinnedOrder() }
-                                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                                        )
-                                    }
-                                }
-                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            NocturnaaToggleRow(
+                                title = "Custom Pinned Apps Order",
+                                checked = customPinnedOrderEnabled,
+                                accentColor = accentColor,
+                                lomoFontFamily = lomoFontFamily,
+                                onCheckedChange = { if (customPinnedOrderEnabled != it) onToggleCustomPinnedOrder() }
+                            )
                         }
 
                         if (id == "scratchpad") {
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                             BasicTextField(
                                 value = quickNote,
                                 onValueChange = { onChangeQuickNote(it) },
                                 singleLine = true,
                                 textStyle = TextStyle(
                                     color = Color.White,
-                                    fontSize = 11.sp,
+                                    fontSize = 12.sp,
                                     fontFamily = lomoFontFamily
                                 ),
                                 cursorBrush = SolidColor(accentColor),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .border(1.dp, if (is80sWm) accentColor else Color(0xFF262626), wmPillShape)
-                                    .background(Color(0xFF111111), wmPillShape)
-                                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                                    .border(1.dp, Color(0x26FFFFFF), RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF101010), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 12.dp, vertical = 9.dp)
                             )
                         }
                     }
@@ -8575,10 +8717,7 @@ fun WidgetsManagerView(
 }
 
 // ============================================================================
-// CLEAN LAUNCHER SETTINGS WITH COLLAPSIBLE ACCORDION MENUS (v5.0.0-cmf)
-// - Header title: "Nocturnaa Settings" (Regular) / "Nocturna Configuration" (Old School)
-// - Collapsible menus show ONLY the section title and small theme-specific icon
-// - Every inner card, button & slider follows the Old School theme consistently
+// PART 2: FLAT HAIRLINE SETTINGS SCREEN MATCHING IMAGE 2 MOCKUP
 // ============================================================================
 @Composable
 fun LauncherSettingsView(
@@ -8641,26 +8780,20 @@ fun LauncherSettingsView(
     onRequestDefaultHomeRole: () -> Unit,
     onBack: () -> Unit
 ) {
-    var expandedSystem by remember { mutableStateOf(false) }
-    var expandedTypography by remember { mutableStateOf(false) }
+    // Only one section stays open at a time (1..4 or null)
+    var openSectionIndex by remember { mutableStateOf<Int?>(null) }
     var expandedFontMenu by remember { mutableStateOf(false) }
-    var expandedWallpaper by remember { mutableStateOf(false) }
-    var expandedMotion by remember { mutableStateOf(false) }
+    var openWallpaperSubSection by remember { mutableStateOf<String?>(null) }
 
-    var expandedLiveWallpapers by remember { mutableStateOf(false) }
-    var expandedStaticWallpapers by remember { mutableStateOf(false) }
-    var expandedUserWallpapers by remember { mutableStateOf(false) }
-
-    val accentColor = if (retro80sMode) Color.White else resolveLauncherAccentColor(accentHex)
-    val settingsGlowStyle = if (retro80sMode) {
-        TextStyle(shadow = Shadow(color = Color.White.copy(alpha = 0.55f), offset = Offset.Zero, blurRadius = 6f))
+    // Current accent colour (including Old School theme colours)
+    val accentColor = if (retro80sMode) {
+        if (retro80sColorTheme == "amber") Color(0xFFFF8800) else Color(0xFF7CFF5B)
     } else {
-        TextStyle.Default
+        resolveLauncherAccentColor(accentHex)
     }
-    val innerCardShape = RoundedCornerShape(if (retro80sMode) 0.dp else 10.dp)
-    val innerSubCardShape = RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp)
-    val innerBtnShape = RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
-    val innerCardBorderColor = if (retro80sMode) accentColor.copy(alpha = 0.75f) else Color(0xFF222222)
+    val innerCardShape = RoundedCornerShape(8.dp)
+    val innerSubCardShape = RoundedCornerShape(8.dp)
+    val innerCardBorderColor = Color(0x1AFFFFFF)
 
     val liveWallpaperOptions = listOf(
         Triple("live_crt_scanlines", "OLD SCHOOL SCANLINES", "Faint Scanlines & Refresh Beam"),
@@ -8728,136 +8861,116 @@ fun LauncherSettingsView(
             .windowInsetsPadding(WindowInsets.statusBars)
             .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
             .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(bottom = 24.dp)
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        contentPadding = PaddingValues(bottom = 32.dp)
     ) {
-        // Clean Settings Header: ONLY "Nocturnaa Settings" (Regular) or "Nocturna Configuration" (Old School) + DONE
+        // Header: "Nocturnaa Settings" + Outlined "DONE" pill (Image 2)
         item {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = if (retro80sMode) "Nocturna Configuration" else "Nocturnaa Settings",
-                    color = if (retro80sMode) accentColor else Color.White,
-                    fontSize = 16.sp,
+                    color = Color.White,
+                    fontSize = 18.sp,
                     fontFamily = launcherFont,
-                    fontWeight = FontWeight.Bold,
-                    style = settingsGlowStyle
+                    fontWeight = FontWeight.Bold
                 )
-                Text(
-                    text = "DONE",
-                    color = Color.Black,
-                    fontSize = 11.sp,
-                    fontFamily = launcherFont,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .background(if (retro80sMode) accentColor else Color.White, innerBtnShape)
-                        .clickable { onBack() }
-                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                OutlinedDonePillButton(
+                    lomoFontFamily = launcherFont,
+                    onClick = onBack
                 )
             }
         }
 
-        // SECTION 01
+        // SECTION 01: System & Home Integration
         item {
             CollapsibleSettingsSection(
                 indexTag = "01",
                 title = "System & Home Integration",
-                subtitle = "",
-                badge = "",
-                expanded = expandedSystem,
+                expanded = openSectionIndex == 1,
                 accentColor = accentColor,
                 lomoFontFamily = launcherFont,
-                onToggle = { expandedSystem = !expandedSystem }
+                onToggle = { openSectionIndex = if (openSectionIndex == 1) null else 1 }
             ) {
                 SettingCard(
                     title = "Default Home Launcher",
-                    subtitle = "",
                     actionLabel = "CHOOSE HOME",
                     lomoFontFamily = launcherFont,
                     onClick = onRequestDefaultHomeRole
                 )
-                SettingCard(
+
+                SettingsHairlineDivider()
+
+                NocturnaaToggleRow(
                     title = "Old School Mode",
-                    subtitle = "",
-                    actionLabel = if (retro80sMode) "ON" else "OFF",
+                    checked = retro80sMode,
+                    accentColor = accentColor,
                     lomoFontFamily = launcherFont,
-                    onClick = onToggleRetro80sMode
+                    onCheckedChange = { if (retro80sMode != it) onToggleRetro80sMode() }
                 )
-                // Old School Color Theme Selector (Green Phosphor vs Amber Orange)
+
+                SettingsHairlineDivider()
+
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, innerCardBorderColor, innerCardShape)
-                        .background(Color(0xFF050505), innerCardShape)
-                        .padding(12.dp),
+                        .padding(vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "OLD SCHOOL COLOR THEME",
-                        color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
-                        fontSize = 9.sp,
-                        fontFamily = launcherFont,
-                        fontWeight = FontWeight.Bold
+                        text = "Old School color theme",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontFamily = launcherFont
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf(
-                            "green" to "GREEN PHOSPHOR",
-                            "amber" to "AMBER ORANGE"
-                        ).forEach { (thId, thLbl) ->
-                            val isSel = retro80sColorTheme == thId
-                            val activeBg = if (retro80sMode) accentColor else Color.White
-                            Text(
-                                text = thLbl,
-                                color = if (isSel) Color.Black else if (retro80sMode) accentColor else Color.White,
-                                fontSize = 9.sp,
-                                fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .border(
-                                        1.dp,
-                                        if (isSel) activeBg else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
-                                        innerBtnShape
-                                    )
-                                    .background(
-                                        if (isSel) activeBg else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF141414),
-                                        innerBtnShape
-                                    )
-                                    .clickable { onChangeRetro80sColorTheme(thId) }
-                                    .padding(vertical = 7.dp)
-                            )
-                        }
-                    }
+                    NocturnaaSegmentedControl(
+                        options = listOf(
+                            "green" to "Green phosphor",
+                            "amber" to "Amber orange"
+                        ),
+                        selectedId = retro80sColorTheme,
+                        accentColor = accentColor,
+                        lomoFontFamily = launcherFont,
+                        onSelect = onChangeRetro80sColorTheme
+                    )
                 }
-                SettingCard(
+
+                SettingsHairlineDivider()
+
+                NocturnaaToggleRow(
                     title = "Additional Left Home Page",
-                    subtitle = "",
-                    actionLabel = if (enableLeftPage) "ON" else "OFF",
+                    checked = enableLeftPage,
+                    accentColor = accentColor,
                     lomoFontFamily = launcherFont,
-                    onClick = onToggleLeftPage
+                    onCheckedChange = { if (enableLeftPage != it) onToggleLeftPage() }
                 )
-                SettingCard(
+
+                SettingsHairlineDivider()
+
+                NocturnaaToggleRow(
                     title = "Hide Android Status Bar",
-                    subtitle = "",
-                    actionLabel = if (hideAndroidBar) "ON" else "OFF",
+                    checked = hideAndroidBar,
+                    accentColor = accentColor,
                     lomoFontFamily = launcherFont,
-                    onClick = onToggleAndroidBar
+                    onCheckedChange = { if (hideAndroidBar != it) onToggleAndroidBar() }
                 )
-                SettingCard(
+
+                SettingsHairlineDivider()
+
+                NocturnaaToggleRow(
                     title = "Pause Wallpapers & Widgets in Apps",
-                    subtitle = "",
-                    actionLabel = if (pauseWhenAppOpen) "ON" else "OFF",
+                    checked = pauseWhenAppOpen,
+                    accentColor = accentColor,
                     lomoFontFamily = launcherFont,
-                    onClick = onTogglePauseWhenAppOpen
+                    onCheckedChange = { if (pauseWhenAppOpen != it) onTogglePauseWhenAppOpen() }
                 )
+
+                SettingsHairlineDivider()
 
                 SettingsBackdropControlCard(
                     isDrawerPreview = false,
@@ -8871,9 +8984,10 @@ fun LauncherSettingsView(
                     onChangeIntensity = onChangeSettingsBgIntensity
                 )
             }
+            SettingsHairlineDivider()
         }
 
-        // SECTION 02
+        // SECTION 02: Typography & Layout
         item {
             val activePrebuiltFont = PrebuiltFont.fromId(fontId)
             val activeFontName = activePrebuiltFont.displayName.substringBefore(" (")
@@ -8881,118 +8995,55 @@ fun LauncherSettingsView(
             CollapsibleSettingsSection(
                 indexTag = "02",
                 title = "Typography & Layout",
-                subtitle = "",
-                badge = "",
-                expanded = expandedTypography,
+                expanded = openSectionIndex == 2,
                 accentColor = accentColor,
                 lomoFontFamily = launcherFont,
-                onToggle = { expandedTypography = !expandedTypography }
+                onToggle = { openSectionIndex = if (openSectionIndex == 2) null else 2 }
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, innerCardBorderColor, innerCardShape)
-                        .background(Color(0xFF070707), innerCardShape)
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                CollapsibleSubSection(
+                    title = "Launcher Font",
+                    subtitle = activeFontName,
+                    expanded = expandedFontMenu,
+                    accentColor = accentColor,
+                    lomoFontFamily = launcherFont,
+                    onToggle = { expandedFontMenu = !expandedFontMenu }
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { expandedFontMenu = !expandedFontMenu },
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                text = "LAUNCHER FONT",
-                                color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
-                                fontSize = 9.sp,
-                                fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = activeFontName,
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold
-                            )
+                    PrebuiltFont.values().forEachIndexed { fIdx, f ->
+                        val selected = fontId == f.id
+                        if (fIdx > 0) {
+                            SettingsHairlineDivider()
                         }
-                        val fontMenuArrowRot by animateFloatAsState(
-                            targetValue = if (expandedFontMenu) 90f else 0f,
-                            animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
-                            label = "fontMenuArrowRot"
-                        )
-                        val fontMenuArrowColor by animateColorAsState(
-                            targetValue = if (expandedFontMenu || retro80sMode) accentColor else Color(0xFF737373),
-                            animationSpec = tween(durationMillis = 240),
-                            label = "fontMenuArrowColor"
-                        )
-                        Text(
-                            text = if (retro80sMode) {
-                                if (expandedFontMenu) "[-]" else "[+]"
-                            } else {
-                                "▸"
-                            },
-                            color = fontMenuArrowColor,
-                            fontSize = if (retro80sMode) 11.sp else 14.sp,
-                            fontFamily = launcherFont,
-                            fontWeight = FontWeight.Bold,
-                            style = settingsGlowStyle,
-                            modifier = Modifier.graphicsLayer {
-                                rotationZ = if (retro80sMode) 0f else fontMenuArrowRot
-                            }
-                        )
-                    }
-
-                    AnimatedVisibility(
-                        visible = expandedFontMenu,
-                        enter = expandVertically() + fadeIn(),
-                        exit = shrinkVertically() + fadeOut()
-                    ) {
-                        Column(
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                .heightIn(min = 48.dp)
+                                .clickable { onChangeFont(f.id) }
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            PrebuiltFont.values().forEach { f ->
-                                val selected = fontId == f.id
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .border(
-                                            1.dp,
-                                            if (selected) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.35f) else Color(0xFF171717),
-                                            innerSubCardShape
-                                        )
-                                        .background(
-                                            if (selected) Color(0xFF121212) else Color.Transparent,
-                                            innerSubCardShape
-                                        )
-                                        .clickable { onChangeFont(f.id) }
-                                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = f.displayName.substringBefore(" ("),
-                                        color = if (selected && retro80sMode) accentColor else Color.White,
-                                        fontSize = 12.sp,
-                                        fontFamily = f.resolveFontFamily(lomoFontFamily),
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Text(
-                                        text = if (retro80sMode) {
-                                            if (selected) "[×]" else "[ ]"
-                                        } else {
-                                            if (selected) "●" else "○"
-                                        },
-                                        color = if (selected) accentColor else Color(0xFF525252),
-                                        fontSize = 10.sp,
-                                        fontFamily = launcherFont,
-                                        fontWeight = FontWeight.Bold
+                            Text(
+                                text = f.displayName.substringBefore(" ("),
+                                color = if (selected) accentColor else Color.White,
+                                fontSize = 13.sp,
+                                fontFamily = f.resolveFontFamily(lomoFontFamily),
+                                modifier = Modifier.weight(1f)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .border(
+                                        width = 1.5.dp,
+                                        color = if (selected) accentColor else Color(0xFF555555),
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (selected) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .background(accentColor, CircleShape)
                                     )
                                 }
                             }
@@ -9000,7 +9051,9 @@ fun LauncherSettingsView(
                     }
                 }
 
-                // Home Screen App Font Size converted to the unified reusable slider with live preview
+                SettingsHairlineDivider()
+
+                // Home Screen App Font Size slider with tick marks & live preview
                 NocturnaaSettingSlider(
                     title = "Home text size",
                     description = "How big your pinned app names look on the home screen. Smaller fits more apps, bigger is easier to tap.",
@@ -9015,6 +9068,7 @@ fun LauncherSettingsView(
                     innerCardShape = innerCardShape,
                     lomoFontFamily = launcherFont,
                     presetChips = listOf(16f to "16", 18f to "18", 20f to "20", 22f to "22", 24f to "24"),
+                    embedInCard = false,
                     onValueChange = { nextVal ->
                         val targetSp = nextVal.roundToInt().coerceIn(16, 24)
                         if (targetSp != textSizeSp) {
@@ -9048,37 +9102,66 @@ fun LauncherSettingsView(
                     }
                 }
 
-                SettingCard(
-                    title = "Clock Time Format",
-                    subtitle = "",
-                    actionLabel = if (use24Hour) "24-HOUR" else "12-HOUR",
-                    lomoFontFamily = launcherFont,
-                    onClick = onToggle24h
-                )
+                SettingsHairlineDivider()
 
-                SettingCard(
-                    title = "Home Text Alignment",
-                    subtitle = "",
-                    actionLabel = textAlignMode.uppercase(Locale.US),
-                    lomoFontFamily = launcherFont,
-                    onClick = {
-                        val next = when (textAlignMode) {
-                            "left" -> "center"
-                            "center" -> "right"
-                            else -> "left"
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Clock Time Format",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontFamily = launcherFont
+                    )
+                    NocturnaaSegmentedControl(
+                        options = listOf("12h" to "12-hour", "24h" to "24-hour"),
+                        selectedId = if (use24Hour) "24h" else "12h",
+                        accentColor = accentColor,
+                        lomoFontFamily = launcherFont,
+                        onSelect = { sel ->
+                            val want24 = sel == "24h"
+                            if (use24Hour != want24) onToggle24h()
                         }
-                        onChangeAlign(next)
-                    }
-                )
+                    )
+                }
 
-                SettingCard(
+                SettingsHairlineDivider()
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Home Text Alignment",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontFamily = launcherFont
+                    )
+                    NocturnaaSegmentedControl(
+                        options = listOf("left" to "Left", "center" to "Center", "right" to "Right"),
+                        selectedId = textAlignMode,
+                        accentColor = accentColor,
+                        lomoFontFamily = launcherFont,
+                        onSelect = onChangeAlign
+                    )
+                }
+
+                SettingsHairlineDivider()
+
+                NocturnaaToggleRow(
                     title = "Custom Pinned Apps Order",
-                    subtitle = "",
-                    actionLabel = if (customPinnedOrderEnabled) "ON" else "OFF",
+                    checked = customPinnedOrderEnabled,
+                    accentColor = accentColor,
                     lomoFontFamily = launcherFont,
-                    onClick = onToggleCustomPinnedOrder
+                    onCheckedChange = { if (customPinnedOrderEnabled != it) onToggleCustomPinnedOrder() }
                 )
             }
+            SettingsHairlineDivider()
         }
 
         // SECTION 03: Wallpapers and Settings
@@ -9086,14 +9169,12 @@ fun LauncherSettingsView(
             CollapsibleSettingsSection(
                 indexTag = "03",
                 title = "Wallpapers and Settings",
-                subtitle = "",
-                badge = "",
-                expanded = expandedWallpaper,
+                expanded = openSectionIndex == 3,
                 accentColor = accentColor,
                 lomoFontFamily = launcherFont,
-                onToggle = { expandedWallpaper = !expandedWallpaper }
+                onToggle = { openSectionIndex = if (openSectionIndex == 3) null else 3 }
             ) {
-                // 0. Universal Wallpaper Dimmer converted to unified reusable slider with live preview
+                // Wallpaper dimmer slider with tick marks (0, 20, 40, 60, 75, 90) matching Image 2
                 NocturnaaSettingSlider(
                     title = "Wallpaper dimmer",
                     description = "Darkens your wallpaper so text stays readable. 0% is the original wallpaper, 90% is almost black.",
@@ -9107,7 +9188,8 @@ fun LauncherSettingsView(
                     innerCardBorderColor = innerCardBorderColor,
                     innerCardShape = innerCardShape,
                     lomoFontFamily = launcherFont,
-                    presetChips = listOf(0f to "0%", 20f to "20%", 40f to "40%", 60f to "60%", 75f to "75%", 90f to "90%"),
+                    presetChips = listOf(0f to "0", 20f to "20", 40f to "40", 60f to "60", 75f to "75", 90f to "90"),
+                    embedInCard = false,
                     onValueChange = { nextVal ->
                         val nextDim = nextVal.roundToInt().coerceIn(0, 90)
                         if (nextDim != wallpaperDimPercent) {
@@ -9128,14 +9210,12 @@ fun LauncherSettingsView(
                             accentColor = accentColor,
                             modifier = Modifier.fillMaxSize()
                         )
-                        // Dimmer overlay at the selected percentage
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer { alpha = dimAlpha }
                                 .background(Color.Black)
                         )
-                        // Sample Home-screen text (Clock "12:30" + two app names)
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -9167,67 +9247,68 @@ fun LauncherSettingsView(
                     }
                 }
 
+                SettingsHairlineDivider()
+
                 // 1. Live Wallpapers
                 CollapsibleSubSection(
                     title = "Live Wallpapers",
-                    subtitle = "",
-                    badge = "",
-                    expanded = expandedLiveWallpapers,
+                    expanded = openWallpaperSubSection == "live",
                     accentColor = accentColor,
                     lomoFontFamily = launcherFont,
-                    onToggle = { expandedLiveWallpapers = !expandedLiveWallpapers }
+                    onToggle = { openWallpaperSubSection = if (openWallpaperSubSection == "live") null else "live" }
                 ) {
-                    liveWallpaperOptions.chunked(2).forEach { rowItems ->
+                    liveWallpaperOptions.forEachIndexed { idx, (id, title, desc) ->
+                        val active = wallpaperPreset == id
+                        if (idx > 0) {
+                            SettingsHairlineDivider()
+                        }
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .clickable { onChangeWallpaperPreset(id) }
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            rowItems.forEach { (id, title, _) ->
-                                val active = wallpaperPreset == id
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .border(
-                                            1.dp,
-                                            if (active) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.4f) else Color(0xFF242424),
-                                            innerSubCardShape
-                                        )
-                                        .background(
-                                            if (active) Color(0xFF141414) else Color(0xFF0A0A0A),
-                                            innerSubCardShape
-                                        )
-                                        .clickable { onChangeWallpaperPreset(id) }
-                                        .padding(horizontal = 10.dp, vertical = 10.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = title,
-                                            color = if (active) (if (retro80sMode) accentColor else Color.White) else Color(0xFFD4D4D4),
-                                            fontSize = 10.sp,
-                                            fontFamily = launcherFont,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Box(
-                                            modifier = Modifier
-                                                .size(6.dp)
-                                                .background(
-                                                    if (active) accentColor else Color(0xFF383838),
-                                                    if (retro80sMode) RoundedCornerShape(0.dp) else CircleShape
-                                                )
-                                        )
-                                    }
+                            Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                                Text(
+                                    text = title,
+                                    color = if (active) accentColor else Color.White,
+                                    fontSize = 12.sp,
+                                    fontFamily = launcherFont,
+                                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
+                                )
+                                Text(
+                                    text = desc,
+                                    color = Color.White.copy(alpha = 0.60f),
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .border(
+                                        width = 1.5.dp,
+                                        color = if (active) accentColor else Color(0xFF555555),
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (active) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .background(accentColor, CircleShape)
+                                    )
                                 }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    SettingsHairlineDivider()
 
-                    // Live Wallpaper Tuning controls converted to the unified reusable slider with live previews
                     NocturnaaSettingSlider(
                         title = "Motion speed",
                         description = "How fast live wallpaper stars and particles move across your screen.",
@@ -9241,7 +9322,8 @@ fun LauncherSettingsView(
                         innerCardBorderColor = innerCardBorderColor,
                         innerCardShape = innerSubCardShape,
                         lomoFontFamily = launcherFont,
-                        presetChips = listOf(25f to "25%", 50f to "50%", 100f to "100%", 150f to "150%", 220f to "220%"),
+                        presetChips = listOf(25f to "25", 50f to "50", 100f to "100", 150f to "150", 220f to "220"),
+                        embedInCard = false,
                         onValueChange = { pctVal ->
                             onChangeWpSpeed((pctVal / 100f).coerceIn(0.25f, 2.2f))
                         }
@@ -9253,6 +9335,8 @@ fun LauncherSettingsView(
                             shape = innerSubCardShape
                         )
                     }
+
+                    SettingsHairlineDivider()
 
                     NocturnaaSettingSlider(
                         title = "Particle density",
@@ -9267,7 +9351,8 @@ fun LauncherSettingsView(
                         innerCardBorderColor = innerCardBorderColor,
                         innerCardShape = innerSubCardShape,
                         lomoFontFamily = launcherFont,
-                        presetChips = listOf(50f to "50%", 75f to "75%", 100f to "100%", 135f to "135%", 175f to "175%"),
+                        presetChips = listOf(50f to "50", 75f to "75", 100f to "100", 135f to "135", 175f to "175"),
+                        embedInCard = false,
                         onValueChange = { pctVal ->
                             onChangeWpDensity((pctVal / 100f).coerceIn(0.5f, 1.75f))
                         }
@@ -9279,6 +9364,8 @@ fun LauncherSettingsView(
                             shape = innerSubCardShape
                         )
                     }
+
+                    SettingsHairlineDivider()
 
                     NocturnaaSettingSlider(
                         title = "Wallpaper brightness",
@@ -9293,7 +9380,8 @@ fun LauncherSettingsView(
                         innerCardBorderColor = innerCardBorderColor,
                         innerCardShape = innerSubCardShape,
                         lomoFontFamily = launcherFont,
-                        presetChips = listOf(40f to "40%", 70f to "70%", 100f to "100%", 135f to "135%", 175f to "175%"),
+                        presetChips = listOf(40f to "40", 70f to "70", 100f to "100", 135f to "135", 175f to "175"),
+                        embedInCard = false,
                         onValueChange = { pctVal ->
                             onChangeWpOpacity((pctVal / 100f).coerceIn(0.4f, 1.75f))
                         }
@@ -9305,6 +9393,8 @@ fun LauncherSettingsView(
                             shape = innerSubCardShape
                         )
                     }
+
+                    SettingsHairlineDivider()
 
                     NocturnaaSettingSlider(
                         title = "Pattern scale",
@@ -9319,7 +9409,8 @@ fun LauncherSettingsView(
                         innerCardBorderColor = innerCardBorderColor,
                         innerCardShape = innerSubCardShape,
                         lomoFontFamily = launcherFont,
-                        presetChips = listOf(65f to "65%", 85f to "85%", 100f to "100%", 125f to "125%", 150f to "150%"),
+                        presetChips = listOf(65f to "65", 85f to "85", 100f to "100", 125f to "125", 150f to "150"),
+                        embedInCard = false,
                         onValueChange = { pctVal ->
                             onChangeWpScale((pctVal / 100f).coerceIn(0.65f, 1.5f))
                         }
@@ -9333,120 +9424,129 @@ fun LauncherSettingsView(
                     }
                 }
 
+                SettingsHairlineDivider()
+
                 // 2. Static Wallpapers
                 CollapsibleSubSection(
                     title = "Static Wallpapers",
-                    subtitle = "",
-                    badge = "",
-                    expanded = expandedStaticWallpapers,
+                    expanded = openWallpaperSubSection == "static",
                     accentColor = accentColor,
                     lomoFontFamily = launcherFont,
-                    onToggle = { expandedStaticWallpapers = !expandedStaticWallpapers }
+                    onToggle = { openWallpaperSubSection = if (openWallpaperSubSection == "static") null else "static" }
                 ) {
-                    staticWallpaperOptions.chunked(2).forEach { rowItems ->
+                    staticWallpaperOptions.forEachIndexed { idx, (id, title, desc) ->
+                        val active = wallpaperPreset == id
+                        if (idx > 0) {
+                            SettingsHairlineDivider()
+                        }
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .clickable { onChangeWallpaperPreset(id) }
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            rowItems.forEach { (id, title, _) ->
-                                val active = wallpaperPreset == id
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .border(
-                                            1.dp,
-                                            if (active) (if (retro80sMode) accentColor else Color.White) else if (retro80sMode) accentColor.copy(alpha = 0.4f) else Color(0xFF242424),
-                                            innerSubCardShape
-                                        )
-                                        .background(
-                                            if (active) Color(0xFF141414) else Color(0xFF0A0A0A),
-                                            innerSubCardShape
-                                        )
-                                        .clickable { onChangeWallpaperPreset(id) }
-                                        .padding(horizontal = 10.dp, vertical = 10.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = title,
-                                            color = if (active) (if (retro80sMode) accentColor else Color.White) else Color(0xFFD4D4D4),
-                                            fontSize = 10.sp,
-                                            fontFamily = launcherFont,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        if (active) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(6.dp)
-                                                    .background(
-                                                        accentColor,
-                                                        if (retro80sMode) RoundedCornerShape(0.dp) else CircleShape
-                                                    )
-                                            )
-                                        }
-                                    }
+                            Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                                Text(
+                                    text = title,
+                                    color = if (active) accentColor else Color.White,
+                                    fontSize = 12.sp,
+                                    fontFamily = launcherFont,
+                                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
+                                )
+                                Text(
+                                    text = desc,
+                                    color = Color.White.copy(alpha = 0.60f),
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .border(
+                                        width = 1.5.dp,
+                                        color = if (active) accentColor else Color(0xFF555555),
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (active) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .background(accentColor, CircleShape)
+                                    )
                                 }
                             }
                         }
                     }
                 }
 
+                SettingsHairlineDivider()
+
                 // 3. User Wallpapers
                 CollapsibleSubSection(
                     title = "User Wallpapers",
-                    subtitle = "",
-                    badge = "",
-                    expanded = expandedUserWallpapers,
+                    expanded = openWallpaperSubSection == "user",
                     accentColor = accentColor,
                     lomoFontFamily = launcherFont,
-                    onToggle = { expandedUserWallpapers = !expandedUserWallpapers }
+                    onToggle = { openWallpaperSubSection = if (openWallpaperSubSection == "user") null else "user" }
                 ) {
                     SettingCard(
                         title = "Import Photo from Gallery",
-                        subtitle = "",
                         actionLabel = if (wallpaperPreset == "user_image") "CHANGE" else "PICK",
                         lomoFontFamily = launcherFont,
                         onClick = onPickCustomWallpaperImage
                     )
 
-                    if (hasCustomUserImage && wallpaperPreset != "user_image") {
-                        SettingCard(
+                    if (hasCustomUserImage) {
+                        SettingsHairlineDivider()
+                        NocturnaaToggleRow(
                             title = "Use Saved Custom Photo",
-                            subtitle = "",
-                            actionLabel = "APPLY",
+                            checked = wallpaperPreset == "user_image",
+                            accentColor = accentColor,
                             lomoFontFamily = launcherFont,
-                            onClick = { onChangeWallpaperPreset("user_image") }
+                            onCheckedChange = { shouldUse ->
+                                if (shouldUse) onChangeWallpaperPreset("user_image")
+                                else onChangeWallpaperPreset("oled")
+                            }
                         )
                     }
 
+                    SettingsHairlineDivider()
+
                     SettingCard(
                         title = "System Wallpaper Picker",
-                        subtitle = "",
                         actionLabel = "OPEN",
                         lomoFontFamily = launcherFont,
                         onClick = onOpenSystemWallpaperPicker
                     )
 
-                    SettingCard(
+                    SettingsHairlineDivider()
+
+                    NocturnaaToggleRow(
                         title = "Use System Wallpaper",
-                        subtitle = "",
-                        actionLabel = if (wallpaperPreset == "system_wallpaper") "ON" else "ENABLE",
+                        checked = wallpaperPreset == "system_wallpaper",
+                        accentColor = accentColor,
                         lomoFontFamily = launcherFont,
-                        onClick = { onChangeWallpaperPreset("system_wallpaper") }
+                        onCheckedChange = { shouldEnable ->
+                            if (shouldEnable) onChangeWallpaperPreset("system_wallpaper")
+                            else onChangeWallpaperPreset("oled")
+                        }
                     )
                 }
 
-                // 4. Accent Color Picker
+                SettingsHairlineDivider()
+
+                // 4. Accent color section (matching Image 2: two rows of five round colour dots with thin white ring on selected)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, innerCardBorderColor, innerCardShape)
-                        .background(Color(0xFF070707), innerCardShape)
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -9454,16 +9554,15 @@ fun LauncherSettingsView(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "ACCENT COLOR",
-                            color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
-                            fontSize = 9.sp,
-                            fontFamily = launcherFont,
-                            fontWeight = FontWeight.Bold
+                            text = "Accent color",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontFamily = launcherFont
                         )
                         Text(
                             text = accentHex,
                             color = accentColor,
-                            fontSize = 9.sp,
+                            fontSize = 12.sp,
                             fontFamily = launcherFont,
                             fontWeight = FontWeight.Bold
                         )
@@ -9472,7 +9571,7 @@ fun LauncherSettingsView(
                     LAUNCHER_ACCENT_PALETTE.chunked(5).forEach { paletteRow ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             paletteRow.forEach { (hex, label) ->
                                 val isSel = accentHex.equals(hex, ignoreCase = true)
@@ -9480,29 +9579,35 @@ fun LauncherSettingsView(
                                 Column(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .border(
-                                            width = if (isSel) 1.5.dp else 1.dp,
-                                            color = if (isSel) (if (retro80sMode) accentColor else Color.White) else if (retro80sMode) accentColor.copy(alpha = 0.4f) else Color(0xFF242424),
-                                            shape = innerSubCardShape
-                                        )
-                                        .background(
-                                            if (isSel) Color(0xFF181818) else Color(0xFF0D0D0D),
-                                            innerSubCardShape
-                                        )
-                                        .clickable { onChangeAccent(hex) }
-                                        .padding(vertical = 7.dp),
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) { onChangeAccent(hex) }
+                                        .padding(vertical = 4.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Box(
-                                        modifier = Modifier
-                                            .size(12.dp)
-                                            .background(swatchCol, if (retro80sMode) RoundedCornerShape(0.dp) else CircleShape)
-                                    )
+                                        modifier = Modifier.size(34.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (isSel) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(34.dp)
+                                                    .border(1.5.dp, Color.White, CircleShape)
+                                            )
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .size(24.dp)
+                                                .background(swatchCol, CircleShape)
+                                        )
+                                    }
                                     Text(
                                         text = label,
                                         color = if (isSel) Color.White else Color(0xFF8A8A8A),
-                                        fontSize = 8.sp,
+                                        fontSize = 10.sp,
                                         fontFamily = launcherFont,
                                         fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
                                     )
@@ -9512,6 +9617,7 @@ fun LauncherSettingsView(
                     }
                 }
             }
+            SettingsHairlineDivider()
         }
 
         // SECTION 04: App Drawer Settings
@@ -9521,12 +9627,10 @@ fun LauncherSettingsView(
             CollapsibleSettingsSection(
                 indexTag = "04",
                 title = "App Drawer Settings",
-                subtitle = "",
-                badge = "",
-                expanded = expandedMotion,
+                expanded = openSectionIndex == 4,
                 accentColor = accentColor,
                 lomoFontFamily = launcherFont,
-                onToggle = { expandedMotion = !expandedMotion }
+                onToggle = { openSectionIndex = if (openSectionIndex == 4) null else 4 }
             ) {
                 // 1. App Drawer Text Size ("Text size")
                 NocturnaaSettingSlider(
@@ -9543,6 +9647,7 @@ fun LauncherSettingsView(
                     innerCardShape = innerCardShape,
                     lomoFontFamily = launcherFont,
                     presetChips = listOf(12f to "12", 14f to "14", 16f to "16", 18f to "18", 20f to "20", 22f to "22", 24f to "24"),
+                    embedInCard = false,
                     onValueChange = { nextVal ->
                         val nextSp = nextVal.roundToInt().coerceIn(12, 24)
                         if (nextSp != drawerTextSizeSp) {
@@ -9569,7 +9674,7 @@ fun LauncherSettingsView(
                         ) {
                             Text(
                                 text = "M",
-                                color = if (retro80sMode) accentColor else Color.White,
+                                color = Color.White,
                                 fontSize = headerSp,
                                 fontFamily = launcherFont,
                                 fontWeight = FontWeight.Bold
@@ -9610,7 +9715,9 @@ fun LauncherSettingsView(
                     }
                 }
 
-                // 2. Letter Stretch ("Letter stretch") using the same unified reusable slider component
+                SettingsHairlineDivider()
+
+                // 2. Letter Stretch ("Letter stretch")
                 LetterStretchSettingCard(
                     letterStretch = drawerWaveIntensity,
                     retro80sMode = retro80sMode,
@@ -9620,6 +9727,8 @@ fun LauncherSettingsView(
                     lomoFontFamily = launcherFont,
                     onChangeLetterStretch = onChangeDrawerWaveIntensity
                 )
+
+                SettingsHairlineDivider()
 
                 // 3. App Drawer Background ("Background style" + "Style strength")
                 SettingsBackdropControlCard(
@@ -9634,17 +9743,13 @@ fun LauncherSettingsView(
                     onChangeIntensity = onChangeDrawerBgIntensity
                 )
             }
+            SettingsHairlineDivider()
         }
     }
 }
 
 // ============================================================================
-// ONE REUSABLE SLIDER COMPONENT FOR ALL LAUNCHER SETTINGS
-// - Thin 2dp dim-grey track (white at 20% opacity), filled part & round thumb in current accentColor
-// - Title on the left, value + "Reset" text button on the right, 1-line helper description
-// - Haptic tick (every 10% for percentage sliders, every 1sp for text size)
-// - Optional quick-preset chips that spring-animate the thumb and trigger the live preview
-// - Live preview that appears while dragging or when a preset chip is tapped
+// ONE REUSABLE SLIDER COMPONENT FOR ALL LAUNCHER SETTINGS (Image 2 Style)
 // ============================================================================
 @Composable
 fun NocturnaaSettingSlider(
@@ -9661,11 +9766,10 @@ fun NocturnaaSettingSlider(
     innerCardShape: RoundedCornerShape,
     lomoFontFamily: FontFamily,
     presetChips: List<Pair<Float, String>> = emptyList(),
-    embedInCard: Boolean = true,
+    embedInCard: Boolean = false,
     onValueChange: (Float) -> Unit,
     previewContent: @Composable (Float) -> Unit
 ) {
-    val is80s = LocalRetro80sMode.current
     val context = LocalContext.current
     val minV = valueRange.start
     val maxV = valueRange.endInclusive
@@ -9728,21 +9832,14 @@ fun NocturnaaSettingSlider(
     val roundedCurrent = snapToStep(animatedDisplayValue).roundToInt()
     val roundedDefault = snapToStep(defaultValue).roundToInt()
     val isAtDefault = roundedCurrent == roundedDefault
-    val chipBtnShape = RoundedCornerShape(if (is80s) 0.dp else 6.dp)
 
     Column(
-        modifier = if (embedInCard) {
-            Modifier
-                .fillMaxWidth()
-                .border(1.dp, innerCardBorderColor, innerCardShape)
-                .background(Color.Black, innerCardShape)
-                .padding(12.dp)
-        } else {
-            Modifier.fillMaxWidth()
-        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Header row: Title on the left, current value + "Reset" text button on the right
+        // Header row: Title on the left, current value + dim "Reset" text on the right
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -9751,26 +9848,25 @@ fun NocturnaaSettingSlider(
             Text(
                 text = title,
                 color = Color.White,
-                fontSize = 12.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold
+                fontSize = 13.sp,
+                fontFamily = lomoFontFamily
             )
             Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "${roundedCurrent}${unit}",
                     color = accentColor,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = "Reset",
-                    color = if (isAtDefault) Color(0xFF555555) else Color(0xFFEDEDED),
-                    fontSize = 10.sp,
-                    fontFamily = lomoFontFamily,
+                    color = if (isAtDefault) Color(0xFF4D4D4D) else Color(0xFF9E9E9E),
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.SansSerif,
                     modifier = Modifier
                         .clickable {
                             if (!isAtDefault) {
@@ -9780,25 +9876,26 @@ fun NocturnaaSettingSlider(
                                 chipPreviewTick++
                             }
                         }
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                        .padding(horizontal = 2.dp, vertical = 2.dp)
                 )
             }
         }
 
-        // One-line helper description
+        // Small clean sans-serif description at 60% white with relaxed line spacing
         Text(
             text = description,
-            color = Color(0xFF8A8A8A),
-            fontSize = 9.sp,
-            fontFamily = lomoFontFamily
+            color = Color.White.copy(alpha = 0.60f),
+            fontSize = 11.sp,
+            fontFamily = FontFamily.SansSerif,
+            lineHeight = 15.sp
         )
 
-        // Thin 2dp track in dim grey (white at 20% opacity) + filled part & small round thumb in current accentColor
+        // Thin 2dp track in dim grey (white at 20% opacity) + accent fill + small round accent thumb
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(26.dp)
-                .pointerInput(minV, maxV, step, hapticStep) {
+                .pointerInput(minV, maxV, step, hapticStep, presetChips) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         down.consume()
@@ -9806,6 +9903,7 @@ fun NocturnaaSettingSlider(
                         val w = size.width.toFloat().coerceAtLeast(1f)
                         val initFrac = (down.position.x / w).coerceIn(0f, 1f)
                         val initVal = snapToStep(minV + initFrac * span)
+                        var prevVal = initVal
                         var lastBucket = (initVal / hapticStep.coerceAtLeast(0.1f)).roundToInt()
                         dragRawValue = initVal
                         currentOnValueChange(initVal)
@@ -9818,11 +9916,19 @@ fun NocturnaaSettingSlider(
                                 val curW = size.width.toFloat().coerceAtLeast(1f)
                                 val frac = (change.position.x / curW).coerceIn(0f, 1f)
                                 val nextVal = snapToStep(minV + frac * span)
+
+                                val crossedTick = if (presetChips.isNotEmpty()) {
+                                    presetChips.any { (tVal, _) ->
+                                        (prevVal < tVal && nextVal >= tVal) || (prevVal > tVal && nextVal <= tVal)
+                                    }
+                                } else false
                                 val nextBucket = (nextVal / hapticStep.coerceAtLeast(0.1f)).roundToInt()
-                                if (nextBucket != lastBucket) {
+
+                                if (crossedTick || nextBucket != lastBucket) {
                                     lastBucket = nextBucket
                                     fireSliderHaptic()
                                 }
+                                prevVal = nextVal
                                 dragRawValue = nextVal
                                 currentOnValueChange(nextVal)
                             }
@@ -9835,7 +9941,7 @@ fun NocturnaaSettingSlider(
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val trackH = 2.dp.toPx()
-                val thumbRadius = 5.5.dp.toPx()
+                val thumbRadius = 6.dp.toPx()
                 val usableW = (size.width - thumbRadius * 2f).coerceAtLeast(1f)
                 val norm = ((currentDisplayVal - minV) / span).coerceIn(0f, 1f)
                 val thumbX = thumbRadius + norm * usableW
@@ -9864,52 +9970,78 @@ fun NocturnaaSettingSlider(
             }
         }
 
-        // Optional quick-preset chips under the slider
+        // Tick marks with tiny labels under the track at the preset values (matching Image 2)
         if (presetChips.isNotEmpty()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                presetChips.forEach { (chipVal, chipLabel) ->
-                    val sel = abs(clampedTarget - chipVal) < (step * 0.45f).coerceAtLeast(0.4f)
-                    Text(
-                        text = chipLabel,
-                        color = if (sel) Color.Black else if (is80s) accentColor else Color(0xFFD4D4D4),
-                        fontSize = 9.sp,
-                        fontFamily = lomoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .weight(1f)
-                            .border(
-                                1.dp,
-                                if (sel) accentColor else if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
-                                chipBtnShape
-                            )
-                            .background(
-                                if (sel) accentColor else if (is80s) Color(0xFF0A0A0A) else Color(0xFF141414),
-                                chipBtnShape
-                            )
-                            .clickable {
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(24.dp)
+                    .pointerInput(presetChips) {
+                        detectTapGestures { tapOffset ->
+                            val w = size.width.toFloat().coerceAtLeast(1f)
+                            val tapValue = minV + (tapOffset.x / w).coerceIn(0f, 1f) * span
+                            val nearest = presetChips.minByOrNull { abs(it.first - tapValue) }
+                            if (nearest != null) {
                                 fireSliderHaptic()
-                                dragRawValue = chipVal
-                                currentOnValueChange(chipVal)
+                                dragRawValue = nearest.first
+                                currentOnValueChange(nearest.first)
                                 chipPreviewTick++
                             }
-                            .padding(vertical = 5.dp)
-                    )
+                        }
+                    }
+            ) {
+                val totalW = maxWidth
+                val thumbPad = 6.dp
+                val usableTrackW = (totalW - thumbPad * 2).coerceAtLeast(1.dp)
+
+                // Draw the vertical tick lines aligned with each preset value along the track
+                Canvas(modifier = Modifier.fillMaxWidth().height(6.dp)) {
+                    val rPx = 6.dp.toPx()
+                    val uW = (size.width - rPx * 2f).coerceAtLeast(1f)
+                    presetChips.forEach { (tickVal, _) ->
+                        val norm = ((tickVal - minV) / span).coerceIn(0f, 1f)
+                        val x = rPx + norm * uW
+                        val isTickActive = abs(currentDisplayVal - tickVal) < (step * 0.5f).coerceAtLeast(0.5f)
+                        drawLine(
+                            color = if (isTickActive) accentColor else Color(0x55FFFFFF),
+                            start = Offset(x, 0f),
+                            end = Offset(x, 5.dp.toPx()),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                    }
+                }
+
+                // Draw the tiny tick labels directly under their tick marks
+                presetChips.forEach { (tickVal, tickLabel) ->
+                    val norm = ((tickVal - minV) / span).coerceIn(0f, 1f)
+                    val isTickActive = abs(clampedTarget - tickVal) < (step * 0.5f).coerceAtLeast(0.5f)
+                    val xOffset = (thumbPad + usableTrackW * norm - 14.dp).coerceIn(0.dp, (totalW - 28.dp).coerceAtLeast(0.dp))
+                    Box(
+                        modifier = Modifier
+                            .offset(x = xOffset, y = 8.dp)
+                            .width(28.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = tickLabel,
+                            color = if (isTickActive) accentColor else Color(0xFF8A8A8A),
+                            fontSize = 10.sp,
+                            fontFamily = lomoFontFamily,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
             }
         }
 
-        // Live preview: appears smoothly while dragging or briefly when tapping a preset chip
+        // Live preview: appears smoothly while dragging or briefly when tapping a tick label
         val isPreviewVisible = isDragging || showChipPreview
         AnimatedVisibility(
             visible = isPreviewVisible,
             enter = fadeIn(tween(150)) + expandVertically(tween(150)),
             exit = fadeOut(tween(150)) + shrinkVertically(tween(150))
         ) {
-            Box(modifier = Modifier.fillMaxWidth().padding(top = 2.dp)) {
+            Box(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
                 previewContent(currentDisplayVal)
             }
         }
@@ -9942,6 +10074,8 @@ fun LetterStretchSettingCard(
         innerCardBorderColor = innerCardBorderColor,
         innerCardShape = innerCardShape,
         lomoFontFamily = lomoFontFamily,
+        presetChips = listOf(10f to "10", 30f to "30", 50f to "50", 75f to "75", 100f to "100"),
+        embedInCard = false,
         onValueChange = { nextPct ->
             onChangeLetterStretch((nextPct / 100f).coerceIn(0.10f, 1.00f))
         }
@@ -10022,7 +10156,6 @@ fun LetterStretchSettingCard(
     }
 }
 
-// Downscaled custom wallpaper loader or built-in colorful gradient sample for settings previews
 @Composable
 fun rememberSmallPreviewWallpaperBitmap(): ImageBitmap? {
     val context = LocalContext.current
@@ -10074,7 +10207,6 @@ fun WallpaperSampleBackdrop(
                 dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
             )
         } else {
-            // Built-in colorful multi-stop gradient + geometric orbs & grid so see-through and blur are clearly visible
             drawRect(
                 brush = Brush.linearGradient(
                     colors = listOf(
@@ -10223,15 +10355,12 @@ fun SettingsBackdropControlCard(
     settingsBgMode: String,
     settingsBgIntensity: Int,
     accentColor: Color,
-    innerCardBorderColor: Color = Color(0xFF282828),
-    innerCardShape: RoundedCornerShape = RoundedCornerShape(10.dp),
+    innerCardBorderColor: Color = Color(0x1AFFFFFF),
+    innerCardShape: RoundedCornerShape = RoundedCornerShape(8.dp),
     lomoFontFamily: FontFamily = FontFamily.Monospace,
     onChangeMode: (String) -> Unit,
     onChangeIntensity: (Int) -> Unit
 ) {
-    val is80s = LocalRetro80sMode.current
-    val btnShape = RoundedCornerShape(if (is80s) 0.dp else 6.dp)
-
     val modeDescription = if (isDrawerPreview) {
         when (settingsBgMode) {
             "transparent" -> "See-through. Your wallpaper shows behind the app list."
@@ -10263,83 +10392,39 @@ fun SettingsBackdropControlCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, innerCardBorderColor, innerCardShape)
-            .background(Color.Black, innerCardShape)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Mode buttons section: "Background style"
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Background style",
-                color = Color.White,
-                fontSize = 12.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = settingsBgMode.uppercase(Locale.US),
-                color = accentColor,
-                fontSize = 10.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            listOf(
-                "opaque" to "OPAQUE",
-                "transparent" to "TRANSPARENT",
-                "blurry" to "BLURRY"
-            ).forEach { (modeId, modeLabel) ->
-                val selected = settingsBgMode == modeId
-                Text(
-                    text = modeLabel,
-                    color = if (selected) Color.Black else if (is80s) accentColor else Color.White,
-                    fontSize = 9.sp,
-                    fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .weight(1f)
-                        .border(
-                            1.dp,
-                            if (selected) accentColor else if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF262626),
-                            btnShape
-                        )
-                        .background(
-                            if (selected) accentColor else if (is80s) Color(0xFF0A0A0A) else Color(0xFF141414),
-                            btnShape
-                        )
-                        .clickable { onChangeMode(modeId) }
-                        .padding(vertical = 6.dp)
-                )
-            }
-        }
-
-        // Dynamic one-line description under the mode buttons
         Text(
-            text = modeDescription,
-            color = Color(0xFF8A8A8A),
-            fontSize = 9.sp,
+            text = "Background style",
+            color = Color.White,
+            fontSize = 13.sp,
             fontFamily = lomoFontFamily
         )
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(Color(0x1AFFFFFF))
+        NocturnaaSegmentedControl(
+            options = listOf(
+                "opaque" to "Opaque",
+                "transparent" to "Transparent",
+                "blurry" to "Blurry"
+            ),
+            selectedId = settingsBgMode,
+            accentColor = accentColor,
+            lomoFontFamily = lomoFontFamily,
+            onSelect = onChangeMode
         )
 
-        // Unified slider for "Style strength" (range 15-100%, default 65%) with live mini-drawer / mini-settings preview
+        Text(
+            text = modeDescription,
+            color = Color.White.copy(alpha = 0.60f),
+            fontSize = 11.sp,
+            fontFamily = FontFamily.SansSerif,
+            lineHeight = 15.sp
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Unified slider for "Style strength" (range 15-100%, default 65%) with tick marks & live preview
         NocturnaaSettingSlider(
             title = "Style strength",
             description = strengthDescription,
@@ -10353,7 +10438,7 @@ fun SettingsBackdropControlCard(
             innerCardBorderColor = innerCardBorderColor,
             innerCardShape = innerCardShape,
             lomoFontFamily = lomoFontFamily,
-            presetChips = listOf(15f to "15%", 35f to "35%", 50f to "50%", 70f to "70%", 85f to "85%", 100f to "100%"),
+            presetChips = listOf(15f to "15", 35f to "35", 50f to "50", 70f to "70", 85f to "85", 100f to "100"),
             embedInCard = false,
             onValueChange = { nextVal ->
                 val nextPct = nextVal.roundToInt().coerceIn(15, 100)
@@ -10373,7 +10458,7 @@ fun SettingsBackdropControlCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(140.dp)
+                    .height(144.dp)
                     .clip(innerCardShape)
                     .border(1.dp, Color(0x24FFFFFF), innerCardShape)
             ) {
@@ -10389,7 +10474,6 @@ fun SettingsBackdropControlCard(
                 )
 
                 if (isDrawerPreview) {
-                    // Mini App Drawer preview with 3 sample app rows
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -10441,11 +10525,11 @@ fun SettingsBackdropControlCard(
                         }
                     }
                 } else {
-                    // Mini Settings Screen preview (Header "Settings" + two small rows with ON/OFF pills)
+                    // Mini Settings Screen preview with the reusable toggle switch
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(
@@ -10462,43 +10546,55 @@ fun SettingsBackdropControlCard(
                             )
                             Text(
                                 text = "DONE",
-                                color = Color.Black,
+                                color = Color.White,
                                 fontSize = 8.sp,
                                 fontFamily = lomoFontFamily,
-                                fontWeight = FontWeight.Bold,
                                 modifier = Modifier
-                                    .background(Color.White, btnShape)
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    .border(1.dp, Color(0xFF4D4D4D), RoundedCornerShape(50))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
                             )
                         }
 
-                        listOf("Hide Android Status Bar" to "ON", "Old School Mode" to "OFF").forEach { (rowTitle, pillTxt) ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .border(1.dp, Color(0xFF282828), btnShape)
-                                    .background(Color(0xFF070707).copy(alpha = 0.85f), btnShape)
-                                    .padding(horizontal = 10.dp, vertical = 7.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = rowTitle,
-                                    color = Color.White,
-                                    fontSize = 10.sp,
-                                    fontFamily = lomoFontFamily
-                                )
-                                Text(
-                                    text = pillTxt,
-                                    color = Color.Black,
-                                    fontSize = 8.sp,
-                                    fontFamily = lomoFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier
-                                        .background(Color.White, RoundedCornerShape(if (is80s) 0.dp else 4.dp))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
+                        SettingsHairlineDivider()
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Hide Android Status Bar",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontFamily = lomoFontFamily
+                            )
+                            NocturnaaToggleSwitch(
+                                checked = true,
+                                accentColor = accentColor,
+                                label = "Hide Android Status Bar",
+                                onCheckedChange = {}
+                            )
+                        }
+
+                        SettingsHairlineDivider()
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Old School Mode",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontFamily = lomoFontFamily
+                            )
+                            NocturnaaToggleSwitch(
+                                checked = false,
+                                accentColor = accentColor,
+                                label = "Old School Mode",
+                                onCheckedChange = {}
+                            )
                         }
                     }
                 }
@@ -10518,80 +10614,78 @@ fun CollapsibleSubSection(
     onToggle: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val is80s = LocalRetro80sMode.current
-    val subGlowStyle = if (is80s) TextStyle(shadow = Shadow(color = Color.White.copy(alpha = 0.55f), offset = Offset.Zero, blurRadius = 6f)) else TextStyle.Default
-    val subShape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
+    val subArrowRot by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 450f),
+        label = "subArrowRot"
+    )
+    val subArrowColor by animateColorAsState(
+        targetValue = if (expanded) accentColor else Color(0xFF737373),
+        animationSpec = tween(durationMillis = 200),
+        label = "subArrowColor"
+    )
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(
-                width = if (is80s) 1.2.dp else 1.dp,
-                color = if (is80s) accentColor.copy(alpha = 0.75f) else (if (expanded) accentColor.copy(alpha = 0.55f) else Color(0xFF222222)),
-                shape = subShape
-            )
-            .background(Color(0xFF070707), subShape)
+            .drawBehind {
+                if (expanded) {
+                    drawRect(
+                        color = accentColor,
+                        topLeft = Offset.Zero,
+                        size = Size(2.dp.toPx(), size.height)
+                    )
+                }
+            }
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = 52.dp)
                 .clickable { onToggle() }
-                .padding(horizontal = 12.dp, vertical = 11.dp),
+                .padding(start = if (expanded) 10.dp else 0.dp, top = 10.dp, bottom = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Text(
+                    text = title,
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontFamily = lomoFontFamily
+                )
+                if (subtitle.isNotEmpty()) {
+                    Text(
+                        text = subtitle,
+                        color = Color.White.copy(alpha = 0.60f),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.SansSerif
+                    )
+                }
+            }
             Text(
-                text = if (is80s) title.uppercase(Locale.US) else title,
-                color = if (is80s) accentColor else Color.White,
-                fontSize = 13.sp,
-                fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = subGlowStyle,
-                modifier = Modifier.weight(1f).padding(end = 8.dp)
-            )
-            val subArrowRot by animateFloatAsState(
-                targetValue = if (expanded) 90f else 0f,
-                animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
-                label = "subArrowRot"
-            )
-            val subArrowColor by animateColorAsState(
-                targetValue = if (expanded || is80s) accentColor else Color(0xFF737373),
-                animationSpec = tween(durationMillis = 240),
-                label = "subArrowColor"
-            )
-            Text(
-                text = if (is80s) {
-                    if (expanded) "[-]" else "[+]"
-                } else {
-                    "▸"
-                },
+                text = "›",
                 color = subArrowColor,
-                fontSize = if (is80s) 11.sp else 13.sp,
+                fontSize = 18.sp,
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = subGlowStyle,
                 modifier = Modifier.graphicsLayer {
-                    rotationZ = if (is80s) 0f else subArrowRot
+                    rotationZ = subArrowRot
                 }
             )
         }
 
         AnimatedVisibility(
             visible = expanded,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut()
+            enter = expandVertically(animationSpec = spring(dampingRatio = 0.82f, stiffness = 420f)) + fadeIn(tween(150)),
+            exit = shrinkVertically(animationSpec = spring(dampingRatio = 0.85f, stiffness = 460f)) + fadeOut(tween(150))
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .background(Color(0xFF080808))
+                    .padding(start = 12.dp, end = 4.dp, bottom = 8.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(1.dp)
-                        .background(if (is80s) accentColor.copy(alpha = 0.4f) else Color(0xFF1A1A1A))
-                )
+                SettingsHairlineDivider()
                 content()
             }
         }
@@ -10610,97 +10704,82 @@ fun CollapsibleSettingsSection(
     onToggle: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val is80s = LocalRetro80sMode.current
-    val secGlowStyle = if (is80s) TextStyle(shadow = Shadow(color = Color.White.copy(alpha = 0.55f), offset = Offset.Zero, blurRadius = 6f)) else TextStyle.Default
-    val secShape = RoundedCornerShape(if (is80s) 0.dp else 14.dp)
+    val secArrowRot by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 450f),
+        label = "secArrowRot"
+    )
+    val secArrowColor by animateColorAsState(
+        targetValue = if (expanded) accentColor else Color(0xFF737373),
+        animationSpec = tween(durationMillis = 200),
+        label = "secArrowColor"
+    )
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(
-                width = if (is80s) 1.5.dp else 1.dp,
-                color = if (is80s) accentColor else (if (expanded) Color(0xFF383838) else Color(0xFF222222)),
-                shape = secShape
-            )
-            .background(if (is80s) Color(0xFF040404) else Color(0xFF0A0A0A).copy(alpha = 0.72f), secShape)
+            .background(if (expanded) Color(0xFF0C0C0C) else Color.Black)
+            .drawBehind {
+                if (expanded) {
+                    drawRect(
+                        color = accentColor,
+                        topLeft = Offset.Zero,
+                        size = Size(2.dp.toPx(), size.height)
+                    )
+                }
+            }
     ) {
+        // Section header row: plain dim-grey numeral 01-04 + title + rotating chevron
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = 52.dp)
                 .clickable { onToggle() }
-                .padding(horizontal = 14.dp, vertical = 13.dp),
+                .padding(start = if (expanded) 14.dp else 4.dp, end = 6.dp, top = 12.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
                 modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    text = if (is80s) "[$indexTag]" else indexTag,
-                    color = accentColor,
-                    fontSize = 11.sp,
-                    fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    style = secGlowStyle,
-                    modifier = if (is80s) Modifier else Modifier
-                        .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                    text = indexTag,
+                    color = Color(0xFF7A7A7A),
+                    fontSize = 13.sp,
+                    fontFamily = lomoFontFamily
                 )
                 Text(
-                    text = if (is80s) title.uppercase(Locale.US) else title,
-                    color = if (is80s) accentColor else Color.White,
-                    fontSize = if (is80s) 13.sp else 14.sp,
+                    text = title,
+                    color = Color.White,
+                    fontSize = 14.sp,
                     fontFamily = lomoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    style = secGlowStyle,
                     modifier = Modifier.weight(1f)
                 )
             }
-            val secArrowRot by animateFloatAsState(
-                targetValue = if (expanded) 90f else 0f,
-                animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
-                label = "secArrowRot"
-            )
-            val secArrowColor by animateColorAsState(
-                targetValue = if (expanded || is80s) accentColor else Color(0xFF737373),
-                animationSpec = tween(durationMillis = 240),
-                label = "secArrowColor"
-            )
             Text(
-                text = if (is80s) {
-                    if (expanded) "[-]" else "[+]"
-                } else {
-                    "▸"
-                },
+                text = "›",
                 color = secArrowColor,
-                fontSize = if (is80s) 11.sp else 14.sp,
+                fontSize = 18.sp,
                 fontFamily = lomoFontFamily,
-                fontWeight = FontWeight.Bold,
-                style = secGlowStyle,
                 modifier = Modifier.graphicsLayer {
-                    rotationZ = if (is80s) 0f else secArrowRot
+                    rotationZ = secArrowRot
                 }
             )
         }
 
         AnimatedVisibility(
             visible = expanded,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut()
+            enter = expandVertically(animationSpec = spring(dampingRatio = 0.82f, stiffness = 420f)) + fadeIn(tween(150)),
+            exit = shrinkVertically(animationSpec = spring(dampingRatio = 0.85f, stiffness = 460f)) + fadeOut(tween(150))
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(start = 16.dp, end = 12.dp, bottom = 12.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(1.dp)
-                        .background(if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF1C1C1C))
-                )
+                SettingsHairlineDivider()
                 content()
             }
         }
@@ -10715,38 +10794,30 @@ fun SettingCard(
     lomoFontFamily: FontFamily,
     onClick: () -> Unit
 ) {
-    val is80s = LocalRetro80sMode.current
-    val thCol = if (is80s) Color.White else if (LocalRetro80sColorTheme.current == "amber") Color(0xFFFF8800) else Color(0xFF7CFF5B)
-    val scGlowStyle = if (is80s) TextStyle(shadow = Shadow(color = Color.White.copy(alpha = 0.55f), offset = Offset.Zero, blurRadius = 6f)) else TextStyle.Default
-    val cardShape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, if (is80s) thCol.copy(alpha = 0.75f) else Color(0xFF242424), cardShape)
-            .background(Color(0xFF050505), cardShape)
+            .heightIn(min = 52.dp)
             .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 11.dp),
+            .padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = title,
             color = Color.White,
-            fontSize = 12.sp,
+            fontSize = 13.sp,
             fontFamily = lomoFontFamily,
-            fontWeight = if (is80s) FontWeight.Bold else FontWeight.Normal,
-            style = scGlowStyle,
-            modifier = Modifier.weight(1f).padding(end = 8.dp)
+            modifier = Modifier.weight(1f).padding(end = 12.dp)
         )
         Text(
             text = actionLabel,
-            color = Color.Black,
+            color = Color.White,
             fontSize = 10.sp,
             fontFamily = lomoFontFamily,
-            fontWeight = FontWeight.Bold,
             modifier = Modifier
-                .background(if (is80s) thCol else Color.White, RoundedCornerShape(if (is80s) 0.dp else 6.dp))
-                .padding(horizontal = 9.dp, vertical = 5.dp)
+                .border(1.dp, Color(0xFF4D4D4D), RoundedCornerShape(50))
+                .padding(horizontal = 14.dp, vertical = 6.dp)
         )
     }
 }
