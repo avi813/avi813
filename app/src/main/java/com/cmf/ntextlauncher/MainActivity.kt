@@ -102,6 +102,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathNode
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -527,7 +531,149 @@ fun Modifier.iosPopupWindowLayer(
 // 100% back to normal when turned OFF!
 // ============================================================================
 val LocalRetro80sMode = compositionLocalOf { false }
-val LocalRetro80sColorTheme = compositionLocalOf { "green" } // "green" (P1 Green) or "amber" (P3 Amber/Orange)
+val LocalRetro80sColorTheme = compositionLocalOf { "green" }
+val LocalLauncherFont = compositionLocalOf<FontFamily> { FontFamily.Monospace }
+
+// ============================================================================
+// CACHED LUCIDE-STYLE VECTOR LINE ICONS FOR THE ACTIONS MENU
+// - 24x24 grid, 2dp stroke, rounded caps and rounded joins, no fills, identical visual weight
+// - Built once and cached for the lifetime of the app (zero allocations during interaction)
+// ============================================================================
+object ActionsMenuIcons {
+    private fun roundedRectNodes(x1: Float, y1: Float, x2: Float, y2: Float, r: Float): List<PathNode> = listOf(
+        PathNode.MoveTo(x1 + r, y1),
+        PathNode.LineTo(x2 - r, y1),
+        PathNode.QuadTo(x2, y1, x2, y1 + r),
+        PathNode.LineTo(x2, y2 - r),
+        PathNode.QuadTo(x2, y2, x2 - r, y2),
+        PathNode.LineTo(x1 + r, y2),
+        PathNode.QuadTo(x1, y2, x1, y2 - r),
+        PathNode.LineTo(x1, y1 + r),
+        PathNode.QuadTo(x1, y1, x1 + r, y1),
+        PathNode.Close
+    )
+
+    private fun circleNodes(cx: Float, cy: Float, r: Float): List<PathNode> {
+        val k = 0.55228475f * r
+        return listOf(
+            PathNode.MoveTo(cx, cy - r),
+            PathNode.CurveTo(cx + k, cy - r, cx + r, cy - k, cx + r, cy),
+            PathNode.CurveTo(cx + r, cy + k, cx + k, cy + r, cx, cy + r),
+            PathNode.CurveTo(cx - k, cy + r, cx - r, cy + k, cx - r, cy),
+            PathNode.CurveTo(cx - r, cy - k, cx - k, cy - r, cx, cy - r),
+            PathNode.Close
+        )
+    }
+
+    // 1. "layout-dashboard": one tall rounded rectangle beside two stacked small rounded rectangles
+    val layoutDashboard: ImageVector by lazy {
+        val nodes = ArrayList<PathNode>(32)
+        nodes.addAll(roundedRectNodes(3.5f, 3.5f, 10.2f, 20.5f, 2.0f))
+        nodes.addAll(roundedRectNodes(13.8f, 3.5f, 20.5f, 10.2f, 2.0f))
+        nodes.addAll(roundedRectNodes(13.8f, 13.8f, 20.5f, 20.5f, 2.0f))
+        ImageVector.Builder(
+            name = "LayoutDashboard",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).addPath(
+            pathData = nodes,
+            fill = null,
+            stroke = SolidColor(Color.White),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round
+        ).build()
+    }
+
+    // 2. "pencil": Lucide line-art diagonal pencil with collar line
+    val pencil: ImageVector by lazy {
+        val nodes = listOf(
+            PathNode.MoveTo(17f, 3f),
+            PathNode.CurveTo(17.8f, 2.2f, 19.2f, 2.2f, 20f, 3f),
+            PathNode.LineTo(21f, 4f),
+            PathNode.CurveTo(21.8f, 4.8f, 21.8f, 6.2f, 21f, 7f),
+            PathNode.LineTo(7.5f, 20.5f),
+            PathNode.LineTo(3f, 21f),
+            PathNode.LineTo(3.5f, 16.5f),
+            PathNode.Close,
+            PathNode.MoveTo(15f, 5f),
+            PathNode.LineTo(19f, 9f)
+        )
+        ImageVector.Builder(
+            name = "Pencil",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).addPath(
+            pathData = nodes,
+            fill = null,
+            stroke = SolidColor(Color.White),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round
+        ).build()
+    }
+
+    // 3. "sliders-horizontal": three horizontal lines with circular knob rings
+    val slidersHorizontal: ImageVector by lazy {
+        val r = 2.1f
+        val nodes = ArrayList<PathNode>(48)
+        // Top slider (y = 6f, knob at x = 15f)
+        nodes.add(PathNode.MoveTo(4f, 6f))
+        nodes.add(PathNode.LineTo(15f - r, 6f))
+        nodes.add(PathNode.MoveTo(15f + r, 6f))
+        nodes.add(PathNode.LineTo(20f, 6f))
+        nodes.addAll(circleNodes(15f, 6f, r))
+        // Middle slider (y = 12f, knob at x = 9f)
+        nodes.add(PathNode.MoveTo(4f, 12f))
+        nodes.add(PathNode.LineTo(9f - r, 12f))
+        nodes.add(PathNode.MoveTo(9f + r, 12f))
+        nodes.add(PathNode.LineTo(20f, 12f))
+        nodes.addAll(circleNodes(9f, 12f, r))
+        // Bottom slider (y = 18f, knob at x = 15f)
+        nodes.add(PathNode.MoveTo(4f, 18f))
+        nodes.add(PathNode.LineTo(15f - r, 18f))
+        nodes.add(PathNode.MoveTo(15f + r, 18f))
+        nodes.add(PathNode.LineTo(20f, 18f))
+        nodes.addAll(circleNodes(15f, 18f, r))
+        ImageVector.Builder(
+            name = "SlidersHorizontal",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).addPath(
+            pathData = nodes,
+            fill = null,
+            stroke = SolidColor(Color.White),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round
+        ).build()
+    }
+
+    // 4. "smartphone": vertical rounded smartphone outline
+    val smartphone: ImageVector by lazy {
+        val nodes = roundedRectNodes(6f, 2.5f, 18f, 21.5f, 2.5f)
+        ImageVector.Builder(
+            name = "Smartphone",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).addPath(
+            pathData = nodes,
+            fill = null,
+            stroke = SolidColor(Color.White),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round
+        ).build()
+    }
+} // "green" (P1 Green) or "amber" (P3 Amber/Orange)
 
 // ============================================================================
 // MAIN LAUNCHER ACTIVITY — NOCTURNAA (CMF by Nothing Phone 1 · Android 14 / Nothing OS 2.6)
@@ -2162,7 +2308,8 @@ fun NTextLauncherApp(
 
     CompositionLocalProvider(
         LocalRetro80sMode provides retro80sMode,
-        LocalRetro80sColorTheme provides retro80sColorTheme
+        LocalRetro80sColorTheme provides retro80sColorTheme,
+        LocalLauncherFont provides selectedFont
     ) {
     BoxWithConstraints(
         modifier = Modifier
@@ -2995,529 +3142,41 @@ fun NTextLauncherApp(
             }
         }
 
-        if (retro80sMode) {
         // ====================================================================
-        // FLUID SPRING-ANIMATED LONG-TAP HOME SCREEN "ACTIONS" MENU
-        // Clean title & buttons; styled with sharp Old School borders when retro80sMode is ON
+        // PART A: BOTTOM-ANCHORED HOME SCREEN "ACTIONS" MENU (Final Mockup)
+        // - Anchored to bottom, 12dp horizontal margin, 12dp above navigation/gesture bar
+        // - Corner radius 28dp, #141414 at 94% opacity, 1px white border at 8%
+        // - Drag handle (40x4dp, white 25%, 10dp from top), generous 48dp handle+title drag zone
+        // - 2x2 grid: 2 top large tiles (min 112dp) + 2 bottom slim tiles (min 60dp)
+        // - Cached Lucide line icons in current accentColor on 16% accentColor container
+        // - Active Edit Mode state: solid accentColor container + black icon + "Tap to finish editing"
+        // - Spring slide-up (stiffness 380, damping 0.85) + 200ms accelerate-out slide-down + 55% scrim
         // ====================================================================
-        val quickMenuProgress by rememberIosPopupProgress(
-            isVisible = showHomeQuickMenu,
-            label = "iosQuickMenuSpring"
-        )
-        if (showHomeQuickMenu || quickMenuProgress > 0.002f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = (0.84f * quickMenuProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.84f)))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { showHomeQuickMenu = false }
-                    .padding(horizontal = 24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                val modalShape = RoundedCornerShape(if (retro80sMode) 0.dp else 16.dp)
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .iosPopupWindowLayer(progress = quickMenuProgress, initialScale = 0.80f)
-                        .border(
-                            if (retro80sMode) 1.5.dp else 1.dp,
-                            if (retro80sMode) accentColor else Color(0xFF2E2E2E),
-                            modalShape
-                        )
-                        .background(if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A), modalShape)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { /* consume inside modal */ }
-                        .padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Actions",
-                            color = if (retro80sMode) accentColor else Color.White,
-                            fontSize = 16.sp,
-                            fontFamily = selectedFont,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "DONE",
-                            color = Color.Black,
-                            fontSize = 10.sp,
-                            fontFamily = selectedFont,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .background(
-                                    if (retro80sMode) accentColor else Color.White,
-                                    RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
-                                )
-                                .clickable { showHomeQuickMenu = false }
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF1F1F1F))
-                    )
-
-                    Retro80sQuickMenuButton(
-                        label = if (retro80sMode) "Widget Configuration" else "Widget Manager",
-                        badge = "",
-                        accentColor = accentColor,
-                        lomoFontFamily = selectedFont,
-                        onClick = {
-                            showHomeQuickMenu = false
-                            currentView = LauncherView.WIDGETS
-                        }
-                    )
-
-                    Retro80sQuickMenuButton(
-                        label = if (editMode) "Exit Edit Mode" else "Edit Mode",
-                        badge = "",
-                        accentColor = accentColor,
-                        lomoFontFamily = selectedFont,
-                        onClick = {
-                            showHomeQuickMenu = false
-                            editMode = !editMode
-                        }
-                    )
-
-                    Retro80sQuickMenuButton(
-                        label = if (retro80sMode) "Nocturna Configuration" else "Nocturnaa Settings",
-                        badge = "",
-                        accentColor = accentColor,
-                        lomoFontFamily = selectedFont,
-                        onClick = {
-                            showHomeQuickMenu = false
-                            currentView = LauncherView.SETTINGS
-                        }
-                    )
-
-                    Retro80sQuickMenuButton(
-                        label = "Phone Settings",
-                        badge = "",
-                        accentColor = accentColor,
-                        lomoFontFamily = selectedFont,
-                        onClick = {
-                            showHomeQuickMenu = false
-                            try {
-                                context.startActivity(Intent(Settings.ACTION_SETTINGS))
-                            } catch (_: Exception) {
-                            }
-                        }
-                    )
+        HomeActionsBottomSheet(
+            visible = showHomeQuickMenu,
+            editMode = editMode,
+            accentColor = accentColor,
+            onDismiss = { showHomeQuickMenu = false },
+            onOpenWidgetManager = {
+                showHomeQuickMenu = false
+                currentView = LauncherView.WIDGETS
+            },
+            onToggleEditMode = {
+                editMode = !editMode
+                showHomeQuickMenu = false
+            },
+            onOpenLauncherSettings = {
+                showHomeQuickMenu = false
+                currentView = LauncherView.SETTINGS
+            },
+            onOpenPhoneSettings = {
+                showHomeQuickMenu = false
+                try {
+                    context.startActivity(Intent(Settings.ACTION_SETTINGS))
+                } catch (_: Exception) {
                 }
             }
-        }
-
-        // ====================================================================
-        // FLUID SPRING-ANIMATED LONG-PRESS APP CONTEXT MENU MODAL
-        // ====================================================================
-        var lastContextMenuTarget by remember { mutableStateOf<Pair<AppEntry, Boolean>?>(null) }
-        if (contextMenuTarget != null) {
-            lastContextMenuTarget = contextMenuTarget
-        }
-        val appMenuProgress by rememberIosPopupProgress(
-            isVisible = contextMenuTarget != null,
-            label = "iosAppMenuSpring"
         )
-        val activeTargetPair = contextMenuTarget ?: if (appMenuProgress > 0.002f) lastContextMenuTarget else null
-        activeTargetPair?.let { (targetApp, isFromHome) ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = (0.84f * appMenuProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.84f)))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { contextMenuTarget = null }
-                    .padding(horizontal = 24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                val appModalShape = RoundedCornerShape(if (retro80sMode) 0.dp else 16.dp)
-                val currentlyPinned = pinnedPackages.contains(targetApp.packageName)
-                val pinActionLabel = if (isFromHome || currentlyPinned) {
-                    "Remove from Pinned Apps"
-                } else {
-                    "Add to Home Screen"
-                }
-                val pinActionSymbol = if (isFromHome || currentlyPinned) "−" else "+"
-
-                val onPinToggleClick: () -> Unit = {
-                    if (isFromHome || currentlyPinned) {
-                        pinnedPackages = pinnedPackages - targetApp.packageName
-                        pinnedAppsOrder = pinnedAppsOrder.filter { it != targetApp.packageName }
-                        prefs.edit()
-                            .putStringSet("pinned_pkgs", pinnedPackages)
-                            .putString("pinned_apps_order_v1", pinnedAppsOrder.joinToString(","))
-                            .apply()
-                        contextMenuTarget = null
-                    } else {
-                        val candidateWidgetsList = if (activeWidgets.contains("pinned_apps")) activeWidgets else activeWidgets + "pinned_apps"
-                        val newPinnedCount = currentPinnedAppsCount() + 1
-                        if (candidateWidgetsList.isNotEmpty() && !canFitOnHomeScreen(candidateWidgetsList, widgetSizes, newPinnedCount, textSizeSp)) {
-                            contextMenuTarget = null
-                            triggerNoSpaceLeftPopup(
-                                "No space left on the Home Screen to pin another app with your current widgets and ${textSizeSp}SP app scale."
-                            )
-                        } else {
-                            pinnedPackages = pinnedPackages + targetApp.packageName
-                            val nextOrder = orderedPinnedApps.map { it.packageName }.filter { it != targetApp.packageName } + targetApp.packageName
-                            pinnedAppsOrder = nextOrder
-                            if (!activeWidgets.contains("pinned_apps")) {
-                                saveWidgetList(candidateWidgetsList)
-                            }
-                            prefs.edit()
-                                .putStringSet("pinned_pkgs", pinnedPackages)
-                                .putString("pinned_apps_order_v1", nextOrder.joinToString(","))
-                                .apply()
-                            contextMenuTarget = null
-                        }
-                    }
-                }
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .iosPopupWindowLayer(progress = appMenuProgress, initialScale = 0.80f)
-                        .border(
-                            if (retro80sMode) 1.5.dp else 1.dp,
-                            if (retro80sMode) accentColor else Color(0xFF333333),
-                            appModalShape
-                        )
-                        .background(if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A), appModalShape)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { /* consume inside modal */ }
-                        .padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = targetApp.label,
-                            color = if (retro80sMode) accentColor else Color.White,
-                            fontSize = 16.sp,
-                            fontFamily = selectedFont,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f).padding(end = 8.dp)
-                        )
-                        Text(
-                            text = "DONE",
-                            color = Color.Black,
-                            fontSize = 10.sp,
-                            fontFamily = selectedFont,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .background(
-                                    if (retro80sMode) accentColor else Color.White,
-                                    RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
-                                )
-                                .clickable { contextMenuTarget = null }
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF1F1F1F))
-                    )
-
-                    val rowShape = RoundedCornerShape(if (retro80sMode) 0.dp else 10.dp)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, if (retro80sMode) accentColor else Color(0xFF262626), rowShape)
-                            .background(Color.Black, rowShape)
-                            .clickable { onPinToggleClick() }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = pinActionLabel,
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontFamily = selectedFont
-                        )
-                        Text(
-                            text = pinActionSymbol,
-                            color = accentColor,
-                            fontSize = 15.sp,
-                            fontFamily = selectedFont,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, if (retro80sMode) accentColor else Color(0xFF262626), rowShape)
-                            .background(Color.Black, rowShape)
-                            .clickable {
-                                val pkg = targetApp.packageName
-                                contextMenuTarget = null
-                                openAppInfo(pkg)
-                            }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "App Info",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontFamily = selectedFont
-                        )
-                        Text(
-                            text = "↗",
-                            color = accentColor,
-                            fontSize = 13.sp,
-                            fontFamily = selectedFont,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    if (!targetApp.isSystemApp) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(1.dp, if (retro80sMode) accentColor else Color(0xFF451A1A), rowShape)
-                                .background(if (retro80sMode) Color.Black else Color(0xFF140707), rowShape)
-                                .clickable {
-                                    val pkg = targetApp.packageName
-                                    contextMenuTarget = null
-                                    onRequestSystemUninstall(pkg)
-                                }
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Uninstall App",
-                                color = if (retro80sMode) accentColor else Color(0xFFF87171),
-                                fontSize = 13.sp,
-                                fontFamily = selectedFont
-                            )
-                            Text(
-                                text = "×",
-                                color = if (retro80sMode) accentColor else Color(0xFFF87171),
-                                fontSize = 14.sp,
-                                fontFamily = selectedFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // ====================================================================
-        // "NO SPACE LEFT" BOUNDARY POPUP MODAL
-        // ====================================================================
-        val noSpaceProgress by rememberIosPopupProgress(
-            isVisible = showNoSpacePopup,
-            label = "iosNoSpaceAlertSpring"
-        )
-        if (showNoSpacePopup || noSpaceProgress > 0.002f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = (0.84f * noSpaceProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.84f)))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { showNoSpacePopup = false }
-                    .padding(horizontal = 24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                val alertShape = RoundedCornerShape(if (retro80sMode) 0.dp else 16.dp)
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .iosPopupWindowLayer(progress = noSpaceProgress, initialScale = 0.80f)
-                        .border(if (retro80sMode) 1.5.dp else 1.dp, accentColor, alertShape)
-                        .background(if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A), alertShape)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { /* consume inside modal */ }
-                        .padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = "No Space Left",
-                        color = accentColor,
-                        fontSize = 15.sp,
-                        fontFamily = selectedFont,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF222222))
-                    )
-
-                    Text(
-                        text = noSpacePopupMessage,
-                        color = Color(0xFFE5E5E5),
-                        fontSize = 12.sp,
-                        fontFamily = selectedFont,
-                        lineHeight = 17.sp
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, accentColor, RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp))
-                            .background(if (retro80sMode) accentColor else Color(0xFF141414), RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp))
-                            .clickable { showNoSpacePopup = false }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "OK",
-                            color = if (retro80sMode) Color.Black else Color.White,
-                            fontSize = 11.sp,
-                            fontFamily = selectedFont,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        }
-
-
-        } else {
-        // ====================================================================
-        // FLUID SPRING-ANIMATED LONG-TAP HOME SCREEN "ACTIONS" MENU
-        // Uses flat hairline design, outlined DONE pill, and NocturnaaToggleSwitch for Edit Mode
-        // ====================================================================
-        val quickMenuProgress by rememberIosPopupProgress(
-            isVisible = showHomeQuickMenu,
-            label = "iosQuickMenuSpring"
-        )
-        if (showHomeQuickMenu || quickMenuProgress > 0.002f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = (0.84f * quickMenuProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.84f)))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { showHomeQuickMenu = false }
-                    .padding(horizontal = 24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                val modalShape = RoundedCornerShape(if (retro80sMode) 0.dp else 14.dp)
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .iosPopupWindowLayer(progress = quickMenuProgress, initialScale = 0.80f)
-                        .border(1.dp, Color(0x26FFFFFF), modalShape)
-                        .background(Color.Black, modalShape)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { /* consume inside modal */ }
-                        .padding(horizontal = 18.dp, vertical = 16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Actions",
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontFamily = selectedFont,
-                            fontWeight = FontWeight.Bold
-                        )
-                        OutlinedDonePillButton(
-                            lomoFontFamily = selectedFont,
-                            onClick = { showHomeQuickMenu = false }
-                        )
-                    }
-
-                    SettingsHairlineDivider()
-
-                    QuickMenuButton(
-                        label = if (retro80sMode) "Widget Configuration" else "Widget Manager",
-                        badge = "",
-                        accentColor = accentColor,
-                        lomoFontFamily = selectedFont,
-                        onClick = {
-                            showHomeQuickMenu = false
-                            currentView = LauncherView.WIDGETS
-                        }
-                    )
-
-                    SettingsHairlineDivider()
-
-                    NocturnaaToggleRow(
-                        title = "Edit Mode",
-                        checked = editMode,
-                        accentColor = accentColor,
-                        lomoFontFamily = selectedFont,
-                        onCheckedChange = { nextEdit ->
-                            editMode = nextEdit
-                            showHomeQuickMenu = false
-                        }
-                    )
-
-                    SettingsHairlineDivider()
-
-                    QuickMenuButton(
-                        label = if (retro80sMode) "Nocturna Configuration" else "Nocturnaa Settings",
-                        badge = "",
-                        accentColor = accentColor,
-                        lomoFontFamily = selectedFont,
-                        onClick = {
-                            showHomeQuickMenu = false
-                            currentView = LauncherView.SETTINGS
-                        }
-                    )
-
-                    SettingsHairlineDivider()
-
-                    QuickMenuButton(
-                        label = "Phone Settings",
-                        badge = "",
-                        accentColor = accentColor,
-                        lomoFontFamily = selectedFont,
-                        onClick = {
-                            showHomeQuickMenu = false
-                            try {
-                                context.startActivity(Intent(Settings.ACTION_SETTINGS))
-                            } catch (_: Exception) {
-                            }
-                        }
-                    )
-                }
-            }
-        }
 
         // ====================================================================
         // FLUID SPRING-ANIMATED LONG-PRESS APP CONTEXT MENU MODAL
@@ -3584,8 +3243,8 @@ fun NTextLauncherApp(
                     modifier = Modifier
                         .fillMaxWidth()
                         .iosPopupWindowLayer(progress = appMenuProgress, initialScale = 0.80f)
-                        .border(1.dp, Color(0x26FFFFFF), appModalShape)
-                        .background(Color.Black, appModalShape)
+                        .border(if (retro80sMode) 1.5.dp else 1.dp, if (retro80sMode) accentColor else Color(0x26FFFFFF), appModalShape)
+                        .background(if (retro80sMode) Color(0xFF040404) else Color.Black, appModalShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
@@ -3601,7 +3260,7 @@ fun NTextLauncherApp(
                     ) {
                         Text(
                             text = targetApp.label,
-                            color = Color.White,
+                            color = if (retro80sMode) accentColor else Color.White,
                             fontSize = 16.sp,
                             fontFamily = selectedFont,
                             fontWeight = FontWeight.Bold,
@@ -3713,7 +3372,7 @@ fun NTextLauncherApp(
                     modifier = Modifier
                         .fillMaxWidth()
                         .iosPopupWindowLayer(progress = noSpaceProgress, initialScale = 0.80f)
-                        .border(1.dp, Color(0x26FFFFFF), alertShape)
+                        .border(1.dp, if (retro80sMode) accentColor else Color(0x26FFFFFF), alertShape)
                         .background(Color.Black, alertShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
@@ -3747,14 +3406,11 @@ fun NTextLauncherApp(
                         text = noSpacePopupMessage,
                         color = Color.White.copy(alpha = 0.65f),
                         fontSize = 12.sp,
-                        fontFamily = FontFamily.SansSerif,
+                        fontFamily = selectedFont,
                         lineHeight = 18.sp
                     )
                 }
             }
-        }
-
-
         }
 
         // Old School Phosphor Scanlines Overlay (Pass-through touches)
@@ -3766,11 +3422,481 @@ fun NTextLauncherApp(
 }
 
 @Composable
+fun HomeActionsBottomSheet(
+    visible: Boolean,
+    editMode: Boolean,
+    accentColor: Color,
+    onDismiss: () -> Unit,
+    onOpenWidgetManager: () -> Unit,
+    onToggleEditMode: () -> Unit,
+    onOpenLauncherSettings: () -> Unit,
+    onOpenPhoneSettings: () -> Unit
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val centralFont = LocalLauncherFont.current
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
+
+    var keepRendered by remember { mutableStateOf(visible) }
+    var cardHeightPx by remember { mutableStateOf(with(density) { 290.dp.toPx() }) }
+    var isDraggingHandle by remember { mutableStateOf(false) }
+
+    // 1f = off-screen below bottom edge; 0f = resting place; < 0f = rubber-banded upward drag
+    val slideOffsetFracAnim = remember { Animatable(1f) }
+    val scrimAlphaAnim = remember { Animatable(0f) }
+
+    LaunchedEffect(visible) {
+        if (visible) {
+            keepRendered = true
+            isDraggingHandle = false
+            launch {
+                slideOffsetFracAnim.animateTo(
+                    targetValue = 0f,
+                    animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f)
+                )
+            }
+            launch {
+                scrimAlphaAnim.animateTo(
+                    targetValue = 0.55f,
+                    animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                )
+            }
+        } else if (keepRendered) {
+            isDraggingHandle = false
+            val slideJob = launch {
+                slideOffsetFracAnim.animateTo(
+                    targetValue = 1.15f,
+                    animationSpec = tween(durationMillis = 200, easing = FastOutLinearInEasing)
+                )
+            }
+            val scrimJob = launch {
+                scrimAlphaAnim.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 200, easing = FastOutLinearInEasing)
+                )
+            }
+            slideJob.join()
+            scrimJob.join()
+            if (!visible) {
+                keepRendered = false
+            }
+        }
+    }
+
+    if (!visible && !keepRendered) return
+
+    fun fireTileHaptic() {
+        val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
+        } else {
+            @Suppress("DEPRECATION")
+            VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
+        }
+        vib?.vibrate(effect)
+    }
+
+    val onePxDp = with(density) { 1f.toDp() }
+    val bottomExtraMarginPx = with(density) { 48.dp.toPx() }
+    val cardShape = RoundedCornerShape(28.dp)
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        // 1. Scrim (0% to 55% black, no blur; absorbs all touches so Home Screen behind never reacts; tapping closes menu)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    val dragFrac = slideOffsetFracAnim.value.coerceIn(0f, 1f)
+                    alpha = if (isDraggingHandle) {
+                        (0.55f * (1f - dragFrac)).coerceIn(0f, 0.55f)
+                    } else {
+                        scrimAlphaAnim.value.coerceIn(0f, 0.55f)
+                    }
+                }
+                .background(Color.Black)
+                .semantics {
+                    contentDescription = "Close menu"
+                }
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { currentOnDismiss() }
+                    )
+                }
+        )
+
+        // 2. Bottom-anchored Actions Card
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
+                .onGloballyPositioned { coords ->
+                    val h = coords.size.height.toFloat()
+                    if (h > 50f) {
+                        cardHeightPx = h
+                    }
+                }
+                .graphicsLayer {
+                    val totalTravelPx = cardHeightPx + bottomExtraMarginPx
+                    translationY = slideOffsetFracAnim.value * totalTravelPx
+                }
+                .clip(cardShape)
+                .border(onePxDp, Color.White.copy(alpha = 0.08f), cardShape)
+                .background(Color(0xFF141414).copy(alpha = 0.94f), cardShape)
+                .pointerInput(Unit) {
+                    // Consume any stray taps on the card background so they never reach the scrim
+                    detectTapGestures(onTap = {})
+                }
+                .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 12.dp)
+        ) {
+            // Generous 48dp tall top drag zone (handle + "Actions" title area, full width of the card)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .semantics {
+                        contentDescription = "Close menu"
+                    }
+                    .pointerInput(Unit) {
+                        val velocityTracker = VelocityTracker()
+                        var rawDragPx = 0f
+                        detectVerticalDragGestures(
+                            onDragStart = {
+                                rawDragPx = 0f
+                                isDraggingHandle = true
+                                velocityTracker.resetTracking()
+                            },
+                            onVerticalDrag = { change, dragAmount ->
+                                velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                change.consume()
+                                rawDragPx += dragAmount
+                                val hPx = cardHeightPx.coerceAtLeast(1f)
+                                // Downward drag follows finger 1:1; upward drag past resting place has 20% rubber-band resistance
+                                val effectivePx = if (rawDragPx >= 0f) {
+                                    rawDragPx
+                                } else {
+                                    rawDragPx * 0.20f
+                                }
+                                val nextFrac = (effectivePx / hPx).coerceIn(-0.25f, 1.25f)
+                                scope.launch {
+                                    slideOffsetFracAnim.snapTo(nextFrac)
+                                }
+                            },
+                            onDragEnd = {
+                                val vyPxPerSec = velocityTracker.calculateVelocity().y
+                                val vyDpPerSec = with(density) { vyPxPerSec.toDp().value }
+                                val curFrac = slideOffsetFracAnim.value
+                                isDraggingHandle = false
+                                if (curFrac > 0.35f || vyDpPerSec > 900f) {
+                                    currentOnDismiss()
+                                } else {
+                                    scope.launch {
+                                        slideOffsetFracAnim.animateTo(
+                                            targetValue = 0f,
+                                            animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f)
+                                        )
+                                    }
+                                    scope.launch {
+                                        scrimAlphaAnim.animateTo(
+                                            targetValue = 0.55f,
+                                            animationSpec = tween(durationMillis = 160)
+                                        )
+                                    }
+                                }
+                            },
+                            onDragCancel = {
+                                isDraggingHandle = false
+                                scope.launch {
+                                    slideOffsetFracAnim.animateTo(
+                                        targetValue = 0f,
+                                        animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f)
+                                    )
+                                }
+                            }
+                        )
+                    }
+            ) {
+                // Drag handle: 40dp wide, 4dp tall, fully rounded, white at 25%, 10dp below card top edge (via parent top=10.dp)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .width(40.dp)
+                        .height(4.dp)
+                        .background(Color.White.copy(alpha = 0.25f), RoundedCornerShape(50))
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Title "Actions" under the handle, left-aligned, 18sp, white
+                Text(
+                    text = "Actions",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontFamily = centralFont,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 10.dp)
+                )
+            }
+
+            // Top row: two large tiles of equal width with an 8dp gap, each at least 112dp tall
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ActionsLargeTile(
+                    icon = ActionsMenuIcons.layoutDashboard,
+                    label = "Widget Manager",
+                    caption = "Add and remove widgets",
+                    isActive = false,
+                    accentColor = accentColor,
+                    onePxDp = onePxDp,
+                    fontFamily = centralFont,
+                    onClick = {
+                        fireTileHaptic()
+                        onOpenWidgetManager()
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                )
+
+                ActionsLargeTile(
+                    icon = ActionsMenuIcons.pencil,
+                    label = "Edit Mode",
+                    caption = if (editMode) "Tap to finish editing" else "Rearrange your home screen",
+                    isActive = editMode,
+                    accentColor = accentColor,
+                    onePxDp = onePxDp,
+                    fontFamily = centralFont,
+                    onClick = {
+                        fireTileHaptic()
+                        onToggleEditMode()
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Bottom row: two slim tiles of equal width, 8dp gap, each at least 60dp tall
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ActionsSlimTile(
+                    icon = ActionsMenuIcons.slidersHorizontal,
+                    label = "Nocturnaa Settings",
+                    accentColor = accentColor,
+                    onePxDp = onePxDp,
+                    fontFamily = centralFont,
+                    onClick = {
+                        fireTileHaptic()
+                        onOpenLauncherSettings()
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                )
+
+                ActionsSlimTile(
+                    icon = ActionsMenuIcons.smartphone,
+                    label = "Phone Settings",
+                    accentColor = accentColor,
+                    onePxDp = onePxDp,
+                    fontFamily = centralFont,
+                    onClick = {
+                        fireTileHaptic()
+                        onOpenPhoneSettings()
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionsLargeTile(
+    icon: ImageVector,
+    label: String,
+    caption: String,
+    isActive: Boolean,
+    accentColor: Color,
+    onePxDp: androidx.compose.ui.unit.Dp,
+    fontFamily: FontFamily,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val tileScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 620f),
+        label = "largeTilePressScale"
+    )
+    val tileShape = RoundedCornerShape(20.dp)
+    val iconBoxShape = RoundedCornerShape(14.dp)
+    val painter = rememberVectorPainter(icon)
+    val iconContainerColor = if (isActive) accentColor else accentColor.copy(alpha = 0.16f)
+    val iconTint = if (isActive) Color.Black else accentColor
+
+    Column(
+        modifier = modifier
+            .heightIn(min = 112.dp)
+            .graphicsLayer {
+                scaleX = tileScale
+                scaleY = tileScale
+            }
+            .semantics(mergeDescendants = true) {
+                contentDescription = "$label. $caption"
+            }
+            .clip(tileShape)
+            .border(onePxDp, Color.White.copy(alpha = 0.08f), tileShape)
+            .background(if (isPressed) Color(0xFF262626) else Color(0xFF1E1E1E), tileShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .padding(14.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
+        horizontalAlignment = Alignment.Start
+    ) {
+        // 44dp rounded-square icon container (14dp radius) with 24dp vector line icon centered
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .background(iconContainerColor, iconBoxShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.size(24.dp)) {
+                with(painter) {
+                    draw(
+                        size = size,
+                        colorFilter = ColorFilter.tint(iconTint)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = label,
+                color = Color.White,
+                fontSize = 15.sp,
+                fontFamily = fontFamily,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = caption,
+                color = Color.White.copy(alpha = 0.45f),
+                fontSize = 11.sp,
+                fontFamily = fontFamily,
+                lineHeight = 14.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActionsSlimTile(
+    icon: ImageVector,
+    label: String,
+    accentColor: Color,
+    onePxDp: androidx.compose.ui.unit.Dp,
+    fontFamily: FontFamily,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val tileScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 620f),
+        label = "slimTilePressScale"
+    )
+    val tileShape = RoundedCornerShape(20.dp)
+    val iconBoxShape = RoundedCornerShape(12.dp)
+    val painter = rememberVectorPainter(icon)
+
+    Row(
+        modifier = modifier
+            .heightIn(min = 60.dp)
+            .graphicsLayer {
+                scaleX = tileScale
+                scaleY = tileScale
+            }
+            .semantics(mergeDescendants = true) {
+                contentDescription = label
+            }
+            .clip(tileShape)
+            .border(onePxDp, Color.White.copy(alpha = 0.08f), tileShape)
+            .background(if (isPressed) Color(0xFF262626) else Color(0xFF1E1E1E), tileShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 36dp rounded-square icon container (12dp radius) with 20dp vector line icon centered
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .background(accentColor.copy(alpha = 0.16f), iconBoxShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.size(20.dp)) {
+                with(painter) {
+                    draw(
+                        size = size,
+                        colorFilter = ColorFilter.tint(accentColor)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 14.sp,
+            fontFamily = fontFamily,
+            fontWeight = FontWeight.Medium,
+            lineHeight = 17.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
 fun Retro80sQuickMenuButton(
     label: String,
     badge: String,
     accentColor: Color,
-    lomoFontFamily: FontFamily = FontFamily.Monospace,
+    lomoFontFamily: FontFamily = LocalLauncherFont.current,
     onClick: () -> Unit
 ) {
     val is80s = LocalRetro80sMode.current
@@ -3808,7 +3934,7 @@ fun QuickMenuButton(
     label: String,
     badge: String,
     accentColor: Color,
-    lomoFontFamily: FontFamily = FontFamily.Monospace,
+    lomoFontFamily: FontFamily = LocalLauncherFont.current,
     onClick: () -> Unit
 ) {
     Row(
@@ -4513,8 +4639,8 @@ fun HomeScreenView(
                                 }
                             }
 
-                            // Row 2: Collapsible Per-Widget Font Style Menu
-                            if (widgetId != "globe") {
+                            // Row 2: Collapsible Per-Widget Font Style Menu (Only for widgets; Home Screen pinned_apps uses the central Launcher Font)
+                            if (widgetId != "globe" && widgetId != "pinned_apps") {
                                 Column(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalArrangement = Arrangement.spacedBy(5.dp)
@@ -5374,7 +5500,8 @@ fun HomeScreenView(
                                             Text(
                                                 text = if (torchEnabled) "⚡" else "☼",
                                                 color = if (torchEnabled) accentColor else Color(0xFFA3A3A3),
-                                                fontSize = if (sizeMode == "large") 14.sp else 12.sp
+                                                fontSize = if (sizeMode == "large") 14.sp else 12.sp,
+                                                fontFamily = wFontFamily
                                             )
                                             Text(
                                                 text = "TORCH",
@@ -6010,7 +6137,7 @@ fun HomeScreenView(
                                                 },
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                val displayLabel = if (wPrebuiltFont.uppercaseHome || uppercaseHome) {
+                                                val displayLabel = if (uppercaseHome) {
                                                     app.label.uppercase(Locale.getDefault())
                                                 } else {
                                                     app.label
@@ -6028,7 +6155,7 @@ fun HomeScreenView(
                                                     text = styledAppLabel,
                                                     color = if ((isHighlighted && !editMode) || is80sApps) accentColor else if (animWave > 0.35f) Color.White else Color(0xFFF5F5F5),
                                                     fontSize = textSizeSp.sp,
-                                                    fontFamily = wFontFamily,
+                                                    fontFamily = selectedFont,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
                                                     modifier = if (editMode) Modifier.weight(1f).padding(end = 8.dp) else Modifier
@@ -8462,11 +8589,11 @@ private fun AlphabetScrubberRail(
             )
         }
 
-        // Slim vertical rail on the right edge with 20dp right margin
+        // Slim vertical rail on the right edge with 20dp right margin (24dp cell width so wide proportional fonts never clip)
         Column(
             modifier = Modifier
-                .padding(end = 20.dp)
-                .width(16.dp)
+                .padding(end = 16.dp)
+                .width(24.dp)
                 .fillMaxHeight(),
             verticalArrangement = Arrangement.SpaceEvenly,
             horizontalAlignment = Alignment.CenterHorizontally
@@ -8510,9 +8637,11 @@ private fun AlphabetScrubberRail(
                         text = ch.toString(),
                         color = if (isHighlighted) accentColor else Color(0xFFEDEDED),
                         fontSize = 11.sp,
-                        fontFamily = lomoFontFamily,
+                        fontFamily = LocalLauncherFont.current,
                         fontWeight = if (isHighlighted) FontWeight.Bold else FontWeight.Normal,
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
@@ -8758,7 +8887,7 @@ fun NocturnaaToggleRow(
                     text = subtitle,
                     color = Color.White.copy(alpha = 0.60f),
                     fontSize = 11.sp,
-                    fontFamily = FontFamily.SansSerif,
+                    fontFamily = LocalLauncherFont.current,
                     lineHeight = 15.sp
                 )
             }
@@ -9064,7 +9193,7 @@ fun WidgetsManagerView(
                             text = "Widget style",
                             color = Color.White.copy(alpha = 0.60f),
                             fontSize = 11.sp,
-                            fontFamily = FontFamily.SansSerif
+                            fontFamily = LocalLauncherFont.current
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         NocturnaaSegmentedControl(
@@ -9081,7 +9210,7 @@ fun WidgetsManagerView(
                                 text = "Battery bar style",
                                 color = Color.White.copy(alpha = 0.60f),
                                 fontSize = 11.sp,
-                                fontFamily = FontFamily.SansSerif
+                                fontFamily = LocalLauncherFont.current
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             NocturnaaSegmentedControl(
@@ -9099,7 +9228,7 @@ fun WidgetsManagerView(
                                 text = "Clock format",
                                 color = Color.White.copy(alpha = 0.60f),
                                 fontSize = 11.sp,
-                                fontFamily = FontFamily.SansSerif
+                                fontFamily = LocalLauncherFont.current
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             NocturnaaSegmentedControl(
@@ -9120,7 +9249,7 @@ fun WidgetsManagerView(
                                 text = "Visual theme",
                                 color = Color.White.copy(alpha = 0.60f),
                                 fontSize = 11.sp,
-                                fontFamily = FontFamily.SansSerif
+                                fontFamily = LocalLauncherFont.current
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             NocturnaaSegmentedControl(
@@ -9140,7 +9269,7 @@ fun WidgetsManagerView(
                                     text = "Vector color",
                                     color = Color.White.copy(alpha = 0.60f),
                                     fontSize = 11.sp,
-                                    fontFamily = FontFamily.SansSerif
+                                    fontFamily = LocalLauncherFont.current
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Row(
@@ -9861,7 +9990,7 @@ fun LauncherSettingsView(
                                     text = desc,
                                     color = Color.White.copy(alpha = 0.60f),
                                     fontSize = 10.sp,
-                                    fontFamily = FontFamily.SansSerif
+                                    fontFamily = LocalLauncherFont.current
                                 )
                             }
                             Box(
@@ -10038,7 +10167,7 @@ fun LauncherSettingsView(
                                     text = desc,
                                     color = Color.White.copy(alpha = 0.60f),
                                     fontSize = 10.sp,
-                                    fontFamily = FontFamily.SansSerif
+                                    fontFamily = LocalLauncherFont.current
                                 )
                             }
                             Box(
@@ -10444,7 +10573,7 @@ fun NocturnaaSettingSlider(
                     text = "Reset",
                     color = if (isAtDefault) Color(0xFF4D4D4D) else Color(0xFF9E9E9E),
                     fontSize = 11.sp,
-                    fontFamily = FontFamily.SansSerif,
+                    fontFamily = LocalLauncherFont.current,
                     modifier = Modifier
                         .clickable {
                             if (!isAtDefault) {
@@ -10464,7 +10593,7 @@ fun NocturnaaSettingSlider(
             text = description,
             color = Color.White.copy(alpha = 0.60f),
             fontSize = 11.sp,
-            fontFamily = FontFamily.SansSerif,
+            fontFamily = LocalLauncherFont.current,
             lineHeight = 15.sp
         )
 
@@ -10593,11 +10722,11 @@ fun NocturnaaSettingSlider(
                 presetChips.forEach { (tickVal, tickLabel) ->
                     val norm = ((tickVal - minV) / span).coerceIn(0f, 1f)
                     val isTickActive = abs(clampedTarget - tickVal) < (step * 0.5f).coerceAtLeast(0.5f)
-                    val xOffset = (thumbPad + usableTrackW * norm - 14.dp).coerceIn(0.dp, (totalW - 28.dp).coerceAtLeast(0.dp))
+                    val xOffset = (thumbPad + usableTrackW * norm - 19.dp).coerceIn(0.dp, (totalW - 38.dp).coerceAtLeast(0.dp))
                     Box(
                         modifier = Modifier
                             .offset(x = xOffset, y = 8.dp)
-                            .width(28.dp),
+                            .width(38.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -10605,7 +10734,9 @@ fun NocturnaaSettingSlider(
                             color = if (isTickActive) accentColor else Color(0xFF8A8A8A),
                             fontSize = 10.sp,
                             fontFamily = lomoFontFamily,
-                            textAlign = TextAlign.Center
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -10935,7 +11066,7 @@ fun SettingsBackdropControlCard(
     accentColor: Color,
     innerCardBorderColor: Color = Color(0x1AFFFFFF),
     innerCardShape: RoundedCornerShape = RoundedCornerShape(8.dp),
-    lomoFontFamily: FontFamily = FontFamily.Monospace,
+    lomoFontFamily: FontFamily = LocalLauncherFont.current,
     onChangeMode: (String) -> Unit,
     onChangeIntensity: (Int) -> Unit
 ) {
@@ -10996,7 +11127,7 @@ fun SettingsBackdropControlCard(
             text = modeDescription,
             color = Color.White.copy(alpha = 0.60f),
             fontSize = 11.sp,
-            fontFamily = FontFamily.SansSerif,
+            fontFamily = LocalLauncherFont.current,
             lineHeight = 15.sp
         )
 
@@ -11237,7 +11368,7 @@ fun CollapsibleSubSection(
                         text = subtitle,
                         color = Color.White.copy(alpha = 0.60f),
                         fontSize = 11.sp,
-                        fontFamily = FontFamily.SansSerif
+                        fontFamily = LocalLauncherFont.current
                     )
                 }
             }
@@ -11326,7 +11457,8 @@ fun CollapsibleSettingsSection(
                     text = indexTag,
                     color = Color(0xFF7A7A7A),
                     fontSize = 13.sp,
-                    fontFamily = lomoFontFamily
+                    fontFamily = lomoFontFamily,
+                    modifier = Modifier.widthIn(min = 24.dp)
                 )
                 Text(
                     text = title,
@@ -13478,7 +13610,7 @@ fun Retro80sMinimalistSliderRow(
     valueText: String,
     fraction: Float,
     accentColor: Color,
-    lomoFontFamily: FontFamily = FontFamily.Monospace,
+    lomoFontFamily: FontFamily = LocalLauncherFont.current,
     onFractionChange: (Float) -> Unit
 ) {
     val is80s = LocalRetro80sMode.current
@@ -13575,7 +13707,7 @@ fun Retro80sSettingsBackdropControlCard(
     settingsBgMode: String,
     settingsBgIntensity: Int,
     accentColor: Color,
-    lomoFontFamily: FontFamily = FontFamily.Monospace,
+    lomoFontFamily: FontFamily = LocalLauncherFont.current,
     onChangeMode: (String) -> Unit,
     onChangeIntensity: (Int) -> Unit
 ) {
@@ -13846,7 +13978,7 @@ fun Retro80sWallpaperTuningRow(
     currentValue: Float,
     options: List<Pair<Float, String>>,
     accentColor: Color,
-    lomoFontFamily: FontFamily = FontFamily.Monospace,
+    lomoFontFamily: FontFamily = LocalLauncherFont.current,
     onSelect: (Float) -> Unit
 ) {
     val is80s = LocalRetro80sMode.current
