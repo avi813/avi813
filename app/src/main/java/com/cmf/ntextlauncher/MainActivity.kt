@@ -99,6 +99,9 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
@@ -122,6 +125,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -3545,8 +3549,8 @@ fun HomeActionsBottomSheet(
                     translationY = slideOffsetFracAnim.value * totalTravelPx
                 }
                 .clip(cardShape)
-                .border(onePxDp, Color.White.copy(alpha = 0.08f), cardShape)
-                .background(Color(0xFF141414).copy(alpha = 0.94f), cardShape)
+                .border(onePxDp, Color.White.copy(alpha = 0.07f), cardShape)
+                .background(Color(0xFF080808), cardShape)
                 .pointerInput(Unit) {
                     // Consume any stray taps on the card background so they never reach the scrim
                     detectTapGestures(onTap = {})
@@ -3763,8 +3767,8 @@ private fun ActionsLargeTile(
                 contentDescription = "$label. $caption"
             }
             .clip(tileShape)
-            .border(onePxDp, Color.White.copy(alpha = 0.08f), tileShape)
-            .background(if (isPressed) Color(0xFF262626) else Color(0xFF1E1E1E), tileShape)
+            .border(onePxDp, Color.White.copy(alpha = 0.07f), tileShape)
+            .background(if (isPressed) Color(0xFF191919) else Color(0xFF111111), tileShape)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -3848,8 +3852,8 @@ private fun ActionsSlimTile(
                 contentDescription = label
             }
             .clip(tileShape)
-            .border(onePxDp, Color.White.copy(alpha = 0.08f), tileShape)
-            .background(if (isPressed) Color(0xFF262626) else Color(0xFF1E1E1E), tileShape)
+            .border(onePxDp, Color.White.copy(alpha = 0.07f), tileShape)
+            .background(if (isPressed) Color(0xFF191919) else Color(0xFF111111), tileShape)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -9549,8 +9553,16 @@ fun WidgetsManagerView(
 }
 
 // ============================================================================
-// PART 2: FLAT HAIRLINE SETTINGS SCREEN MATCHING IMAGE 2 MOCKUP
+// PART 2: FLAT HAIRLINE SETTINGS SCREEN WITH BORDERED CONTAINER & CHOREOGRAPHED SECTIONS
 // ============================================================================
+data class NocturnaaSettingsSectionSpec(
+    val title: String,
+    val items: List<@Composable () -> Unit>
+)
+
+private val NocturnaaOpenSectionEasing = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
+private val NocturnaaCloseSectionEasing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)
+
 @Composable
 fun LauncherSettingsView(
     fontId: String,
@@ -9675,12 +9687,17 @@ fun LauncherSettingsView(
         )
         return
     }
-    // Only one section stays open at a time (1..4 or null)
+
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val settingsScrollState = rememberScrollState()
+    var viewportHeightPx by remember { mutableStateOf(0) }
+
+    // Only one section is open at a time (0-based index into settingsSections, or null)
     var openSectionIndex by remember { mutableStateOf<Int?>(null) }
     var expandedFontMenu by remember { mutableStateOf(false) }
     var openWallpaperSubSection by remember { mutableStateOf<String?>(null) }
 
-    // Current accent colour (including Old School theme colours)
     val accentColor = if (retro80sMode) {
         if (retro80sColorTheme == "amber") Color(0xFFFF8800) else Color(0xFF7CFF5B)
     } else {
@@ -9690,6 +9707,556 @@ fun LauncherSettingsView(
     val innerSubCardShape = RoundedCornerShape(8.dp)
     val innerCardBorderColor = Color(0x1AFFFFFF)
 
+    // Single extendable list of settings sections: add a new NocturnaaSettingsSectionSpec entry here
+    // and its 2-digit index ("01", "02", ...), dividers, border, left accent bar, and animations work automatically.
+    val settingsSections = listOf(
+        NocturnaaSettingsSectionSpec(
+            title = "System & Home Integration",
+            items = buildSystemAndHomeSectionItems(
+                retro80sMode = retro80sMode,
+                retro80sColorTheme = retro80sColorTheme,
+                enableLeftPage = enableLeftPage,
+                hideAndroidBar = hideAndroidBar,
+                pauseWhenAppOpen = pauseWhenAppOpen,
+                settingsBgMode = settingsBgMode,
+                settingsBgIntensity = settingsBgIntensity,
+                accentColor = accentColor,
+                innerCardBorderColor = innerCardBorderColor,
+                innerCardShape = innerCardShape,
+                launcherFont = launcherFont,
+                onRequestDefaultHomeRole = onRequestDefaultHomeRole,
+                onToggleRetro80sMode = onToggleRetro80sMode,
+                onChangeRetro80sColorTheme = onChangeRetro80sColorTheme,
+                onToggleLeftPage = onToggleLeftPage,
+                onToggleAndroidBar = onToggleAndroidBar,
+                onTogglePauseWhenAppOpen = onTogglePauseWhenAppOpen,
+                onChangeSettingsBgMode = onChangeSettingsBgMode,
+                onChangeSettingsBgIntensity = onChangeSettingsBgIntensity
+            )
+        ),
+        NocturnaaSettingsSectionSpec(
+            title = "Typography & Layout",
+            items = buildTypographyAndLayoutSectionItems(
+                fontId = fontId,
+                textAlignMode = textAlignMode,
+                textSizeSp = textSizeSp,
+                use24Hour = use24Hour,
+                customPinnedOrderEnabled = customPinnedOrderEnabled,
+                expandedFontMenu = expandedFontMenu,
+                onToggleFontMenu = { expandedFontMenu = !expandedFontMenu },
+                accentColor = accentColor,
+                innerCardBorderColor = innerCardBorderColor,
+                innerCardShape = innerCardShape,
+                lomoFontFamily = lomoFontFamily,
+                launcherFont = launcherFont,
+                onChangeFont = onChangeFont,
+                onChangeTextSize = onChangeTextSize,
+                onToggle24h = onToggle24h,
+                onChangeAlign = onChangeAlign,
+                onToggleCustomPinnedOrder = onToggleCustomPinnedOrder
+            )
+        ),
+        NocturnaaSettingsSectionSpec(
+            title = "Wallpapers and Settings",
+            items = buildWallpapersAndSettingsSectionItems(
+                wallpaperPreset = wallpaperPreset,
+                wallpaperDimPercent = wallpaperDimPercent,
+                hasCustomUserImage = hasCustomUserImage,
+                wpSpeed = wpSpeed,
+                wpDensity = wpDensity,
+                wpOpacity = wpOpacity,
+                wpScale = wpScale,
+                accentHex = accentHex,
+                openWallpaperSubSection = openWallpaperSubSection,
+                onToggleWallpaperSubSection = { subKey ->
+                    openWallpaperSubSection = if (openWallpaperSubSection == subKey) null else subKey
+                },
+                accentColor = accentColor,
+                innerCardBorderColor = innerCardBorderColor,
+                innerCardShape = innerCardShape,
+                innerSubCardShape = innerSubCardShape,
+                launcherFont = launcherFont,
+                onChangeWallpaperPreset = onChangeWallpaperPreset,
+                onChangeWallpaperDim = onChangeWallpaperDim,
+                onChangeWpSpeed = onChangeWpSpeed,
+                onChangeWpDensity = onChangeWpDensity,
+                onChangeWpOpacity = onChangeWpOpacity,
+                onChangeWpScale = onChangeWpScale,
+                onPickCustomWallpaperImage = onPickCustomWallpaperImage,
+                onOpenSystemWallpaperPicker = onOpenSystemWallpaperPicker,
+                onChangeAccent = onChangeAccent
+            )
+        ),
+        NocturnaaSettingsSectionSpec(
+            title = "App Drawer Settings",
+            items = buildAppDrawerSettingsSectionItems(
+                fontId = fontId,
+                drawerTextSizeSp = drawerTextSizeSp,
+                drawerWaveIntensity = drawerWaveIntensity,
+                drawerBgMode = drawerBgMode,
+                drawerBgIntensity = drawerBgIntensity,
+                retro80sMode = retro80sMode,
+                accentColor = accentColor,
+                innerCardBorderColor = innerCardBorderColor,
+                innerCardShape = innerCardShape,
+                lomoFontFamily = lomoFontFamily,
+                launcherFont = launcherFont,
+                onChangeDrawerTextSize = onChangeDrawerTextSize,
+                onChangeDrawerWaveIntensity = onChangeDrawerWaveIntensity,
+                onChangeDrawerBgMode = onChangeDrawerBgMode,
+                onChangeDrawerBgIntensity = onChangeDrawerBgIntensity
+            )
+        )
+    )
+
+    val headerHeightsPx = remember { mutableStateMapOf<Int, Int>() }
+    val minHeaderPx = with(density) { 64.dp.roundToPx() }
+    val dividerPx = with(density) { 1.dp.roundToPx() }
+
+    // After opening a section, if its header would end up off-screen, smoothly scroll to bring it into view with the same curve
+    LaunchedEffect(openSectionIndex) {
+        val targetIdx = openSectionIndex ?: return@LaunchedEffect
+        val animScale = try {
+            Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        } catch (_: Exception) {
+            1f
+        }
+        var restingHeaderTopPx = 0
+        for (i in 0 until targetIdx) {
+            restingHeaderTopPx += (headerHeightsPx[i] ?: minHeaderPx) + dividerPx
+        }
+        val targetHeaderHeightPx = headerHeightsPx[targetIdx] ?: minHeaderPx
+        val currentScroll = settingsScrollState.value
+        val viewH = viewportHeightPx
+        val desiredScroll = when {
+            restingHeaderTopPx < currentScroll -> restingHeaderTopPx
+            viewH > 0 && (restingHeaderTopPx + targetHeaderHeightPx) > (currentScroll + viewH) ->
+                (restingHeaderTopPx + targetHeaderHeightPx - viewH + minHeaderPx).coerceAtLeast(0)
+            else -> null
+        }
+        if (desiredScroll != null) {
+            if (animScale <= 0f) {
+                settingsScrollState.scrollTo(desiredScroll)
+            } else {
+                settingsScrollState.animateScrollTo(
+                    value = desiredScroll,
+                    animationSpec = tween(durationMillis = 520, easing = NocturnaaOpenSectionEasing)
+                )
+            }
+        }
+    }
+
+    val normBg = (settingsBgIntensity.coerceIn(15, 100) / 100f)
+    val rootBgColor = when (settingsBgMode) {
+        "transparent" -> Color.Black.copy(alpha = (normBg * 0.88f).coerceIn(0.12f, 0.90f))
+        "blurry" -> Color(0xFF060606).copy(alpha = 0.54f)
+        else -> Color.Black.copy(alpha = (0.75f + normBg * 0.25f).coerceIn(0.78f, 1.0f))
+    }
+    val containerShape = RoundedCornerShape(24.dp)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(rootBgColor)
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .padding(top = 16.dp)
+    ) {
+        // Fixed Header at the top: "Nocturnaa Settings" + Outlined "DONE" pill
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (retro80sMode) "Nocturna Configuration" else "Nocturnaa Settings",
+                color = Color.White,
+                fontSize = 18.sp,
+                fontFamily = launcherFont,
+                fontWeight = FontWeight.Bold
+            )
+            OutlinedDonePillButton(
+                lomoFontFamily = launcherFont,
+                onClick = onBack
+            )
+        }
+
+        // Container starts 20dp under the header (title + DONE)
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Vertically scrollable content area while the header stays at the top
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .onSizeChanged { viewportHeightPx = it.height }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(settingsScrollState)
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 32.dp)
+            ) {
+                // ONE rounded container with 1dp white border at 14%, 24dp corner radius, #000000 background, clipped to 24dp
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(containerShape)
+                        .background(Color.Black, containerShape)
+                        .border(1.dp, Color.White.copy(alpha = 0.14f), containerShape)
+                ) {
+                    settingsSections.forEachIndexed { index, sectionSpec ->
+                        val autoNumberTag = String.format(Locale.US, "%02d", index + 1)
+                        NocturnaaCollapsibleSection(
+                            indexTag = autoNumberTag,
+                            title = sectionSpec.title,
+                            expanded = openSectionIndex == index,
+                            accentColor = accentColor,
+                            lomoFontFamily = launcherFont,
+                            minHeaderHeight = 64.dp,
+                            headerHorizontalPadding = 16.dp,
+                            contentHorizontalPadding = 16.dp,
+                            expandedBgColor = Color(0xFF0C0C0C),
+                            onHeaderHeightMeasured = { hPx -> headerHeightsPx[index] = hPx },
+                            onToggle = {
+                                openSectionIndex = if (openSectionIndex == index) null else index
+                            },
+                            items = sectionSpec.items
+                        )
+
+                        // Edge-to-edge 1dp divider at 8% white between rows; NO divider under the last row
+                        if (index < settingsSections.lastIndex) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(Color.White.copy(alpha = 0.08f))
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun buildSystemAndHomeSectionItems(
+    retro80sMode: Boolean,
+    retro80sColorTheme: String,
+    enableLeftPage: Boolean,
+    hideAndroidBar: Boolean,
+    pauseWhenAppOpen: Boolean,
+    settingsBgMode: String,
+    settingsBgIntensity: Int,
+    accentColor: Color,
+    innerCardBorderColor: Color,
+    innerCardShape: RoundedCornerShape,
+    launcherFont: FontFamily,
+    onRequestDefaultHomeRole: () -> Unit,
+    onToggleRetro80sMode: () -> Unit,
+    onChangeRetro80sColorTheme: (String) -> Unit,
+    onToggleLeftPage: () -> Unit,
+    onToggleAndroidBar: () -> Unit,
+    onTogglePauseWhenAppOpen: () -> Unit,
+    onChangeSettingsBgMode: (String) -> Unit,
+    onChangeSettingsBgIntensity: (Int) -> Unit
+): List<@Composable () -> Unit> = listOf(
+    {
+        SettingCard(
+            title = "Default Home Launcher",
+            actionLabel = "CHOOSE HOME",
+            lomoFontFamily = launcherFont,
+            onClick = onRequestDefaultHomeRole
+        )
+    },
+    {
+        NocturnaaToggleRow(
+            title = "Old School Mode",
+            checked = retro80sMode,
+            accentColor = accentColor,
+            lomoFontFamily = launcherFont,
+            onCheckedChange = { if (retro80sMode != it) onToggleRetro80sMode() }
+        )
+    },
+    {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Old School color theme",
+                color = Color.White,
+                fontSize = 13.sp,
+                fontFamily = launcherFont
+            )
+            NocturnaaSegmentedControl(
+                options = listOf(
+                    "green" to "Green phosphor",
+                    "amber" to "Amber orange"
+                ),
+                selectedId = retro80sColorTheme,
+                accentColor = accentColor,
+                lomoFontFamily = launcherFont,
+                onSelect = onChangeRetro80sColorTheme
+            )
+        }
+    },
+    {
+        NocturnaaToggleRow(
+            title = "Additional Left Home Page",
+            checked = enableLeftPage,
+            accentColor = accentColor,
+            lomoFontFamily = launcherFont,
+            onCheckedChange = { if (enableLeftPage != it) onToggleLeftPage() }
+        )
+    },
+    {
+        NocturnaaToggleRow(
+            title = "Hide Android Status Bar",
+            checked = hideAndroidBar,
+            accentColor = accentColor,
+            lomoFontFamily = launcherFont,
+            onCheckedChange = { if (hideAndroidBar != it) onToggleAndroidBar() }
+        )
+    },
+    {
+        NocturnaaToggleRow(
+            title = "Pause Wallpapers & Widgets in Apps",
+            checked = pauseWhenAppOpen,
+            accentColor = accentColor,
+            lomoFontFamily = launcherFont,
+            onCheckedChange = { if (pauseWhenAppOpen != it) onTogglePauseWhenAppOpen() }
+        )
+    },
+    {
+        SettingsBackdropControlCard(
+            isDrawerPreview = false,
+            settingsBgMode = settingsBgMode,
+            settingsBgIntensity = settingsBgIntensity,
+            accentColor = accentColor,
+            innerCardBorderColor = innerCardBorderColor,
+            innerCardShape = innerCardShape,
+            lomoFontFamily = launcherFont,
+            onChangeMode = onChangeSettingsBgMode,
+            onChangeIntensity = onChangeSettingsBgIntensity
+        )
+    }
+)
+
+private fun buildTypographyAndLayoutSectionItems(
+    fontId: String,
+    textAlignMode: String,
+    textSizeSp: Int,
+    use24Hour: Boolean,
+    customPinnedOrderEnabled: Boolean,
+    expandedFontMenu: Boolean,
+    onToggleFontMenu: () -> Unit,
+    accentColor: Color,
+    innerCardBorderColor: Color,
+    innerCardShape: RoundedCornerShape,
+    lomoFontFamily: FontFamily,
+    launcherFont: FontFamily,
+    onChangeFont: (String) -> Unit,
+    onChangeTextSize: (Int) -> Unit,
+    onToggle24h: () -> Unit,
+    onChangeAlign: (String) -> Unit,
+    onToggleCustomPinnedOrder: () -> Unit
+): List<@Composable () -> Unit> {
+    val activePrebuiltFont = PrebuiltFont.fromId(fontId)
+    val activeFontName = activePrebuiltFont.displayName.substringBefore(" (")
+    return listOf(
+        {
+            val fontItems = PrebuiltFont.values().map { f ->
+                @Composable {
+                    val selected = fontId == f.id
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .clickable { onChangeFont(f.id) }
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = f.displayName.substringBefore(" ("),
+                            color = if (selected) accentColor else Color.White,
+                            fontSize = 13.sp,
+                            fontFamily = f.resolveFontFamily(lomoFontFamily),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(16.dp)
+                                .border(
+                                    width = 1.5.dp,
+                                    color = if (selected) accentColor else Color(0xFF555555),
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (selected) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(accentColor, CircleShape)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            CollapsibleSubSection(
+                title = "Launcher Font",
+                subtitle = activeFontName,
+                expanded = expandedFontMenu,
+                accentColor = accentColor,
+                lomoFontFamily = launcherFont,
+                onToggle = onToggleFontMenu,
+                items = fontItems
+            )
+        },
+        {
+            val activeHomeFontFamily = activePrebuiltFont.resolveFontFamily(lomoFontFamily)
+            NocturnaaSettingSlider(
+                title = "Home text size",
+                description = "How big your pinned app names look on the home screen. Smaller fits more apps, bigger is easier to tap.",
+                value = textSizeSp.toFloat(),
+                valueRange = 16f..24f,
+                step = 1f,
+                unit = "sp",
+                defaultValue = 20f,
+                hapticStep = 1f,
+                accentColor = accentColor,
+                innerCardBorderColor = innerCardBorderColor,
+                innerCardShape = innerCardShape,
+                lomoFontFamily = launcherFont,
+                presetChips = listOf(16f to "16", 18f to "18", 20f to "20", 22f to "22", 24f to "24"),
+                embedInCard = false,
+                onValueChange = { nextVal ->
+                    val targetSp = nextVal.roundToInt().coerceIn(16, 24)
+                    if (targetSp != textSizeSp) {
+                        onChangeTextSize(targetSp)
+                    }
+                }
+            ) { previewVal ->
+                val pSp = previewVal.roundToInt().coerceIn(16, 24)
+                val align = when (textAlignMode) {
+                    "center" -> Alignment.CenterHorizontally
+                    "right" -> Alignment.End
+                    else -> Alignment.Start
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, Color(0x24FFFFFF), innerCardShape)
+                        .background(Color.Black, innerCardShape)
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalAlignment = align,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("Camera", "Messages", "Phone").forEach { appName ->
+                        Text(
+                            text = if (activePrebuiltFont.uppercaseHome) appName.uppercase(Locale.US) else appName,
+                            color = Color(0xFFF5F5F5),
+                            fontSize = pSp.sp,
+                            fontFamily = activeHomeFontFamily
+                        )
+                    }
+                }
+            }
+        },
+        {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Clock Time Format",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontFamily = launcherFont
+                )
+                NocturnaaSegmentedControl(
+                    options = listOf("12h" to "12-hour", "24h" to "24-hour"),
+                    selectedId = if (use24Hour) "24h" else "12h",
+                    accentColor = accentColor,
+                    lomoFontFamily = launcherFont,
+                    onSelect = { sel ->
+                        val want24 = sel == "24h"
+                        if (use24Hour != want24) onToggle24h()
+                    }
+                )
+            }
+        },
+        {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Home Text Alignment",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontFamily = launcherFont
+                )
+                NocturnaaSegmentedControl(
+                    options = listOf("left" to "Left", "center" to "Center", "right" to "Right"),
+                    selectedId = textAlignMode,
+                    accentColor = accentColor,
+                    lomoFontFamily = launcherFont,
+                    onSelect = onChangeAlign
+                )
+            }
+        },
+        {
+            NocturnaaToggleRow(
+                title = "Custom Pinned Apps Order",
+                checked = customPinnedOrderEnabled,
+                accentColor = accentColor,
+                lomoFontFamily = launcherFont,
+                onCheckedChange = { if (customPinnedOrderEnabled != it) onToggleCustomPinnedOrder() }
+            )
+        }
+    )
+}
+
+private fun buildWallpapersAndSettingsSectionItems(
+    wallpaperPreset: String,
+    wallpaperDimPercent: Int,
+    hasCustomUserImage: Boolean,
+    wpSpeed: Float,
+    wpDensity: Float,
+    wpOpacity: Float,
+    wpScale: Float,
+    accentHex: String,
+    openWallpaperSubSection: String?,
+    onToggleWallpaperSubSection: (String) -> Unit,
+    accentColor: Color,
+    innerCardBorderColor: Color,
+    innerCardShape: RoundedCornerShape,
+    innerSubCardShape: RoundedCornerShape,
+    launcherFont: FontFamily,
+    onChangeWallpaperPreset: (String) -> Unit,
+    onChangeWallpaperDim: (Int) -> Unit,
+    onChangeWpSpeed: (Float) -> Unit,
+    onChangeWpDensity: (Float) -> Unit,
+    onChangeWpOpacity: (Float) -> Unit,
+    onChangeWpScale: (Float) -> Unit,
+    onPickCustomWallpaperImage: () -> Unit,
+    onOpenSystemWallpaperPicker: () -> Unit,
+    onChangeAccent: (String) -> Unit
+): List<@Composable () -> Unit> {
     val liveWallpaperOptions = listOf(
         Triple("live_crt_scanlines", "OLD SCHOOL SCANLINES", "Faint Scanlines & Refresh Beam"),
         Triple("live_starfield_3d", "3D STARFIELD", "1,200-Star 3D Night Sky"),
@@ -9742,421 +10309,85 @@ fun LauncherSettingsView(
         Triple("static_micro_plus", "SWISS CROSSES", "Full-Screen + Matrix")
     )
 
-    val normBg = (settingsBgIntensity.coerceIn(15, 100) / 100f)
-    val rootBgColor = when (settingsBgMode) {
-        "transparent" -> Color.Black.copy(alpha = (normBg * 0.88f).coerceIn(0.12f, 0.90f))
-        "blurry" -> Color(0xFF060606).copy(alpha = 0.54f)
-        else -> Color.Black.copy(alpha = (0.75f + normBg * 0.25f).coerceIn(0.78f, 1.0f))
-    }
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(rootBgColor)
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        contentPadding = PaddingValues(bottom = 32.dp)
-    ) {
-        // Header: "Nocturnaa Settings" + Outlined "DONE" pill (Image 2)
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = if (retro80sMode) "Nocturna Configuration" else "Nocturnaa Settings",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontFamily = launcherFont,
-                    fontWeight = FontWeight.Bold
-                )
-                OutlinedDonePillButton(
-                    lomoFontFamily = launcherFont,
-                    onClick = onBack
-                )
-            }
-        }
-
-        // SECTION 01: System & Home Integration
-        item {
-            CollapsibleSettingsSection(
-                indexTag = "01",
-                title = "System & Home Integration",
-                expanded = openSectionIndex == 1,
+    return listOf(
+        {
+            NocturnaaSettingSlider(
+                title = "Wallpaper dimmer",
+                description = "Darkens your wallpaper so text stays readable. 0% is the original wallpaper, 90% is almost black.",
+                value = wallpaperDimPercent.toFloat(),
+                valueRange = 0f..90f,
+                step = 1f,
+                unit = "%",
+                defaultValue = 0f,
+                hapticStep = 10f,
                 accentColor = accentColor,
+                innerCardBorderColor = innerCardBorderColor,
+                innerCardShape = innerCardShape,
                 lomoFontFamily = launcherFont,
-                onToggle = { openSectionIndex = if (openSectionIndex == 1) null else 1 }
-            ) {
-                SettingCard(
-                    title = "Default Home Launcher",
-                    actionLabel = "CHOOSE HOME",
-                    lomoFontFamily = launcherFont,
-                    onClick = onRequestDefaultHomeRole
-                )
-
-                SettingsHairlineDivider()
-
-                NocturnaaToggleRow(
-                    title = "Old School Mode",
-                    checked = retro80sMode,
-                    accentColor = accentColor,
-                    lomoFontFamily = launcherFont,
-                    onCheckedChange = { if (retro80sMode != it) onToggleRetro80sMode() }
-                )
-
-                SettingsHairlineDivider()
-
-                Column(
+                presetChips = listOf(0f to "0", 20f to "20", 40f to "40", 60f to "60", 75f to "75", 90f to "90"),
+                embedInCard = false,
+                onValueChange = { nextVal ->
+                    val nextDim = nextVal.roundToInt().coerceIn(0, 90)
+                    if (nextDim != wallpaperDimPercent) {
+                        onChangeWallpaperDim(nextDim)
+                    }
+                }
+            ) { previewDim ->
+                val dimAlpha = (previewDim / 100f).coerceIn(0f, 0.90f)
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        .height(128.dp)
+                        .clip(innerCardShape)
+                        .border(1.dp, Color(0x24FFFFFF), innerCardShape)
                 ) {
-                    Text(
-                        text = "Old School color theme",
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontFamily = launcherFont
-                    )
-                    NocturnaaSegmentedControl(
-                        options = listOf(
-                            "green" to "Green phosphor",
-                            "amber" to "Amber orange"
-                        ),
-                        selectedId = retro80sColorTheme,
+                    WallpaperSampleBackdrop(
+                        blurFraction = 0f,
                         accentColor = accentColor,
-                        lomoFontFamily = launcherFont,
-                        onSelect = onChangeRetro80sColorTheme
+                        modifier = Modifier.fillMaxSize()
                     )
-                }
-
-                SettingsHairlineDivider()
-
-                NocturnaaToggleRow(
-                    title = "Additional Left Home Page",
-                    checked = enableLeftPage,
-                    accentColor = accentColor,
-                    lomoFontFamily = launcherFont,
-                    onCheckedChange = { if (enableLeftPage != it) onToggleLeftPage() }
-                )
-
-                SettingsHairlineDivider()
-
-                NocturnaaToggleRow(
-                    title = "Hide Android Status Bar",
-                    checked = hideAndroidBar,
-                    accentColor = accentColor,
-                    lomoFontFamily = launcherFont,
-                    onCheckedChange = { if (hideAndroidBar != it) onToggleAndroidBar() }
-                )
-
-                SettingsHairlineDivider()
-
-                NocturnaaToggleRow(
-                    title = "Pause Wallpapers & Widgets in Apps",
-                    checked = pauseWhenAppOpen,
-                    accentColor = accentColor,
-                    lomoFontFamily = launcherFont,
-                    onCheckedChange = { if (pauseWhenAppOpen != it) onTogglePauseWhenAppOpen() }
-                )
-
-                SettingsHairlineDivider()
-
-                SettingsBackdropControlCard(
-                    isDrawerPreview = false,
-                    settingsBgMode = settingsBgMode,
-                    settingsBgIntensity = settingsBgIntensity,
-                    accentColor = accentColor,
-                    innerCardBorderColor = innerCardBorderColor,
-                    innerCardShape = innerCardShape,
-                    lomoFontFamily = launcherFont,
-                    onChangeMode = onChangeSettingsBgMode,
-                    onChangeIntensity = onChangeSettingsBgIntensity
-                )
-            }
-            SettingsHairlineDivider()
-        }
-
-        // SECTION 02: Typography & Layout
-        item {
-            val activePrebuiltFont = PrebuiltFont.fromId(fontId)
-            val activeFontName = activePrebuiltFont.displayName.substringBefore(" (")
-            val activeHomeFontFamily = activePrebuiltFont.resolveFontFamily(lomoFontFamily)
-            CollapsibleSettingsSection(
-                indexTag = "02",
-                title = "Typography & Layout",
-                expanded = openSectionIndex == 2,
-                accentColor = accentColor,
-                lomoFontFamily = launcherFont,
-                onToggle = { openSectionIndex = if (openSectionIndex == 2) null else 2 }
-            ) {
-                CollapsibleSubSection(
-                    title = "Launcher Font",
-                    subtitle = activeFontName,
-                    expanded = expandedFontMenu,
-                    accentColor = accentColor,
-                    lomoFontFamily = launcherFont,
-                    onToggle = { expandedFontMenu = !expandedFontMenu }
-                ) {
-                    PrebuiltFont.values().forEachIndexed { fIdx, f ->
-                        val selected = fontId == f.id
-                        if (fIdx > 0) {
-                            SettingsHairlineDivider()
-                        }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 48.dp)
-                                .clickable { onChangeFont(f.id) }
-                                .padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = f.displayName.substringBefore(" ("),
-                                color = if (selected) accentColor else Color.White,
-                                fontSize = 13.sp,
-                                fontFamily = f.resolveFontFamily(lomoFontFamily),
-                                modifier = Modifier.weight(1f)
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(16.dp)
-                                    .border(
-                                        width = 1.5.dp,
-                                        color = if (selected) accentColor else Color(0xFF555555),
-                                        shape = CircleShape
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (selected) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .background(accentColor, CircleShape)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                SettingsHairlineDivider()
-
-                // Home Screen App Font Size slider with tick marks & live preview
-                NocturnaaSettingSlider(
-                    title = "Home text size",
-                    description = "How big your pinned app names look on the home screen. Smaller fits more apps, bigger is easier to tap.",
-                    value = textSizeSp.toFloat(),
-                    valueRange = 16f..24f,
-                    step = 1f,
-                    unit = "sp",
-                    defaultValue = 20f,
-                    hapticStep = 1f,
-                    accentColor = accentColor,
-                    innerCardBorderColor = innerCardBorderColor,
-                    innerCardShape = innerCardShape,
-                    lomoFontFamily = launcherFont,
-                    presetChips = listOf(16f to "16", 18f to "18", 20f to "20", 22f to "22", 24f to "24"),
-                    embedInCard = false,
-                    onValueChange = { nextVal ->
-                        val targetSp = nextVal.roundToInt().coerceIn(16, 24)
-                        if (targetSp != textSizeSp) {
-                            onChangeTextSize(targetSp)
-                        }
-                    }
-                ) { previewVal ->
-                    val pSp = previewVal.roundToInt().coerceIn(16, 24)
-                    val align = when (textAlignMode) {
-                        "center" -> Alignment.CenterHorizontally
-                        "right" -> Alignment.End
-                        else -> Alignment.Start
-                    }
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, Color(0x24FFFFFF), innerCardShape)
-                            .background(Color.Black, innerCardShape)
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        horizontalAlignment = align,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf("Camera", "Messages", "Phone").forEach { appName ->
-                            Text(
-                                text = if (activePrebuiltFont.uppercaseHome) appName.uppercase(Locale.US) else appName,
-                                color = Color(0xFFF5F5F5),
-                                fontSize = pSp.sp,
-                                fontFamily = activeHomeFontFamily
-                            )
-                        }
-                    }
-                }
-
-                SettingsHairlineDivider()
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "Clock Time Format",
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontFamily = launcherFont
-                    )
-                    NocturnaaSegmentedControl(
-                        options = listOf("12h" to "12-hour", "24h" to "24-hour"),
-                        selectedId = if (use24Hour) "24h" else "12h",
-                        accentColor = accentColor,
-                        lomoFontFamily = launcherFont,
-                        onSelect = { sel ->
-                            val want24 = sel == "24h"
-                            if (use24Hour != want24) onToggle24h()
-                        }
-                    )
-                }
-
-                SettingsHairlineDivider()
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "Home Text Alignment",
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontFamily = launcherFont
-                    )
-                    NocturnaaSegmentedControl(
-                        options = listOf("left" to "Left", "center" to "Center", "right" to "Right"),
-                        selectedId = textAlignMode,
-                        accentColor = accentColor,
-                        lomoFontFamily = launcherFont,
-                        onSelect = onChangeAlign
-                    )
-                }
-
-                SettingsHairlineDivider()
-
-                NocturnaaToggleRow(
-                    title = "Custom Pinned Apps Order",
-                    checked = customPinnedOrderEnabled,
-                    accentColor = accentColor,
-                    lomoFontFamily = launcherFont,
-                    onCheckedChange = { if (customPinnedOrderEnabled != it) onToggleCustomPinnedOrder() }
-                )
-            }
-            SettingsHairlineDivider()
-        }
-
-        // SECTION 03: Wallpapers and Settings
-        item {
-            CollapsibleSettingsSection(
-                indexTag = "03",
-                title = "Wallpapers and Settings",
-                expanded = openSectionIndex == 3,
-                accentColor = accentColor,
-                lomoFontFamily = launcherFont,
-                onToggle = { openSectionIndex = if (openSectionIndex == 3) null else 3 }
-            ) {
-                // Wallpaper dimmer slider with tick marks (0, 20, 40, 60, 75, 90) matching Image 2
-                NocturnaaSettingSlider(
-                    title = "Wallpaper dimmer",
-                    description = "Darkens your wallpaper so text stays readable. 0% is the original wallpaper, 90% is almost black.",
-                    value = wallpaperDimPercent.toFloat(),
-                    valueRange = 0f..90f,
-                    step = 1f,
-                    unit = "%",
-                    defaultValue = 0f,
-                    hapticStep = 10f,
-                    accentColor = accentColor,
-                    innerCardBorderColor = innerCardBorderColor,
-                    innerCardShape = innerCardShape,
-                    lomoFontFamily = launcherFont,
-                    presetChips = listOf(0f to "0", 20f to "20", 40f to "40", 60f to "60", 75f to "75", 90f to "90"),
-                    embedInCard = false,
-                    onValueChange = { nextVal ->
-                        val nextDim = nextVal.roundToInt().coerceIn(0, 90)
-                        if (nextDim != wallpaperDimPercent) {
-                            onChangeWallpaperDim(nextDim)
-                        }
-                    }
-                ) { previewDim ->
-                    val dimAlpha = (previewDim / 100f).coerceIn(0f, 0.90f)
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(128.dp)
-                            .clip(innerCardShape)
-                            .border(1.dp, Color(0x24FFFFFF), innerCardShape)
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = dimAlpha }
+                            .background(Color.Black)
+                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
                     ) {
-                        WallpaperSampleBackdrop(
-                            blurFraction = 0f,
-                            accentColor = accentColor,
-                            modifier = Modifier.fillMaxSize()
+                        Text(
+                            text = "12:30",
+                            color = Color.White,
+                            fontSize = 24.sp,
+                            fontFamily = launcherFont,
+                            fontWeight = FontWeight.Bold
                         )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer { alpha = dimAlpha }
-                                .background(Color.Black)
-                        )
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalArrangement = Arrangement.SpaceBetween
-                        ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
-                                text = "12:30",
-                                color = Color.White,
-                                fontSize = 24.sp,
-                                fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold
+                                text = "Camera",
+                                color = Color(0xFFF5F5F5),
+                                fontSize = 14.sp,
+                                fontFamily = launcherFont
                             )
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(
-                                    text = "Camera",
-                                    color = Color(0xFFF5F5F5),
-                                    fontSize = 14.sp,
-                                    fontFamily = launcherFont
-                                )
-                                Text(
-                                    text = "Messages",
-                                    color = Color(0xFFF5F5F5),
-                                    fontSize = 14.sp,
-                                    fontFamily = launcherFont
-                                )
-                            }
+                            Text(
+                                text = "Messages",
+                                color = Color(0xFFF5F5F5),
+                                fontSize = 14.sp,
+                                fontFamily = launcherFont
+                            )
                         }
                     }
                 }
-
-                SettingsHairlineDivider()
-
-                // 1. Live Wallpapers
-                CollapsibleSubSection(
-                    title = "Live Wallpapers",
-                    expanded = openWallpaperSubSection == "live",
-                    accentColor = accentColor,
-                    lomoFontFamily = launcherFont,
-                    onToggle = { openWallpaperSubSection = if (openWallpaperSubSection == "live") null else "live" }
-                ) {
-                    liveWallpaperOptions.forEachIndexed { idx, (id, title, desc) ->
+            }
+        },
+        {
+            val liveItems = buildList<@Composable () -> Unit> {
+                liveWallpaperOptions.forEach { (id, title, desc) ->
+                    add {
                         val active = wallpaperPreset == id
-                        if (idx > 0) {
-                            SettingsHairlineDivider()
-                        }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -10201,9 +10432,8 @@ fun LauncherSettingsView(
                             }
                         }
                     }
-
-                    SettingsHairlineDivider()
-
+                }
+                add {
                     NocturnaaSettingSlider(
                         title = "Motion speed",
                         description = "How fast live wallpaper stars and particles move across your screen.",
@@ -10230,9 +10460,8 @@ fun LauncherSettingsView(
                             shape = innerSubCardShape
                         )
                     }
-
-                    SettingsHairlineDivider()
-
+                }
+                add {
                     NocturnaaSettingSlider(
                         title = "Particle density",
                         description = "How many stars, dots, or lines are drawn in your live wallpaper.",
@@ -10259,9 +10488,8 @@ fun LauncherSettingsView(
                             shape = innerSubCardShape
                         )
                     }
-
-                    SettingsHairlineDivider()
-
+                }
+                add {
                     NocturnaaSettingSlider(
                         title = "Wallpaper brightness",
                         description = "How bright and vivid the live wallpaper elements look against the black background.",
@@ -10288,9 +10516,8 @@ fun LauncherSettingsView(
                             shape = innerSubCardShape
                         )
                     }
-
-                    SettingsHairlineDivider()
-
+                }
+                add {
                     NocturnaaSettingSlider(
                         title = "Pattern scale",
                         description = "How zoomed-in the live wallpaper pattern and orbits appear.",
@@ -10318,87 +10545,86 @@ fun LauncherSettingsView(
                         )
                     }
                 }
-
-                SettingsHairlineDivider()
-
-                // 2. Static Wallpapers
-                CollapsibleSubSection(
-                    title = "Static Wallpapers",
-                    expanded = openWallpaperSubSection == "static",
-                    accentColor = accentColor,
-                    lomoFontFamily = launcherFont,
-                    onToggle = { openWallpaperSubSection = if (openWallpaperSubSection == "static") null else "static" }
-                ) {
-                    staticWallpaperOptions.forEachIndexed { idx, (id, title, desc) ->
-                        val active = wallpaperPreset == id
-                        if (idx > 0) {
-                            SettingsHairlineDivider()
+            }
+            CollapsibleSubSection(
+                title = "Live Wallpapers",
+                expanded = openWallpaperSubSection == "live",
+                accentColor = accentColor,
+                lomoFontFamily = launcherFont,
+                onToggle = { onToggleWallpaperSubSection("live") },
+                items = liveItems
+            )
+        },
+        {
+            val staticItems = staticWallpaperOptions.map { (id, title, desc) ->
+                @Composable {
+                    val active = wallpaperPreset == id
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .clickable { onChangeWallpaperPreset(id) }
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                            Text(
+                                text = title,
+                                color = if (active) accentColor else Color.White,
+                                fontSize = 12.sp,
+                                fontFamily = launcherFont,
+                                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
+                            )
+                            Text(
+                                text = desc,
+                                color = Color.White.copy(alpha = 0.60f),
+                                fontSize = 10.sp,
+                                fontFamily = LocalLauncherFont.current
+                            )
                         }
-                        Row(
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 48.dp)
-                                .clickable { onChangeWallpaperPreset(id) }
-                                .padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .size(16.dp)
+                                .border(
+                                    width = 1.5.dp,
+                                    color = if (active) accentColor else Color(0xFF555555),
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
-                                Text(
-                                    text = title,
-                                    color = if (active) accentColor else Color.White,
-                                    fontSize = 12.sp,
-                                    fontFamily = launcherFont,
-                                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
+                            if (active) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(accentColor, CircleShape)
                                 )
-                                Text(
-                                    text = desc,
-                                    color = Color.White.copy(alpha = 0.60f),
-                                    fontSize = 10.sp,
-                                    fontFamily = LocalLauncherFont.current
-                                )
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .size(16.dp)
-                                    .border(
-                                        width = 1.5.dp,
-                                        color = if (active) accentColor else Color(0xFF555555),
-                                        shape = CircleShape
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (active) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .background(accentColor, CircleShape)
-                                    )
-                                }
                             }
                         }
                     }
                 }
-
-                SettingsHairlineDivider()
-
-                // 3. User Wallpapers
-                CollapsibleSubSection(
-                    title = "User Wallpapers",
-                    expanded = openWallpaperSubSection == "user",
-                    accentColor = accentColor,
-                    lomoFontFamily = launcherFont,
-                    onToggle = { openWallpaperSubSection = if (openWallpaperSubSection == "user") null else "user" }
-                ) {
+            }
+            CollapsibleSubSection(
+                title = "Static Wallpapers",
+                expanded = openWallpaperSubSection == "static",
+                accentColor = accentColor,
+                lomoFontFamily = launcherFont,
+                onToggle = { onToggleWallpaperSubSection("static") },
+                items = staticItems
+            )
+        },
+        {
+            val userItems = buildList<@Composable () -> Unit> {
+                add {
                     SettingCard(
                         title = "Import Photo from Gallery",
                         actionLabel = if (wallpaperPreset == "user_image") "CHANGE" else "PICK",
                         lomoFontFamily = launcherFont,
                         onClick = onPickCustomWallpaperImage
                     )
-
-                    if (hasCustomUserImage) {
-                        SettingsHairlineDivider()
+                }
+                if (hasCustomUserImage) {
+                    add {
                         NocturnaaToggleRow(
                             title = "Use Saved Custom Photo",
                             checked = wallpaperPreset == "user_image",
@@ -10410,18 +10636,16 @@ fun LauncherSettingsView(
                             }
                         )
                     }
-
-                    SettingsHairlineDivider()
-
+                }
+                add {
                     SettingCard(
                         title = "System Wallpaper Picker",
                         actionLabel = "OPEN",
                         lomoFontFamily = launcherFont,
                         onClick = onOpenSystemWallpaperPicker
                     )
-
-                    SettingsHairlineDivider()
-
+                }
+                add {
                     NocturnaaToggleRow(
                         title = "Use System Wallpaper",
                         checked = wallpaperPreset == "system_wallpaper",
@@ -10433,214 +10657,223 @@ fun LauncherSettingsView(
                         }
                     )
                 }
+            }
+            CollapsibleSubSection(
+                title = "User Wallpapers",
+                expanded = openWallpaperSubSection == "user",
+                accentColor = accentColor,
+                lomoFontFamily = launcherFont,
+                onToggle = { onToggleWallpaperSubSection("user") },
+                items = userItems
+            )
+        },
+        {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Accent color",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontFamily = launcherFont
+                    )
+                    Text(
+                        text = accentHex,
+                        color = accentColor,
+                        fontSize = 12.sp,
+                        fontFamily = launcherFont,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
 
-                SettingsHairlineDivider()
+                LAUNCHER_ACCENT_PALETTE.chunked(5).forEach { paletteRow ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        paletteRow.forEach { (hex, label) ->
+                            val isSel = accentHex.equals(hex, ignoreCase = true)
+                            val swatchCol = resolveLauncherAccentColor(hex)
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) { onChangeAccent(hex) }
+                                    .padding(vertical = 4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier.size(34.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isSel) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(34.dp)
+                                                .border(1.5.dp, Color.White, CircleShape)
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .background(swatchCol, CircleShape)
+                                    )
+                                }
+                                Text(
+                                    text = label,
+                                    color = if (isSel) Color.White else Color(0xFF8A8A8A),
+                                    fontSize = 10.sp,
+                                    fontFamily = launcherFont,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+}
 
-                // 4. Accent color section (matching Image 2: two rows of five round colour dots with thin white ring on selected)
+private fun buildAppDrawerSettingsSectionItems(
+    fontId: String,
+    drawerTextSizeSp: Int,
+    drawerWaveIntensity: Float,
+    drawerBgMode: String,
+    drawerBgIntensity: Int,
+    retro80sMode: Boolean,
+    accentColor: Color,
+    innerCardBorderColor: Color,
+    innerCardShape: RoundedCornerShape,
+    lomoFontFamily: FontFamily,
+    launcherFont: FontFamily,
+    onChangeDrawerTextSize: (Int) -> Unit,
+    onChangeDrawerWaveIntensity: (Float) -> Unit,
+    onChangeDrawerBgMode: (String) -> Unit,
+    onChangeDrawerBgIntensity: (Int) -> Unit
+): List<@Composable () -> Unit> {
+    val activePrebuiltFont = PrebuiltFont.fromId(fontId)
+    val realSelectedFont = activePrebuiltFont.resolveFontFamily(lomoFontFamily)
+    return listOf(
+        {
+            NocturnaaSettingSlider(
+                title = "Text size",
+                description = "How big the app names look in the app drawer. Bigger is easier to read, smaller fits more apps on the screen.",
+                value = drawerTextSizeSp.coerceIn(12, 24).toFloat(),
+                valueRange = 12f..24f,
+                step = 1f,
+                unit = "sp",
+                defaultValue = 16f,
+                hapticStep = 1f,
+                accentColor = accentColor,
+                innerCardBorderColor = innerCardBorderColor,
+                innerCardShape = innerCardShape,
+                lomoFontFamily = launcherFont,
+                presetChips = listOf(12f to "12", 14f to "14", 16f to "16", 18f to "18", 20f to "20", 22f to "22", 24f to "24"),
+                embedInCard = false,
+                onValueChange = { nextVal ->
+                    val nextSp = nextVal.roundToInt().coerceIn(12, 24)
+                    if (nextSp != drawerTextSizeSp) {
+                        onChangeDrawerTextSize(nextSp)
+                    }
+                }
+            ) { previewVal ->
+                val pSp = previewVal.roundToInt().coerceIn(12, 24)
+                val headerSp = (pSp * 1.15f).coerceIn(18f, 24f).sp
+                val starSp = (pSp * 0.65f).coerceIn(10f, 14f).sp
+                val rowHeightDp = (34f + (pSp - 12f) * 1.8f).coerceIn(34f, 56f).dp
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                        .border(1.dp, Color(0x24FFFFFF), innerCardShape)
+                        .background(Color.Black, innerCardShape)
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Accent color",
+                            text = "M",
                             color = Color.White,
-                            fontSize = 13.sp,
-                            fontFamily = launcherFont
-                        )
-                        Text(
-                            text = accentHex,
-                            color = accentColor,
-                            fontSize = 12.sp,
+                            fontSize = headerSp,
                             fontFamily = launcherFont,
                             fontWeight = FontWeight.Bold
                         )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(1.dp)
+                                .background(Color(0x24FFFFFF))
+                        )
                     }
-
-                    LAUNCHER_ACCENT_PALETTE.chunked(5).forEach { paletteRow ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            paletteRow.forEach { (hex, label) ->
-                                val isSel = accentHex.equals(hex, ignoreCase = true)
-                                val swatchCol = resolveLauncherAccentColor(hex)
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = null
-                                        ) { onChangeAccent(hex) }
-                                        .padding(vertical = 4.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier.size(34.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (isSel) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(34.dp)
-                                                    .border(1.5.dp, Color.White, CircleShape)
-                                            )
-                                        }
-                                        Box(
-                                            modifier = Modifier
-                                                .size(24.dp)
-                                                .background(swatchCol, CircleShape)
-                                        )
-                                    }
-                                    Text(
-                                        text = label,
-                                        color = if (isSel) Color.White else Color(0xFF8A8A8A),
-                                        fontSize = 10.sp,
-                                        fontFamily = launcherFont,
-                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            SettingsHairlineDivider()
-        }
-
-        // SECTION 04: App Drawer Settings
-        item {
-            val activePrebuiltFont = PrebuiltFont.fromId(fontId)
-            val realSelectedFont = activePrebuiltFont.resolveFontFamily(lomoFontFamily)
-            CollapsibleSettingsSection(
-                indexTag = "04",
-                title = "App Drawer Settings",
-                expanded = openSectionIndex == 4,
-                accentColor = accentColor,
-                lomoFontFamily = launcherFont,
-                onToggle = { openSectionIndex = if (openSectionIndex == 4) null else 4 }
-            ) {
-                // 1. App Drawer Text Size ("Text size")
-                NocturnaaSettingSlider(
-                    title = "Text size",
-                    description = "How big the app names look in the app drawer. Bigger is easier to read, smaller fits more apps on the screen.",
-                    value = drawerTextSizeSp.coerceIn(12, 24).toFloat(),
-                    valueRange = 12f..24f,
-                    step = 1f,
-                    unit = "sp",
-                    defaultValue = 16f,
-                    hapticStep = 1f,
-                    accentColor = accentColor,
-                    innerCardBorderColor = innerCardBorderColor,
-                    innerCardShape = innerCardShape,
-                    lomoFontFamily = launcherFont,
-                    presetChips = listOf(12f to "12", 14f to "14", 16f to "16", 18f to "18", 20f to "20", 22f to "22", 24f to "24"),
-                    embedInCard = false,
-                    onValueChange = { nextVal ->
-                        val nextSp = nextVal.roundToInt().coerceIn(12, 24)
-                        if (nextSp != drawerTextSizeSp) {
-                            onChangeDrawerTextSize(nextSp)
-                        }
-                    }
-                ) { previewVal ->
-                    val pSp = previewVal.roundToInt().coerceIn(12, 24)
-                    val headerSp = (pSp * 1.15f).coerceIn(18f, 24f).sp
-                    val starSp = (pSp * 0.65f).coerceIn(10f, 14f).sp
-                    val rowHeightDp = (34f + (pSp - 12f) * 1.8f).coerceIn(34f, 56f).dp
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, Color(0x24FFFFFF), innerCardShape)
-                            .background(Color.Black, innerCardShape)
-                            .padding(horizontal = 14.dp, vertical = 10.dp)
-                    ) {
+                    listOf("Maps" to false, "Messages" to true, "Phone" to true).forEach { (name, fav) ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 4.dp),
+                                .height(rowHeightDp)
+                                .padding(start = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "M",
-                                color = Color.White,
-                                fontSize = headerSp,
-                                fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold
+                                text = if (activePrebuiltFont.uppercaseHome) name.uppercase(Locale.US) else name,
+                                color = Color(0xFFEDEDED),
+                                fontSize = pSp.sp,
+                                fontFamily = realSelectedFont
                             )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(1.dp)
-                                    .background(Color(0x24FFFFFF))
-                            )
-                        }
-                        listOf("Maps" to false, "Messages" to true, "Phone" to true).forEach { (name, fav) ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(rowHeightDp)
-                                    .padding(start = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                            if (fav) {
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = if (activePrebuiltFont.uppercaseHome) name.uppercase(Locale.US) else name,
-                                    color = Color(0xFFEDEDED),
-                                    fontSize = pSp.sp,
-                                    fontFamily = realSelectedFont
+                                    text = "★",
+                                    color = accentColor,
+                                    fontSize = starSp,
+                                    fontFamily = launcherFont
                                 )
-                                if (fav) {
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "★",
-                                        color = accentColor,
-                                        fontSize = starSp,
-                                        fontFamily = launcherFont
-                                    )
-                                }
                             }
                         }
                     }
                 }
-
-                SettingsHairlineDivider()
-
-                // 2. Letter Stretch ("Letter stretch")
-                LetterStretchSettingCard(
-                    letterStretch = drawerWaveIntensity,
-                    retro80sMode = retro80sMode,
-                    accentColor = accentColor,
-                    innerCardBorderColor = innerCardBorderColor,
-                    innerCardShape = innerCardShape,
-                    lomoFontFamily = launcherFont,
-                    onChangeLetterStretch = onChangeDrawerWaveIntensity
-                )
-
-                SettingsHairlineDivider()
-
-                // 3. App Drawer Background ("Background style" + "Style strength")
-                SettingsBackdropControlCard(
-                    isDrawerPreview = true,
-                    settingsBgMode = drawerBgMode,
-                    settingsBgIntensity = drawerBgIntensity,
-                    accentColor = accentColor,
-                    innerCardBorderColor = innerCardBorderColor,
-                    innerCardShape = innerCardShape,
-                    lomoFontFamily = launcherFont,
-                    onChangeMode = onChangeDrawerBgMode,
-                    onChangeIntensity = onChangeDrawerBgIntensity
-                )
             }
-            SettingsHairlineDivider()
+        },
+        {
+            LetterStretchSettingCard(
+                letterStretch = drawerWaveIntensity,
+                retro80sMode = retro80sMode,
+                accentColor = accentColor,
+                innerCardBorderColor = innerCardBorderColor,
+                innerCardShape = innerCardShape,
+                lomoFontFamily = launcherFont,
+                onChangeLetterStretch = onChangeDrawerWaveIntensity
+            )
+        },
+        {
+            SettingsBackdropControlCard(
+                isDrawerPreview = true,
+                settingsBgMode = drawerBgMode,
+                settingsBgIntensity = drawerBgIntensity,
+                accentColor = accentColor,
+                innerCardBorderColor = innerCardBorderColor,
+                innerCardShape = innerCardShape,
+                lomoFontFamily = launcherFont,
+                onChangeMode = onChangeDrawerBgMode,
+                onChangeIntensity = onChangeDrawerBgIntensity
+            )
         }
-    }
+    )
 }
 
 // ============================================================================
@@ -11500,6 +11733,226 @@ fun SettingsBackdropControlCard(
     }
 }
 
+// ============================================================================
+// ONE REUSABLE COLLAPSIBLE SECTION COMPONENT (Used for 01-04 & All Subsections)
+// ============================================================================
+@Composable
+fun NocturnaaCollapsibleSection(
+    indexTag: String? = null,
+    title: String,
+    subtitle: String = "",
+    expanded: Boolean,
+    accentColor: Color,
+    lomoFontFamily: FontFamily,
+    minHeaderHeight: androidx.compose.ui.unit.Dp = 64.dp,
+    headerHorizontalPadding: androidx.compose.ui.unit.Dp = 16.dp,
+    contentHorizontalPadding: androidx.compose.ui.unit.Dp = 16.dp,
+    expandedBgColor: Color = Color(0xFF0C0C0C),
+    onHeaderHeightMeasured: ((Int) -> Unit)? = null,
+    onToggle: () -> Unit,
+    items: List<@Composable () -> Unit>
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val eightDpPx = with(density) { 8.dp.toPx() }
+
+    val heightProgressAnim = remember { Animatable(if (expanded) 1f else 0f) }
+    val openClockMsAnim = remember { Animatable(if (expanded) 640f else 0f) }
+    val closeFadeAlphaAnim = remember { Animatable(if (expanded) 1f else 0f) }
+    var isClosingPhase by remember { mutableStateOf(!expanded) }
+
+    LaunchedEffect(expanded) {
+        val animScale = try {
+            Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        } catch (_: Exception) {
+            1f
+        }
+        if (animScale <= 0f) {
+            isClosingPhase = !expanded
+            heightProgressAnim.snapTo(if (expanded) 1f else 0f)
+            openClockMsAnim.snapTo(if (expanded) 640f else 0f)
+            closeFadeAlphaAnim.snapTo(if (expanded) 1f else 0f)
+        } else if (expanded) {
+            isClosingPhase = false
+            closeFadeAlphaAnim.snapTo(1f)
+            openClockMsAnim.snapTo(0f)
+            launch {
+                heightProgressAnim.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 520, easing = NocturnaaOpenSectionEasing)
+                )
+            }
+            launch {
+                openClockMsAnim.animateTo(
+                    targetValue = 640f,
+                    animationSpec = tween(durationMillis = 640, easing = LinearEasing)
+                )
+            }
+        } else {
+            isClosingPhase = true
+            closeFadeAlphaAnim.snapTo(1f)
+            launch {
+                // Content fades out FIRST (150ms, no stagger) while height collapses underneath it
+                closeFadeAlphaAnim.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 150, easing = NocturnaaCloseSectionEasing)
+                )
+            }
+            launch {
+                // Closing height animates for 400ms with cubic-bezier(0.4, 0, 0.2, 1)
+                heightProgressAnim.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 400, easing = NocturnaaCloseSectionEasing)
+                )
+            }
+        }
+    }
+
+    val hProg = heightProgressAnim.value.coerceIn(0f, 1f)
+    val chevronColor = androidx.compose.ui.graphics.lerp(Color(0xFF737373), accentColor, hProg)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .drawBehind {
+                if (hProg > 0.001f) {
+                    // Open section's slightly lighter surface (#0C0C0C) fades in and out in sync with the height
+                    drawRect(
+                        color = expandedBgColor.copy(alpha = hProg),
+                        topLeft = Offset.Zero,
+                        size = size
+                    )
+                    // Left 2dp accent bar grows downward from the top (scaleY 0 -> 1) on open and retracts upward to the top on close
+                    drawRect(
+                        color = accentColor,
+                        topLeft = Offset.Zero,
+                        size = Size(2.dp.toPx(), size.height * hProg)
+                    )
+                }
+            }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = minHeaderHeight)
+                .onSizeChanged { onHeaderHeightMeasured?.invoke(it.height) }
+                .clickable { onToggle() }
+                .padding(horizontal = headerHorizontalPadding, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (indexTag != null) {
+                Row(
+                    modifier = Modifier.weight(1f).padding(end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = indexTag,
+                        color = Color(0xFF7A7A7A),
+                        fontSize = 13.sp,
+                        fontFamily = lomoFontFamily,
+                        modifier = Modifier.widthIn(min = 24.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = title,
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontFamily = lomoFontFamily
+                        )
+                        if (subtitle.isNotEmpty()) {
+                            Text(
+                                text = subtitle,
+                                color = Color.White.copy(alpha = 0.60f),
+                                fontSize = 11.sp,
+                                fontFamily = LocalLauncherFont.current
+                            )
+                        }
+                    }
+                }
+            } else {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        text = title,
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontFamily = lomoFontFamily
+                    )
+                    if (subtitle.isNotEmpty()) {
+                        Text(
+                            text = subtitle,
+                            color = Color.White.copy(alpha = 0.60f),
+                            fontSize = 11.sp,
+                            fontFamily = LocalLauncherFont.current
+                        )
+                    }
+                }
+            }
+
+            // Chevron rotates from pointing right (0°) to pointing down (90°) over the same duration & curve as the height
+            Text(
+                text = "›",
+                color = chevronColor,
+                fontSize = 18.sp,
+                fontFamily = lomoFontFamily,
+                modifier = Modifier.graphicsLayer {
+                    rotationZ = 90f * hProg
+                }
+            )
+        }
+
+        // Render section content at its final size and reveal with an animated height clip (zero reflow during animation)
+        if (expanded || hProg > 0.0005f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clipToBounds()
+                    .layout { measurable, constraints ->
+                        val placeable = measurable.measure(constraints)
+                        val clippedHeight = (placeable.height * hProg).roundToInt()
+                        layout(placeable.width, clippedHeight) {
+                            placeable.placeRelative(0, 0)
+                        }
+                    }
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = contentHorizontalPadding,
+                            end = contentHorizontalPadding,
+                            bottom = 12.dp
+                        )
+                ) {
+                    items.forEachIndexed { itemIdx, itemComposable ->
+                        val staggerMs = (itemIdx * 40).coerceAtMost(240).toFloat()
+                        val startMs = 120f + staggerMs
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer {
+                                    if (isClosingPhase) {
+                                        alpha = closeFadeAlphaAnim.value.coerceIn(0f, 1f)
+                                        translationY = 0f
+                                    } else {
+                                        val rawLinear = ((openClockMsAnim.value - startMs) / 260f).coerceIn(0f, 1f)
+                                        val itemProg = NocturnaaOpenSectionEasing.transform(rawLinear).coerceIn(0f, 1f)
+                                        alpha = itemProg
+                                        translationY = (1f - itemProg) * eightDpPx
+                                    }
+                                }
+                        ) {
+                            SettingsHairlineDivider()
+                            itemComposable()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun CollapsibleSubSection(
     title: String,
@@ -11509,84 +11962,30 @@ fun CollapsibleSubSection(
     accentColor: Color,
     lomoFontFamily: FontFamily,
     onToggle: () -> Unit,
-    content: @Composable ColumnScope.() -> Unit
+    items: List<@Composable () -> Unit> = emptyList(),
+    content: (@Composable ColumnScope.() -> Unit)? = null
 ) {
-    val subArrowRot by animateFloatAsState(
-        targetValue = if (expanded) 90f else 0f,
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = 450f),
-        label = "subArrowRot"
-    )
-    val subArrowColor by animateColorAsState(
-        targetValue = if (expanded) accentColor else Color(0xFF737373),
-        animationSpec = tween(durationMillis = 200),
-        label = "subArrowColor"
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .drawBehind {
-                if (expanded) {
-                    drawRect(
-                        color = accentColor,
-                        topLeft = Offset.Zero,
-                        size = Size(2.dp.toPx(), size.height)
-                    )
-                }
-            }
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 52.dp)
-                .clickable { onToggle() }
-                .padding(start = if (expanded) 10.dp else 0.dp, top = 10.dp, bottom = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Text(
-                    text = title,
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontFamily = lomoFontFamily
-                )
-                if (subtitle.isNotEmpty()) {
-                    Text(
-                        text = subtitle,
-                        color = Color.White.copy(alpha = 0.60f),
-                        fontSize = 11.sp,
-                        fontFamily = LocalLauncherFont.current
-                    )
-                }
-            }
-            Text(
-                text = "›",
-                color = subArrowColor,
-                fontSize = 18.sp,
-                fontFamily = lomoFontFamily,
-                modifier = Modifier.graphicsLayer {
-                    rotationZ = subArrowRot
-                }
-            )
-        }
-
-        AnimatedVisibility(
-            visible = expanded,
-            enter = expandVertically(animationSpec = spring(dampingRatio = 0.82f, stiffness = 420f)) + fadeIn(tween(150)),
-            exit = shrinkVertically(animationSpec = spring(dampingRatio = 0.85f, stiffness = 460f)) + fadeOut(tween(150))
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF080808))
-                    .padding(start = 12.dp, end = 4.dp, bottom = 8.dp)
-            ) {
-                SettingsHairlineDivider()
-                content()
-            }
-        }
+    val resolvedItems = if (items.isNotEmpty()) {
+        items
+    } else if (content != null) {
+        listOf<@Composable () -> Unit>({ Column(modifier = Modifier.fillMaxWidth(), content = content) })
+    } else {
+        emptyList()
     }
+    NocturnaaCollapsibleSection(
+        indexTag = null,
+        title = title,
+        subtitle = subtitle,
+        expanded = expanded,
+        accentColor = accentColor,
+        lomoFontFamily = lomoFontFamily,
+        minHeaderHeight = 56.dp,
+        headerHorizontalPadding = 12.dp,
+        contentHorizontalPadding = 12.dp,
+        expandedBgColor = Color(0xFF080808),
+        onToggle = onToggle,
+        items = resolvedItems
+    )
 }
 
 @Composable
@@ -11599,89 +11998,30 @@ fun CollapsibleSettingsSection(
     accentColor: Color,
     lomoFontFamily: FontFamily,
     onToggle: () -> Unit,
-    content: @Composable ColumnScope.() -> Unit
+    items: List<@Composable () -> Unit> = emptyList(),
+    content: (@Composable ColumnScope.() -> Unit)? = null
 ) {
-    val secArrowRot by animateFloatAsState(
-        targetValue = if (expanded) 90f else 0f,
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = 450f),
-        label = "secArrowRot"
-    )
-    val secArrowColor by animateColorAsState(
-        targetValue = if (expanded) accentColor else Color(0xFF737373),
-        animationSpec = tween(durationMillis = 200),
-        label = "secArrowColor"
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(if (expanded) Color(0xFF0C0C0C) else Color.Black)
-            .drawBehind {
-                if (expanded) {
-                    drawRect(
-                        color = accentColor,
-                        topLeft = Offset.Zero,
-                        size = Size(2.dp.toPx(), size.height)
-                    )
-                }
-            }
-    ) {
-        // Section header row: plain dim-grey numeral 01-04 + title + rotating chevron
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 52.dp)
-                .clickable { onToggle() }
-                .padding(start = if (expanded) 14.dp else 4.dp, end = 6.dp, top = 12.dp, bottom = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Text(
-                    text = indexTag,
-                    color = Color(0xFF7A7A7A),
-                    fontSize = 13.sp,
-                    fontFamily = lomoFontFamily,
-                    modifier = Modifier.widthIn(min = 24.dp)
-                )
-                Text(
-                    text = title,
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontFamily = lomoFontFamily,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Text(
-                text = "›",
-                color = secArrowColor,
-                fontSize = 18.sp,
-                fontFamily = lomoFontFamily,
-                modifier = Modifier.graphicsLayer {
-                    rotationZ = secArrowRot
-                }
-            )
-        }
-
-        AnimatedVisibility(
-            visible = expanded,
-            enter = expandVertically(animationSpec = spring(dampingRatio = 0.82f, stiffness = 420f)) + fadeIn(tween(150)),
-            exit = shrinkVertically(animationSpec = spring(dampingRatio = 0.85f, stiffness = 460f)) + fadeOut(tween(150))
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 12.dp, bottom = 12.dp)
-            ) {
-                SettingsHairlineDivider()
-                content()
-            }
-        }
+    val resolvedItems = if (items.isNotEmpty()) {
+        items
+    } else if (content != null) {
+        listOf<@Composable () -> Unit>({ Column(modifier = Modifier.fillMaxWidth(), content = content) })
+    } else {
+        emptyList()
     }
+    NocturnaaCollapsibleSection(
+        indexTag = indexTag,
+        title = title,
+        subtitle = subtitle,
+        expanded = expanded,
+        accentColor = accentColor,
+        lomoFontFamily = lomoFontFamily,
+        minHeaderHeight = 64.dp,
+        headerHorizontalPadding = 16.dp,
+        contentHorizontalPadding = 16.dp,
+        expandedBgColor = Color(0xFF0C0C0C),
+        onToggle = onToggle,
+        items = resolvedItems
+    )
 }
 
 @Composable
