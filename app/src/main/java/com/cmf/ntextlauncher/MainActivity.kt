@@ -2995,6 +2995,419 @@ fun NTextLauncherApp(
             }
         }
 
+        if (retro80sMode) {
+        // ====================================================================
+        // FLUID SPRING-ANIMATED LONG-TAP HOME SCREEN "ACTIONS" MENU
+        // Clean title & buttons; styled with sharp Old School borders when retro80sMode is ON
+        // ====================================================================
+        val quickMenuProgress by rememberIosPopupProgress(
+            isVisible = showHomeQuickMenu,
+            label = "iosQuickMenuSpring"
+        )
+        if (showHomeQuickMenu || quickMenuProgress > 0.002f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = (0.84f * quickMenuProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.84f)))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { showHomeQuickMenu = false }
+                    .padding(horizontal = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val modalShape = RoundedCornerShape(if (retro80sMode) 0.dp else 16.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .iosPopupWindowLayer(progress = quickMenuProgress, initialScale = 0.80f)
+                        .border(
+                            if (retro80sMode) 1.5.dp else 1.dp,
+                            if (retro80sMode) accentColor else Color(0xFF2E2E2E),
+                            modalShape
+                        )
+                        .background(if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A), modalShape)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { /* consume inside modal */ }
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Actions",
+                            color = if (retro80sMode) accentColor else Color.White,
+                            fontSize = 16.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "DONE",
+                            color = Color.Black,
+                            fontSize = 10.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .background(
+                                    if (retro80sMode) accentColor else Color.White,
+                                    RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
+                                )
+                                .clickable { showHomeQuickMenu = false }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF1F1F1F))
+                    )
+
+                    Retro80sQuickMenuButton(
+                        label = if (retro80sMode) "Widget Configuration" else "Widget Manager",
+                        badge = "",
+                        accentColor = accentColor,
+                        lomoFontFamily = selectedFont,
+                        onClick = {
+                            showHomeQuickMenu = false
+                            currentView = LauncherView.WIDGETS
+                        }
+                    )
+
+                    Retro80sQuickMenuButton(
+                        label = if (editMode) "Exit Edit Mode" else "Edit Mode",
+                        badge = "",
+                        accentColor = accentColor,
+                        lomoFontFamily = selectedFont,
+                        onClick = {
+                            showHomeQuickMenu = false
+                            editMode = !editMode
+                        }
+                    )
+
+                    Retro80sQuickMenuButton(
+                        label = if (retro80sMode) "Nocturna Configuration" else "Nocturnaa Settings",
+                        badge = "",
+                        accentColor = accentColor,
+                        lomoFontFamily = selectedFont,
+                        onClick = {
+                            showHomeQuickMenu = false
+                            currentView = LauncherView.SETTINGS
+                        }
+                    )
+
+                    Retro80sQuickMenuButton(
+                        label = "Phone Settings",
+                        badge = "",
+                        accentColor = accentColor,
+                        lomoFontFamily = selectedFont,
+                        onClick = {
+                            showHomeQuickMenu = false
+                            try {
+                                context.startActivity(Intent(Settings.ACTION_SETTINGS))
+                            } catch (_: Exception) {
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        // ====================================================================
+        // FLUID SPRING-ANIMATED LONG-PRESS APP CONTEXT MENU MODAL
+        // ====================================================================
+        var lastContextMenuTarget by remember { mutableStateOf<Pair<AppEntry, Boolean>?>(null) }
+        if (contextMenuTarget != null) {
+            lastContextMenuTarget = contextMenuTarget
+        }
+        val appMenuProgress by rememberIosPopupProgress(
+            isVisible = contextMenuTarget != null,
+            label = "iosAppMenuSpring"
+        )
+        val activeTargetPair = contextMenuTarget ?: if (appMenuProgress > 0.002f) lastContextMenuTarget else null
+        activeTargetPair?.let { (targetApp, isFromHome) ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = (0.84f * appMenuProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.84f)))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { contextMenuTarget = null }
+                    .padding(horizontal = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val appModalShape = RoundedCornerShape(if (retro80sMode) 0.dp else 16.dp)
+                val currentlyPinned = pinnedPackages.contains(targetApp.packageName)
+                val pinActionLabel = if (isFromHome || currentlyPinned) {
+                    "Remove from Pinned Apps"
+                } else {
+                    "Add to Home Screen"
+                }
+                val pinActionSymbol = if (isFromHome || currentlyPinned) "−" else "+"
+
+                val onPinToggleClick: () -> Unit = {
+                    if (isFromHome || currentlyPinned) {
+                        pinnedPackages = pinnedPackages - targetApp.packageName
+                        pinnedAppsOrder = pinnedAppsOrder.filter { it != targetApp.packageName }
+                        prefs.edit()
+                            .putStringSet("pinned_pkgs", pinnedPackages)
+                            .putString("pinned_apps_order_v1", pinnedAppsOrder.joinToString(","))
+                            .apply()
+                        contextMenuTarget = null
+                    } else {
+                        val candidateWidgetsList = if (activeWidgets.contains("pinned_apps")) activeWidgets else activeWidgets + "pinned_apps"
+                        val newPinnedCount = currentPinnedAppsCount() + 1
+                        if (candidateWidgetsList.isNotEmpty() && !canFitOnHomeScreen(candidateWidgetsList, widgetSizes, newPinnedCount, textSizeSp)) {
+                            contextMenuTarget = null
+                            triggerNoSpaceLeftPopup(
+                                "No space left on the Home Screen to pin another app with your current widgets and ${textSizeSp}SP app scale."
+                            )
+                        } else {
+                            pinnedPackages = pinnedPackages + targetApp.packageName
+                            val nextOrder = orderedPinnedApps.map { it.packageName }.filter { it != targetApp.packageName } + targetApp.packageName
+                            pinnedAppsOrder = nextOrder
+                            if (!activeWidgets.contains("pinned_apps")) {
+                                saveWidgetList(candidateWidgetsList)
+                            }
+                            prefs.edit()
+                                .putStringSet("pinned_pkgs", pinnedPackages)
+                                .putString("pinned_apps_order_v1", nextOrder.joinToString(","))
+                                .apply()
+                            contextMenuTarget = null
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .iosPopupWindowLayer(progress = appMenuProgress, initialScale = 0.80f)
+                        .border(
+                            if (retro80sMode) 1.5.dp else 1.dp,
+                            if (retro80sMode) accentColor else Color(0xFF333333),
+                            appModalShape
+                        )
+                        .background(if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A), appModalShape)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { /* consume inside modal */ }
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = targetApp.label,
+                            color = if (retro80sMode) accentColor else Color.White,
+                            fontSize = 16.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f).padding(end = 8.dp)
+                        )
+                        Text(
+                            text = "DONE",
+                            color = Color.Black,
+                            fontSize = 10.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .background(
+                                    if (retro80sMode) accentColor else Color.White,
+                                    RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
+                                )
+                                .clickable { contextMenuTarget = null }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF1F1F1F))
+                    )
+
+                    val rowShape = RoundedCornerShape(if (retro80sMode) 0.dp else 10.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, if (retro80sMode) accentColor else Color(0xFF262626), rowShape)
+                            .background(Color.Black, rowShape)
+                            .clickable { onPinToggleClick() }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = pinActionLabel,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontFamily = selectedFont
+                        )
+                        Text(
+                            text = pinActionSymbol,
+                            color = accentColor,
+                            fontSize = 15.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, if (retro80sMode) accentColor else Color(0xFF262626), rowShape)
+                            .background(Color.Black, rowShape)
+                            .clickable {
+                                val pkg = targetApp.packageName
+                                contextMenuTarget = null
+                                openAppInfo(pkg)
+                            }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "App Info",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontFamily = selectedFont
+                        )
+                        Text(
+                            text = "↗",
+                            color = accentColor,
+                            fontSize = 13.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    if (!targetApp.isSystemApp) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.dp, if (retro80sMode) accentColor else Color(0xFF451A1A), rowShape)
+                                .background(if (retro80sMode) Color.Black else Color(0xFF140707), rowShape)
+                                .clickable {
+                                    val pkg = targetApp.packageName
+                                    contextMenuTarget = null
+                                    onRequestSystemUninstall(pkg)
+                                }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Uninstall App",
+                                color = if (retro80sMode) accentColor else Color(0xFFF87171),
+                                fontSize = 13.sp,
+                                fontFamily = selectedFont
+                            )
+                            Text(
+                                text = "×",
+                                color = if (retro80sMode) accentColor else Color(0xFFF87171),
+                                fontSize = 14.sp,
+                                fontFamily = selectedFont,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
+        // "NO SPACE LEFT" BOUNDARY POPUP MODAL
+        // ====================================================================
+        val noSpaceProgress by rememberIosPopupProgress(
+            isVisible = showNoSpacePopup,
+            label = "iosNoSpaceAlertSpring"
+        )
+        if (showNoSpacePopup || noSpaceProgress > 0.002f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = (0.84f * noSpaceProgress.coerceIn(0f, 1f)).coerceIn(0f, 0.84f)))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { showNoSpacePopup = false }
+                    .padding(horizontal = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val alertShape = RoundedCornerShape(if (retro80sMode) 0.dp else 16.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .iosPopupWindowLayer(progress = noSpaceProgress, initialScale = 0.80f)
+                        .border(if (retro80sMode) 1.5.dp else 1.dp, accentColor, alertShape)
+                        .background(if (retro80sMode) Color(0xFF040404) else Color(0xFF0A0A0A), alertShape)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { /* consume inside modal */ }
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "No Space Left",
+                        color = accentColor,
+                        fontSize = 15.sp,
+                        fontFamily = selectedFont,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(if (retro80sMode) accentColor.copy(alpha = 0.5f) else Color(0xFF222222))
+                    )
+
+                    Text(
+                        text = noSpacePopupMessage,
+                        color = Color(0xFFE5E5E5),
+                        fontSize = 12.sp,
+                        fontFamily = selectedFont,
+                        lineHeight = 17.sp
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, accentColor, RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp))
+                            .background(if (retro80sMode) accentColor else Color(0xFF141414), RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp))
+                            .clickable { showNoSpacePopup = false }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "OK",
+                            color = if (retro80sMode) Color.Black else Color.White,
+                            fontSize = 11.sp,
+                            fontFamily = selectedFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
+
+        } else {
         // ====================================================================
         // FLUID SPRING-ANIMATED LONG-TAP HOME SCREEN "ACTIONS" MENU
         // Uses flat hairline design, outlined DONE pill, and NocturnaaToggleSwitch for Edit Mode
@@ -3341,6 +3754,9 @@ fun NTextLauncherApp(
             }
         }
 
+
+        }
+
         // Old School Phosphor Scanlines Overlay (Pass-through touches)
         if (retro80sMode) {
             Retro80sCrtScreenEdgeGlowOverlay()
@@ -3348,6 +3764,44 @@ fun NTextLauncherApp(
     }
     }
 }
+
+@Composable
+fun Retro80sQuickMenuButton(
+    label: String,
+    badge: String,
+    accentColor: Color,
+    lomoFontFamily: FontFamily = FontFamily.Monospace,
+    onClick: () -> Unit
+) {
+    val is80s = LocalRetro80sMode.current
+    val shape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, if (is80s) accentColor else Color(0xFF262626), shape)
+            .background(Color.Black, shape)
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontFamily = lomoFontFamily,
+            fontWeight = if (is80s) FontWeight.Bold else FontWeight.Normal
+        )
+        Text(
+            text = if (is80s) "[+]" else "▸",
+            color = accentColor,
+            fontSize = 12.sp,
+            fontFamily = lomoFontFamily,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
 
 @Composable
 fun QuickMenuButton(
@@ -7378,6 +7832,32 @@ fun AppDrawerView(
     onClose: () -> Unit,
     onWaveTick: () -> Unit
 ) {
+    if (LocalRetro80sMode.current) {
+        Retro80sAppDrawerView(
+            apps = apps,
+            lomoFontFamily = lomoFontFamily,
+            selectedFont = selectedFont,
+            uppercaseHome = uppercaseHome,
+            drawerTextSizeSp = drawerTextSizeSp,
+            drawerBgMode = drawerBgMode,
+            drawerBgIntensity = drawerBgIntensity,
+            accentColor = accentColor,
+            waveScrubMode = waveScrubMode,
+            drawerWaveIntensity = drawerWaveIntensity,
+            screenHeightPx = screenHeightPx,
+            getDrawerProgress = getDrawerProgress,
+            searchResetToken = searchResetToken,
+            focusSearchOnOpen = focusSearchOnOpen,
+            onConsumedSearchFocus = onConsumedSearchFocus,
+            onDragDrawerDelta = onDragDrawerDelta,
+            onSettleDrawer = onSettleDrawer,
+            onLaunchApp = onLaunchApp,
+            onLongPressApp = onLongPressApp,
+            onClose = onClose,
+            onWaveTick = onWaveTick
+        )
+        return
+    }
     var query by remember { mutableStateOf("") }
     val searchFocusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -8438,6 +8918,41 @@ fun WidgetsManagerView(
     onBack: () -> Unit
 ) {
     val is80sWm = LocalRetro80sMode.current
+    if (is80sWm) {
+        Retro80sWidgetsManagerView(
+            activeWidgets = activeWidgets,
+            widgetSizes = widgetSizes,
+            widgetStyles = widgetStyles,
+            leftPageEnabled = leftPageEnabled,
+            initialTargetLeftPage = initialTargetLeftPage,
+            leftPageWidgets = leftPageWidgets,
+            leftWidgetSizes = leftWidgetSizes,
+            leftWidgetStyles = leftWidgetStyles,
+            accentColor = accentColor,
+            lomoFontFamily = lomoFontFamily,
+            use24Hour = use24Hour,
+            batteryBarStyle = batteryBarStyle,
+            onChangeBatteryBarStyle = onChangeBatteryBarStyle,
+            customPinnedOrderEnabled = customPinnedOrderEnabled,
+            quickNote = quickNote,
+            globeTheme = globeTheme,
+            globeWireframeColor = globeWireframeColor,
+            onToggleCustomPinnedOrder = onToggleCustomPinnedOrder,
+            onToggle24h = onToggle24h,
+            onChangeQuickNote = onChangeQuickNote,
+            onChangeGlobeTheme = onChangeGlobeTheme,
+            onChangeGlobeWireframeColor = onChangeGlobeWireframeColor,
+            onUpdateWidgets = onUpdateWidgets,
+            onUpdateLeftWidgets = onUpdateLeftWidgets,
+            onSetWidgetStyle = onSetWidgetStyle,
+            onSetLeftWidgetStyle = onSetLeftWidgetStyle,
+            onCycleWidgetSize = onCycleWidgetSize,
+            onSetWidgetSize = onSetWidgetSize,
+            onMoveWidget = onMoveWidget,
+            onBack = onBack
+        )
+        return
+    }
     var editingLeftPage by remember { mutableStateOf(leftPageEnabled && initialTargetLeftPage) }
     val targetWidgetsList = if (leftPageEnabled && editingLeftPage) leftPageWidgets else activeWidgets
     val targetStylesMap = if (leftPageEnabled && editingLeftPage) leftWidgetStyles else widgetStyles
@@ -8780,6 +9295,69 @@ fun LauncherSettingsView(
     onRequestDefaultHomeRole: () -> Unit,
     onBack: () -> Unit
 ) {
+    if (retro80sMode) {
+        Retro80sLauncherSettingsView(
+            fontId = fontId,
+            textAlignMode = textAlignMode,
+            accentHex = accentHex,
+            textSizeSp = textSizeSp,
+            drawerTextSizeSp = drawerTextSizeSp,
+            use24Hour = use24Hour,
+            hideAndroidBar = hideAndroidBar,
+            enableLeftPage = enableLeftPage,
+            retro80sMode = retro80sMode,
+            retro80sColorTheme = retro80sColorTheme,
+            onChangeRetro80sColorTheme = onChangeRetro80sColorTheme,
+            batteryBarStyle = batteryBarStyle,
+            pauseWhenAppOpen = pauseWhenAppOpen,
+            customPinnedOrderEnabled = customPinnedOrderEnabled,
+            waveScrubMode = waveScrubMode,
+            drawerWaveIntensity = drawerWaveIntensity,
+            wallpaperPreset = wallpaperPreset,
+            wallpaperDimPercent = wallpaperDimPercent,
+            hasCustomUserImage = hasCustomUserImage,
+            wpSpeed = wpSpeed,
+            wpDensity = wpDensity,
+            wpOpacity = wpOpacity,
+            wpScale = wpScale,
+            settingsBgMode = settingsBgMode,
+            settingsBgIntensity = settingsBgIntensity,
+            drawerBgMode = drawerBgMode,
+            drawerBgIntensity = drawerBgIntensity,
+            lomoFontFamily = lomoFontFamily,
+            launcherFont = launcherFont,
+            onChangeFont = onChangeFont,
+            onChangeAlign = onChangeAlign,
+            onChangeAccent = onChangeAccent,
+            onChangeTextSize = onChangeTextSize,
+            onChangeDrawerTextSize = onChangeDrawerTextSize,
+            onToggle24h = onToggle24h,
+            onToggleAndroidBar = onToggleAndroidBar,
+            onToggleLeftPage = onToggleLeftPage,
+            onToggleRetro80sMode = onToggleRetro80sMode,
+            onChangeBatteryBarStyle = onChangeBatteryBarStyle,
+            onTogglePauseWhenAppOpen = onTogglePauseWhenAppOpen,
+            onToggleCustomPinnedOrder = onToggleCustomPinnedOrder,
+            onChangeWaveMode = onChangeWaveMode,
+            onChangeDrawerWaveIntensity = onChangeDrawerWaveIntensity,
+            onChangeWallpaperPreset = onChangeWallpaperPreset,
+            onChangeWallpaperDim = onChangeWallpaperDim,
+            onChangeWpSpeed = onChangeWpSpeed,
+            onChangeWpDensity = onChangeWpDensity,
+            onChangeWpOpacity = onChangeWpOpacity,
+            onChangeWpScale = onChangeWpScale,
+            onResetWpTuning = onResetWpTuning,
+            onChangeSettingsBgMode = onChangeSettingsBgMode,
+            onChangeSettingsBgIntensity = onChangeSettingsBgIntensity,
+            onChangeDrawerBgMode = onChangeDrawerBgMode,
+            onChangeDrawerBgIntensity = onChangeDrawerBgIntensity,
+            onOpenSystemWallpaperPicker = onOpenSystemWallpaperPicker,
+            onPickCustomWallpaperImage = onPickCustomWallpaperImage,
+            onRequestDefaultHomeRole = onRequestDefaultHomeRole,
+            onBack = onBack
+        )
+        return
+    }
     // Only one section stays open at a time (1..4 or null)
     var openSectionIndex by remember { mutableStateOf<Int?>(null) }
     var expandedFontMenu by remember { mutableStateOf(false) }
@@ -10821,6 +11399,2511 @@ fun SettingCard(
         )
     }
 }
+
+
+// ============================================================================
+// ORIGINAL RETRO 80s CRT MODE VIEWS (Restored for Old School Mode Only)
+// ============================================================================
+@Composable
+fun Retro80sAppDrawerView(
+    apps: List<AppEntry>,
+    lomoFontFamily: FontFamily,
+    selectedFont: FontFamily,
+    uppercaseHome: Boolean,
+    drawerTextSizeSp: Int,
+    drawerBgMode: String = "opaque",
+    drawerBgIntensity: Int = 65,
+    accentColor: Color,
+    waveScrubMode: String,
+    drawerWaveIntensity: Float,
+    screenHeightPx: Float,
+    getDrawerProgress: () -> Float,
+    searchResetToken: Int,
+    focusSearchOnOpen: Boolean,
+    onConsumedSearchFocus: () -> Unit,
+    onDragDrawerDelta: (Float) -> Unit,
+    onSettleDrawer: (Float) -> Unit,
+    onLaunchApp: (String) -> Unit,
+    onLongPressApp: (AppEntry) -> Unit,
+    onClose: () -> Unit,
+    onWaveTick: () -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    val searchFocusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    val isDrawerOpenNow by remember { derivedStateOf { getDrawerProgress() > 0.5f } }
+
+    // Automatically clear search text, reset scroll position, and dismiss keyboard
+    // whenever an app is opened or the app drawer is closed!
+    LaunchedEffect(isDrawerOpenNow, searchResetToken) {
+        if (!isDrawerOpenNow || searchResetToken > 0) {
+            if (!isDrawerOpenNow) {
+                if (query.isNotEmpty()) query = ""
+                try {
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
+                } catch (_: Exception) {
+                }
+                if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) {
+                    listState.scrollToItem(0, 0)
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(searchResetToken) {
+        if (searchResetToken > 0) {
+            if (query.isNotEmpty()) query = ""
+            try {
+                focusManager.clearFocus(force = true)
+                keyboardController?.hide()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    LaunchedEffect(focusSearchOnOpen, isDrawerOpenNow) {
+        if (focusSearchOnOpen && isDrawerOpenNow) {
+            delay(160)
+            try {
+                searchFocusRequester.requestFocus()
+                keyboardController?.show()
+            } catch (_: Exception) {
+            }
+            onConsumedSearchFocus()
+        }
+    }
+
+    val filteredApps = remember(apps, query) {
+        apps
+            .filter { !it.isHidden && (query.isBlank() || it.label.contains(query, ignoreCase = true)) }
+            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
+    }
+
+    val currentOnDragDelta by rememberUpdatedState(onDragDrawerDelta)
+    val currentOnSettle by rememberUpdatedState(onSettleDrawer)
+
+    val drawerNestedScroll = remember {
+        var isPullingDrawerClosed = false
+        var totalPullDownPx = 0f
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.Drag && isPullingDrawerClosed && available.y < 0f) {
+                    totalPullDownPx = (totalPullDownPx + available.y).coerceAtLeast(0f)
+                    currentOnDragDelta(available.y)
+                    if (totalPullDownPx <= 0f) {
+                        isPullingDrawerClosed = false
+                    }
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                if (source == NestedScrollSource.Drag && available.y > 0f && consumed.y == 0f) {
+                    val atTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+                    if (atTop) {
+                        isPullingDrawerClosed = true
+                        totalPullDownPx += available.y
+                        currentOnDragDelta(available.y)
+                        return Offset(0f, available.y)
+                    }
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (isPullingDrawerClosed) {
+                    val pulled = totalPullDownPx
+                    isPullingDrawerClosed = false
+                    totalPullDownPx = 0f
+                    currentOnSettle(if (available.y > 400f) 150f else pulled)
+                    return available
+                }
+                return Velocity.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (isPullingDrawerClosed) {
+                    val pulled = totalPullDownPx
+                    isPullingDrawerClosed = false
+                    totalPullDownPx = 0f
+                    currentOnSettle(pulled)
+                }
+                return Velocity.Zero
+            }
+        }
+    }
+
+    val normDrawerBg = (drawerBgIntensity.coerceIn(0, 100) / 100f)
+    val drawerRootBgColor = when (drawerBgMode) {
+        "transparent" -> Color.Black.copy(alpha = (1f - normDrawerBg * 0.92f).coerceIn(0.06f, 0.96f))
+        "blurry" -> Color(0xFF050505).copy(alpha = (0.76f - normDrawerBg * 0.56f).coerceIn(0.16f, 0.82f))
+        else -> Color.Black
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(drawerRootBgColor)
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .nestedScroll(drawerNestedScroll)
+            .padding(horizontal = 20.dp, vertical = 10.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            val is80sDrawer = LocalRetro80sMode.current
+            // Search Input Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        if (is80sDrawer) 1.4.dp else 1.dp,
+                        if (is80sDrawer) accentColor else Color(0xFF262626),
+                        RoundedCornerShape(if (is80sDrawer) 0.dp else 8.dp)
+                    )
+                    .background(Color(0xFF080808), RoundedCornerShape(if (is80sDrawer) 0.dp else 8.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (is80sDrawer) "> " else "/ ",
+                    color = accentColor,
+                    fontSize = if (is80sDrawer) 11.sp else 13.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+                BasicTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontFamily = lomoFontFamily
+                    ),
+                    cursorBrush = SolidColor(accentColor),
+                    enabled = isDrawerOpenNow,
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusProperties { canFocus = isDrawerOpenNow }
+                        .focusRequester(searchFocusRequester),
+                    decorationBox = { inner ->
+                        if (query.isEmpty()) {
+                            Text(
+                                text = "Search apps...",
+                                color = Color(0xFF525252),
+                                fontSize = 12.sp,
+                                fontFamily = lomoFontFamily
+                            )
+                        }
+                        inner()
+                    }
+                )
+                if (query.isNotEmpty()) {
+                    Text(
+                        text = "×",
+                        color = Color(0xFF8A8A8A),
+                        fontSize = 15.sp,
+                        fontFamily = lomoFontFamily,
+                        modifier = Modifier
+                            .clickable {
+                                query = ""
+                                focusManager.clearFocus()
+                                keyboardController?.hide()
+                            }
+                            .padding(horizontal = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            val headerFontSp = (drawerTextSizeSp * 0.68f).coerceIn(10f, 16f).sp
+            val starFontSp = (drawerTextSizeSp * 0.65f).coerceIn(9f, 15f).sp
+
+            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                // Ultra-clean 120Hz LazyColumn:
+                // Zero app name highlighting & zero hover animation on app rows!
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 20.dp)
+                ) {
+                    itemsIndexed(
+                        items = filteredApps,
+                        key = { _, app -> app.packageName },
+                        contentType = { _, _ -> "app_row" }
+                    ) { index, app ->
+                        val prevLetter = if (index > 0) filteredApps[index - 1].firstLetter else null
+                        val nextLetter = if (index < filteredApps.lastIndex) filteredApps[index + 1].firstLetter else null
+                        val isFirstInAlphabetGroup = app.firstLetter != prevLetter
+                        val isLastInAlphabetGroup = app.firstLetter != nextLetter
+
+                        val displayLabel = if (uppercaseHome) {
+                            app.label.uppercase(Locale.getDefault())
+                        } else {
+                            app.label
+                        }
+
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            if (isFirstInAlphabetGroup) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = if (index == 0) 4.dp else 10.dp, bottom = 2.dp)
+                                ) {
+                                    Text(
+                                        text = app.firstLetter.toString(),
+                                        color = accentColor,
+                                        fontSize = headerFontSp,
+                                        fontFamily = lomoFontFamily,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(1.dp)
+                                            .background(Color(0xFF1A1A1A))
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        onClick = {
+                                            query = ""
+                                            focusManager.clearFocus(force = true)
+                                            keyboardController?.hide()
+                                            onLaunchApp(app.packageName)
+                                        },
+                                        onLongClick = { onLongPressApp(app) }
+                                    )
+                                    .padding(vertical = 10.dp, horizontal = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = displayLabel,
+                                        color = Color(0xFFF5F5F5),
+                                        fontSize = drawerTextSizeSp.sp,
+                                        fontFamily = selectedFont,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (app.isPinned) {
+                                        Text(
+                                            text = "★",
+                                            color = accentColor,
+                                            fontSize = starFontSp,
+                                            fontFamily = lomoFontFamily
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (isLastInAlphabetGroup) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 2.dp, bottom = 4.dp)
+                                        .height(1.dp)
+                                        .background(Color(0xFF222222))
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(1.dp)
+                                        .background(Color(0xFF0D0D0D))
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Isolated A-Z Scrubber Rail Composable:
+                // Only the A-Z rail letters curve horizontally; app rows never highlight or hover-animate!
+                Retro80sAlphabetScrubberRail(
+                    accentColor = accentColor,
+                    waveScrubMode = waveScrubMode,
+                    drawerWaveIntensity = drawerWaveIntensity,
+                    lomoFontFamily = lomoFontFamily,
+                    onSelectLetter = { chosenLetter ->
+                        onWaveTick()
+                        if (filteredApps.isNotEmpty()) {
+                            val exactIdx = filteredApps.indexOfFirst { it.firstLetter == chosenLetter }
+                            val targetIdx = if (exactIdx >= 0) {
+                                exactIdx
+                            } else {
+                                val nextIdx = filteredApps.indexOfFirst { it.firstLetter >= chosenLetter }
+                                if (nextIdx >= 0) nextIdx else filteredApps.lastIndex
+                            }
+                            scope.launch {
+                                listState.scrollToItem(targetIdx, scrollOffset = 0)
+                            }
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun Retro80sRetro80sAlphabetScrubberRail(
+    accentColor: Color,
+    waveScrubMode: String,
+    drawerWaveIntensity: Float,
+    lomoFontFamily: FontFamily,
+    onSelectLetter: (Char) -> Unit
+) {
+    val density = LocalDensity.current
+    val letters = remember { ('A'..'Z').toList() }
+    var railHeightPx by remember { mutableStateOf(1f) }
+    var scrubLocalY by remember { mutableStateOf<Float?>(null) }
+    var activeLetter by remember { mutableStateOf<Char?>(null) }
+    val currentOnSelect by rememberUpdatedState(onSelectLetter)
+
+    val effectiveWaveMult = if (waveScrubMode == "off") 0f else drawerWaveIntensity.coerceIn(0f, 2.0f)
+    val letterWaveRadiusPx = with(density) { (65.dp + 55.dp * effectiveWaveMult).toPx() }
+    val maxLetterShiftPx = with(density) { (22.dp * effectiveWaveMult).toPx() }
+    val voxelBoxSizeDp = 54.dp
+    val voxelBoxSizePx = with(density) { voxelBoxSizeDp.toPx() }
+
+    fun updateScrubFromLocalY(localY: Float, currentRailHeight: Float) {
+        val validHeight = currentRailHeight.coerceAtLeast(1f)
+        railHeightPx = validHeight
+        val clampedLocalY = localY.coerceIn(0f, validHeight)
+        scrubLocalY = clampedLocalY
+
+        val floatIdx = ((clampedLocalY / validHeight) * letters.size).coerceIn(0f, (letters.size - 1).toFloat())
+        val idx = floatIdx.toInt().coerceIn(0, letters.lastIndex)
+        val chosenLetter = letters[idx]
+
+        if (activeLetter != chosenLetter) {
+            activeLetter = chosenLetter
+            currentOnSelect(chosenLetter)
+        }
+    }
+
+    // Smooth vertical finger-tracking offset for the Voxel Alphabet Box
+    val targetIndicatorY = remember(scrubLocalY, railHeightPx, voxelBoxSizePx) {
+        val sy = scrubLocalY ?: (railHeightPx * 0.5f)
+        (sy - voxelBoxSizePx * 0.5f).coerceIn(0f, (railHeightPx - voxelBoxSizePx).coerceAtLeast(0f))
+    }
+    val animatedIndicatorY by animateFloatAsState(
+        targetValue = targetIndicatorY,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessHigh
+        ),
+        label = "voxelBubbleY"
+    )
+
+    Box(
+        modifier = Modifier.fillMaxHeight(),
+        contentAlignment = Alignment.TopEnd
+    ) {
+        Column(
+            modifier = Modifier
+                .width(36.dp)
+                .fillMaxHeight()
+                .onGloballyPositioned { coords ->
+                    railHeightPx = coords.size.height.toFloat().coerceAtLeast(1f)
+                }
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        updateScrubFromLocalY(down.position.y, size.height.toFloat())
+                        do {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull()
+                            if (change != null && change.pressed) {
+                                change.consume()
+                                updateScrubFromLocalY(change.position.y, size.height.toFloat())
+                            }
+                        } while (event.changes.any { it.pressed })
+                        scrubLocalY = null
+                        activeLetter = null
+                    }
+                },
+            verticalArrangement = Arrangement.SpaceEvenly,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            letters.forEachIndexed { lIdx, ch ->
+                val isCurrent = activeLetter == ch
+                val currentScrub = scrubLocalY
+                val targetLetterFactor = if (currentScrub != null && effectiveWaveMult > 0.01f) {
+                    val lCenterY = ((lIdx + 0.5f) / letters.size.toFloat()) * railHeightPx
+                    val d = abs(currentScrub - lCenterY)
+                    if (d < letterWaveRadiusPx) {
+                        cos((d / letterWaveRadiusPx) * (PI / 2)).toFloat().coerceIn(0f, 1f)
+                    } else 0f
+                } else 0f
+
+                val animLetterFactor by animateFloatAsState(
+                    targetValue = targetLetterFactor,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessHigh
+                    ),
+                    label = "letterWave"
+                )
+
+                Text(
+                    text = ch.toString(),
+                    color = if (isCurrent) accentColor else if (animLetterFactor > 0.4f) Color.White else Color(0xFF555555),
+                    fontSize = if (isCurrent) 12.sp else 9.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier
+                        .graphicsLayer {
+                            if (animLetterFactor > 0.005f) {
+                                translationX = -animLetterFactor * maxLetterShiftPx
+                                val sc = 1f + animLetterFactor * (0.35f * effectiveWaveMult.coerceIn(0.4f, 1.5f))
+                                scaleX = sc
+                                scaleY = sc
+                            }
+                        }
+                        .padding(vertical = 0.5.dp)
+                )
+            }
+        }
+
+        // Minimalist Black & White Stepped Alphabet Indicator with Razor-Thin 1.dp Accent Stroke
+        if (activeLetter != null && scrubLocalY != null) {
+            Box(
+                modifier = Modifier
+                    .padding(end = 42.dp)
+                    .offset { IntOffset(x = 0, y = animatedIndicatorY.roundToInt()) }
+                    .size(46.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val w = size.width
+                    val h = size.height
+                    val step = 4.dp.toPx()
+                    val strokePx = 1.dp.toPx()
+                    val half = strokePx * 0.5f
+
+                    // Stepped-corner minimal box path: pure #000000 black fill + razor-thin 1.dp accentColor stroke
+                    val boxPath = Path().apply {
+                        moveTo(step, half)
+                        lineTo(w - step, half)
+                        lineTo(w - step, step)
+                        lineTo(w - half, step)
+                        lineTo(w - half, h - step)
+                        lineTo(w - step, h - step)
+                        lineTo(w - step, h - half)
+                        lineTo(step, h - half)
+                        lineTo(step, h - step)
+                        lineTo(half, h - step)
+                        lineTo(half, step)
+                        lineTo(step, step)
+                        close()
+                    }
+                    drawPath(path = boxPath, color = Color.Black)
+                    drawPath(
+                        path = boxPath,
+                        color = accentColor,
+                        style = Stroke(width = strokePx)
+                    )
+                }
+
+                Text(
+                    text = activeLetter.toString(),
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+
+@Composable
+fun Retro80sWidgetsManagerView(
+    activeWidgets: List<String>,
+    widgetSizes: Map<String, String>,
+    widgetStyles: Map<String, String> = emptyMap(),
+    leftPageEnabled: Boolean = true,
+    initialTargetLeftPage: Boolean = false,
+    leftPageWidgets: List<String> = emptyList(),
+    leftWidgetSizes: Map<String, String> = emptyMap(),
+    leftWidgetStyles: Map<String, String> = emptyMap(),
+    accentColor: Color,
+    lomoFontFamily: FontFamily,
+    use24Hour: Boolean,
+    batteryBarStyle: String = "retro_blocks",
+    onChangeBatteryBarStyle: (String) -> Unit = {},
+    customPinnedOrderEnabled: Boolean = true,
+    quickNote: String,
+    globeTheme: String,
+    globeWireframeColor: String,
+    onToggleCustomPinnedOrder: () -> Unit = {},
+    onToggle24h: () -> Unit,
+    onChangeQuickNote: (String) -> Unit,
+    onChangeGlobeTheme: (String) -> Unit,
+    onChangeGlobeWireframeColor: (String) -> Unit,
+    onUpdateWidgets: (List<String>) -> Unit,
+    onUpdateLeftWidgets: (List<String>) -> Unit = {},
+    onSetWidgetStyle: (String, String) -> Unit = { _, _ -> },
+    onSetLeftWidgetStyle: (String, String) -> Unit = { _, _ -> },
+    onCycleWidgetSize: (String) -> Unit,
+    onSetWidgetSize: (String, String) -> Unit,
+    onMoveWidget: (String, Int) -> Unit,
+    onBack: () -> Unit
+) {
+    val is80sWm = LocalRetro80sMode.current
+    val wmBtnShape = RoundedCornerShape(if (is80sWm) 0.dp else 4.dp)
+    val wmPillShape = RoundedCornerShape(if (is80sWm) 0.dp else 6.dp)
+    var editingLeftPage by remember { mutableStateOf(leftPageEnabled && initialTargetLeftPage) }
+    val targetWidgetsList = if (leftPageEnabled && editingLeftPage) leftPageWidgets else activeWidgets
+    val targetSizesMap = if (leftPageEnabled && editingLeftPage) leftWidgetSizes else widgetSizes
+    val targetStylesMap = if (leftPageEnabled && editingLeftPage) leftWidgetStyles else widgetStyles
+    val onUpdateTargetWidgets: (List<String>) -> Unit = if (leftPageEnabled && editingLeftPage) onUpdateLeftWidgets else onUpdateWidgets
+    val onUpdateTargetStyle: (String, String) -> Unit = if (leftPageEnabled && editingLeftPage) onSetLeftWidgetStyle else onSetWidgetStyle
+    val allWidgets = listOf(
+        "clock" to "Dot-Matrix Clock, Date & Battery Bar",
+        "battery_bar" to "Old School Blocky Battery & Time Header",
+        "week_strip" to "7-Day Strip & Month Days Block Bar",
+        "pinned_apps" to "Pinned Home Apps List",
+        "retro_calendar" to "Dot-Matrix Month Calendar Grid",
+        "year_matrix" to "365-Day Dot-Matrix Year Progress",
+        "retro_flip_clock" to "Split-Flap Mechanical Clock",
+        "analog_chrono" to "Vector Analog Watch Dial",
+        "precision_chrono" to "Interactive Split-Lap Chronograph",
+        "globe" to "3D Interactive Spinning Globe",
+        "torch" to "CMF Flashlight Quick Toggle",
+        "storage" to "Live RAM & ROM Telemetry Bar",
+        "zen" to "Zen Focus Timer (25m)",
+        "quote" to "Minimalist Design Quote",
+        "scratchpad" to "One-Line Terminal Scratchpad"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .pointerInput(Unit) {
+                var totalDy = 0f
+                detectVerticalDragGestures(
+                    onDragStart = { totalDy = 0f },
+                    onVerticalDrag = { _, dragAmount -> totalDy += dragAmount },
+                    onDragEnd = {
+                        if (totalDy < -85f) onBack()
+                    }
+                )
+            }
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Clean Window Header: only Title + DONE button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (is80sWm) "Widget Configuration" else "Widget Manager",
+                color = if (is80sWm) accentColor else Color.White,
+                fontSize = 16.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "DONE",
+                color = Color.Black,
+                fontSize = 11.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .background(if (is80sWm) accentColor else Color.White, wmPillShape)
+                    .clickable { onBack() }
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            )
+        }
+
+        if (leftPageEnabled) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        1.dp,
+                        if (is80sWm) accentColor else Color(0xFF282828),
+                        RoundedCornerShape(if (is80sWm) 0.dp else 8.dp)
+                    )
+                    .background(Color(0xFF0A0A0A), RoundedCornerShape(if (is80sWm) 0.dp else 8.dp))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf(
+                    false to "MAIN PAGE",
+                    true to "LEFT PAGE"
+                ).forEach { (isLeft, tabLabel) ->
+                    val selected = editingLeftPage == isLeft
+                    Text(
+                        text = tabLabel,
+                        color = if (selected) Color.Black else if (is80sWm) accentColor else Color.White,
+                        fontSize = 10.sp,
+                        fontFamily = lomoFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(if (selected) accentColor else Color(0xFF141414), wmPillShape)
+                            .clickable { editingLeftPage = isLeft }
+                            .padding(vertical = 7.dp)
+                    )
+                }
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(bottom = 20.dp)
+        ) {
+            items(allWidgets) { (id, title) ->
+                val enabled = targetWidgetsList.contains(id)
+                val wmCardShape = RoundedCornerShape(if (is80sWm) 0.dp else 12.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            if (is80sWm) 1.4.dp else 1.dp,
+                            if (is80sWm) (if (enabled) accentColor else accentColor.copy(alpha = 0.4f)) else (if (enabled) Color(0xFF333333) else Color(0xFF1A1A1A)),
+                            wmCardShape
+                        )
+                        .background(if (enabled) Color(0xFF080808) else Color(0xFF040404), wmCardShape)
+                        .padding(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = title,
+                            color = if (enabled) Color.White else Color(0xFF737373),
+                            fontSize = 12.sp,
+                            fontFamily = lomoFontFamily,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = if (enabled) "ACTIVE [×]" else "+ ADD",
+                            color = if (enabled) accentColor else if (is80sWm) accentColor.copy(alpha = 0.7f) else Color(0xFF8A8A8A),
+                            fontSize = 11.sp,
+                            fontFamily = lomoFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .border(
+                                    1.dp,
+                                    if (enabled) accentColor else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF262626),
+                                    wmPillShape
+                                )
+                                .clickable {
+                                    val next = if (enabled) targetWidgetsList - id else targetWidgetsList + id
+                                    onUpdateTargetWidgets(next)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    if (enabled) {
+                        val currentStyle = targetStylesMap[id] ?: if (id == "battery_bar") "80s_retro" else "default"
+                        val styleChoices = getWidgetStyleChoices(id)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "STYLE",
+                            color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
+                            fontSize = 9.sp,
+                            fontFamily = lomoFontFamily
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            styleChoices.forEach { (stId, stLbl) ->
+                                val isSel = currentStyle == stId
+                                Text(
+                                    text = stLbl,
+                                    color = if (isSel) Color.Black else if (is80sWm) accentColor else Color.White,
+                                    fontSize = 8.sp,
+                                    fontFamily = lomoFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .border(
+                                            1.dp,
+                                            if (isSel) accentColor else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                            wmBtnShape
+                                        )
+                                        .background(if (isSel) accentColor else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
+                                        .clickable { onUpdateTargetStyle(id, stId) }
+                                        .padding(vertical = 5.dp)
+                                )
+                            }
+                        }
+
+                        if (id == "clock" || id == "battery_bar") {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "BATTERY BAR STYLE",
+                                color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
+                                fontSize = 9.sp,
+                                fontFamily = lomoFontFamily
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                BATTERY_BAR_STYLES.forEach { (stId, stLbl) ->
+                                    val isSel = batteryBarStyle == stId
+                                    Text(
+                                        text = stLbl,
+                                        color = if (isSel) Color.Black else if (is80sWm) accentColor else Color.White,
+                                        fontSize = 8.sp,
+                                        fontFamily = lomoFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .border(
+                                                1.dp,
+                                                if (isSel) accentColor else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                                wmBtnShape
+                                            )
+                                            .background(if (isSel) accentColor else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
+                                            .clickable { onChangeBatteryBarStyle(stId) }
+                                            .padding(vertical = 5.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (id == "clock" || id == "battery_bar" || id == "retro_flip_clock" || id == "analog_chrono") {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "CLOCK FORMAT",
+                                    color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
+                                    fontSize = 9.sp,
+                                    fontFamily = lomoFontFamily
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    listOf(false to "12H", true to "24H").forEach { (is24, lbl) ->
+                                        val sel = use24Hour == is24
+                                        val activeBg = if (is80sWm) accentColor else Color.White
+                                        Text(
+                                            text = lbl,
+                                            color = if (sel) Color.Black else if (is80sWm) accentColor else Color.White,
+                                            fontSize = 9.sp,
+                                            fontFamily = lomoFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier
+                                                .border(
+                                                    1.dp,
+                                                    if (sel) activeBg else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                                    wmBtnShape
+                                                )
+                                                .background(if (sel) activeBg else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
+                                                .clickable { if (use24Hour != is24) onToggle24h() }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (id == "globe") {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "VISUAL THEME",
+                                color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
+                                fontSize = 9.sp,
+                                fontFamily = lomoFontFamily
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(
+                                    "retro_holo" to "HOLOGRAM (GRN/BLU)",
+                                    "wireframe" to "MONOCHROME VECTOR"
+                                ).forEach { (tId, tLabel) ->
+                                    val isSel = globeTheme == tId
+                                    val activeBg = if (is80sWm) accentColor else Color.White
+                                    Text(
+                                        text = tLabel,
+                                        color = if (isSel) Color.Black else if (is80sWm) accentColor else Color.White,
+                                        fontSize = 9.sp,
+                                        fontFamily = lomoFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .border(
+                                                1.dp,
+                                                if (isSel) activeBg else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                                wmBtnShape
+                                            )
+                                            .background(if (isSel) activeBg else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
+                                            .clickable { onChangeGlobeTheme(tId) }
+                                            .padding(horizontal = 8.dp, vertical = 5.dp)
+                                    )
+                                }
+                            }
+
+                            if (globeTheme == "wireframe") {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "VECTOR COLOR",
+                                    color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
+                                    fontSize = 9.sp,
+                                    fontFamily = lomoFontFamily
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    listOf(
+                                        "#FF3B00" to "CMF",
+                                        "#00FF66" to "GRN",
+                                        "#00E5FF" to "CYN",
+                                        "#FFFFFF" to "WHT",
+                                        "#D71921" to "RED",
+                                        "#FFB000" to "AMB",
+                                        "#3B82F6" to "BLU"
+                                    ).forEach { (hex, name) ->
+                                        val selected = globeWireframeColor.equals(hex, ignoreCase = true)
+                                        val swatchColor = when (hex) {
+                                            "#00FF66" -> Color(0xFF00FF66)
+                                            "#00E5FF" -> Color(0xFF00E5FF)
+                                            "#FFFFFF" -> Color(0xFFFFFFFF)
+                                            "#D71921" -> Color(0xFFD71921)
+                                            "#FFB000" -> Color(0xFFFFB000)
+                                            "#3B82F6" -> Color(0xFF3B82F6)
+                                            else -> Color(0xFFFF3B00)
+                                        }
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier
+                                                .border(
+                                                    width = if (selected) 1.5.dp else 1.dp,
+                                                    color = if (selected) (if (is80sWm) accentColor else Color.White) else if (is80sWm) accentColor.copy(alpha = 0.4f) else Color(0xFF262626),
+                                                    shape = wmPillShape
+                                                )
+                                                .background(Color(0xFF111111), wmPillShape)
+                                                .clickable { onChangeGlobeWireframeColor(hex) }
+                                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(10.dp)
+                                                    .background(swatchColor, if (is80sWm) RoundedCornerShape(0.dp) else CircleShape)
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = name,
+                                                color = if (selected) Color.White else Color(0xFF737373),
+                                                fontSize = 8.sp,
+                                                fontFamily = lomoFontFamily
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (id == "pinned_apps") {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "SEQUENCE ORDER",
+                                    color = if (is80sWm) accentColor else Color(0xFF8A8A8A),
+                                    fontSize = 9.sp,
+                                    fontFamily = lomoFontFamily
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    listOf(true to "CUSTOM (↑/↓)", false to "A–Z AUTO").forEach { (isCust, lbl) ->
+                                        val sel = customPinnedOrderEnabled == isCust
+                                        val activeBg = if (is80sWm) accentColor else Color.White
+                                        Text(
+                                            text = lbl,
+                                            color = if (sel) Color.Black else if (is80sWm) accentColor else Color.White,
+                                            fontSize = 9.sp,
+                                            fontFamily = lomoFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier
+                                                .border(
+                                                    1.dp,
+                                                    if (sel) activeBg else if (is80sWm) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                                    wmBtnShape
+                                                )
+                                                .background(if (sel) activeBg else if (is80sWm) Color(0xFF0A0A0A) else Color(0xFF191919), wmBtnShape)
+                                                .clickable { if (customPinnedOrderEnabled != isCust) onToggleCustomPinnedOrder() }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (id == "scratchpad") {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            BasicTextField(
+                                value = quickNote,
+                                onValueChange = { onChangeQuickNote(it) },
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontFamily = lomoFontFamily
+                                ),
+                                cursorBrush = SolidColor(accentColor),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, if (is80sWm) accentColor else Color(0xFF262626), wmPillShape)
+                                    .background(Color(0xFF111111), wmPillShape)
+                                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+fun Retro80sLauncherSettingsView(
+    fontId: String,
+    textAlignMode: String,
+    accentHex: String,
+    textSizeSp: Int,
+    drawerTextSizeSp: Int,
+    use24Hour: Boolean,
+    hideAndroidBar: Boolean,
+    enableLeftPage: Boolean = true,
+    retro80sMode: Boolean = false,
+    retro80sColorTheme: String = "green",
+    onChangeRetro80sColorTheme: (String) -> Unit = {},
+    batteryBarStyle: String = "retro_blocks",
+    pauseWhenAppOpen: Boolean = true,
+    customPinnedOrderEnabled: Boolean = true,
+    waveScrubMode: String,
+    drawerWaveIntensity: Float,
+    wallpaperPreset: String,
+    wallpaperDimPercent: Int,
+    hasCustomUserImage: Boolean,
+    wpSpeed: Float,
+    wpDensity: Float,
+    wpOpacity: Float,
+    wpScale: Float,
+    settingsBgMode: String,
+    settingsBgIntensity: Int,
+    drawerBgMode: String = "opaque",
+    drawerBgIntensity: Int = 65,
+    lomoFontFamily: FontFamily,
+    launcherFont: FontFamily,
+    onChangeFont: (String) -> Unit,
+    onChangeAlign: (String) -> Unit,
+    onChangeAccent: (String) -> Unit,
+    onChangeTextSize: (Int) -> Unit,
+    onChangeDrawerTextSize: (Int) -> Unit,
+    onToggle24h: () -> Unit,
+    onToggleAndroidBar: () -> Unit,
+    onToggleLeftPage: () -> Unit = {},
+    onToggleRetro80sMode: () -> Unit = {},
+    onChangeBatteryBarStyle: (String) -> Unit = {},
+    onTogglePauseWhenAppOpen: () -> Unit = {},
+    onToggleCustomPinnedOrder: () -> Unit = {},
+    onChangeWaveMode: (String) -> Unit,
+    onChangeDrawerWaveIntensity: (Float) -> Unit,
+    onChangeWallpaperPreset: (String) -> Unit,
+    onChangeWallpaperDim: (Int) -> Unit,
+    onChangeWpSpeed: (Float) -> Unit,
+    onChangeWpDensity: (Float) -> Unit,
+    onChangeWpOpacity: (Float) -> Unit,
+    onChangeWpScale: (Float) -> Unit,
+    onResetWpTuning: () -> Unit,
+    onChangeSettingsBgMode: (String) -> Unit,
+    onChangeSettingsBgIntensity: (Int) -> Unit,
+    onChangeDrawerBgMode: (String) -> Unit = {},
+    onChangeDrawerBgIntensity: (Int) -> Unit = {},
+    onOpenSystemWallpaperPicker: () -> Unit,
+    onPickCustomWallpaperImage: () -> Unit,
+    onRequestDefaultHomeRole: () -> Unit,
+    onBack: () -> Unit
+) {
+    var expandedSystem by remember { mutableStateOf(false) }
+    var expandedTypography by remember { mutableStateOf(false) }
+    var expandedFontMenu by remember { mutableStateOf(false) }
+    var expandedWallpaper by remember { mutableStateOf(false) }
+    var expandedMotion by remember { mutableStateOf(false) }
+
+    var expandedLiveWallpapers by remember { mutableStateOf(false) }
+    var expandedStaticWallpapers by remember { mutableStateOf(false) }
+    var expandedUserWallpapers by remember { mutableStateOf(false) }
+
+    val accentColor = if (retro80sMode) Color.White else resolveLauncherAccentColor(accentHex)
+    val settingsGlowStyle = if (retro80sMode) {
+        TextStyle(shadow = Shadow(color = Color.White.copy(alpha = 0.55f), offset = Offset.Zero, blurRadius = 6f))
+    } else {
+        TextStyle.Default
+    }
+    val innerCardShape = RoundedCornerShape(if (retro80sMode) 0.dp else 10.dp)
+    val innerSubCardShape = RoundedCornerShape(if (retro80sMode) 0.dp else 8.dp)
+    val innerBtnShape = RoundedCornerShape(if (retro80sMode) 0.dp else 6.dp)
+    val innerCardBorderColor = if (retro80sMode) accentColor.copy(alpha = 0.75f) else Color(0xFF222222)
+
+    val liveWallpaperOptions = listOf(
+        Triple("live_crt_scanlines", "OLD SCHOOL SCANLINES", "Faint Scanlines & Refresh Beam"),
+        Triple("live_starfield_3d", "3D STARFIELD", "1,200-Star 3D Night Sky"),
+        Triple("live_constellation", "ORBITAL NODES", "Full-Screen Drifting Stars"),
+        Triple("live_embers", "DEEP EMBERS", "Full-Screen Rising Dust"),
+        Triple("live_starlight", "STARLIGHT BREATH", "Calm Twinkling Field"),
+        Triple("live_kepler", "KEPLER ORBITS", "Planetary Ellipses"),
+        Triple("live_quantum", "MICRO LATTICE", "Breathing Dot Matrix"),
+        Triple("live_lissajous", "PHASE THREAD", "Slow Harmonic Curve"),
+        Triple("live_glow_horizon", "AURORA GLOW FADE", "Breathing Ambient Fade"),
+        Triple("live_halftone_pulse", "HALFTONE WAVE", "Glowing Halftone Pulse")
+    )
+
+    val staticWallpaperOptions = listOf(
+        Triple("oled", "PURE AMOLED", "True #000000"),
+        Triple("dots", "DOT MATRIX", "Full-Screen Dot Grid"),
+        Triple("blueprint", "CMF GRID", "Full-Screen Schematic"),
+        Triple("circuit", "GLYPH PCB", "Full-Screen Traces"),
+        Triple("static_halftone", "RADIAL HALFTONE", "Full-Screen Dot Gradient"),
+        Triple("static_halftone_vertical", "VERTICAL HALFTONE", "Bottom-to-Top Dot Fade"),
+        Triple("static_halftone_diagonal", "DIAGONAL HALFTONE", "45° Halftone Matrix"),
+        Triple("static_halftone_duotone", "DUOTONE HALFTONE", "Interleaved Accent Dots"),
+        Triple("static_halftone_wave", "SINUSOID HALFTONE", "Harmonic Wave Dots"),
+        Triple("static_glow_horizon", "HORIZON GLOW", "Rising Atmospheric Glow"),
+        Triple("static_glow_nebula", "NEBULA GLOW", "Dual-Core Soft Aura"),
+        Triple("static_glow_edge", "PERIMETER GLOW", "Edge-Lit Border Aura"),
+        Triple("static_glow_pillar", "BEAM GLOW", "Vertical Light Column"),
+        Triple("static_fade_monolith", "MONOLITH FADE", "Top-to-Bottom Ombré"),
+        Triple("static_fade_twilight", "DIAGONAL FADE", "Silk Gradient & Rules"),
+        Triple("static_fade_vignette", "SPOTLIGHT FADE", "Center Radial Fade"),
+        Triple("static_fade_prism", "PRISM BANDS FADE", "Stepped Horizon Fade"),
+        Triple("static_crosshair", "RETICLE HUD", "Full-Screen Crosshairs"),
+        Triple("static_topo", "TOPO CONTOUR", "Full-Screen Isolines"),
+        Triple("static_isometric", "ISO LATTICE", "60° Axonometric Grid"),
+        Triple("static_star_chart", "CELESTIAL MAP", "Declination Star Map"),
+        Triple("static_eclipse", "SOLAR ECLIPSE", "Coronal Rim & Rings"),
+        Triple("static_vinyl", "MICRO GROOVES", "Full-Screen Fine Arcs"),
+        Triple("static_bauhaus", "BAUHAUS GEO", "Full-Screen Line Balance"),
+        Triple("static_horizon_lines", "SCANLINE FADE", "Full-Screen Scanlines"),
+        Triple("static_glyph_arcs", "GLYPH ARCS", "Segmented Light Rings"),
+        Triple("static_polar", "POLAR RADAR", "360° Azimuth Dial"),
+        Triple("static_diagonal_hatch", "FINE HATCH", "45° Precision Lines"),
+        Triple("static_golden_spiral", "FIBONACCI RATIO", "Golden Section Arc"),
+        Triple("static_sine_interference", "MOIRÉ WAVES", "Harmonic Sine Field"),
+        Triple("static_corner_frame", "VIEWFINDER", "Rule-of-Thirds & Corners"),
+        Triple("static_hex_honeycomb", "HEX LATTICE", "Full-Screen Honeycomb"),
+        Triple("static_constellation_fixed", "DEEP SKY MAP", "Fixed Star Lines"),
+        Triple("static_vertical_flutes", "ARCHITECTURAL", "Vertical Pinstripes"),
+        Triple("static_zen_enso", "ZEN CIRCLE", "Minimalist Open Ring"),
+        Triple("static_micro_plus", "SWISS CROSSES", "Full-Screen + Matrix")
+    )
+
+    val normBg = (settingsBgIntensity.coerceIn(0, 100) / 100f)
+    val rootBgColor = when (settingsBgMode) {
+        "transparent" -> Color.Black.copy(alpha = (1f - normBg * 0.90f).coerceIn(0.08f, 0.96f))
+        "blurry" -> Color(0xFF060606).copy(alpha = (0.78f - normBg * 0.52f).coerceIn(0.20f, 0.82f))
+        else -> Color.Black
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(rootBgColor)
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        // Clean Settings Header: ONLY "Nocturnaa Settings" (Regular) or "Nocturna Configuration" (Old School) + DONE
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (retro80sMode) "Nocturna Configuration" else "Nocturnaa Settings",
+                    color = if (retro80sMode) accentColor else Color.White,
+                    fontSize = 16.sp,
+                    fontFamily = launcherFont,
+                    fontWeight = FontWeight.Bold,
+                    style = settingsGlowStyle
+                )
+                Text(
+                    text = "DONE",
+                    color = Color.Black,
+                    fontSize = 11.sp,
+                    fontFamily = launcherFont,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .background(if (retro80sMode) accentColor else Color.White, innerBtnShape)
+                        .clickable { onBack() }
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                )
+            }
+        }
+
+        // SECTION 01
+        item {
+            Retro80sCollapsibleSettingsSection(
+                indexTag = "01",
+                title = "System & Home Integration",
+                subtitle = "",
+                badge = "",
+                expanded = expandedSystem,
+                accentColor = accentColor,
+                lomoFontFamily = launcherFont,
+                onToggle = { expandedSystem = !expandedSystem }
+            ) {
+                Retro80sSettingCard(
+                    title = "Default Home Launcher",
+                    subtitle = "",
+                    actionLabel = "CHOOSE HOME",
+                    lomoFontFamily = launcherFont,
+                    onClick = onRequestDefaultHomeRole
+                )
+                Retro80sSettingCard(
+                    title = "Old School Mode",
+                    subtitle = "",
+                    actionLabel = if (retro80sMode) "ON" else "OFF",
+                    lomoFontFamily = launcherFont,
+                    onClick = onToggleRetro80sMode
+                )
+                // Old School Color Theme Selector (Green Phosphor vs Amber Orange)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
+                        .background(Color(0xFF050505), innerCardShape)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "OLD SCHOOL COLOR THEME",
+                        color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
+                        fontSize = 9.sp,
+                        fontFamily = launcherFont,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            "green" to "GREEN PHOSPHOR",
+                            "amber" to "AMBER ORANGE"
+                        ).forEach { (thId, thLbl) ->
+                            val isSel = retro80sColorTheme == thId
+                            val activeBg = if (retro80sMode) accentColor else Color.White
+                            Text(
+                                text = thLbl,
+                                color = if (isSel) Color.Black else if (retro80sMode) accentColor else Color.White,
+                                fontSize = 9.sp,
+                                fontFamily = launcherFont,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .border(
+                                        1.dp,
+                                        if (isSel) activeBg else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF282828),
+                                        innerBtnShape
+                                    )
+                                    .background(
+                                        if (isSel) activeBg else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF141414),
+                                        innerBtnShape
+                                    )
+                                    .clickable { onChangeRetro80sColorTheme(thId) }
+                                    .padding(vertical = 7.dp)
+                            )
+                        }
+                    }
+                }
+                Retro80sSettingCard(
+                    title = "Additional Left Home Page",
+                    subtitle = "",
+                    actionLabel = if (enableLeftPage) "ON" else "OFF",
+                    lomoFontFamily = launcherFont,
+                    onClick = onToggleLeftPage
+                )
+                Retro80sSettingCard(
+                    title = "Hide Android Status Bar",
+                    subtitle = "",
+                    actionLabel = if (hideAndroidBar) "ON" else "OFF",
+                    lomoFontFamily = launcherFont,
+                    onClick = onToggleAndroidBar
+                )
+                Retro80sSettingCard(
+                    title = "Pause Wallpapers & Widgets in Apps",
+                    subtitle = "",
+                    actionLabel = if (pauseWhenAppOpen) "ON" else "OFF",
+                    lomoFontFamily = launcherFont,
+                    onClick = onTogglePauseWhenAppOpen
+                )
+
+                Retro80sSettingsBackdropControlCard(
+                    cardTitle = "SETTINGS BACKGROUND",
+                    settingsBgMode = settingsBgMode,
+                    settingsBgIntensity = settingsBgIntensity,
+                    accentColor = accentColor,
+                    lomoFontFamily = launcherFont,
+                    onChangeMode = onChangeSettingsBgMode,
+                    onChangeIntensity = onChangeSettingsBgIntensity
+                )
+            }
+        }
+
+        // SECTION 02
+        item {
+            val activeFontName = PrebuiltFont.fromId(fontId).displayName.substringBefore(" (")
+            Retro80sCollapsibleSettingsSection(
+                indexTag = "02",
+                title = "Typography & Layout",
+                subtitle = "",
+                badge = "",
+                expanded = expandedTypography,
+                accentColor = accentColor,
+                lomoFontFamily = launcherFont,
+                onToggle = { expandedTypography = !expandedTypography }
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
+                        .background(Color(0xFF070707), innerCardShape)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { expandedFontMenu = !expandedFontMenu },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "LAUNCHER FONT",
+                                color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
+                                fontSize = 9.sp,
+                                fontFamily = launcherFont,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = activeFontName,
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontFamily = launcherFont,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            text = if (retro80sMode) {
+                                if (expandedFontMenu) "[-]" else "[+]"
+                            } else {
+                                if (expandedFontMenu) "▾" else "▸"
+                            },
+                            color = accentColor,
+                            fontSize = if (retro80sMode) 11.sp else 14.sp,
+                            fontFamily = launcherFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    AnimatedVisibility(
+                        visible = expandedFontMenu,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            PrebuiltFont.values().forEach { f ->
+                                val selected = fontId == f.id
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(
+                                            1.dp,
+                                            if (selected) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.35f) else Color(0xFF171717),
+                                            innerSubCardShape
+                                        )
+                                        .background(
+                                            if (selected) Color(0xFF121212) else Color.Transparent,
+                                            innerSubCardShape
+                                        )
+                                        .clickable { onChangeFont(f.id) }
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = f.displayName.substringBefore(" ("),
+                                        color = if (selected && retro80sMode) accentColor else Color.White,
+                                        fontSize = 12.sp,
+                                        fontFamily = f.resolveFontFamily(lomoFontFamily),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        text = if (retro80sMode) {
+                                            if (selected) "[×]" else "[ ]"
+                                        } else {
+                                            if (selected) "●" else "○"
+                                        },
+                                        color = if (selected) accentColor else Color(0xFF525252),
+                                        fontSize = 10.sp,
+                                        fontFamily = launcherFont,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Home Screen App Font Size
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
+                        .background(Color(0xFF070707), innerCardShape)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "HOME APP FONT SIZE",
+                        color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
+                        fontSize = 9.sp,
+                        fontFamily = launcherFont,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(16, 18, 20, 22, 24).forEach { spVal ->
+                            val sel = textSizeSp == spVal
+                            val activeBg = if (retro80sMode) accentColor else Color.White
+                            Text(
+                                text = "${spVal}SP",
+                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color.White,
+                                fontSize = 10.sp,
+                                fontFamily = launcherFont,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .border(
+                                        1.dp,
+                                        if (sel) activeBg else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
+                                        innerBtnShape
+                                    )
+                                    .background(if (sel) activeBg else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
+                                    .clickable { onChangeTextSize(spVal) }
+                                    .padding(vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+
+                Retro80sSettingCard(
+                    title = "Clock Time Format",
+                    subtitle = "",
+                    actionLabel = if (use24Hour) "24-HOUR" else "12-HOUR",
+                    lomoFontFamily = launcherFont,
+                    onClick = onToggle24h
+                )
+
+                Retro80sSettingCard(
+                    title = "Home Text Alignment",
+                    subtitle = "",
+                    actionLabel = textAlignMode.uppercase(Locale.US),
+                    lomoFontFamily = launcherFont,
+                    onClick = {
+                        val next = when (textAlignMode) {
+                            "left" -> "center"
+                            "center" -> "right"
+                            else -> "left"
+                        }
+                        onChangeAlign(next)
+                    }
+                )
+
+                Retro80sSettingCard(
+                    title = "Custom Pinned Apps Order",
+                    subtitle = "",
+                    actionLabel = if (customPinnedOrderEnabled) "ON" else "OFF",
+                    lomoFontFamily = launcherFont,
+                    onClick = onToggleCustomPinnedOrder
+                )
+            }
+        }
+
+        // SECTION 03: Wallpapers and Settings
+        item {
+            Retro80sCollapsibleSettingsSection(
+                indexTag = "03",
+                title = "Wallpapers and Settings",
+                subtitle = "",
+                badge = "",
+                expanded = expandedWallpaper,
+                accentColor = accentColor,
+                lomoFontFamily = launcherFont,
+                onToggle = { expandedWallpaper = !expandedWallpaper }
+            ) {
+                // 0. Universal Wallpaper Dimmer
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
+                        .background(Color(0xFF070707), innerCardShape)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Retro80sMinimalistSliderRow(
+                        label = "WALLPAPER DIMMER",
+                        valueText = "${wallpaperDimPercent}%",
+                        fraction = (wallpaperDimPercent / 90f).coerceIn(0f, 1f),
+                        accentColor = accentColor,
+                        lomoFontFamily = launcherFont,
+                        onFractionChange = { frac ->
+                            val nextDim = (frac * 90f).roundToInt().coerceIn(0, 90)
+                            if (nextDim != wallpaperDimPercent) {
+                                onChangeWallpaperDim(nextDim)
+                            }
+                        }
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(0, 20, 40, 60, 75, 90).forEach { dimVal ->
+                            val sel = wallpaperDimPercent == dimVal
+                            Text(
+                                text = "${dimVal}%",
+                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color(0xFFD4D4D4),
+                                fontSize = 9.sp,
+                                fontFamily = launcherFont,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .border(
+                                        1.dp,
+                                        if (sel) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
+                                        innerBtnShape
+                                    )
+                                    .background(if (sel) accentColor else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF151515), innerBtnShape)
+                                    .clickable { onChangeWallpaperDim(dimVal) }
+                                    .padding(vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
+
+                // 1. Live Wallpapers
+                Retro80sCollapsibleSubSection(
+                    title = "Live Wallpapers",
+                    subtitle = "",
+                    badge = "",
+                    expanded = expandedLiveWallpapers,
+                    accentColor = accentColor,
+                    lomoFontFamily = launcherFont,
+                    onToggle = { expandedLiveWallpapers = !expandedLiveWallpapers }
+                ) {
+                    liveWallpaperOptions.chunked(2).forEach { rowItems ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowItems.forEach { (id, title, _) ->
+                                val active = wallpaperPreset == id
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .border(
+                                            1.dp,
+                                            if (active) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.4f) else Color(0xFF242424),
+                                            innerSubCardShape
+                                        )
+                                        .background(
+                                            if (active) Color(0xFF141414) else Color(0xFF0A0A0A),
+                                            innerSubCardShape
+                                        )
+                                        .clickable { onChangeWallpaperPreset(id) }
+                                        .padding(horizontal = 10.dp, vertical = 10.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = title,
+                                            color = if (active) (if (retro80sMode) accentColor else Color.White) else Color(0xFFD4D4D4),
+                                            fontSize = 10.sp,
+                                            fontFamily = launcherFont,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .background(
+                                                    if (active) accentColor else Color(0xFF383838),
+                                                    if (retro80sMode) RoundedCornerShape(0.dp) else CircleShape
+                                                )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, innerCardBorderColor, innerSubCardShape)
+                            .background(Color(0xFF090909), innerSubCardShape)
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "LIVE WALLPAPER TUNING",
+                                color = accentColor,
+                                fontSize = 9.sp,
+                                fontFamily = launcherFont,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "RESET",
+                                color = if (retro80sMode) accentColor else Color(0xFFA3A3A3),
+                                fontSize = 8.sp,
+                                fontFamily = launcherFont,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .border(1.dp, if (retro80sMode) accentColor else Color(0xFF2E2E2E), innerBtnShape)
+                                    .background(Color(0xFF121212), innerBtnShape)
+                                    .clickable { onResetWpTuning() }
+                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                            )
+                        }
+
+                        Retro80sWallpaperTuningRow(
+                            label = "SPEED",
+                            currentValue = wpSpeed,
+                            options = listOf(0.25f to "0.25x", 0.5f to "0.5x", 1.0f to "1.0x", 1.5f to "1.5x", 2.2f to "2.2x"),
+                            accentColor = accentColor,
+                            lomoFontFamily = launcherFont,
+                            onSelect = onChangeWpSpeed
+                        )
+
+                        Retro80sWallpaperTuningRow(
+                            label = "DENSITY",
+                            currentValue = wpDensity,
+                            options = listOf(0.5f to "0.5x", 0.75f to "0.75x", 1.0f to "1.0x", 1.35f to "1.35x", 1.75f to "1.75x"),
+                            accentColor = accentColor,
+                            lomoFontFamily = launcherFont,
+                            onSelect = onChangeWpDensity
+                        )
+
+                        Retro80sWallpaperTuningRow(
+                            label = "OPACITY",
+                            currentValue = wpOpacity,
+                            options = listOf(0.4f to "40%", 0.7f to "70%", 1.0f to "100%", 1.35f to "135%", 1.75f to "175%"),
+                            accentColor = accentColor,
+                            lomoFontFamily = launcherFont,
+                            onSelect = onChangeWpOpacity
+                        )
+
+                        Retro80sWallpaperTuningRow(
+                            label = "SCALE",
+                            currentValue = wpScale,
+                            options = listOf(0.65f to "0.65x", 0.85f to "0.85x", 1.0f to "1.0x", 1.25f to "1.25x", 1.5f to "1.5x"),
+                            accentColor = accentColor,
+                            lomoFontFamily = launcherFont,
+                            onSelect = onChangeWpScale
+                        )
+                    }
+                }
+
+                // 2. Static Wallpapers
+                Retro80sCollapsibleSubSection(
+                    title = "Static Wallpapers",
+                    subtitle = "",
+                    badge = "",
+                    expanded = expandedStaticWallpapers,
+                    accentColor = accentColor,
+                    lomoFontFamily = launcherFont,
+                    onToggle = { expandedStaticWallpapers = !expandedStaticWallpapers }
+                ) {
+                    staticWallpaperOptions.chunked(2).forEach { rowItems ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowItems.forEach { (id, title, _) ->
+                                val active = wallpaperPreset == id
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .border(
+                                            1.dp,
+                                            if (active) (if (retro80sMode) accentColor else Color.White) else if (retro80sMode) accentColor.copy(alpha = 0.4f) else Color(0xFF242424),
+                                            innerSubCardShape
+                                        )
+                                        .background(
+                                            if (active) Color(0xFF141414) else Color(0xFF0A0A0A),
+                                            innerSubCardShape
+                                        )
+                                        .clickable { onChangeWallpaperPreset(id) }
+                                        .padding(horizontal = 10.dp, vertical = 10.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = title,
+                                            color = if (active) (if (retro80sMode) accentColor else Color.White) else Color(0xFFD4D4D4),
+                                            fontSize = 10.sp,
+                                            fontFamily = launcherFont,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        if (active) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(6.dp)
+                                                    .background(
+                                                        accentColor,
+                                                        if (retro80sMode) RoundedCornerShape(0.dp) else CircleShape
+                                                    )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. User Wallpapers
+                Retro80sCollapsibleSubSection(
+                    title = "User Wallpapers",
+                    subtitle = "",
+                    badge = "",
+                    expanded = expandedUserWallpapers,
+                    accentColor = accentColor,
+                    lomoFontFamily = launcherFont,
+                    onToggle = { expandedUserWallpapers = !expandedUserWallpapers }
+                ) {
+                    Retro80sSettingCard(
+                        title = "Import Photo from Gallery",
+                        subtitle = "",
+                        actionLabel = if (wallpaperPreset == "user_image") "CHANGE" else "PICK",
+                        lomoFontFamily = launcherFont,
+                        onClick = onPickCustomWallpaperImage
+                    )
+
+                    if (hasCustomUserImage && wallpaperPreset != "user_image") {
+                        Retro80sSettingCard(
+                            title = "Use Saved Custom Photo",
+                            subtitle = "",
+                            actionLabel = "APPLY",
+                            lomoFontFamily = launcherFont,
+                            onClick = { onChangeWallpaperPreset("user_image") }
+                        )
+                    }
+
+                    Retro80sSettingCard(
+                        title = "System Wallpaper Picker",
+                        subtitle = "",
+                        actionLabel = "OPEN",
+                        lomoFontFamily = launcherFont,
+                        onClick = onOpenSystemWallpaperPicker
+                    )
+
+                    Retro80sSettingCard(
+                        title = "Use System Wallpaper",
+                        subtitle = "",
+                        actionLabel = if (wallpaperPreset == "system_wallpaper") "ON" else "ENABLE",
+                        lomoFontFamily = launcherFont,
+                        onClick = { onChangeWallpaperPreset("system_wallpaper") }
+                    )
+                }
+
+                // 4. Accent Color Picker
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
+                        .background(Color(0xFF070707), innerCardShape)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "ACCENT COLOR",
+                            color = if (retro80sMode) accentColor else Color(0xFF8A8A8A),
+                            fontSize = 9.sp,
+                            fontFamily = launcherFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = accentHex,
+                            color = accentColor,
+                            fontSize = 9.sp,
+                            fontFamily = launcherFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    LAUNCHER_ACCENT_PALETTE.chunked(5).forEach { paletteRow ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            paletteRow.forEach { (hex, label) ->
+                                val isSel = accentHex.equals(hex, ignoreCase = true)
+                                val swatchCol = resolveLauncherAccentColor(hex)
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .border(
+                                            width = if (isSel) 1.5.dp else 1.dp,
+                                            color = if (isSel) (if (retro80sMode) accentColor else Color.White) else if (retro80sMode) accentColor.copy(alpha = 0.4f) else Color(0xFF242424),
+                                            shape = innerSubCardShape
+                                        )
+                                        .background(
+                                            if (isSel) Color(0xFF181818) else Color(0xFF0D0D0D),
+                                            innerSubCardShape
+                                        )
+                                        .clickable { onChangeAccent(hex) }
+                                        .padding(vertical = 7.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .background(swatchCol, if (retro80sMode) RoundedCornerShape(0.dp) else CircleShape)
+                                    )
+                                    Text(
+                                        text = label,
+                                        color = if (isSel) Color.White else Color(0xFF8A8A8A),
+                                        fontSize = 8.sp,
+                                        fontFamily = launcherFont,
+                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // SECTION 04: App Drawer Settings
+        item {
+            val wavePct = (drawerWaveIntensity * 100f).roundToInt()
+            Retro80sCollapsibleSettingsSection(
+                indexTag = "04",
+                title = "App Drawer Settings",
+                subtitle = "",
+                badge = "",
+                expanded = expandedMotion,
+                accentColor = accentColor,
+                lomoFontFamily = launcherFont,
+                onToggle = { expandedMotion = !expandedMotion }
+            ) {
+                // 1. App Drawer App Name Scale
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
+                        .background(Color(0xFF070707), innerCardShape)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Retro80sMinimalistSliderRow(
+                        label = "APP DRAWER TEXT SIZE",
+                        valueText = "${drawerTextSizeSp} SP",
+                        fraction = ((drawerTextSizeSp - 12f) / 14f).coerceIn(0f, 1f),
+                        accentColor = accentColor,
+                        lomoFontFamily = launcherFont,
+                        onFractionChange = { frac ->
+                            val nextSp = (12f + frac * 14f).roundToInt().coerceIn(12, 26)
+                            if (nextSp != drawerTextSizeSp) {
+                                onChangeDrawerTextSize(nextSp)
+                            }
+                        }
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(12, 14, 16, 18, 20, 22, 24).forEach { spVal ->
+                            val sel = drawerTextSizeSp == spVal
+                            Text(
+                                text = "${spVal}",
+                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color.White,
+                                fontSize = 9.sp,
+                                fontFamily = launcherFont,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .border(
+                                        1.dp,
+                                        if (sel) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
+                                        innerBtnShape
+                                    )
+                                    .background(if (sel) accentColor else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
+                                    .clickable { onChangeDrawerTextSize(spVal) }
+                                    .padding(vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
+
+                // 2. Alphabet Scroller Wave Slider
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, innerCardBorderColor, innerCardShape)
+                        .background(Color(0xFF070707), innerCardShape)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Retro80sMinimalistSliderRow(
+                        label = "ALPHABET SCROLLER WAVE",
+                        valueText = "${wavePct}%",
+                        fraction = (drawerWaveIntensity / 2.0f).coerceIn(0f, 1f),
+                        accentColor = accentColor,
+                        lomoFontFamily = launcherFont,
+                        onFractionChange = { frac ->
+                            val nextVal = ((frac * 200f).roundToInt() / 100f).coerceIn(0f, 2.0f)
+                            onChangeDrawerWaveIntensity(nextVal)
+                        }
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(0f to "OFF", 0.5f to "50%", 1.0f to "100%", 1.5f to "150%", 2.0f to "200%").forEach { (wVal, wLbl) ->
+                            val sel = abs(drawerWaveIntensity - wVal) < 0.08f
+                            Text(
+                                text = wLbl,
+                                color = if (sel) Color.Black else if (retro80sMode) accentColor else Color.White,
+                                fontSize = 9.sp,
+                                fontFamily = launcherFont,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .border(
+                                        1.dp,
+                                        if (sel) accentColor else if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
+                                        innerBtnShape
+                                    )
+                                    .background(if (sel) accentColor else if (retro80sMode) Color(0xFF0A0A0A) else Color(0xFF161616), innerBtnShape)
+                                    .clickable { onChangeDrawerWaveIntensity(wVal) }
+                                    .padding(vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
+
+                // 3. App Drawer Background Style
+                Retro80sSettingsBackdropControlCard(
+                    cardTitle = "APP DRAWER BACKGROUND",
+                    settingsBgMode = drawerBgMode,
+                    settingsBgIntensity = drawerBgIntensity,
+                    accentColor = accentColor,
+                    lomoFontFamily = launcherFont,
+                    onChangeMode = onChangeDrawerBgMode,
+                    onChangeIntensity = onChangeDrawerBgIntensity
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun Retro80sCollapsibleSubSection(
+    title: String,
+    subtitle: String = "",
+    badge: String = "",
+    expanded: Boolean,
+    accentColor: Color,
+    lomoFontFamily: FontFamily,
+    onToggle: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val is80s = LocalRetro80sMode.current
+    val subGlowStyle = if (is80s) TextStyle(shadow = Shadow(color = Color.White.copy(alpha = 0.55f), offset = Offset.Zero, blurRadius = 6f)) else TextStyle.Default
+    val subShape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                width = if (is80s) 1.2.dp else 1.dp,
+                color = if (is80s) accentColor.copy(alpha = 0.75f) else (if (expanded) accentColor.copy(alpha = 0.55f) else Color(0xFF222222)),
+                shape = subShape
+            )
+            .background(Color(0xFF070707), subShape)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onToggle() }
+                .padding(horizontal = 12.dp, vertical = 11.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (is80s) title.uppercase(Locale.US) else title,
+                color = if (is80s) accentColor else Color.White,
+                fontSize = 13.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold,
+                style = subGlowStyle,
+                modifier = Modifier.weight(1f).padding(end = 8.dp)
+            )
+            // Only the small theme-specific expand/collapse icon shows on the right
+            Text(
+                text = if (is80s) {
+                    if (expanded) "[-]" else "[+]"
+                } else {
+                    if (expanded) "▾" else "▸"
+                },
+                color = if (expanded || is80s) accentColor else Color(0xFF737373),
+                fontSize = if (is80s) 11.sp else 13.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold,
+                style = subGlowStyle
+            )
+        }
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(if (is80s) accentColor.copy(alpha = 0.4f) else Color(0xFF1A1A1A))
+                )
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+fun Retro80sMinimalistSliderRow(
+    label: String,
+    valueText: String,
+    fraction: Float,
+    accentColor: Color,
+    lomoFontFamily: FontFamily = FontFamily.Monospace,
+    onFractionChange: (Float) -> Unit
+) {
+    val is80s = LocalRetro80sMode.current
+    val currentOnChange by rememberUpdatedState(onFractionChange)
+    val clamped = fraction.coerceIn(0f, 1f)
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                color = if (is80s) accentColor else Color(0xFF9E9E9E),
+                fontSize = 9.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = valueText,
+                color = accentColor,
+                fontSize = 10.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(26.dp)
+                .pointerInput(Unit) {
+                    detectTapGestures { offset ->
+                        val w = size.width.toFloat().coerceAtLeast(1f)
+                        currentOnChange((offset.x / w).coerceIn(0f, 1f))
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures { change, _ ->
+                        change.consume()
+                        val w = size.width.toFloat().coerceAtLeast(1f)
+                        currentOnChange((change.position.x / w).coerceIn(0f, 1f))
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val trackH = if (is80s) 6.dp.toPx() else 4.dp.toPx()
+                val cy = size.height * 0.5f
+                val thumbX = (clamped * size.width).coerceIn(6.dp.toPx(), size.width - 6.dp.toPx())
+                val cornerR = if (is80s) CornerRadius.Zero else CornerRadius(trackH * 0.5f, trackH * 0.5f)
+
+                drawRoundRect(
+                    color = if (is80s) Color(0xFF0A0A0A) else Color(0xFF222222),
+                    topLeft = Offset(0f, cy - trackH * 0.5f),
+                    size = Size(size.width, trackH),
+                    cornerRadius = cornerR
+                )
+                if (is80s) {
+                    drawRect(
+                        color = accentColor.copy(alpha = 0.5f),
+                        topLeft = Offset(0f, cy - trackH * 0.5f),
+                        size = Size(size.width, trackH),
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+                }
+                drawRoundRect(
+                    color = accentColor,
+                    topLeft = Offset(0f, cy - trackH * 0.5f),
+                    size = Size(thumbX, trackH),
+                    cornerRadius = cornerR
+                )
+                val thumbSize = 12.dp.toPx()
+                drawRect(
+                    color = Color.Black,
+                    topLeft = Offset(thumbX - thumbSize * 0.5f, cy - thumbSize * 0.5f),
+                    size = Size(thumbSize, thumbSize)
+                )
+                drawRect(
+                    color = accentColor,
+                    topLeft = Offset(thumbX - thumbSize * 0.5f, cy - thumbSize * 0.5f),
+                    size = Size(thumbSize, thumbSize),
+                    style = Stroke(width = 1.5.dp.toPx())
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun Retro80sSettingsBackdropControlCard(
+    cardTitle: String = "SETTINGS BACKGROUND",
+    settingsBgMode: String,
+    settingsBgIntensity: Int,
+    accentColor: Color,
+    lomoFontFamily: FontFamily = FontFamily.Monospace,
+    onChangeMode: (String) -> Unit,
+    onChangeIntensity: (Int) -> Unit
+) {
+    val is80s = LocalRetro80sMode.current
+    val cardShape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
+    val btnShape = RoundedCornerShape(if (is80s) 0.dp else 6.dp)
+    val pctShape = RoundedCornerShape(if (is80s) 0.dp else 5.dp)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, if (is80s) accentColor.copy(alpha = 0.75f) else Color(0xFF282828), cardShape)
+            .background(Color(0xFF070707).copy(alpha = 0.82f), cardShape)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = cardTitle,
+                color = if (is80s) accentColor else Color(0xFF9E9E9E),
+                fontSize = 9.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = settingsBgMode.uppercase(Locale.US),
+                color = accentColor,
+                fontSize = 9.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            listOf(
+                "opaque" to "OPAQUE",
+                "transparent" to "TRANSPARENT",
+                "blurry" to "BLURRY"
+            ).forEach { (modeId, modeLabel) ->
+                val selected = settingsBgMode == modeId
+                Text(
+                    text = modeLabel,
+                    color = if (selected) Color.Black else if (is80s) accentColor else Color.White,
+                    fontSize = 9.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .border(
+                            1.dp,
+                            if (selected) accentColor else if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF262626),
+                            btnShape
+                        )
+                        .background(
+                            if (selected) accentColor else if (is80s) Color(0xFF0A0A0A) else Color(0xFF141414),
+                            btnShape
+                        )
+                        .clickable { onChangeMode(modeId) }
+                        .padding(vertical = 6.dp)
+                )
+            }
+        }
+
+        val sliderLabel = when (settingsBgMode) {
+            "transparent" -> "TRANSPARENCY"
+            "blurry" -> "BLUR INTENSITY"
+            else -> "INTENSITY"
+        }
+
+        Retro80sMinimalistSliderRow(
+            label = sliderLabel,
+            valueText = "${settingsBgIntensity}%",
+            fraction = (settingsBgIntensity / 100f).coerceIn(0f, 1f),
+            accentColor = accentColor,
+            lomoFontFamily = lomoFontFamily,
+            onFractionChange = { frac ->
+                val nextVal = (frac * 100f).roundToInt().coerceIn(0, 100)
+                if (nextVal != settingsBgIntensity) {
+                    onChangeIntensity(nextVal)
+                }
+            }
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            listOf(15, 35, 50, 70, 85, 100).forEach { pctVal ->
+                val sel = settingsBgIntensity == pctVal
+                Text(
+                    text = "${pctVal}%",
+                    color = if (sel) Color.Black else if (is80s) accentColor else Color(0xFFD4D4D4),
+                    fontSize = 8.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .border(
+                            1.dp,
+                            if (sel) accentColor else if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
+                            pctShape
+                        )
+                        .background(if (sel) accentColor else if (is80s) Color(0xFF0A0A0A) else Color(0xFF151515), pctShape)
+                        .clickable { onChangeIntensity(pctVal) }
+                        .padding(vertical = 4.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun Retro80sCollapsibleSettingsSection(
+    indexTag: String,
+    title: String,
+    subtitle: String = "",
+    badge: String = "",
+    expanded: Boolean,
+    accentColor: Color,
+    lomoFontFamily: FontFamily,
+    onToggle: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val is80s = LocalRetro80sMode.current
+    val secGlowStyle = if (is80s) TextStyle(shadow = Shadow(color = Color.White.copy(alpha = 0.55f), offset = Offset.Zero, blurRadius = 6f)) else TextStyle.Default
+    val secShape = RoundedCornerShape(if (is80s) 0.dp else 14.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                width = if (is80s) 1.5.dp else 1.dp,
+                color = if (is80s) accentColor else (if (expanded) Color(0xFF383838) else Color(0xFF222222)),
+                shape = secShape
+            )
+            .background(if (is80s) Color(0xFF040404) else Color(0xFF0A0A0A).copy(alpha = 0.72f), secShape)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onToggle() }
+                .padding(horizontal = 14.dp, vertical = 13.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = if (is80s) "[$indexTag]" else indexTag,
+                    color = accentColor,
+                    fontSize = 11.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    style = secGlowStyle,
+                    modifier = if (is80s) Modifier else Modifier
+                        .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+                Text(
+                    text = if (is80s) title.uppercase(Locale.US) else title,
+                    color = if (is80s) accentColor else Color.White,
+                    fontSize = if (is80s) 13.sp else 14.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    style = secGlowStyle,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            // Only the small theme-specific icon shows on the right
+            Text(
+                text = if (is80s) {
+                    if (expanded) "[-]" else "[+]"
+                } else {
+                    if (expanded) "▾" else "▸"
+                },
+                color = if (expanded || is80s) accentColor else Color(0xFF737373),
+                fontSize = if (is80s) 11.sp else 14.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold,
+                style = secGlowStyle
+            )
+        }
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF1C1C1C))
+                )
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+fun Retro80sSettingCard(
+    title: String,
+    subtitle: String = "",
+    actionLabel: String,
+    lomoFontFamily: FontFamily,
+    onClick: () -> Unit
+) {
+    val is80s = LocalRetro80sMode.current
+    val thCol = if (is80s) Color.White else if (LocalRetro80sColorTheme.current == "amber") Color(0xFFFF8800) else Color(0xFF7CFF5B)
+    val scGlowStyle = if (is80s) TextStyle(shadow = Shadow(color = Color.White.copy(alpha = 0.55f), offset = Offset.Zero, blurRadius = 6f)) else TextStyle.Default
+    val cardShape = RoundedCornerShape(if (is80s) 0.dp else 10.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, if (is80s) thCol.copy(alpha = 0.75f) else Color(0xFF242424), cardShape)
+            .background(Color(0xFF050505), cardShape)
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            color = Color.White,
+            fontSize = 12.sp,
+            fontFamily = lomoFontFamily,
+            fontWeight = if (is80s) FontWeight.Bold else FontWeight.Normal,
+            style = scGlowStyle,
+            modifier = Modifier.weight(1f).padding(end = 8.dp)
+        )
+        Text(
+            text = actionLabel,
+            color = Color.Black,
+            fontSize = 10.sp,
+            fontFamily = lomoFontFamily,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .background(if (is80s) thCol else Color.White, RoundedCornerShape(if (is80s) 0.dp else 6.dp))
+                .padding(horizontal = 9.dp, vertical = 5.dp)
+        )
+    }
+}
+
+// ============================================================================
+// INTERACTIVE WALLPAPER TUNING ROW COMPOSABLE
+// ============================================================================
+@Composable
+fun Retro80sWallpaperTuningRow(
+    label: String,
+    currentValue: Float,
+    options: List<Pair<Float, String>>,
+    accentColor: Color,
+    lomoFontFamily: FontFamily = FontFamily.Monospace,
+    onSelect: (Float) -> Unit
+) {
+    val is80s = LocalRetro80sMode.current
+    val btnShape = RoundedCornerShape(if (is80s) 0.dp else 5.dp)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                color = if (is80s) accentColor else Color(0xFF9E9E9E),
+                fontSize = 8.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
+            val activeLabel = options.minByOrNull { abs(it.first - currentValue) }?.second ?: "${currentValue}x"
+            Text(
+                text = activeLabel,
+                color = accentColor,
+                fontSize = 8.sp,
+                fontFamily = lomoFontFamily,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            options.forEach { (value, textLabel) ->
+                val selected = abs(currentValue - value) < 0.04f
+                Text(
+                    text = textLabel,
+                    color = if (selected) Color.Black else if (is80s) accentColor else Color(0xFFD4D4D4),
+                    fontSize = 8.sp,
+                    fontFamily = lomoFontFamily,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .border(
+                            1.dp,
+                            if (selected) accentColor else if (is80s) accentColor.copy(alpha = 0.45f) else Color(0xFF242424),
+                            btnShape
+                        )
+                        .background(
+                            if (selected) accentColor else if (is80s) Color(0xFF0A0A0A) else Color(0xFF121212),
+                            btnShape
+                        )
+                        .clickable { onSelect(value) }
+                        .padding(vertical = 4.dp)
+                )
+            }
+        }
+    }
+}
+
 
 // ============================================================================
 // FULL-BLEED AMOLED LIVE, STATIC & USER WALLPAPER ENGINE CANVAS (v3.1.0-cmf)
