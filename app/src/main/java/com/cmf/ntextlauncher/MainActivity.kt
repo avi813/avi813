@@ -10072,8 +10072,9 @@ private fun buildTypographyAndLayoutSectionItems(
     val activeFontName = activePrebuiltFont.displayName.substringBefore(" (")
     return listOf(
         {
-            val fontItems = PrebuiltFont.values().map { f ->
-                @Composable {
+            val fontItems = buildList<@Composable () -> Unit> {
+                PrebuiltFont.values().forEach { f ->
+                    add {
                     val selected = fontId == f.id
                     Row(
                         modifier = Modifier
@@ -10108,6 +10109,7 @@ private fun buildTypographyAndLayoutSectionItems(
                                         .background(accentColor, CircleShape)
                                 )
                             }
+                        }
                         }
                     }
                 }
@@ -10556,8 +10558,9 @@ private fun buildWallpapersAndSettingsSectionItems(
             )
         },
         {
-            val staticItems = staticWallpaperOptions.map { (id, title, desc) ->
-                @Composable {
+            val staticItems = buildList<@Composable () -> Unit> {
+                staticWallpaperOptions.forEach { (id, title, desc) ->
+                    add {
                     val active = wallpaperPreset == id
                     Row(
                         modifier = Modifier
@@ -10600,6 +10603,7 @@ private fun buildWallpapersAndSettingsSectionItems(
                                         .background(accentColor, CircleShape)
                                 )
                             }
+                        }
                         }
                     }
                 }
