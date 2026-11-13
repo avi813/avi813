@@ -4431,6 +4431,314 @@ fun HomeScreenView(
                 Column {
                     // Top-Anchored Edit Mode Controls: Styled consistently with Old School theme when retro80sMode is ON
                     if (editMode) {
+                        HomeWidgetEditHeader(
+                            widgetId = widgetId,
+                            activeWidgets = activeWidgets,
+                            sizeMode = sizeMode,
+                            wFontId = wFontId,
+                            wFontFamily = wFontFamily,
+                            rawWStyle = rawWStyle,
+                            retro80sMode = retro80sMode,
+                            accentColor = accentColor,
+                            selectedFont = selectedFont,
+                            batteryBarStyle = batteryBarStyle,
+                            globeTilt2dDeg = globeTilt2dDeg,
+                            globeRotXDeg = globeRotXDeg,
+                            globeRotYDeg = globeRotYDeg,
+                            isWidgetFontMenuExpanded = expandedFontWidgetIds.contains(widgetId),
+                            onToggleFontMenuExpanded = {
+                                expandedFontWidgetIds = if (expandedFontWidgetIds.contains(widgetId)) {
+                                    expandedFontWidgetIds - widgetId
+                                } else {
+                                    expandedFontWidgetIds + widgetId
+                                }
+                            },
+                            onMoveWidget = onMoveWidget,
+                            onSetWidgetSize = onSetWidgetSize,
+                            onRemoveWidget = onRemoveWidget,
+                            onSetWidgetStyle = onSetWidgetStyle,
+                            onChangeBatteryBarStyle = onChangeBatteryBarStyle,
+                            onSetWidgetFont = onSetWidgetFont,
+                            onChangeGlobeTilt2d = onChangeGlobeTilt2d,
+                            onChangeGlobeRotX = onChangeGlobeRotX,
+                            onChangeGlobeRotY = onChangeGlobeRotY
+                        )
+                    }
+
+                    when (widgetId) {
+                        "clock" -> {
+                            HomeClockWidgetContent(
+                                sizeMode = sizeMode,
+                                wStyle = wStyle,
+                                wFontFamily = wFontFamily,
+                                textAlign = textAlign,
+                                currentHourStr = currentHourStr,
+                                currentMinStr = currentMinStr,
+                                currentAmPmStr = currentAmPmStr,
+                                currentDateStr = currentDateStr,
+                                nextAlarmStr = nextAlarmStr,
+                                batteryPct = batteryPct,
+                                isCharging = isCharging,
+                                batteryBarStyle = batteryBarStyle,
+                                colonAlpha = colonAlpha,
+                                accentColor = accentColor,
+                                onOpenClockApp = onOpenClockApp,
+                                onLongPressHome = onLongPressHome
+                            )
+                        }
+                        "battery_bar" -> {
+                            val headerSp = when (sizeMode) {
+                                "large" -> 14.sp
+                                "compact" -> 10.sp
+                                else -> 12.sp
+                            }
+                            val timePart = if (currentAmPmStr.isNotEmpty()) {
+                                "$currentHourStr:$currentMinStr $currentAmPmStr"
+                            } else {
+                                "$currentHourStr:$currentMinStr"
+                            }
+                            val dateClean = currentDateStr.replace("·", "-")
+                            val effectiveBarStyle = if (wStyle == "80s_retro") "retro_blocks" else batteryBarStyle
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (wStyle == "cyber_hud") {
+                                            Modifier
+                                                .border(1.dp, accentColor.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+                                                .background(Color(0xFF060606), RoundedCornerShape(6.dp))
+                                                .padding(8.dp)
+                                        } else Modifier
+                                    )
+                                    .combinedClickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onClick = { onOpenClockApp() },
+                                        onLongClick = { onLongPressHome() }
+                                    ),
+                                verticalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (wStyle == "cyber_hud") "SYS.PWR // $timePart" else "$timePart $dateClean",
+                                        color = if (wStyle == "80s_retro") accentColor else Color.White,
+                                        fontSize = headerSp,
+                                        fontFamily = wFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.8.sp
+                                    )
+                                    Text(
+                                        text = if (wStyle == "cyber_hud") "[CELL: $batteryPct%${if (isCharging) " ⚡" else ""}]" else if (isCharging) "$batteryPct% ⚡" else "$batteryPct%",
+                                        color = accentColor,
+                                        fontSize = headerSp,
+                                        fontFamily = wFontFamily,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                RetroBatteryProgressBar(
+                                    batteryPct = batteryPct,
+                                    barStyle = effectiveBarStyle,
+                                    accentColor = accentColor,
+                                    retro80sMode = retro80sMode,
+                                    sizeMode = sizeMode,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                        "retro_flip_clock" -> {
+                            RetroSplitFlapClockWidget(
+                                hourStr = currentHourStr,
+                                minStr = currentMinStr,
+                                secStr = currentSecStr,
+                                amPmStr = currentAmPmStr,
+                                dateStr = currentDateStr,
+                                sizeMode = sizeMode,
+                                widgetStyle = wStyle,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily,
+                                onOpenClockApp = onOpenClockApp,
+                                onLongPressHome = onLongPressHome
+                            )
+                        }
+                        "analog_chrono" -> {
+                            RetroAnalogChronoWidget(
+                                currentTimeMillis = currentTimeMillis,
+                                hourStr = currentHourStr,
+                                minStr = currentMinStr,
+                                secStr = currentSecStr,
+                                amPmStr = currentAmPmStr,
+                                dateStr = currentDateStr,
+                                sizeMode = sizeMode,
+                                widgetStyle = wStyle,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily,
+                                widgetsActive = widgetsActive,
+                                onOpenClockApp = onOpenClockApp,
+                                onLongPressHome = onLongPressHome
+                            )
+                        }
+                        "precision_chrono" -> {
+                            PrecisionChronographWidget(
+                                sizeMode = sizeMode,
+                                widgetStyle = wStyle,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily,
+                                widgetsActive = widgetsActive,
+                                onLongPressHome = onLongPressHome,
+                                onTick = onWaveTick
+                            )
+                        }
+                        "retro_calendar" -> {
+                            RetroDotMatrixCalendarWidget(
+                                currentTimeMillis = currentTimeMillis,
+                                sizeMode = sizeMode,
+                                widgetStyle = wStyle,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily
+                            )
+                        }
+                        "week_strip" -> {
+                            val timeHeader = if (currentAmPmStr.isNotEmpty()) {
+                                "$currentHourStr:$currentMinStr $currentAmPmStr"
+                            } else {
+                                "$currentHourStr:$currentMinStr"
+                            }
+                            RetroWeekTimelineStripWidget(
+                                currentTimeMillis = currentTimeMillis,
+                                sizeMode = sizeMode,
+                                widgetStyle = wStyle,
+                                timeHeaderStr = timeHeader,
+                                batteryPct = batteryPct,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily
+                            )
+                        }
+                        "year_matrix" -> {
+                            RetroYearDotMatrixWidget(
+                                currentTimeMillis = currentTimeMillis,
+                                sizeMode = sizeMode,
+                                widgetStyle = wStyle,
+                                accentColor = accentColor,
+                                lomoFontFamily = wFontFamily
+                            )
+                        }
+                        "torch", "storage", "quote", "zen", "scratchpad" -> {
+                            HomeUtilityWidgetContent(
+                                widgetId = widgetId,
+                                sizeMode = sizeMode,
+                                wStyle = wStyle,
+                                wFontFamily = wFontFamily,
+                                accentColor = accentColor,
+                                torchEnabled = torchEnabled,
+                                ramStatusText = ramStatusText,
+                                storageStatusText = storageStatusText,
+                                ramUsageFraction = ramUsageFraction,
+                                storageUsageFraction = storageUsageFraction,
+                                zenActive = zenActive,
+                                zenSeconds = zenSeconds,
+                                quickNote = quickNote,
+                                onToggleTorch = onToggleTorch,
+                                onToggleZen = onToggleZen,
+                                onLongPressHome = onLongPressHome
+                            )
+                        }
+                        "globe" -> {
+                            val globeHeight = when (sizeMode) {
+                                "compact" -> 135.dp
+                                "large" -> 265.dp
+                                "xlarge" -> 330.dp
+                                "max" -> 395.dp
+                                else -> 195.dp
+                            }
+                            val effectiveGlobeThemeForWidget = when {
+                                retro80sMode || wStyle == "80s_retro" || wStyle == "cyber_hud" -> "wireframe"
+                                else -> globeTheme
+                            }
+                            val effectiveGlobeColorForWidget = when {
+                                retro80sMode || wStyle == "80s_retro" -> "#7CFF5B"
+                                else -> globeWireframeColor
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(globeHeight),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                RetroFuturisticGlobeView(
+                                    globeTheme = effectiveGlobeThemeForWidget,
+                                    globeWireframeColor = effectiveGlobeColorForWidget,
+                                    widgetStyle = wStyle,
+                                    axisTilt2dDeg = globeTilt2dDeg,
+                                    axisRotXDeg = globeRotXDeg,
+                                    axisRotYDeg = globeRotYDeg,
+                                    interactive = !editMode,
+                                    widgetsActive = widgetsActive,
+                                    onLongPressHome = onLongPressHome,
+                                    onInteractionModeChanged = onGlobeInteractionChanged,
+                                    onTick = onWaveTick
+                                )
+                            }
+                        }
+                        "pinned_apps" -> {
+                            HomePinnedAppsWidgetContent(
+                                pinnedApps = pinnedApps,
+                                editMode = editMode,
+                                retro80sMode = retro80sMode,
+                                wStyle = wStyle,
+                                uppercaseHome = uppercaseHome,
+                                textAlign = textAlign,
+                                textSizeSp = textSizeSp,
+                                waveScrubMode = waveScrubMode,
+                                customPinnedOrderEnabled = customPinnedOrderEnabled,
+                                accentColor = accentColor,
+                                selectedFont = selectedFont,
+                                onMovePinnedApp = onMovePinnedApp,
+                                onUnpinApp = onUnpinApp,
+                                onLaunchApp = onLaunchApp,
+                                onLongPressApp = onLongPressApp,
+                                onWaveTick = onWaveTick
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+
+@Composable
+private fun HomeWidgetEditHeader(
+    widgetId: String,
+    activeWidgets: List<String>,
+    sizeMode: String,
+    wFontId: String,
+    wFontFamily: FontFamily,
+    rawWStyle: String,
+    retro80sMode: Boolean,
+    accentColor: Color,
+    selectedFont: FontFamily,
+    batteryBarStyle: String,
+    globeTilt2dDeg: Float,
+    globeRotXDeg: Float,
+    globeRotYDeg: Float,
+    isWidgetFontMenuExpanded: Boolean,
+    onToggleFontMenuExpanded: () -> Unit,
+    onMoveWidget: (String, Int) -> Unit,
+    onSetWidgetSize: (String, String) -> Unit,
+    onRemoveWidget: (String) -> Unit,
+    onSetWidgetStyle: (String, String) -> Unit,
+    onChangeBatteryBarStyle: (String) -> Unit,
+    onSetWidgetFont: (String, String) -> Unit,
+    onChangeGlobeTilt2d: (Float) -> Unit,
+    onChangeGlobeRotX: (Float) -> Unit,
+    onChangeGlobeRotY: (Float) -> Unit
+) {
                         val editBtnShape = RoundedCornerShape(if (retro80sMode) 0.dp else 4.dp)
                         val editBoxShape = RoundedCornerShape(if (retro80sMode) 0.dp else 5.dp)
                         val sizeChoices = when (widgetId) {
@@ -4449,7 +4757,6 @@ fun HomeScreenView(
                         }
                         val allWidgetFonts = remember { PrebuiltFont.values().toList() }
                         val activeWidgetFont = remember(wFontId) { PrebuiltFont.fromId(wFontId) }
-                        val isWidgetFontMenuExpanded = expandedFontWidgetIds.contains(widgetId)
 
                         Column(
                             modifier = Modifier
@@ -4655,11 +4962,7 @@ fun HomeScreenView(
                                             )
                                             .background(if (retro80sMode) Color(0xFF060606) else Color(0xFF111111), editBoxShape)
                                             .clickable {
-                                                expandedFontWidgetIds = if (isWidgetFontMenuExpanded) {
-                                                    expandedFontWidgetIds - widgetId
-                                                } else {
-                                                    expandedFontWidgetIds + widgetId
-                                                }
+                                                onToggleFontMenuExpanded()
                                             }
                                             .padding(horizontal = 8.dp, vertical = 5.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -4846,10 +5149,28 @@ fun HomeScreenView(
                                     .background(if (retro80sMode) accentColor.copy(alpha = 0.45f) else Color(0xFF1F1F1F))
                             )
                         }
-                    }
+}
 
-                    when (widgetId) {
-                        "clock" -> {
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HomeClockWidgetContent(
+    sizeMode: String,
+    wStyle: String,
+    wFontFamily: FontFamily,
+    textAlign: TextAlign,
+    currentHourStr: String,
+    currentMinStr: String,
+    currentAmPmStr: String,
+    currentDateStr: String,
+    nextAlarmStr: String,
+    batteryPct: Int,
+    isCharging: Boolean,
+    batteryBarStyle: String,
+    colonAlpha: Float,
+    accentColor: Color,
+    onOpenClockApp: () -> Unit,
+    onLongPressHome: () -> Unit
+) {
                             val horizontalAlign = when (textAlign) {
                                 TextAlign.Center -> Alignment.CenterHorizontally
                                 TextAlign.End -> Alignment.End
@@ -5264,147 +5585,29 @@ fun HomeScreenView(
                                     }
                                 }
                             }
-                        }
-                        "battery_bar" -> {
-                            val headerSp = when (sizeMode) {
-                                "large" -> 14.sp
-                                "compact" -> 10.sp
-                                else -> 12.sp
-                            }
-                            val timePart = if (currentAmPmStr.isNotEmpty()) {
-                                "$currentHourStr:$currentMinStr $currentAmPmStr"
-                            } else {
-                                "$currentHourStr:$currentMinStr"
-                            }
-                            val dateClean = currentDateStr.replace("·", "-")
-                            val effectiveBarStyle = if (wStyle == "80s_retro") "retro_blocks" else batteryBarStyle
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .then(
-                                        if (wStyle == "cyber_hud") {
-                                            Modifier
-                                                .border(1.dp, accentColor.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
-                                                .background(Color(0xFF060606), RoundedCornerShape(6.dp))
-                                                .padding(8.dp)
-                                        } else Modifier
-                                    )
-                                    .combinedClickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null,
-                                        onClick = { onOpenClockApp() },
-                                        onLongClick = { onLongPressHome() }
-                                    ),
-                                verticalArrangement = Arrangement.spacedBy(5.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = if (wStyle == "cyber_hud") "SYS.PWR // $timePart" else "$timePart $dateClean",
-                                        color = if (wStyle == "80s_retro") accentColor else Color.White,
-                                        fontSize = headerSp,
-                                        fontFamily = wFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        letterSpacing = 0.8.sp
-                                    )
-                                    Text(
-                                        text = if (wStyle == "cyber_hud") "[CELL: $batteryPct%${if (isCharging) " ⚡" else ""}]" else if (isCharging) "$batteryPct% ⚡" else "$batteryPct%",
-                                        color = accentColor,
-                                        fontSize = headerSp,
-                                        fontFamily = wFontFamily,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                RetroBatteryProgressBar(
-                                    batteryPct = batteryPct,
-                                    barStyle = effectiveBarStyle,
-                                    accentColor = accentColor,
-                                    retro80sMode = retro80sMode,
-                                    sizeMode = sizeMode,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                        }
-                        "retro_flip_clock" -> {
-                            RetroSplitFlapClockWidget(
-                                hourStr = currentHourStr,
-                                minStr = currentMinStr,
-                                secStr = currentSecStr,
-                                amPmStr = currentAmPmStr,
-                                dateStr = currentDateStr,
-                                sizeMode = sizeMode,
-                                widgetStyle = wStyle,
-                                accentColor = accentColor,
-                                lomoFontFamily = wFontFamily,
-                                onOpenClockApp = onOpenClockApp,
-                                onLongPressHome = onLongPressHome
-                            )
-                        }
-                        "analog_chrono" -> {
-                            RetroAnalogChronoWidget(
-                                currentTimeMillis = currentTimeMillis,
-                                hourStr = currentHourStr,
-                                minStr = currentMinStr,
-                                secStr = currentSecStr,
-                                amPmStr = currentAmPmStr,
-                                dateStr = currentDateStr,
-                                sizeMode = sizeMode,
-                                widgetStyle = wStyle,
-                                accentColor = accentColor,
-                                lomoFontFamily = wFontFamily,
-                                widgetsActive = widgetsActive,
-                                onOpenClockApp = onOpenClockApp,
-                                onLongPressHome = onLongPressHome
-                            )
-                        }
-                        "precision_chrono" -> {
-                            PrecisionChronographWidget(
-                                sizeMode = sizeMode,
-                                widgetStyle = wStyle,
-                                accentColor = accentColor,
-                                lomoFontFamily = wFontFamily,
-                                widgetsActive = widgetsActive,
-                                onLongPressHome = onLongPressHome,
-                                onTick = onWaveTick
-                            )
-                        }
-                        "retro_calendar" -> {
-                            RetroDotMatrixCalendarWidget(
-                                currentTimeMillis = currentTimeMillis,
-                                sizeMode = sizeMode,
-                                widgetStyle = wStyle,
-                                accentColor = accentColor,
-                                lomoFontFamily = wFontFamily
-                            )
-                        }
-                        "week_strip" -> {
-                            val timeHeader = if (currentAmPmStr.isNotEmpty()) {
-                                "$currentHourStr:$currentMinStr $currentAmPmStr"
-                            } else {
-                                "$currentHourStr:$currentMinStr"
-                            }
-                            RetroWeekTimelineStripWidget(
-                                currentTimeMillis = currentTimeMillis,
-                                sizeMode = sizeMode,
-                                widgetStyle = wStyle,
-                                timeHeaderStr = timeHeader,
-                                batteryPct = batteryPct,
-                                accentColor = accentColor,
-                                lomoFontFamily = wFontFamily
-                            )
-                        }
-                        "year_matrix" -> {
-                            RetroYearDotMatrixWidget(
-                                currentTimeMillis = currentTimeMillis,
-                                sizeMode = sizeMode,
-                                widgetStyle = wStyle,
-                                accentColor = accentColor,
-                                lomoFontFamily = wFontFamily
-                            )
-                        }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HomeUtilityWidgetContent(
+    widgetId: String,
+    sizeMode: String,
+    wStyle: String,
+    wFontFamily: FontFamily,
+    accentColor: Color,
+    torchEnabled: Boolean,
+    ramStatusText: String,
+    storageStatusText: String,
+    ramUsageFraction: Float,
+    storageUsageFraction: Float,
+    zenActive: Boolean,
+    zenSeconds: Int,
+    quickNote: String,
+    onToggleTorch: () -> Unit,
+    onToggleZen: () -> Unit,
+    onLongPressHome: () -> Unit
+) {
+    when (widgetId) {
                         "torch" -> {
                             val padV = when (sizeMode) {
                                 "compact" -> 5.dp
@@ -5965,44 +6168,32 @@ fun HomeScreenView(
                                 }
                             }
                         }
-                        "globe" -> {
-                            val globeHeight = when (sizeMode) {
-                                "compact" -> 135.dp
-                                "large" -> 265.dp
-                                "xlarge" -> 330.dp
-                                "max" -> 395.dp
-                                else -> 195.dp
-                            }
-                            val effectiveGlobeThemeForWidget = when {
-                                retro80sMode || wStyle == "80s_retro" || wStyle == "cyber_hud" -> "wireframe"
-                                else -> globeTheme
-                            }
-                            val effectiveGlobeColorForWidget = when {
-                                retro80sMode || wStyle == "80s_retro" -> "#7CFF5B"
-                                else -> globeWireframeColor
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(globeHeight),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                RetroFuturisticGlobeView(
-                                    globeTheme = effectiveGlobeThemeForWidget,
-                                    globeWireframeColor = effectiveGlobeColorForWidget,
-                                    widgetStyle = wStyle,
-                                    axisTilt2dDeg = globeTilt2dDeg,
-                                    axisRotXDeg = globeRotXDeg,
-                                    axisRotYDeg = globeRotYDeg,
-                                    interactive = !editMode,
-                                    widgetsActive = widgetsActive,
-                                    onLongPressHome = onLongPressHome,
-                                    onInteractionModeChanged = onGlobeInteractionChanged,
-                                    onTick = onWaveTick
-                                )
-                            }
-                        }
-                        "pinned_apps" -> {
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HomePinnedAppsWidgetContent(
+    pinnedApps: List<AppEntry>,
+    editMode: Boolean,
+    retro80sMode: Boolean,
+    wStyle: String,
+    uppercaseHome: Boolean,
+    textAlign: TextAlign,
+    textSizeSp: Int,
+    waveScrubMode: String,
+    customPinnedOrderEnabled: Boolean,
+    accentColor: Color,
+    selectedFont: FontFamily,
+    onMovePinnedApp: (String, Int) -> Unit,
+    onUnpinApp: (String) -> Unit,
+    onLaunchApp: (String) -> Unit,
+    onLongPressApp: (AppEntry) -> Unit,
+    onWaveTick: () -> Unit
+) {
+    val density = LocalDensity.current
+    var waveFloatIndex by remember { mutableStateOf<Float?>(null) }
+    var lastHoveredIndex by remember { mutableStateOf<Int?>(null) }
                             // UNIFIED PINNED APPS WIDGET (All pinned apps together in one widget!)
                             // In Edit Mode (when customPinnedOrderEnabled is ON), each app row shows ↑ / ↓ sequence buttons!
                             Box(
@@ -6323,15 +6514,8 @@ fun HomeScreenView(
                                     }
                                 }
                             }
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
-// ============================================================================
 // ULTRA-HIGH-PRECISION 3D EARTH MODEL & CARTOGRAPHIC DATASET (v3.3.0-cmf)
 // - 360+ Exact Polygon Rings (11,700+ Satellite-Derived Natural Earth + Survey of India
 //   + Island Archipelagos & Great Lakes Coordinates at 0.01° Precision)
