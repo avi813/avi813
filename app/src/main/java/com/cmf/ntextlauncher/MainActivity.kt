@@ -68,6 +68,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -564,7 +566,10 @@ class DrawerCatalogData(
     val items: List<DrawerListItem>,
     val hasAppsForLetter: BooleanArray,
     val nearestSectionItemIndex: IntArray,
-    val itemIndexToSectionIndex: IntArray
+    val itemIndexToSectionIndex: IntArray,
+    val sectionStartItemIndex: IntArray = IntArray(26) { -1 },
+    val sectionItemCount: IntArray = IntArray(26) { 1 },
+    val firstPresentSectionIndex: Int = 0
 )
 
 private fun buildDrawerCatalogData(
@@ -579,18 +584,23 @@ private fun buildDrawerCatalogData(
         apps.filter { !it.isHidden && it.label.contains(trimmedQuery, ignoreCase = true) }
     }
     val exactStartItemIdx = IntArray(26) { -1 }
+    val secCounts = IntArray(26) { 0 }
     val items = ArrayList<DrawerListItem>(filtered.size + 26)
     var prevLetter: Char? = null
     var headerCount = 0
+    var firstSecIdx = -1
 
     for (i in filtered.indices) {
         val app = filtered[i]
         val ch = app.firstLetter.uppercaseChar()
         val secIdx = if (ch in 'A'..'Z') (ch - 'A') else 0
+        if (firstSecIdx == -1) {
+            firstSecIdx = secIdx
+        }
         if (ch != prevLetter) {
             prevLetter = ch
             val hdrItemIdx = items.size
-            if (ch in 'A'..'Z' && exactStartItemIdx[secIdx] == -1) {
+            if (exactStartItemIdx[secIdx] == -1) {
                 exactStartItemIdx[secIdx] = hdrItemIdx
             }
             items.add(
@@ -600,6 +610,7 @@ private fun buildDrawerCatalogData(
                     isFirstHeader = (headerCount == 0)
                 )
             )
+            secCounts[secIdx]++
             headerCount++
         }
         val disp = if (uppercaseLabels) app.label.uppercase(Locale.getDefault()) else app.label
@@ -610,6 +621,11 @@ private fun buildDrawerCatalogData(
                 sectionIndex = secIdx
             )
         )
+        secCounts[secIdx]++
+    }
+
+    for (i in 0..25) {
+        if (secCounts[i] <= 0) secCounts[i] = 1
     }
 
     val hasApps = BooleanArray(26) { exactStartItemIdx[it] >= 0 }
@@ -640,8 +656,74 @@ private fun buildDrawerCatalogData(
         items = items,
         hasAppsForLetter = hasApps,
         nearestSectionItemIndex = nearest,
-        itemIndexToSectionIndex = itemSecMap
+        itemIndexToSectionIndex = itemSecMap,
+        sectionStartItemIndex = exactStartItemIdx,
+        sectionItemCount = secCounts,
+        firstPresentSectionIndex = if (firstSecIdx >= 0) firstSecIdx else 0
     )
+}
+
+private fun computeContinuousListRailF(
+    listState: LazyListState,
+    catalog: DrawerCatalogData
+): Float {
+    val map = catalog.itemIndexToSectionIndex
+    if (map.isEmpty()) return 0f
+
+    val canScroll = listState.canScrollForward || listState.canScrollBackward
+    if (!canScroll) {
+        // Whole list fits on screen and cannot scroll at all: follow the first section without bottom blend
+        return catalog.firstPresentSectionIndex.toFloat().coerceIn(0f, 25f)
+    }
+
+    val layoutInfo = listState.layoutInfo
+    val visibleItems = layoutInfo.visibleItemsInfo
+    if (visibleItems.isEmpty()) {
+        val fallbackIdx = listState.firstVisibleItemIndex.coerceIn(0, map.lastIndex)
+        return map[fallbackIdx].toFloat().coerceIn(0f, 25f)
+    }
+
+    // 1. f_section = rail index of the section letter at the top of the list + progress through that section (0 to 1)
+    val firstVis = visibleItems.first()
+    val topItemIdx = firstVis.index.coerceIn(0, map.lastIndex)
+    val topSecIdx = map[topItemIdx].coerceIn(0, 25)
+    val secStartIdx = catalog.sectionStartItemIndex[topSecIdx].let { if (it >= 0) it else topItemIdx }
+    val secTotalItems = catalog.sectionItemCount[topSecIdx].coerceAtLeast(1)
+    val itemOffsetInSec = (topItemIdx - secStartIdx).coerceIn(0, secTotalItems - 1)
+    val intraItemProgress = if (firstVis.size > 0) {
+        ((-firstVis.offset).coerceAtLeast(0).toFloat() / firstVis.size.toFloat()).coerceIn(0f, 1f)
+    } else 0f
+    val secProgress01 = ((itemOffsetInSec.toFloat() + intraItemProgress) / secTotalItems.toFloat()).coerceIn(0f, 1f)
+    val fSection = (topSecIdx.toFloat() + secProgress01).coerceIn(0f, 25f)
+
+    // 2. remaining = distance left until the end of the list; viewport = list's visible height
+    val viewportStart = layoutInfo.viewportStartOffset
+    val viewportEnd = layoutInfo.viewportEndOffset
+    val viewportPx = (viewportEnd - viewportStart).toFloat().coerceAtLeast(1f)
+
+    val remainingPx = if (!listState.canScrollForward) {
+        0f
+    } else {
+        val lastVis = visibleItems.last()
+        val totalItems = layoutInfo.totalItemsCount.coerceAtLeast(1)
+        val itemsAfterLast = (totalItems - 1 - lastVis.index).coerceAtLeast(0)
+        val contentEndPx = viewportEnd - layoutInfo.afterContentPadding
+        val lastItemOverhangPx = (lastVis.offset + lastVis.size - contentEndPx).coerceAtLeast(0).toFloat()
+        val avgItemStridePx = if (visibleItems.size >= 2) {
+            ((lastVis.offset - firstVis.offset).toFloat() / (visibleItems.size - 1).toFloat()).coerceAtLeast(1f)
+        } else {
+            lastVis.size.toFloat().coerceAtLeast(1f)
+        }
+        lastItemOverhangPx + itemsAfterLast.toFloat() * avgItemStridePx
+    }
+
+    // 3. w = smoothstep(1 - clamp(remaining / viewport, 0, 1))
+    val u = 1f - (remainingPx / viewportPx).coerceIn(0f, 1f)
+    val w = u * u * (3f - 2f * u)
+
+    // 4. f = lerp(f_section, lastRailIndex, w), where lastRailIndex = 25f ('Z')
+    val lastRailIndex = 25f
+    return (fSection + (lastRailIndex - fSection) * w).coerceIn(0f, lastRailIndex)
 }
 
 // ============================================================================
@@ -7944,9 +8026,14 @@ fun AppDrawerView(
     val isDrawerFullyClosed by remember { derivedStateOf { getDrawerProgress() <= 0.005f } }
     val isDrawerOpenNow by remember { derivedStateOf { getDrawerProgress() > 0.5f } }
 
-    // Reset search text and scroll position ONLY after the drawer has finished closing (never mid-transition!)
+    // Holds the last letter index (0..25) hovered or tapped on the alphabet rail after the finger lifts;
+    // -1 means the indicator follows the list scroll position f.
+    var pinnedRailLetterIndex by remember { mutableStateOf(-1) }
+
+    // Reset search text, scroll position, and pinned rail letter after the drawer closes
     LaunchedEffect(isDrawerFullyClosed, searchResetToken) {
         if (isDrawerFullyClosed) {
+            pinnedRailLetterIndex = -1
             if (query.isNotEmpty()) query = ""
             if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) {
                 listState.scrollToItem(0, 0)
@@ -7954,7 +8041,15 @@ fun AppDrawerView(
         }
     }
 
-    // Use the pre-cached background-built catalog when query is blank; only filter when user types a search query
+    // Whenever the user touches/drags the LazyColumn manually, release the pinned rail letter so the indicator follows the list again
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) {
+                pinnedRailLetterIndex = -1
+            }
+        }
+    }
+
     val activeCatalog by produceState(
         initialValue = prebuiltCatalog,
         key1 = prebuiltCatalog,
@@ -7979,15 +8074,15 @@ fun AppDrawerView(
     val currentOnSettleWithVelocity by rememberUpdatedState(onSettleDrawerWithVelocity)
     val currentGetProgress by rememberUpdatedState(getDrawerProgress)
 
-    // Stock-Android bottom-sheet nested scroll:
-    // - Starts dragging the drawer closed only when the list is scrolled to the very top
-    // - Once the drawer is partially pulled (< 0.999f), tracks finger 1:1 in BOTH directions (up & down)
-    // - Settles with the release velocity so mid-way interruptions and reversals feel completely native
     val drawerNestedScroll = remember {
         var isDraggingSheet = false
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (source != NestedScrollSource.Drag) return Offset.Zero
+                // Manual drag on the list releases any pinned rail letter so indicator follows the list
+                if (pinnedRailLetterIndex != -1) {
+                    pinnedRailLetterIndex = -1
+                }
                 val curProg = currentGetProgress()
                 if (isDraggingSheet || curProg < 0.999f) {
                     if (!isDraggingSheet) {
@@ -7995,7 +8090,6 @@ fun AppDrawerView(
                         currentOnDragStart()
                     }
                     currentOnDragDelta(available.y)
-                    // If user pushed the drawer all the way to 1.0f and keeps dragging upward, hand remaining delta to LazyColumn
                     if (currentGetProgress() >= 0.999f && available.y < 0f) {
                         isDraggingSheet = false
                         return Offset.Zero
@@ -8056,19 +8150,15 @@ fun AppDrawerView(
         accentColor
     }
 
-    val activeSectionIndex by remember(activeCatalog) {
+    // Continuous fractional rail position f (0f..25f) computed from listState via derivedStateOf:
+    // blends f_section smoothly toward Z (25f) over the final viewport of scrolling using smoothstep
+    val continuousListRailFState = remember(listState, activeCatalog) {
         derivedStateOf {
-            val map = activeCatalog.itemIndexToSectionIndex
-            if (map.isEmpty()) 0
-            else {
-                val firstIdx = listState.firstVisibleItemIndex.coerceIn(0, map.lastIndex)
-                map[firstIdx]
-            }
+            computeContinuousListRailF(listState, activeCatalog)
         }
     }
 
     val spacingDp = drawerAppSpacingDp.coerceIn(0, 32).dp
-    // Section headers keep their own spacing scaled in proportion (~2x app spacing)
     val sectionTopExtraGapDp = (drawerAppSpacingDp.coerceIn(0, 32) * 1.0f).roundToInt().coerceAtLeast(6).dp
     val headerFontSp = (drawerTextSizeSp * 1.15f).coerceIn(18f, 24f).sp
     val starFontSp = (drawerTextSizeSp * 0.65f).coerceIn(10f, 14f).sp
@@ -8085,7 +8175,6 @@ fun AppDrawerView(
             .padding(start = 20.dp, top = 10.dp, bottom = 10.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Floating Search Bar Pill (never auto-focused on drawer open so keyboard never stalls transitions)
             val searchShape = RoundedCornerShape(24.dp)
             Box(
                 modifier = Modifier
@@ -8110,7 +8199,10 @@ fun AppDrawerView(
                     Spacer(modifier = Modifier.width(6.dp))
                     BasicTextField(
                         value = query,
-                        onValueChange = { query = it },
+                        onValueChange = {
+                            pinnedRailLetterIndex = -1
+                            query = it
+                        },
                         singleLine = true,
                         textStyle = TextStyle(
                             color = Color(0xFFEDEDED),
@@ -8142,6 +8234,7 @@ fun AppDrawerView(
                             fontFamily = lomoFontFamily,
                             modifier = Modifier
                                 .clickable {
+                                    pinnedRailLetterIndex = -1
                                     query = ""
                                     focusManager.clearFocus()
                                     keyboardController?.hide()
@@ -8171,10 +8264,6 @@ fun AppDrawerView(
             Spacer(modifier = Modifier.height(10.dp))
 
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                // Stock-smooth LazyColumn:
-                // - Uses platform default fling decay and Android 12+ stretch overscroll
-                // - Separate lightweight contentTypes ("section_header" and "app_row") with stable keys
-                // - Vertical gap between rows driven by drawerAppSpacingDp (0..32dp) with zero touch overlap
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
@@ -8254,11 +8343,16 @@ fun AppDrawerView(
                     }
                 }
 
-                // Niagara-Style Fluid Wave Alphabet Sidebar (Index-based section jumps via scrollToItem)
+                // Niagara-Style Fluid Wave Alphabet Sidebar:
+                // - Follows finger over full A..Z (0f..25f) regardless of whether list can scroll further
+                // - Stays on the last hovered/tapped letter after finger lift until the user manually scrolls the list or closes the drawer
+                // - Follows continuous fractional rail position f (smoothstep-blended to Z at the bottom) during manual list scrolling
                 AlphabetScrubberRail(
                     accentColor = drawerAccent,
                     letterStretch = drawerWaveIntensity,
-                    activeSectionIndex = activeSectionIndex,
+                    getContinuousListRailF = { continuousListRailFState.value },
+                    pinnedLetterIndex = pinnedRailLetterIndex,
+                    onPinLetterIndex = { pinnedRailLetterIndex = it },
                     hasAppsForLetter = activeCatalog.hasAppsForLetter,
                     lomoFontFamily = lomoFontFamily,
                     onSelectLetterIndex = { letterIdx ->
@@ -8283,7 +8377,9 @@ fun AppDrawerView(
 private fun AlphabetScrubberRail(
     accentColor: Color,
     letterStretch: Float,
-    activeSectionIndex: Int,
+    getContinuousListRailF: () -> Float,
+    pinnedLetterIndex: Int,
+    onPinLetterIndex: (Int) -> Unit,
     hasAppsForLetter: BooleanArray,
     lomoFontFamily: FontFamily,
     onSelectLetterIndex: (Int) -> Unit,
@@ -8293,16 +8389,17 @@ private fun AlphabetScrubberRail(
     val scope = rememberCoroutineScope()
     val letters = remember { ('A'..'Z').toList() }
     val currentOnSelectIndex by rememberUpdatedState(onSelectLetterIndex)
+    val currentOnPinLetterIndex by rememberUpdatedState(onPinLetterIndex)
     val currentOnHapticTick by rememberUpdatedState(onHapticTick)
     val currentStretch by rememberUpdatedState(letterStretch.coerceIn(0.10f, 1.00f))
+    val currentGetContinuousF by rememberUpdatedState(getContinuousListRailF)
 
-    var stripHeightPx by remember { mutableStateOf(1f) }
     var isTouching by remember { mutableStateOf(false) }
-    var hoveredIndex by remember { mutableStateOf(-1) }
 
-    val smoothFAnim = remember { Animatable(activeSectionIndex.toFloat()) }
+    val initialRailF = remember { currentGetContinuousF().coerceIn(0f, 25f) }
+    val smoothFAnim = remember { Animatable(initialRailF) }
     val engagementAnim = remember { Animatable(0f) }
-    val barPosAnim = remember { Animatable(activeSectionIndex.toFloat()) }
+    val barPosAnim = remember { Animatable(initialRailF) }
     val velocityStretchPxAnim = remember { Animatable(0f) }
 
     val base96DpPx = with(density) { 96.dp.toPx() }
@@ -8314,14 +8411,35 @@ private fun AlphabetScrubberRail(
     val rightMarginPx = with(density) { 20.dp.toPx() }
     val letterRailWidthPx = with(density) { 16.dp.toPx() }
     val barGapFromLetterPx = with(density) { 5.dp.toPx() }
+    // 24dp extra touch zone above 'A' and 24dp extra touch zone below 'Z' (also guarantees >= 16dp clearance above gesture bar)
+    val verticalTouchPadDp = 24.dp
+    val verticalTouchPadPx = with(density) { verticalTouchPadDp.toPx() }
 
-    LaunchedEffect(activeSectionIndex, isTouching) {
+    // Observe continuous list scroll position f via snapshotFlow when not touching the rail and not pinned to a tapped/hovered letter.
+    // Animates barPosAnim with the existing spring and reads it strictly in the draw/graphicsLayer phase (0 recompositions per frame).
+    LaunchedEffect(isTouching, pinnedLetterIndex) {
         if (!isTouching) {
-            barPosAnim.animateTo(
-                targetValue = activeSectionIndex.toFloat(),
-                animationSpec = spring(dampingRatio = 0.75f, stiffness = 500f)
-            )
-            smoothFAnim.snapTo(activeSectionIndex.toFloat())
+            if (pinnedLetterIndex in 0..25) {
+                val targetPinnedF = pinnedLetterIndex.toFloat()
+                launch {
+                    barPosAnim.animateTo(
+                        targetValue = targetPinnedF,
+                        animationSpec = spring(dampingRatio = 0.75f, stiffness = 500f)
+                    )
+                }
+                smoothFAnim.snapTo(targetPinnedF)
+            } else {
+                snapshotFlow { currentGetContinuousF().coerceIn(0f, 25f) }
+                    .collect { targetF ->
+                        launch {
+                            barPosAnim.animateTo(
+                                targetValue = targetF,
+                                animationSpec = spring(dampingRatio = 0.75f, stiffness = 500f)
+                            )
+                        }
+                        smoothFAnim.snapTo(targetF)
+                    }
+            }
         }
     }
 
@@ -8329,9 +8447,6 @@ private fun AlphabetScrubberRail(
         modifier = Modifier
             .width(56.dp)
             .fillMaxHeight()
-            .onGloballyPositioned { coords ->
-                stripHeightPx = coords.size.height.toFloat().coerceAtLeast(1f)
-            }
             .pointerInput(Unit) {
                 var lastTickMs = 0L
                 awaitEachGesture {
@@ -8339,13 +8454,17 @@ private fun AlphabetScrubberRail(
                     down.consume()
 
                     val h = size.height.toFloat().coerceAtLeast(1f)
-                    stripHeightPx = h
-                    val slotH = h / 26f
-                    val initialF = (((down.position.y / slotH) - 0.5f)).coerceIn(0f, 25f)
+                    val padPx = verticalTouchPadPx.coerceAtMost(h * 0.18f)
+                    val lettersSpanH = (h - padPx * 2f).coerceAtLeast(1f)
+                    val slotH = lettersSpanH / 26f
+                    // Finger above A counts as A (0f); finger below Z counts as Z (25f)
+                    val clampedLocalY = (down.position.y - padPx).coerceIn(0f, lettersSpanH)
+                    val initialF = ((clampedLocalY / slotH) - 0.5f).coerceIn(0f, 25f)
                     val initialIdx = initialF.roundToInt().coerceIn(0, 25)
 
                     isTouching = true
-                    hoveredIndex = initialIdx
+                    var currentHoveredIdx = initialIdx
+                    currentOnPinLetterIndex(initialIdx)
                     currentOnSelectIndex(initialIdx)
                     val nowDown = System.currentTimeMillis()
                     if (nowDown - lastTickMs >= 30L) {
@@ -8378,8 +8497,11 @@ private fun AlphabetScrubberRail(
                         if (change != null && change.pressed) {
                             change.consume()
                             val curH = size.height.toFloat().coerceAtLeast(1f)
-                            val curSlotH = curH / 26f
-                            val rawF = (((change.position.y / curSlotH) - 0.5f)).coerceIn(0f, 25f)
+                            val curPadPx = verticalTouchPadPx.coerceAtMost(curH * 0.18f)
+                            val curSpanH = (curH - curPadPx * 2f).coerceAtLeast(1f)
+                            val curSlotH = curSpanH / 26f
+                            val curLocalY = (change.position.y - curPadPx).coerceIn(0f, curSpanH)
+                            val rawF = ((curLocalY / curSlotH) - 0.5f).coerceIn(0f, 25f)
                             val newIdx = rawF.roundToInt().coerceIn(0, 25)
 
                             val dtMs = (change.uptimeMillis - prevTimeMs).coerceAtLeast(1L)
@@ -8410,8 +8532,9 @@ private fun AlphabetScrubberRail(
                                 )
                             }
 
-                            if (newIdx != hoveredIndex) {
-                                hoveredIndex = newIdx
+                            if (newIdx != currentHoveredIdx) {
+                                currentHoveredIdx = newIdx
+                                currentOnPinLetterIndex(newIdx)
                                 currentOnSelectIndex(newIdx)
                                 val nowMove = System.currentTimeMillis()
                                 if (nowMove - lastTickMs >= 30L) {
@@ -8422,8 +8545,9 @@ private fun AlphabetScrubberRail(
                         }
                     } while (event.changes.any { it.pressed })
 
+                    // Keep pinnedLetterIndex at currentHoveredIdx when the finger lifts so the indicator stays on that letter!
+                    currentOnPinLetterIndex(currentHoveredIdx)
                     isTouching = false
-                    hoveredIndex = -1
                     scope.launch {
                         engagementAnim.animateTo(
                             targetValue = 0f,
@@ -8440,9 +8564,12 @@ private fun AlphabetScrubberRail(
             },
         contentAlignment = Alignment.CenterEnd
     ) {
+        // Single continuous physical orange bar drawn in Draw phase (0 recompositions per frame)
         Canvas(modifier = Modifier.fillMaxSize()) {
             val h = size.height.coerceAtLeast(1f)
-            val slotH = h / 26f
+            val padPx = verticalTouchPadPx.coerceAtMost(h * 0.18f)
+            val lettersSpanH = (h - padPx * 2f).coerceAtLeast(1f)
+            val slotH = lettersSpanH / 26f
             val bPos = barPosAnim.value.coerceIn(0f, 25f)
             val sf = smoothFAnim.value
             val eng = engagementAnim.value.coerceAtLeast(0f)
@@ -8463,7 +8590,7 @@ private fun AlphabetScrubberRail(
 
             val railLeftEdgeX = size.width - rightMarginPx - letterRailWidthPx
             val barX = railLeftEdgeX + waveShiftX - letterExtraLeftWidth - barGapFromLetterPx - barW
-            val barCenterY = (bPos + 0.5f) * slotH
+            val barCenterY = padPx + (bPos + 0.5f) * slotH
             val barTopY = (barCenterY - barH * 0.5f).coerceIn(0f, (h - barH).coerceAtLeast(0f))
 
             drawRoundRect(
@@ -8474,18 +8601,20 @@ private fun AlphabetScrubberRail(
             )
         }
 
+        // Slim vertical rail on the right edge with 24dp top & bottom padding inside the touch strip
+        // Reads barPosAnim, smoothFAnim, and engagementAnim strictly inside graphicsLayer (0 recompositions per frame!)
         Column(
             modifier = Modifier
-                .padding(end = 16.dp)
+                .padding(top = verticalTouchPadDp, bottom = verticalTouchPadDp, end = 16.dp)
                 .width(24.dp)
                 .fillMaxHeight(),
             verticalArrangement = Arrangement.SpaceEvenly,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            val highlightedIdx = if (isTouching && hoveredIndex in 0..25) hoveredIndex else activeSectionIndex
+            val railFont = LocalLauncherFont.current
             letters.forEachIndexed { i, ch ->
-                val isHighlighted = i == highlightedIdx
                 val hasApps = hasAppsForLetter.getOrElse(i) { true }
+                val letterStr = ch.toString()
 
                 Box(
                     modifier = Modifier
@@ -8506,26 +8635,55 @@ private fun AlphabetScrubberRail(
                             val sc = 1f + 1.4f * inf
                             scaleX = sc
                             scaleY = sc
-
-                            val baseAlpha = when {
-                                isHighlighted -> 1f
-                                hasApps -> 0.25f
-                                else -> 0.12f
-                            }
-                            val waveAlpha = 0.25f + 0.75f * inf.coerceIn(0f, 1f)
-                            alpha = if (isHighlighted) 1f else max(baseAlpha, waveAlpha * (if (eng > 0.01f) 1f else 0f)).coerceIn(0.12f, 1f)
                         },
                     contentAlignment = Alignment.Center
                 ) {
+                    // Normal off-white letter (visible when this slot is NOT the active indicator letter)
                     Text(
-                        text = ch.toString(),
-                        color = if (isHighlighted) accentColor else Color(0xFFEDEDED),
+                        text = letterStr,
+                        color = Color(0xFFEDEDED),
                         fontSize = 11.sp,
-                        fontFamily = LocalLauncherFont.current,
-                        fontWeight = if (isHighlighted) FontWeight.Bold else FontWeight.Normal,
+                        fontFamily = railFont,
+                        fontWeight = FontWeight.Normal,
                         textAlign = TextAlign.Center,
                         maxLines = 1,
-                        softWrap = false
+                        softWrap = false,
+                        modifier = Modifier.graphicsLayer {
+                            val activeIdx = (if (engagementAnim.value > 0.05f) smoothFAnim.value else barPosAnim.value)
+                                .roundToInt()
+                                .coerceIn(0, 25)
+                            if (i == activeIdx) {
+                                alpha = 0f
+                            } else {
+                                val eng = engagementAnim.value.coerceAtLeast(0f)
+                                val sf = smoothFAnim.value
+                                val s = currentStretch
+                                val sigma = 0.9f + 0.9f * s
+                                val twoSigmaSq = 2f * sigma * sigma
+                                val d = abs(i.toFloat() - sf)
+                                val inf = (exp(-(d * d) / twoSigmaSq) * eng).coerceIn(0f, 1f)
+                                val baseAlpha = if (hasApps) 0.25f else 0.12f
+                                val waveAlpha = 0.25f + 0.75f * inf
+                                alpha = max(baseAlpha, waveAlpha * (if (eng > 0.01f) 1f else 0f)).coerceIn(0.12f, 1f)
+                            }
+                        }
+                    )
+                    // Highlighted accent-colored letter (visible when this slot IS the active indicator letter)
+                    Text(
+                        text = letterStr,
+                        color = accentColor,
+                        fontSize = 11.sp,
+                        fontFamily = railFont,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.graphicsLayer {
+                            val activeIdx = (if (engagementAnim.value > 0.05f) smoothFAnim.value else barPosAnim.value)
+                                .roundToInt()
+                                .coerceIn(0, 25)
+                            alpha = if (i == activeIdx) 1f else 0f
+                        }
                     )
                 }
             }
