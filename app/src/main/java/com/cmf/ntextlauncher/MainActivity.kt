@@ -1228,7 +1228,7 @@ data class LiveWallpaperConfig(
     val ripplesSpeedPct: Int = 100,
     val ripplesMaxCount: Int = 3,
     val ripplesBrightnessPct: Int = 70,
-    val ripplesFps: Int = 30,
+    val ripplesFps: Int = 60,
     // 6. Oscilloscope
     val oscilloscopeCurve: String = "3:2",
     val oscilloscopeSpeedPct: Int = 100,
@@ -1380,7 +1380,7 @@ val VALID_WP_PREF_KEYS = setOf(
     "wp_crt_density", "wp_crt_strength", "wp_crt_speed", "wp_crt_brightness", "wp_crt_fps",
     "wp_yd_cols", "wp_yd_size", "wp_yd_shape", "wp_yd_pos", "wp_yd_counter", "wp_yd_brightness",
     "wp_mp_size", "wp_mp_detail", "wp_mp_vert", "wp_mp_phase", "wp_mp_brightness",
-    "wp_tr_spacing", "wp_tr_dot", "wp_tr_reach", "wp_tr_speed", "wp_tr_max", "wp_tr_brightness", "wp_tr_fps",
+    "wp_tr_spacing", "wp_tr_dot", "wp_tr_reach", "wp_tr_speed", "wp_tr_max", "wp_tr_brightness", "wp_tr_fps", "wp_tr_fps_migrated_60",
     "wp_osc_curve", "wp_osc_speed", "wp_osc_size", "wp_osc_thick", "wp_osc_trail", "wp_osc_brightness", "wp_osc_fps",
     "wp_sn_origin", "wp_sn_interval", "wp_sn_speed", "wp_sn_reach", "wp_sn_thick", "wp_sn_echo", "wp_sn_brightness", "wp_sn_fps",
     "wp_pr_density", "wp_pr_speed", "wp_pr_size", "wp_pr_tail", "wp_pr_accent", "wp_pr_brightness", "wp_pr_fps",
@@ -1520,7 +1520,12 @@ fun loadAndMigrateLiveWallpaperConfig(prefs: SharedPreferences): LiveWallpaperCo
         ripplesSpeedPct = prefs.getInt("wp_tr_speed", migratedNewSpeed).coerceIn(25, 200),
         ripplesMaxCount = prefs.getInt("wp_tr_max", 3).coerceIn(1, 5),
         ripplesBrightnessPct = prefs.getInt("wp_tr_brightness", migratedNewBright).coerceIn(20, 100),
-        ripplesFps = prefs.getInt("wp_tr_fps", 30).let { if (it in listOf(30, 60)) it else 30 },
+        ripplesFps = if (!prefs.getBoolean("wp_tr_fps_migrated_60", false)) {
+            prefs.edit().putInt("wp_tr_fps", 60).putBoolean("wp_tr_fps_migrated_60", true).apply()
+            60
+        } else {
+            prefs.getInt("wp_tr_fps", 60).let { if (it in listOf(30, 60)) it else 60 }
+        },
 
         oscilloscopeCurve = (prefs.getString("wp_osc_curve", "3:2") ?: "3:2").let {
             if (it in listOf("3:2", "5:4", "2:1", "1:1")) it else "3:2"
@@ -9503,6 +9508,68 @@ private fun AlphabetScrubberRail(
 // - Spring (stiffness 500, dampingRatio 0.7) + horizontal squash-and-stretch (up to 1.25x)
 // - Supports both tap and thumb dragging; 1 light haptic tick on state change; Role.Switch semantics
 // ============================================================================
+// CompositionLocal allowing child controls (sliders, tick labels, segmented controls, toggles, tiles, buttons)
+// to check whether their enclosing scroll container was scrolling/flinging when the touch began.
+val LocalParentScrollInProgress = compositionLocalOf<() -> Boolean> { { false } }
+
+/**
+ * Clean-tap gesture modifier that NEVER consumes the down event, aborts if the parent list
+ * was scrolling/flinging when the finger went down, and triggers [onTap] only if the finger
+ * stays within touch slop (so any vertical drag scrolls the parent list unhindered).
+ */
+@Composable
+fun Modifier.nocturnaaCleanTap(
+    enabled: Boolean = true,
+    maxDurationMs: Long = 1000L,
+    onTap: () -> Unit
+): Modifier {
+    val currentOnTap by rememberUpdatedState(onTap)
+    val currentEnabled by rememberUpdatedState(enabled)
+    val isParentScrollingProvider = LocalParentScrollInProgress.current
+    val currentIsParentScrolling by rememberUpdatedState(isParentScrollingProvider)
+    val density = LocalDensity.current
+    val minSlopPx = with(density) { 8.dp.toPx() }
+
+    return this.pointerInput(Unit) {
+        val slop = max(viewConfiguration.touchSlop, minSlopPx)
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            if (!currentEnabled) return@awaitEachGesture
+            // Do NOT consume down! If parent list was scrolling/flinging on down, stopping the fling must do nothing else.
+            val wasScrollingOnDown = currentIsParentScrolling()
+            if (wasScrollingOnDown) return@awaitEachGesture
+
+            val downTimeMs = System.currentTimeMillis()
+            val startPos = down.position
+            var exceededSlop = false
+
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                if (change == null) break
+                if (change.isConsumed || currentIsParentScrolling()) {
+                    exceededSlop = true
+                    break
+                }
+                val dx = change.position.x - startPos.x
+                val dy = change.position.y - startPos.y
+                if (dx * dx + dy * dy > slop * slop) {
+                    exceededSlop = true
+                    break
+                }
+                if (!change.pressed) {
+                    val elapsed = System.currentTimeMillis() - downTimeMs
+                    if (!exceededSlop && elapsed <= maxDurationMs && !currentIsParentScrolling()) {
+                        change.consume()
+                        currentOnTap()
+                    }
+                    break
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun NocturnaaToggleSwitch(
     checked: Boolean,
@@ -9512,9 +9579,13 @@ fun NocturnaaToggleSwitch(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val currentOnCheckedChange by rememberUpdatedState(onCheckedChange)
     val currentChecked by rememberUpdatedState(checked)
+    val isParentScrollingProvider = LocalParentScrollInProgress.current
+    val currentIsParentScrolling by rememberUpdatedState(isParentScrollingProvider)
+    val minSlopPx = with(density) { 8.dp.toPx() }
 
     val thumbProgressAnim = remember { Animatable(if (checked) 1f else 0f) }
     val pressProgressAnim = remember { Animatable(0f) }
@@ -9552,40 +9623,63 @@ fun NocturnaaToggleSwitch(
                 stateDescription = if (checked) "On" else "Off"
             }
             .pointerInput(Unit) {
+                val slop = max(viewConfiguration.touchSlop, minSlopPx)
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    down.consume()
-                    scope.launch {
-                        pressProgressAnim.animateTo(
-                            targetValue = 1f,
-                            animationSpec = spring(dampingRatio = 0.85f, stiffness = 600f)
-                        )
-                    }
+                    // Do NOT consume down!
+                    if (currentIsParentScrolling()) return@awaitEachGesture
 
                     val w = size.width.toFloat().coerceAtLeast(1f)
                     val startX = down.position.x
+                    val startY = down.position.y
                     val initialFrac = thumbProgressAnim.value.coerceIn(0f, 1f)
-                    var dragged = false
+                    var horizontalLocked = false
+                    var cancelledForScroll = false
                     var latestFrac = initialFrac
 
-                    do {
+                    while (true) {
                         val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull()
-                        if (change != null && change.pressed) {
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                        if (change == null) break
+                        if (!horizontalLocked && (change.isConsumed || currentIsParentScrolling())) {
+                            cancelledForScroll = true
+                            break
+                        }
+                        if (change.pressed) {
                             val dx = change.position.x - startX
-                            if (abs(dx) > 6f) {
-                                dragged = true
-                                isDraggingThumb = true
+                            val dy = change.position.y - startY
+                            if (!horizontalLocked) {
+                                if (dx * dx + dy * dy >= slop * slop) {
+                                    if (abs(dx) > 1.5f * abs(dy)) {
+                                        horizontalLocked = true
+                                        isDraggingThumb = true
+                                        scope.launch {
+                                            pressProgressAnim.animateTo(
+                                                targetValue = 1f,
+                                                animationSpec = spring(dampingRatio = 0.85f, stiffness = 600f)
+                                            )
+                                        }
+                                    } else {
+                                        // Vertical movement -> hand gesture to parent scroll
+                                        cancelledForScroll = true
+                                        break
+                                    }
+                                }
                             }
-                            if (dragged) {
+                            if (horizontalLocked) {
                                 change.consume()
                                 latestFrac = (initialFrac + dx / (w * 0.65f)).coerceIn(0f, 1f)
                                 scope.launch {
                                     thumbProgressAnim.snapTo(latestFrac)
                                 }
                             }
+                        } else {
+                            if (horizontalLocked) {
+                                change.consume()
+                            }
+                            break
                         }
-                    } while (event.changes.any { it.pressed })
+                    }
 
                     scope.launch {
                         pressProgressAnim.animateTo(
@@ -9594,12 +9688,22 @@ fun NocturnaaToggleSwitch(
                         )
                     }
 
-                    val nextState = if (dragged) {
+                    isDraggingThumb = false
+                    if (cancelledForScroll) {
+                        scope.launch {
+                            thumbProgressAnim.animateTo(
+                                targetValue = if (currentChecked) 1f else 0f,
+                                animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f)
+                            )
+                        }
+                        return@awaitEachGesture
+                    }
+
+                    val nextState = if (horizontalLocked) {
                         latestFrac >= 0.5f
                     } else {
                         !currentChecked
                     }
-                    isDraggingThumb = false
 
                     if (nextState != currentChecked) {
                         fireToggleHaptic()
@@ -9630,7 +9734,6 @@ fun NocturnaaToggleSwitch(
             val trackLeft = (size.width - trackWidthPx) * 0.5f
             val trackRight = trackLeft + trackWidthPx
 
-            // Track cross-fades from white at 20% opacity to current accentColor as thumb passes middle
             val trackColor = lerp(Color(0x33FFFFFF), accentColor, clampedP)
             drawRoundRect(
                 color = trackColor,
@@ -9639,12 +9742,10 @@ fun NocturnaaToggleSwitch(
                 cornerRadius = CornerRadius(trackHeightPx * 0.5f, trackHeightPx * 0.5f)
             )
 
-            // Thumb center overlaps track ends like Image 1
             val leftCenter = trackLeft + baseThumbRadiusPx * 0.55f
             val rightCenter = trackRight - baseThumbRadiusPx * 0.55f
             val thumbCenterX = leftCenter + (rightCenter - leftCenter) * rawP
 
-            // Squash-and-stretch horizontally up to 1.25x while moving in transit
             val transit = (4f * clampedP * (1f - clampedP)).coerceIn(0f, 1f)
             val velFactor = (abs(thumbProgressAnim.velocity) / 4.5f).coerceIn(0f, 1f)
             val stretch = max(transit * 0.85f, velFactor).coerceIn(0f, 1f)
@@ -9661,7 +9762,6 @@ fun NocturnaaToggleSwitch(
                 size = Size(thumbW, thumbH),
                 cornerRadius = CornerRadius(thumbH * 0.5f, thumbH * 0.5f)
             )
-            // Faint 1dp edge on thumb (white at 12%)
             drawRoundRect(
                 color = Color(0x1FFFFFFF),
                 topLeft = Offset(thumbCenterX - thumbW * 0.5f, cy - thumbH * 0.5f),
@@ -9700,11 +9800,8 @@ fun NocturnaaToggleRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 40.dp)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
+            .heightIn(min = 48.dp)
+            .nocturnaaCleanTap {
                 fireRowTick()
                 currentOnCheckedChange(!currentChecked)
             }
@@ -9757,16 +9854,22 @@ fun OutlinedDonePillButton(
     lomoFontFamily: FontFamily,
     onClick: () -> Unit
 ) {
-    Text(
-        text = label,
-        color = Color.White,
-        fontSize = 11.sp,
-        fontFamily = lomoFontFamily,
+    Box(
         modifier = Modifier
-            .border(1.dp, Color(0xFF4D4D4D), RoundedCornerShape(50))
-            .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 6.dp)
-    )
+            .sizeIn(minWidth = 56.dp, minHeight = 48.dp)
+            .nocturnaaCleanTap { onClick() },
+        contentAlignment = Alignment.CenterEnd
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 11.sp,
+            fontFamily = lomoFontFamily,
+            modifier = Modifier
+                .border(1.dp, Color(0xFF4D4D4D), RoundedCornerShape(50))
+                .padding(horizontal = 14.dp, vertical = 6.dp)
+        )
+    }
 }
 
 @Composable
@@ -9800,7 +9903,8 @@ fun NocturnaaSegmentedControl(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(36.dp)
+            .height(48.dp)
+            .padding(vertical = 4.dp)
             .border(1.dp, Color(0x22FFFFFF), trackShape)
             .background(Color(0xFF101010), trackShape)
             .padding(2.dp)
@@ -9827,10 +9931,7 @@ fun NocturnaaSegmentedControl(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
+                        .nocturnaaCleanTap {
                             if (optId != selectedId) {
                                 fireSegTick()
                                 onSelect(optId)
@@ -10270,25 +10371,20 @@ fun NocturnaaSubPageTransitionHost(
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Outgoing main Settings screen: moves left by 18% of screen width and fades to 0% opacity by 70% progress.
-        // Kept in composition at all times so scroll position and open section are preserved.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    val p = effectiveProgressProvider()
-                    if (p <= 0.0005f) {
-                        translationX = 0f
-                        alpha = 1f
-                    } else if (p >= 0.999f) {
-                        translationX = -size.width * 2f
-                        alpha = 0f
-                    } else {
+        // Removed from composition once the sub-page transition finishes (isFullyOpen) so no invisible layer can ever intercept touches,
+        // while LauncherSettingsView above retains settingsScrollState and openSectionIndex in memory!
+        if (!isFullyOpen) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val p = effectiveProgressProvider()
                         translationX = -0.18f * size.width * p
                         alpha = (1f - (p / 0.70f)).coerceIn(0f, 1f)
                     }
-                }
-        ) {
-            mainPageContent()
+            ) {
+                mainPageContent()
+            }
         }
 
         // Incoming sub-page window: slides in from 100% of screen width to 0 (and follows predictive back gesture).
@@ -10550,85 +10646,89 @@ fun LauncherSettingsView(
         predictiveBackProgress = liveWallpapersPredictiveBackProgress,
         onFullyOpenChanged = onLiveWallpapersFullyOpenChanged,
         mainPageContent = {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(rootBgColor)
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(top = 16.dp)
+            CompositionLocalProvider(
+                LocalParentScrollInProgress provides { settingsScrollState.isScrollInProgress }
             ) {
-                // Fixed Header at the top: "Nocturnaa Settings" + Outlined "DONE" pill
-                Row(
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .fillMaxSize()
+                        .background(rootBgColor)
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(top = 12.dp)
                 ) {
-                    Text(
-                        text = "Nocturnaa Settings",
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontFamily = launcherFont,
-                        fontWeight = FontWeight.Bold
-                    )
-                    OutlinedDonePillButton(
-                        lomoFontFamily = launcherFont,
-                        onClick = onBack
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // Vertically scrollable content area while the header stays at the top
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .onSizeChanged { viewportHeightPx = it.height }
-                ) {
-                    Column(
+                    // Fixed Header at the top: "Nocturnaa Settings" + Outlined "DONE" pill
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .verticalScroll(settingsScrollState)
-                            .padding(horizontal = 16.dp)
-                            .padding(bottom = 32.dp)
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Nocturnaa Settings",
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontFamily = launcherFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                        OutlinedDonePillButton(
+                            lomoFontFamily = launcherFont,
+                            onClick = onBack
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Vertically scrollable content area while the header stays at the top
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .onSizeChanged { viewportHeightPx = it.height }
                     ) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(containerShape)
-                                .background(Color.Black, containerShape)
-                                .border(1.dp, Color.White.copy(alpha = 0.14f), containerShape)
+                                .verticalScroll(settingsScrollState)
+                                .padding(horizontal = 16.dp)
+                                .padding(bottom = 32.dp)
                         ) {
-                            settingsSections.forEachIndexed { index, sectionSpec ->
-                                val autoNumberTag = String.format(Locale.US, "%02d", index + 1)
-                                NocturnaaCollapsibleSection(
-                                    indexTag = autoNumberTag,
-                                    title = sectionSpec.title,
-                                    expanded = openSectionIndex == index,
-                                    accentColor = accentColor,
-                                    lomoFontFamily = launcherFont,
-                                    minHeaderHeight = 44.dp,
-                                    headerHorizontalPadding = 16.dp,
-                                    contentHorizontalPadding = 16.dp,
-                                    expandedBgColor = Color(0xFF0C0C0C),
-                                    onHeaderHeightMeasured = { hPx -> headerHeightsPx[index] = hPx },
-                                    onToggle = {
-                                        openSectionIndex = if (openSectionIndex == index) null else index
-                                    },
-                                    items = sectionSpec.items
-                                )
-
-                                if (index < settingsSections.lastIndex) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(1.dp)
-                                            .background(Color.White.copy(alpha = 0.08f))
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(containerShape)
+                                    .background(Color.Black, containerShape)
+                                    .border(1.dp, Color.White.copy(alpha = 0.14f), containerShape)
+                            ) {
+                                settingsSections.forEachIndexed { index, sectionSpec ->
+                                    val autoNumberTag = String.format(Locale.US, "%02d", index + 1)
+                                    NocturnaaCollapsibleSection(
+                                        indexTag = autoNumberTag,
+                                        title = sectionSpec.title,
+                                        expanded = openSectionIndex == index,
+                                        accentColor = accentColor,
+                                        lomoFontFamily = launcherFont,
+                                        minHeaderHeight = 48.dp,
+                                        headerHorizontalPadding = 16.dp,
+                                        contentHorizontalPadding = 16.dp,
+                                        expandedBgColor = Color(0xFF0C0C0C),
+                                        onHeaderHeightMeasured = { hPx -> headerHeightsPx[index] = hPx },
+                                        onToggle = {
+                                            openSectionIndex = if (openSectionIndex == index) null else index
+                                        },
+                                        items = sectionSpec.items
                                     )
+
+                                    if (index < settingsSections.lastIndex) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(1.dp)
+                                                .background(Color.White.copy(alpha = 0.08f))
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -10665,7 +10765,12 @@ fun LauncherSettingsView(
 }
 
 // ============================================================================
-// FULL-SCREEN "LIVE WALLPAPERS" WINDOW (Mockup Layout, 3-Snap Spring Panel & Choreographed Entry)
+// FULL-SCREEN "LIVE WALLPAPERS" WINDOW
+// - Two Panel States: Default (top at ~51% H) and Peek (compact ~72dp bar at bottom)
+// - Fixed-size panel whose content (tile grid, title row, settings) scrolls inside it
+//   and clips cleanly under the 48dp handle zone and at the panel's rounded corners
+// - Preview card ALWAYS centered horizontally and vertically in the free space
+//   between the bottom of "LIVE PREVIEW" and the top of the panel
 // ============================================================================
 @Composable
 fun LiveWallpapersWindow(
@@ -10703,7 +10808,7 @@ fun LiveWallpapersWindow(
         vib?.vibrate(effect)
     }
 
-    // Section 5: When the window opens, the ACTIVE wallpaper is selected (or 3D Starfield if a static wallpaper is active)
+    // Active wallpaper is selected when the window opens (or 3D Starfield if a static wallpaper is active)
     var selectedWallpaperId by remember {
         mutableStateOf(
             if (wallpaperPreset in VALID_LIVE_WALLPAPER_IDS) wallpaperPreset else "live_starfield_3d"
@@ -10719,7 +10824,10 @@ fun LiveWallpapersWindow(
     val settingsListFadeOutAnim = remember { Animatable(1f) }
     val settingsListStaggerMsAnim = remember { Animatable(1000f) }
     var isFadingOutOldSettings by remember { mutableStateOf(false) }
-    val settingsScrollState = rememberScrollState()
+
+    // Single scroll state for the panel content (tile grid + title row + settings rows)
+    val contentScrollState = rememberScrollState()
+    var titleRowTopInScrollPx by remember { mutableStateOf(0) }
 
     val selectedIndex = remember(selectedWallpaperId) {
         LIVE_WALLPAPER_CATALOG.indexOfFirst { it.id == selectedWallpaperId }.coerceAtLeast(0)
@@ -10758,7 +10866,8 @@ fun LiveWallpapersWindow(
                 animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing)
             )
             displayedSettingsWallpaperId = targetId
-            settingsScrollState.scrollTo(0)
+            // Keep the scroll position at the top when selecting a new tile
+            contentScrollState.scrollTo(0)
             isFadingOutOldSettings = false
             settingsListFadeOutAnim.snapTo(1f)
             settingsListStaggerMsAnim.snapTo(0f)
@@ -10785,319 +10894,296 @@ fun LiveWallpapersWindow(
         }
     }
 
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .pointerInput(Unit) {
-                // Consume background taps so they never leak to the underlying Settings screen
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                }
-            }
+    CompositionLocalProvider(
+        LocalParentScrollInProgress provides { contentScrollState.isScrollInProgress }
     ) {
-        val screenWidthPx = with(density) { maxWidth.toPx().coerceAtLeast(1f) }
-        val screenHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
-        val screenAspect = (screenWidthPx / screenHeightPx).coerceIn(0.35f, 0.85f)
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            val screenWidthPx = with(density) { maxWidth.toPx().coerceAtLeast(1f) }
+            val screenHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
+            val screenAspect = (screenWidthPx / screenHeightPx).coerceIn(0.35f, 0.85f)
 
-        val statusTopPx = max(
-            WindowInsets.statusBars.getTop(density),
-            WindowInsets.displayCutout.getTop(density)
-        ).toFloat()
-        val navBottomPx = WindowInsets.navigationBars.getBottom(density).toFloat()
+            val statusTopPx = max(
+                WindowInsets.statusBars.getTop(density),
+                WindowInsets.displayCutout.getTop(density)
+            ).toFloat()
+            val navBottomPx = WindowInsets.navigationBars.getBottom(density).toFloat()
 
-        // Section 4: Three Snap Positions for the Floating Bottom Panel
-        // - Expanded: top of panel at ~24% of screen height
-        // - Default: top of panel at ~51% of screen height
-        // - Peek: only the drag handle and the title row (with SET / ACTIVE) are visible
-        val expandedTopY = 0.24f * screenHeightPx
-        val defaultTopY = 0.51f * screenHeightPx
-        val panelBottomMarginPx = with(density) { 16.dp.toPx() }
-        val panelBottomY = (screenHeightPx - navBottomPx - panelBottomMarginPx).coerceAtLeast(defaultTopY + 120f)
-        val maxPanelHeightPx = (panelBottomY - expandedTopY).coerceAtLeast(1f)
-        val defaultOffsetPx = (defaultTopY - expandedTopY).coerceAtLeast(0f)
+            // Section 2: TWO Panel States ONLY:
+            // - Default (peekProgress = 0f): top of panel at 51% of screen height
+            // - Peek (peekProgress = 1f): compact ~72dp bar visible at bottom
+            val defaultTopY = 0.51f * screenHeightPx
+            val panelBottomMarginPx = with(density) { 16.dp.toPx() }
+            val panelBottomY = (screenHeightPx - navBottomPx - panelBottomMarginPx).coerceAtLeast(defaultTopY + 140f)
+            val defaultPanelHeightPx = (panelBottomY - defaultTopY).coerceAtLeast(1f)
+            val peekBarHeightPx = with(density) { 72.dp.toPx() }.coerceAtMost(defaultPanelHeightPx)
+            val maxPeekShiftPx = (defaultPanelHeightPx - peekBarHeightPx).coerceAtLeast(1f)
 
-        var measuredTileGridHeightPx by remember { mutableStateOf(with(density) { 172.dp.toPx() }) }
-        var measuredTitleBlockHeightPx by remember { mutableStateOf(with(density) { 64.dp.toPx() }) }
-        val handleAndPaddingPx = with(density) { 36.dp.toPx() }
-        val peekCardHeightPx = (handleAndPaddingPx + measuredTitleBlockHeightPx).coerceAtLeast(with(density) { 96.dp.toPx() })
-        val peekOffsetPx = (maxPanelHeightPx - peekCardHeightPx).coerceAtLeast(defaultOffsetPx + with(density) { 48.dp.toPx() })
+            // peekProgressAnim: 0f = Default, 1f = Peek
+            val peekProgressAnim = remember { Animatable(0f) }
+            var isPeekTarget by remember { mutableStateOf(false) }
 
-        val panelOffsetAnim = remember { Animatable(defaultOffsetPx) }
-        // Bottom panel entry spring (from 80ms, slides up from 40% of its resting height below resting position)
-        val panelEntrySpring = remember { Animatable(0f) }
+            // Bottom panel entry spring (from 80ms, slides up from 40% of its height below resting position)
+            val panelEntrySpring = remember { Animatable(0f) }
 
-        LaunchedEffect(Unit) {
-            panelOffsetAnim.snapTo(defaultOffsetPx)
-            panelEntrySpring.snapTo(0f)
-            delay(80L)
-            panelEntrySpring.animateTo(
-                targetValue = 1f,
-                animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f)
-            )
-        }
-
-        fun settlePanelWithVelocity(velocityY: Float) {
-            val cur = panelOffsetAnim.value
-            val snaps = floatArrayOf(0f, defaultOffsetPx, peekOffsetPx)
-            val projected = (cur + velocityY * 0.14f).coerceIn(0f, peekOffsetPx)
-            val targetSnap = when {
-                velocityY < -650f -> if (cur > defaultOffsetPx + 20f) defaultOffsetPx else 0f
-                velocityY > 650f -> if (cur < defaultOffsetPx - 20f) defaultOffsetPx else peekOffsetPx
-                else -> snaps.minByOrNull { abs(it - projected) } ?: defaultOffsetPx
-            }
-            scope.launch {
-                panelOffsetAnim.animateTo(
-                    targetValue = targetSnap,
-                    initialVelocity = velocityY,
+            LaunchedEffect(Unit) {
+                peekProgressAnim.snapTo(0f)
+                isPeekTarget = false
+                panelEntrySpring.snapTo(0f)
+                delay(80L)
+                panelEntrySpring.animateTo(
+                    targetValue = 1f,
                     animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f)
                 )
             }
-        }
 
-        // NestedScrollConnection so scrolling the settings list expands the panel first when dragging up,
-        // and lowers the panel when dragging down at the top of the scroll list.
-        val panelNestedScrollConnection = remember(defaultOffsetPx, peekOffsetPx) {
-            object : NestedScrollConnection {
-                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                    val dy = available.y
-                    val curOffset = panelOffsetAnim.value
-                    // Upward drag while panel is not yet fully expanded -> expand panel first
-                    if (dy < 0f && curOffset > 0.5f) {
-                        val next = (curOffset + dy).coerceIn(0f, peekOffsetPx)
-                        val consumedY = next - curOffset
-                        scope.launch { panelOffsetAnim.snapTo(next) }
-                        return Offset(0f, consumedY)
-                    }
-                    // Downward drag while panel is between Expanded and Peek and scroll is at top -> lower panel
-                    if (dy > 0f && settingsScrollState.value == 0 && curOffset < peekOffsetPx) {
-                        val next = (curOffset + dy).coerceIn(0f, peekOffsetPx)
-                        val consumedY = next - curOffset
-                        scope.launch { panelOffsetAnim.snapTo(next) }
-                        return Offset(0f, consumedY)
-                    }
-                    return Offset.Zero
-                }
-
-                override fun onPostScroll(
-                    consumed: Offset,
-                    available: Offset,
-                    source: NestedScrollSource
-                ): Offset {
-                    val dy = available.y
-                    if (dy > 0f && settingsScrollState.value == 0) {
-                        val curOffset = panelOffsetAnim.value
-                        val next = (curOffset + dy).coerceIn(0f, peekOffsetPx)
-                        val consumedY = next - curOffset
-                        scope.launch { panelOffsetAnim.snapTo(next) }
-                        return Offset(0f, consumedY)
-                    }
-                    return Offset.Zero
-                }
-
-                override suspend fun onPreFling(available: Velocity): Velocity {
-                    val curOffset = panelOffsetAnim.value
-                    if (curOffset > 1f && (settingsScrollState.value == 0 || curOffset < defaultOffsetPx - 2f || curOffset > defaultOffsetPx + 2f)) {
-                        settlePanelWithVelocity(available.y)
-                        return available
-                    }
-                    return Velocity.Zero
+            fun animatePanelToPeek(wantPeek: Boolean, initialVelocityFrac: Float = 0f) {
+                isPeekTarget = wantPeek
+                val target = if (wantPeek) 1f else 0f
+                scope.launch {
+                    peekProgressAnim.animateTo(
+                        targetValue = target,
+                        initialVelocity = initialVelocityFrac,
+                        animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f)
+                    )
                 }
             }
-        }
 
-        // Fixed internal resolution for the Live Preview Card (largest size it can have: 55% of screen height)
-        val maxPreviewHeightPx = 0.55f * screenHeightPx
-        val minPreviewHeightPx = with(density) { 150.dp.toPx() }.coerceAtMost(maxPreviewHeightPx)
-        val maxPreviewWidthPx = maxPreviewHeightPx * screenAspect
-        val maxPreviewWidthDp = with(density) { maxPreviewWidthPx.toDp() }
-        val maxPreviewHeightDp = with(density) { maxPreviewHeightPx.toDp() }
-        val previewCardShape = RoundedCornerShape(20.dp)
+            fun settleHandleDrag(velocityPxPerSec: Float) {
+                val cur = peekProgressAnim.value.coerceIn(0f, 1f)
+                val velFrac = velocityPxPerSec / maxPeekShiftPx
+                val wantPeek = when {
+                    velocityPxPerSec > 480f -> true
+                    velocityPxPerSec < -480f -> false
+                    else -> (cur + velFrac * 0.12f) >= 0.5f
+                }
+                animatePanelToPeek(wantPeek, velFrac)
+            }
 
-        // Seed an immediate ripple on selection & every 2 seconds while Touch Ripples is selected and window is open
-        LaunchedEffect(selectedWallpaperId, isWindowFullyOpen, isSettingsScreenVisible) {
-            if (selectedWallpaperId == "live_touch_ripples") {
-                val now0 = (System.nanoTime() / 1_000_000_000.0).toFloat()
-                previewRippleBus.onTouchDown(maxPreviewWidthPx * 0.5f, maxPreviewHeightPx * 0.5f, now0, maxRipplesState)
-                if (isWindowFullyOpen && isSettingsScreenVisible) {
-                    var stepIdx = 1
-                    val samplePts = arrayOf(
-                        0.50f to 0.50f,
-                        0.34f to 0.38f,
-                        0.66f to 0.62f,
-                        0.42f to 0.66f,
-                        0.58f to 0.34f
-                    )
-                    while (true) {
-                        delay(2000L)
-                        val (fx, fy) = samplePts[stepIdx % samplePts.size]
-                        stepIdx++
-                        val nowSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
-                        previewRippleBus.onTouchDown(
-                            x = maxPreviewWidthPx * fx,
-                            y = maxPreviewHeightPx * fy,
-                            nowSec = nowSec,
-                            maxSlots = maxRipplesState
+            // Measured bottom of the "LIVE PREVIEW" label so the preview card is ALWAYS centered in the free space
+            var livePreviewLabelBottomY by remember { mutableStateOf(statusTopPx + with(density) { 88.dp.toPx() }) }
+            val thirtyTwoDpPx = with(density) { 32.dp.toPx() }
+            val fortyDpPx = with(density) { 40.dp.toPx() }
+
+            // Fixed internal resolution for the Live Preview Card (largest size it can have: 70% of screen height)
+            val fixedInternalHeightPx = 0.70f * screenHeightPx
+            val fixedInternalWidthPx = fixedInternalHeightPx * screenAspect
+            val fixedInternalWidthDp = with(density) { fixedInternalWidthPx.toDp() }
+            val fixedInternalHeightDp = with(density) { fixedInternalHeightPx.toDp() }
+            val previewCardShape = RoundedCornerShape(20.dp)
+
+            // Seed an immediate ripple on selection & every 2 seconds while Touch Ripples is selected and window is open
+            LaunchedEffect(selectedWallpaperId, isWindowFullyOpen, isSettingsScreenVisible) {
+                if (selectedWallpaperId == "live_touch_ripples") {
+                    val now0 = (System.nanoTime() / 1_000_000_000.0).toFloat()
+                    previewRippleBus.onTouchDown(fixedInternalWidthPx * 0.5f, fixedInternalHeightPx * 0.5f, now0, maxRipplesState)
+                    if (isWindowFullyOpen && isSettingsScreenVisible) {
+                        var stepIdx = 1
+                        val samplePts = arrayOf(
+                            0.50f to 0.50f,
+                            0.34f to 0.38f,
+                            0.66f to 0.62f,
+                            0.42f to 0.66f,
+                            0.58f to 0.34f
                         )
-                    }
-                }
-            }
-        }
-
-        val headerAreaHeightPx = statusTopPx + with(density) { 86.dp.toPx() }
-        val sixteenDpPx = with(density) { 16.dp.toPx() }
-
-        // 1. TOP HEADER + "LIVE PREVIEW" LABEL
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
-                .padding(top = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Header row: thin back chevron, "Live Wallpapers" title, and outlined "DONE" pill (fades in 80ms -> 300ms)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .graphicsLayer {
-                        val tMs = transitionProgressProvider().coerceIn(0f, 1f) * 480f
-                        alpha = ((tMs - 80f) / 220f).coerceIn(0f, 1f)
-                    },
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                fireLightTick()
-                                onNavigateBack()
-                            },
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        Canvas(modifier = Modifier.size(16.dp)) {
-                            val w = size.width
-                            val h = size.height
-                            val path = Path().apply {
-                                moveTo(w * 0.68f, h * 0.14f)
-                                lineTo(w * 0.24f, h * 0.50f)
-                                lineTo(w * 0.68f, h * 0.86f)
-                            }
-                            drawPath(
-                                path = path,
-                                color = Color.White.copy(alpha = 0.78f),
-                                style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
-                            )
-                        }
-                    }
-                    Text(
-                        text = "Live Wallpapers",
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontFamily = launcherFont,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                OutlinedDonePillButton(
-                    lomoFontFamily = launcherFont,
-                    onClick = {
-                        fireLightTick()
-                        onCloseAllSettings()
-                    }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Centered static accent dot + "LIVE PREVIEW" in dim grey
-            Row(
-                modifier = Modifier
-                    .graphicsLayer {
-                        val tMs = transitionProgressProvider().coerceIn(0f, 1f) * 480f
-                        alpha = ((tMs - 100f) / 260f).coerceIn(0f, 1f)
-                    },
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .background(accentColor, CircleShape)
-                )
-                Text(
-                    text = "LIVE PREVIEW",
-                    color = Color.White.copy(alpha = 0.50f),
-                    fontSize = 11.sp,
-                    fontFamily = launcherFont,
-                    letterSpacing = 1.sp
-                )
-            }
-        }
-
-        // 2. FIXED-RESOLUTION LIVE PREVIEW CARD (Scaled continuously via graphicsLayer as the bottom panel moves)
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .offset(y = with(density) { headerAreaHeightPx.toDp() })
-                .size(width = maxPreviewWidthDp, height = maxPreviewHeightDp)
-                .graphicsLayer {
-                    val tMs = transitionProgressProvider().coerceIn(0f, 1f) * 480f
-                    val entryProg = NocturnaaOpenSectionEasing.transform(((tMs - 100f) / 380f).coerceIn(0f, 1f))
-                    val entryScale = 0.92f + 0.08f * entryProg
-
-                    val currentPanelTopY = expandedTopY + panelOffsetAnim.value
-                    val freeSpacePx = currentPanelTopY - headerAreaHeightPx - sixteenDpPx
-                    val targetPreviewHeightPx = freeSpacePx.coerceIn(minPreviewHeightPx, maxPreviewHeightPx)
-                    val panelFollowScale = (targetPreviewHeightPx / maxPreviewHeightPx).coerceIn(0.25f, 1.0f)
-
-                    val finalScale = panelFollowScale * entryScale
-                    transformOrigin = TransformOrigin(0.5f, 0f)
-                    scaleX = finalScale
-                    scaleY = finalScale
-                    alpha = entryProg
-                }
-                .clip(previewCardShape)
-                .background(Color.Black, previewCardShape)
-                .border(1.dp, Color.White.copy(alpha = 0.14f), previewCardShape)
-                .pointerInput(selectedWallpaperId) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        down.consume()
-                        if (selectedWallpaperId == "live_touch_ripples") {
+                        while (true) {
+                            delay(2000L)
+                            val (fx, fy) = samplePts[stepIdx % samplePts.size]
+                            stepIdx++
                             val nowSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
                             previewRippleBus.onTouchDown(
-                                x = down.position.x,
-                                y = down.position.y,
+                                x = fixedInternalWidthPx * fx,
+                                y = fixedInternalHeightPx * fy,
                                 nowSec = nowSec,
                                 maxSlots = maxRipplesState
                             )
-                        } else if (selectedWallpaperId == "live_sonar") {
-                            previewSonarTriggerToken = (previewSonarTriggerToken + 1) and 0x7FFFFFFF
                         }
                     }
                 }
-        ) {
-            val outgoingId = previousWallpaperId
-            if (outgoingId != null) {
+            }
+
+            // Helper computing the exact centered preview geometry for any peekProgress in 0f..1f:
+            // - Default (p = 0): cardHeight = min(36% of screen height, freeHeight - 32dp)
+            // - Peek (p = 1): cardHeight = min(freeHeight - 40dp, 70% of screen height)
+            // - Always centered: topGap = bottomGap = (freeHeight - cardHeight) / 2
+            val freeHeightDefaultPx = (defaultTopY - livePreviewLabelBottomY).coerceAtLeast(100f)
+            val defaultCardHeightPx = min(0.36f * screenHeightPx, (freeHeightDefaultPx - thirtyTwoDpPx).coerceAtLeast(80f))
+            val peekPanelTopY = defaultTopY + maxPeekShiftPx
+            val freeHeightPeekPx = (peekPanelTopY - livePreviewLabelBottomY).coerceAtLeast(100f)
+            val peekCardHeightPx = min((freeHeightPeekPx - fortyDpPx).coerceAtLeast(defaultCardHeightPx), 0.70f * screenHeightPx)
+
+            // 1. TOP HEADER + "LIVE PREVIEW" LABEL
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+                    .padding(top = 8.dp)
+                    .onGloballyPositioned { coords ->
+                        val bottomY = coords.positionInParent().y + coords.size.height.toFloat()
+                        if (bottomY > 20f && abs(livePreviewLabelBottomY - bottomY) > 0.5f) {
+                            livePreviewLabelBottomY = bottomY
+                        }
+                    },
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Header row: 48dp back chevron target, "Live Wallpapers" title, and 48dp outlined "DONE" pill (fades in 80ms -> 300ms)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .graphicsLayer {
+                            val tMs = transitionProgressProvider().coerceIn(0f, 1f) * 480f
+                            alpha = ((tMs - 80f) / 220f).coerceIn(0f, 1f)
+                        },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .nocturnaaCleanTap {
+                                    fireLightTick()
+                                    onNavigateBack()
+                                },
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Canvas(modifier = Modifier.size(16.dp)) {
+                                val w = size.width
+                                val h = size.height
+                                val path = Path().apply {
+                                    moveTo(w * 0.68f, h * 0.14f)
+                                    lineTo(w * 0.24f, h * 0.50f)
+                                    lineTo(w * 0.68f, h * 0.86f)
+                                }
+                                drawPath(
+                                    path = path,
+                                    color = Color.White.copy(alpha = 0.78f),
+                                    style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "Live Wallpapers",
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontFamily = launcherFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    OutlinedDonePillButton(
+                        lomoFontFamily = launcherFont,
+                        onClick = {
+                            fireLightTick()
+                            onCloseAllSettings()
+                        }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Centered static accent dot + "LIVE PREVIEW" in dim grey
+                Row(
+                    modifier = Modifier
+                        .padding(bottom = 4.dp)
+                        .graphicsLayer {
+                            val tMs = transitionProgressProvider().coerceIn(0f, 1f) * 480f
+                            alpha = ((tMs - 100f) / 260f).coerceIn(0f, 1f)
+                        },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .background(accentColor, CircleShape)
+                    )
+                    Text(
+                        text = "LIVE PREVIEW",
+                        color = Color.White.copy(alpha = 0.50f),
+                        fontSize = 11.sp,
+                        fontFamily = launcherFont,
+                        letterSpacing = 1.sp
+                    )
+                }
+            }
+
+            // 2. FIXED-RESOLUTION LIVE PREVIEW CARD
+            // Always centered horizontally & vertically in the free space between "LIVE PREVIEW" and the top of the panel.
+            // Rendered at fixed internal resolution (fixedInternalWidthDp x fixedInternalHeightDp) and scaled with graphicsLayer!
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .size(width = fixedInternalWidthDp, height = fixedInternalHeightDp)
+                    .graphicsLayer {
+                        val tMs = transitionProgressProvider().coerceIn(0f, 1f) * 480f
+                        val entryProg = NocturnaaOpenSectionEasing.transform(((tMs - 100f) / 380f).coerceIn(0f, 1f))
+                        val entryScale = 0.92f + 0.08f * entryProg
+
+                        val peekP = peekProgressAnim.value.coerceIn(0f, 1f)
+                        val curPanelTopY = defaultTopY + peekP * maxPeekShiftPx
+                        val curFreeH = (curPanelTopY - livePreviewLabelBottomY).coerceAtLeast(100f)
+                        val curCardH = defaultCardHeightPx + (peekCardHeightPx - defaultCardHeightPx) * peekP
+                        val topGap = (curFreeH - curCardH) * 0.5f
+                        val visualTopY = livePreviewLabelBottomY + topGap
+
+                        val sizeScale = (curCardH / fixedInternalHeightPx).coerceIn(0.20f, 1.0f)
+                        val finalScale = sizeScale * entryScale
+
+                        transformOrigin = TransformOrigin(0.5f, 0f)
+                        translationY = visualTopY
+                        scaleX = finalScale
+                        scaleY = finalScale
+                        alpha = entryProg
+                    }
+                    .clip(previewCardShape)
+                    .background(Color.Black, previewCardShape)
+                    .border(1.dp, Color.White.copy(alpha = 0.14f), previewCardShape)
+            ) {
+                val outgoingId = previousWallpaperId
+                if (outgoingId != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                alpha = (1f - previewCrossfadeAnim.value).coerceIn(0f, 1f)
+                            }
+                    ) {
+                        OledWallpaperCanvas(
+                            preset = outgoingId,
+                            accentColor = accentColor,
+                            dimPercent = 0,
+                            liveWpConfig = liveWpConfig,
+                            batteryPct = batteryPct,
+                            isPowerSaveMode = isPowerSaveMode,
+                            dateChangeTrigger = dateChangeTrigger,
+                            touchRippleBus = previewRippleBus,
+                            sonarTriggerToken = previewSonarTriggerToken,
+                            lomoFontFamily = launcherFont,
+                            isScreenVisible = false,
+                            isPreview = true,
+                            userWallpaperRefreshTrigger = 0
+                        )
+                    }
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            alpha = (1f - previewCrossfadeAnim.value).coerceIn(0f, 1f)
+                            alpha = if (outgoingId != null) previewCrossfadeAnim.value.coerceIn(0f, 1f) else 1f
                         }
                 ) {
                     OledWallpaperCanvas(
-                        preset = outgoingId,
+                        preset = selectedWallpaperId,
                         accentColor = accentColor,
                         dimPercent = 0,
                         liveWpConfig = liveWpConfig,
@@ -11107,138 +11193,224 @@ fun LiveWallpapersWindow(
                         touchRippleBus = previewRippleBus,
                         sonarTriggerToken = previewSonarTriggerToken,
                         lomoFontFamily = launcherFont,
-                        isScreenVisible = false,
+                        isScreenVisible = isWindowFullyOpen && isSettingsScreenVisible,
                         isPreview = true,
                         userWallpaperRefreshTrigger = 0
                     )
                 }
             }
 
+            // Dedicated touch target overlay aligned to the exact visual bounds of the centered Preview Card
+            // so taps on the preview are 100% accurate in both Default and Peek states!
+            val currentPeekP = peekProgressAnim.value.coerceIn(0f, 1f)
+            val currentPanelTopYForHit = defaultTopY + currentPeekP * maxPeekShiftPx
+            val currentFreeHForHit = (currentPanelTopYForHit - livePreviewLabelBottomY).coerceAtLeast(100f)
+            val currentCardHForHit = defaultCardHeightPx + (peekCardHeightPx - defaultCardHeightPx) * currentPeekP
+            val currentCardWForHit = currentCardHForHit * screenAspect
+            val currentVisualTopYForHit = livePreviewLabelBottomY + (currentFreeHForHit - currentCardHForHit) * 0.5f
+
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        alpha = if (outgoingId != null) previewCrossfadeAnim.value.coerceIn(0f, 1f) else 1f
+                    .align(Alignment.TopCenter)
+                    .offset {
+                        IntOffset(0, currentVisualTopYForHit.roundToInt())
                     }
-            ) {
-                // Live preview renders one static first frame immediately during the transition (isWindowFullyOpen == false),
-                // and starts its live animation loop only after the transition has finished!
-                OledWallpaperCanvas(
-                    preset = selectedWallpaperId,
-                    accentColor = accentColor,
-                    dimPercent = 0,
-                    liveWpConfig = liveWpConfig,
-                    batteryPct = batteryPct,
-                    isPowerSaveMode = isPowerSaveMode,
-                    dateChangeTrigger = dateChangeTrigger,
-                    touchRippleBus = previewRippleBus,
-                    sonarTriggerToken = previewSonarTriggerToken,
-                    lomoFontFamily = launcherFont,
-                    isScreenVisible = isWindowFullyOpen && isSettingsScreenVisible,
-                    isPreview = true,
-                    userWallpaperRefreshTrigger = 0
-                )
-            }
-        }
-
-        // 3. FLOATING BOTTOM PANEL (3 Snap Positions: Expanded 24% H, Default 51% H, Peek)
-        val panelTopDp = with(density) { expandedTopY.toDp() }
-        val maxPanelHeightDp = with(density) { maxPanelHeightPx.toDp() }
-        val panelCornerPx = with(density) { 28.dp.toPx() }
-        val panelBorderStrokePx = with(density) { 1.dp.toPx() }
-        val eightDpRisePx = with(density) { 8.dp.toPx() }
-
-        Box(
-            modifier = Modifier
-                .padding(horizontal = 16.dp)
-                .offset(y = panelTopDp)
-                .fillMaxWidth()
-                .height(maxPanelHeightDp)
-                .graphicsLayer {
-                    val p = transitionProgressProvider().coerceIn(0f, 1f)
-                    val tMs = p * 480f
-                    alpha = ((tMs - 80f) / 140f).coerceIn(0f, 1f)
-                    val curPanelH = (size.height - panelOffsetAnim.value).coerceAtLeast(1f)
-                    val entrySlideFactor = (1f - panelEntrySpring.value.coerceIn(0f, 1f)) * (1f - (1f - p))
-                    val closeSlideFactor = (1f - p)
-                    translationY = max(entrySlideFactor, closeSlideFactor) * 0.40f * curPanelH
-                }
-                .drawWithContent {
-                    val topY = panelOffsetAnim.value.coerceIn(0f, size.height - 40f)
-                    val cardRectH = (size.height - topY).coerceAtLeast(1f)
-                    drawIntoCanvas { canvas ->
-                        val nc = canvas.nativeCanvas
-                        val saveCount = nc.save()
-                        val clipPath = android.graphics.Path().apply {
-                            addRoundRect(
-                                0f,
-                                topY,
-                                size.width,
-                                size.height,
-                                panelCornerPx,
-                                panelCornerPx,
-                                android.graphics.Path.Direction.CW
-                            )
-                        }
-                        nc.clipPath(clipPath)
-                        drawRoundRect(
-                            color = Color(0xFF080808),
-                            topLeft = Offset(0f, topY),
-                            size = Size(size.width, cardRectH),
-                            cornerRadius = CornerRadius(panelCornerPx, panelCornerPx)
-                        )
-                        this@drawWithContent.drawContent()
-                        nc.restoreToCount(saveCount)
-                    }
-                    drawRoundRect(
-                        color = Color.White.copy(alpha = 0.07f),
-                        topLeft = Offset(0f, topY),
-                        size = Size(size.width, cardRectH),
-                        cornerRadius = CornerRadius(panelCornerPx, panelCornerPx),
-                        style = Stroke(width = panelBorderStrokePx)
+                    .size(
+                        width = with(density) { currentCardWForHit.toDp() },
+                        height = with(density) { currentCardHForHit.toDp() }
                     )
-                }
-                .nestedScroll(panelNestedScrollConnection)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        translationY = panelOffsetAnim.value
+                    .pointerInput(selectedWallpaperId, isPeekTarget, currentCardWForHit, currentCardHForHit) {
+                        val slop = viewConfiguration.touchSlop
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val startPos = down.position
+                            var movedTooMuch = false
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                                if (change == null) break
+                                val dx = change.position.x - startPos.x
+                                val dy = change.position.y - startPos.y
+                                if (dx * dx + dy * dy > slop * slop) {
+                                    movedTooMuch = true
+                                }
+                                if (!change.pressed) {
+                                    if (!movedTooMuch) {
+                                        change.consume()
+                                        fireLightTick()
+                                        // Map tap position in displayed preview bounds to fixed internal canvas coordinates
+                                        val normX = (startPos.x / size.width.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f)
+                                        val normY = (startPos.y / size.height.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f)
+                                        if (selectedWallpaperId == "live_touch_ripples") {
+                                            val nowSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
+                                            previewRippleBus.onTouchDown(
+                                                x = normX * fixedInternalWidthPx,
+                                                y = normY * fixedInternalHeightPx,
+                                                nowSec = nowSec,
+                                                maxSlots = maxRipplesState
+                                            )
+                                            // Exception: in Default, a tap both triggers the ripple and goes to Peek;
+                                            // in Peek, a tap triggers the ripple at that point and stays in Peek!
+                                            if (!isPeekTarget) {
+                                                animatePanelToPeek(true)
+                                            }
+                                        } else if (selectedWallpaperId == "live_sonar") {
+                                            previewSonarTriggerToken = (previewSonarTriggerToken + 1) and 0x7FFFFFFF
+                                            if (!isPeekTarget) {
+                                                animatePanelToPeek(true)
+                                            }
+                                        } else {
+                                            // Tapping preview toggles Default <-> Peek
+                                            animatePanelToPeek(!isPeekTarget)
+                                        }
+                                    }
+                                    break
+                                }
+                            }
+                        }
                     }
-                    .padding(horizontal = 12.dp, vertical = 12.dp)
+            )
+
+            // 3. FLOATING BOTTOM PANEL (Fixed size at Default 51% H; translates down via Modifier.offset for Peek so hit-testing matches 1:1!)
+            val defaultTopDp = with(density) { defaultTopY.toDp() }
+            val defaultPanelHeightDp = with(density) { defaultPanelHeightPx.toDp() }
+            val panelCornerPx = with(density) { 28.dp.toPx() }
+            val panelBorderStrokePx = with(density) { 1.dp.toPx() }
+            val eightDpRisePx = with(density) { 8.dp.toPx() }
+
+            val selectedCatalogItem = remember(selectedWallpaperId) {
+                LIVE_WALLPAPER_CATALOG.firstOrNull { it.id == selectedWallpaperId } ?: LIVE_WALLPAPER_CATALOG.first()
+            }
+            val isSelectedActive = wallpaperPreset == selectedWallpaperId
+            val setActiveAlpha by animateFloatAsState(
+                targetValue = if (isSelectedActive) 1f else 0f,
+                animationSpec = tween(durationMillis = 200),
+                label = "setActiveCrossfade"
+            )
+
+            // Clip container anchored at panelBottomY so when the panel translates down in Peek,
+            // its bottom edge remains anchored 16dp above the navigation bar with 28dp rounded corners!
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .offset(y = defaultTopDp)
+                    .fillMaxWidth()
+                    .height(defaultPanelHeightDp)
+                    .graphicsLayer {
+                        val p = transitionProgressProvider().coerceIn(0f, 1f)
+                        val tMs = p * 480f
+                        alpha = ((tMs - 80f) / 140f).coerceIn(0f, 1f)
+                        val entrySlideFactor = (1f - panelEntrySpring.value.coerceIn(0f, 1f)) * p
+                        val closeSlideFactor = (1f - p)
+                        translationY = max(entrySlideFactor, closeSlideFactor) * 0.40f * size.height
+                    }
+                    .drawWithContent {
+                        val shiftY = (peekProgressAnim.value.coerceIn(0f, 1f) * maxPeekShiftPx).coerceIn(0f, size.height - 40f)
+                        val visibleH = (size.height - shiftY).coerceAtLeast(1f)
+                        drawIntoCanvas { canvas ->
+                            val nc = canvas.nativeCanvas
+                            val saveCount = nc.save()
+                            val clipPath = android.graphics.Path().apply {
+                                addRoundRect(
+                                    0f,
+                                    shiftY,
+                                    size.width,
+                                    size.height,
+                                    panelCornerPx,
+                                    panelCornerPx,
+                                    android.graphics.Path.Direction.CW
+                                )
+                            }
+                            nc.clipPath(clipPath)
+                            drawRoundRect(
+                                color = Color(0xFF080808),
+                                topLeft = Offset(0f, shiftY),
+                                size = Size(size.width, visibleH),
+                                cornerRadius = CornerRadius(panelCornerPx, panelCornerPx)
+                            )
+                            this@drawWithContent.drawContent()
+                            nc.restoreToCount(saveCount)
+                        }
+                        drawRoundRect(
+                            color = Color.White.copy(alpha = 0.07f),
+                            topLeft = Offset(0f, shiftY),
+                            size = Size(size.width, visibleH),
+                            cornerRadius = CornerRadius(panelCornerPx, panelCornerPx),
+                            style = Stroke(width = panelBorderStrokePx)
+                        )
+                    }
             ) {
-                // Drag Handle + Upper Panel Header (draggable anywhere on handle/tiles/title row)
+                // Inner panel content shifted by Modifier.offset (NOT graphicsLayer!) so touch hit-boxes
+                // always match the visual position 1:1 in both Default and Peek!
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .pointerInput(defaultOffsetPx, peekOffsetPx) {
-                            val velocityTracker = VelocityTracker()
-                            detectVerticalDragGestures(
-                                onDragStart = {
-                                    velocityTracker.resetTracking()
-                                },
-                                onVerticalDrag = { change, dragAmount ->
-                                    velocityTracker.addPosition(change.uptimeMillis, change.position)
-                                    change.consume()
-                                    val next = (panelOffsetAnim.value + dragAmount).coerceIn(0f, peekOffsetPx)
-                                    scope.launch { panelOffsetAnim.snapTo(next) }
-                                },
-                                onDragEnd = {
-                                    val vy = velocityTracker.calculateVelocity().y
-                                    settlePanelWithVelocity(vy)
-                                },
-                                onDragCancel = {
-                                    settlePanelWithVelocity(0f)
-                                }
-                            )
+                        .fillMaxSize()
+                        .offset {
+                            IntOffset(0, (peekProgressAnim.value.coerceIn(0f, 1f) * maxPeekShiftPx).roundToInt())
                         }
                 ) {
-                    // Drag handle at top center (40dp wide, 4dp tall, white at 25%)
+                    // HANDLE ZONE: Full panel width, 48dp tall at the top of the panel (or 24dp handle + compact bar in Peek).
+                    // - Tapping handle zone: (1) if contentScrollState.value > 0, smoothly scroll to top (450ms);
+                    //   (2) else if in Peek, return to Default; (3) else do nothing.
+                    // - Dragging handle zone vertically: moves panel 1:1 between Default and Peek.
+                    //   This is the ONLY drag that moves the panel!
+                    val isCurrentlyPeek = peekProgressAnim.value > 0.5f
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(bottom = 10.dp),
+                            .height(if (isCurrentlyPeek) 24.dp else 48.dp)
+                            .pointerInput(maxPeekShiftPx) {
+                                val slop = viewConfiguration.touchSlop
+                                val velocityTracker = VelocityTracker()
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    down.consume()
+                                    velocityTracker.resetTracking()
+                                    velocityTracker.addPosition(down.uptimeMillis, down.position)
+                                    val startY = down.position.y
+                                    var draggingPanel = false
+
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                                        if (change == null) break
+                                        velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                        if (change.pressed) {
+                                            val dy = change.position.y - startY
+                                            if (!draggingPanel && abs(dy) > slop) {
+                                                draggingPanel = true
+                                            }
+                                            if (draggingPanel) {
+                                                val delta = change.position.y - change.previousPosition.y
+                                                change.consume()
+                                                val nextP = (peekProgressAnim.value + delta / maxPeekShiftPx).coerceIn(0f, 1f)
+                                                scope.launch { peekProgressAnim.snapTo(nextP) }
+                                            }
+                                        } else {
+                                            change.consume()
+                                            if (draggingPanel) {
+                                                val vy = velocityTracker.calculateVelocity().y
+                                                settleHandleDrag(vy)
+                                            } else {
+                                                // Clean tap on the handle zone!
+                                                if (contentScrollState.value > 0 && peekProgressAnim.value < 0.5f) {
+                                                    fireLightTick()
+                                                    scope.launch {
+                                                        contentScrollState.animateScrollTo(
+                                                            value = 0,
+                                                            animationSpec = tween(durationMillis = 450, easing = NocturnaaOpenSectionEasing)
+                                                        )
+                                                    }
+                                                } else if (isPeekTarget || peekProgressAnim.value >= 0.5f) {
+                                                    fireLightTick()
+                                                    animatePanelToPeek(false)
+                                                }
+                                            }
+                                            break
+                                        }
+                                    }
+                                }
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         Box(
@@ -11248,278 +11420,386 @@ fun LiveWallpapersWindow(
                         )
                     }
 
-                    // a. THE WALLPAPER TILE GRID (5 columns, 8dp gap, square tiles, 14dp radius, wraps automatically)
-                    BoxWithConstraints(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onSizeChanged { measuredTileGridHeightPx = it.height.toFloat().coerceAtLeast(1f) }
-                            .graphicsLayer {
-                                val peekFrac = if (peekOffsetPx > defaultOffsetPx + 1f) {
-                                    ((panelOffsetAnim.value - defaultOffsetPx) / (peekOffsetPx - defaultOffsetPx)).coerceIn(0f, 1f)
-                                } else 0f
-                                alpha = (1f - peekFrac * 1.4f).coerceIn(0f, 1f)
-                                translationY = -peekFrac * measuredTileGridHeightPx
-                            }
-                    ) {
-                        val gridWidthDp = maxWidth
-                        val gapDp = 8.dp
-                        val cellWidthDp = (gridWidthDp - gapDp * 4) / 5f
-                        var tileRowPitchPx by remember { mutableStateOf(with(density) { (cellWidthDp + 22.dp).toPx() }) }
-
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            LIVE_WALLPAPER_CATALOG.chunked(5).forEachIndexed { rowIdx, rowItems ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .onSizeChanged {
-                                            if (rowIdx == 0 && it.height > 0) {
-                                                tileRowPitchPx = it.height.toFloat() + with(density) { 8.dp.toPx() }
-                                            }
-                                        },
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    for (colIdx in 0 until 5) {
-                                        val item = rowItems.getOrNull(colIdx)
-                                        if (item != null) {
-                                            val tileIdx = rowIdx * 5 + colIdx
-                                            val isSelected = selectedWallpaperId == item.id
-                                            val isActiveWp = wallpaperPreset == item.id
-                                            val thumbBmp = wallpaperTileThumbnails[item.id]
-
-                                            Column(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .graphicsLayer {
-                                                        val tMs = transitionProgressProvider().coerceIn(0f, 1f) * 480f
-                                                        val startMs = 160f + min(tileIdx * 25f, 225f)
-                                                        alpha = ((tMs - startMs) / 160f).coerceIn(0f, 1f)
-                                                    }
-                                                    .clickable(
-                                                        interactionSource = remember { MutableInteractionSource() },
-                                                        indication = null
-                                                    ) {
-                                                        selectTileForEditing(item.id)
-                                                    },
-                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .aspectRatio(1f)
-                                                        .clip(RoundedCornerShape(14.dp))
-                                                        .background(Color.Black, RoundedCornerShape(14.dp))
-                                                        .border(
-                                                            width = 1.dp,
-                                                            color = Color.White.copy(alpha = 0.08f),
-                                                            shape = RoundedCornerShape(14.dp)
-                                                        )
-                                                ) {
-                                                    if (thumbBmp != null) {
-                                                        Image(
-                                                            bitmap = thumbBmp,
-                                                            contentDescription = item.tileTitle,
-                                                            modifier = Modifier.fillMaxSize()
-                                                        )
-                                                    }
-                                                    // Active wallpaper dot in top-right corner
-                                                    if (isActiveWp) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .align(Alignment.TopEnd)
-                                                                .padding(top = 5.dp, end = 5.dp)
-                                                                .size(7.dp)
-                                                                .background(accentColor, CircleShape)
-                                                        )
-                                                    }
-                                                }
-
-                                                AutoShrinkTileLabel(
-                                                    text = item.tileTitle,
-                                                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.55f),
-                                                    fontFamily = launcherFont,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                                )
-                                            }
-                                        } else {
-                                            Spacer(modifier = Modifier.weight(1f))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Spring-animated 2dp accent ring that moves smoothly to the selected tile
-                        val cellStepPx = with(density) { (cellWidthDp + gapDp).toPx() }
-                        Box(
-                            modifier = Modifier
-                                .size(cellWidthDp)
-                                .graphicsLayer {
-                                    val tMs = transitionProgressProvider().coerceIn(0f, 1f) * 480f
-                                    val startMs = 160f + min(selectedIndex * 25f, 225f)
-                                    alpha = ((tMs - startMs) / 160f).coerceIn(0f, 1f)
-                                    translationX = animatedRingCol * cellStepPx
-                                    translationY = animatedRingRow * tileRowPitchPx
-                                }
-                                .border(2.dp, accentColor, RoundedCornerShape(14.dp))
-                        )
-                    }
-                }
-
-                // b. TITLE ROW + c. SCROLLABLE SETTINGS LIST (shifts up in Peek mode so Title Row sits right under handle)
-                val selectedCatalogItem = remember(selectedWallpaperId) {
-                    LIVE_WALLPAPER_CATALOG.firstOrNull { it.id == selectedWallpaperId } ?: LIVE_WALLPAPER_CATALOG.first()
-                }
-                val isSelectedActive = wallpaperPreset == selectedWallpaperId
-                val setActiveAlpha by animateFloatAsState(
-                    targetValue = if (isSelectedActive) 1f else 0f,
-                    animationSpec = tween(durationMillis = 200),
-                    label = "setActiveCrossfade"
-                )
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .graphicsLayer {
-                            val peekFrac = if (peekOffsetPx > defaultOffsetPx + 1f) {
-                                ((panelOffsetAnim.value - defaultOffsetPx) / (peekOffsetPx - defaultOffsetPx)).coerceIn(0f, 1f)
-                            } else 0f
-                            translationY = -peekFrac * measuredTileGridHeightPx
-                        }
-                ) {
-                    // b. Title row: full name at ~20sp on left, ACTIVE / filled SET pill on right, description under it
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onSizeChanged { measuredTitleBlockHeightPx = it.height.toFloat().coerceAtLeast(1f) }
-                            .padding(top = 12.dp, bottom = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = selectedCatalogItem.fullTitle,
-                                color = Color.White,
-                                fontSize = 20.sp,
-                                fontFamily = launcherFont,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.weight(1f).padding(end = 12.dp)
-                            )
-
-                            Box(contentAlignment = Alignment.CenterEnd) {
-                                // "ACTIVE" indicator (accent dot + ACTIVE text)
-                                if (setActiveAlpha > 0.01f) {
-                                    Row(
-                                        modifier = Modifier
-                                            .graphicsLayer { alpha = setActiveAlpha }
-                                            .padding(horizontal = 4.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(6.dp)
-                                                .background(accentColor, CircleShape)
-                                        )
-                                        Text(
-                                            text = "ACTIVE",
-                                            color = accentColor,
-                                            fontSize = 11.sp,
-                                            fontFamily = launcherFont,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-
-                                // Filled accent "SET" pill with black text
-                                if (setActiveAlpha < 0.99f) {
-                                    Box(
-                                        modifier = Modifier
-                                            .graphicsLayer { alpha = 1f - setActiveAlpha }
-                                            .background(accentColor, RoundedCornerShape(50))
-                                            .clickable(
-                                                enabled = !isSelectedActive,
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null
-                                            ) {
-                                                fireLightTick()
-                                                onChangeWallpaperPreset(selectedWallpaperId)
-                                            }
-                                            .padding(horizontal = 16.dp, vertical = 6.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = "SET",
-                                            color = Color.Black,
-                                            fontSize = 11.sp,
-                                            fontFamily = launcherFont,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Text(
-                            text = selectedCatalogItem.description,
-                            color = Color.White.copy(alpha = 0.50f),
-                            fontSize = 11.sp,
-                            fontFamily = LocalLauncherFont.current,
-                            lineHeight = 15.sp
-                        )
-                    }
-
-                    // c. Hairline divider + vertically scrollable per-wallpaper settings rows
-                    SettingsHairlineDivider()
-
-                    val currentWpSettingItems = buildLiveWallpaperRowSettingItems(
-                        id = displayedSettingsWallpaperId,
-                        liveWpConfig = liveWpConfig,
-                        onUpdateLiveWpConfig = onUpdateLiveWpConfig,
-                        onSettingInteractionFinished = { updatedCfg ->
-                            onRefreshWallpaperThumbnail(displayedSettingsWallpaperId, updatedCfg)
-                        },
-                        accentColor = accentColor,
-                        innerCardBorderColor = innerCardBorderColor,
-                        innerSubCardShape = innerSubCardShape,
-                        launcherFont = launcherFont
-                    )
-
-                    Column(
+                    // Body below handle zone: crossfades between Compact Peek Bar (in Peek) and Full Scrollable Content (in Default)
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                            .verticalScroll(settingsScrollState)
-                            .padding(bottom = with(density) { defaultOffsetPx.toDp() } + 28.dp)
+                            .clipToBounds()
                     ) {
-                        currentWpSettingItems.forEachIndexed { idx, settingItemComposable ->
-                            val staggerStartMs = (idx * 30f).coerceAtMost(240f)
+                        // A. FULL CONTENT IN DEFAULT (Tile grid + Title row + Settings rows)
+                        // Scrolls inside the fixed-size panel and is clipped cleanly right under the handle zone!
+                        if (peekProgressAnim.value < 0.99f) {
                             Column(
                                 modifier = Modifier
-                                    .fillMaxWidth()
+                                    .fillMaxSize()
                                     .graphicsLayer {
-                                        if (isFadingOutOldSettings) {
-                                            alpha = settingsListFadeOutAnim.value.coerceIn(0f, 1f)
-                                            translationY = 0f
-                                        } else {
-                                            val rawP = ((settingsListStaggerMsAnim.value - staggerStartMs) / 200f).coerceIn(0f, 1f)
-                                            val easedP = NocturnaaOpenSectionEasing.transform(rawP).coerceIn(0f, 1f)
-                                            alpha = easedP
-                                            translationY = (1f - easedP) * eightDpRisePx
+                                        alpha = (1f - peekProgressAnim.value * 1.35f).coerceIn(0f, 1f)
+                                    }
+                                    .verticalScroll(contentScrollState)
+                                    .padding(start = 12.dp, end = 12.dp, bottom = 24.dp)
+                            ) {
+                                // a. THE WALLPAPER TILE GRID (5 columns, 8dp gap, square tiles, 14dp radius)
+                                BoxWithConstraints(
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    val gridWidthDp = maxWidth
+                                    val gapDp = 8.dp
+                                    val cellWidthDp = (gridWidthDp - gapDp * 4) / 5f
+                                    var tileRowPitchPx by remember { mutableStateOf(with(density) { (cellWidthDp + 22.dp).toPx() }) }
+
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        LIVE_WALLPAPER_CATALOG.chunked(5).forEachIndexed { rowIdx, rowItems ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .onSizeChanged {
+                                                        if (rowIdx == 0 && it.height > 0) {
+                                                            tileRowPitchPx = it.height.toFloat() + with(density) { 8.dp.toPx() }
+                                                        }
+                                                    },
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                for (colIdx in 0 until 5) {
+                                                    val item = rowItems.getOrNull(colIdx)
+                                                    if (item != null) {
+                                                        val tileIdx = rowIdx * 5 + colIdx
+                                                        val isSelected = selectedWallpaperId == item.id
+                                                        val isActiveWp = wallpaperPreset == item.id
+                                                        val thumbBmp = wallpaperTileThumbnails[item.id]
+
+                                                        Column(
+                                                            modifier = Modifier
+                                                                .weight(1f)
+                                                                .graphicsLayer {
+                                                                    val tMs = transitionProgressProvider().coerceIn(0f, 1f) * 480f
+                                                                    val startMs = 160f + min(tileIdx * 25f, 225f)
+                                                                    alpha = ((tMs - startMs) / 160f).coerceIn(0f, 1f)
+                                                                }
+                                                                .nocturnaaCleanTap {
+                                                                    selectTileForEditing(item.id)
+                                                                },
+                                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                        ) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .aspectRatio(1f)
+                                                                    .clip(RoundedCornerShape(14.dp))
+                                                                    .background(Color.Black, RoundedCornerShape(14.dp))
+                                                                    .border(
+                                                                        width = 1.dp,
+                                                                        color = Color.White.copy(alpha = 0.08f),
+                                                                        shape = RoundedCornerShape(14.dp)
+                                                                    )
+                                                            ) {
+                                                                if (thumbBmp != null) {
+                                                                    Image(
+                                                                        bitmap = thumbBmp,
+                                                                        contentDescription = item.tileTitle,
+                                                                        modifier = Modifier.fillMaxSize()
+                                                                    )
+                                                                }
+                                                                if (isActiveWp) {
+                                                                    Box(
+                                                                        modifier = Modifier
+                                                                            .align(Alignment.TopEnd)
+                                                                            .padding(top = 5.dp, end = 5.dp)
+                                                                            .size(7.dp)
+                                                                            .background(accentColor, CircleShape)
+                                                                    )
+                                                                }
+                                                            }
+
+                                                            AutoShrinkTileLabel(
+                                                                text = item.tileTitle,
+                                                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.55f),
+                                                                fontFamily = launcherFont,
+                                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                            )
+                                                        }
+                                                    } else {
+                                                        Spacer(modifier = Modifier.weight(1f))
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
-                            ) {
-                                if (idx > 0) {
-                                    SettingsHairlineDivider()
+
+                                    // Spring-animated 2dp accent ring that moves smoothly to the selected tile
+                                    val cellStepPx = with(density) { (cellWidthDp + gapDp).toPx() }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(cellWidthDp)
+                                            .graphicsLayer {
+                                                val tMs = transitionProgressProvider().coerceIn(0f, 1f) * 480f
+                                                val startMs = 160f + min(selectedIndex * 25f, 225f)
+                                                alpha = ((tMs - startMs) / 160f).coerceIn(0f, 1f)
+                                                translationX = animatedRingCol * cellStepPx
+                                                translationY = animatedRingRow * tileRowPitchPx
+                                            }
+                                            .border(2.dp, accentColor, RoundedCornerShape(14.dp))
+                                    )
                                 }
-                                settingItemComposable()
+
+                                // b. THE TITLE ROW (Full name at ~20sp on left, ACTIVE / filled SET pill on right, description under it)
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .onGloballyPositioned { coords ->
+                                            titleRowTopInScrollPx = coords.positionInParent().y.roundToInt()
+                                        }
+                                        .padding(top = 12.dp, bottom = 10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 48.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = selectedCatalogItem.fullTitle,
+                                            color = Color.White,
+                                            fontSize = 20.sp,
+                                            fontFamily = launcherFont,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.weight(1f).padding(end = 12.dp)
+                                        )
+
+                                        Box(
+                                            modifier = Modifier.sizeIn(minWidth = 64.dp, minHeight = 48.dp),
+                                            contentAlignment = Alignment.CenterEnd
+                                        ) {
+                                            if (setActiveAlpha > 0.01f) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .graphicsLayer { alpha = setActiveAlpha }
+                                                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(6.dp)
+                                                            .background(accentColor, CircleShape)
+                                                    )
+                                                    Text(
+                                                        text = "ACTIVE",
+                                                        color = accentColor,
+                                                        fontSize = 11.sp,
+                                                        fontFamily = launcherFont,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+
+                                            if (setActiveAlpha < 0.99f) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .sizeIn(minWidth = 64.dp, minHeight = 48.dp)
+                                                        .graphicsLayer { alpha = 1f - setActiveAlpha }
+                                                        .nocturnaaCleanTap(enabled = !isSelectedActive) {
+                                                            fireLightTick()
+                                                            onChangeWallpaperPreset(selectedWallpaperId)
+                                                        },
+                                                    contentAlignment = Alignment.CenterEnd
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .background(accentColor, RoundedCornerShape(50))
+                                                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(
+                                                            text = "SET",
+                                                            color = Color.Black,
+                                                            fontSize = 11.sp,
+                                                            fontFamily = launcherFont,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Text(
+                                        text = selectedCatalogItem.description,
+                                        color = Color.White.copy(alpha = 0.50f),
+                                        fontSize = 11.sp,
+                                        fontFamily = LocalLauncherFont.current,
+                                        lineHeight = 15.sp
+                                    )
+                                }
+
+                                // c. Hairline divider + per-wallpaper settings rows
+                                SettingsHairlineDivider()
+
+                                val currentWpSettingItems = buildLiveWallpaperRowSettingItems(
+                                    id = displayedSettingsWallpaperId,
+                                    liveWpConfig = liveWpConfig,
+                                    onUpdateLiveWpConfig = onUpdateLiveWpConfig,
+                                    onSettingInteractionFinished = { updatedCfg ->
+                                        onRefreshWallpaperThumbnail(displayedSettingsWallpaperId, updatedCfg)
+                                    },
+                                    accentColor = accentColor,
+                                    innerCardBorderColor = innerCardBorderColor,
+                                    innerSubCardShape = innerSubCardShape,
+                                    launcherFont = launcherFont
+                                )
+
+                                currentWpSettingItems.forEachIndexed { idx, settingItemComposable ->
+                                    val staggerStartMs = (idx * 30f).coerceAtMost(240f)
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .graphicsLayer {
+                                                if (isFadingOutOldSettings) {
+                                                    alpha = settingsListFadeOutAnim.value.coerceIn(0f, 1f)
+                                                    translationY = 0f
+                                                } else {
+                                                    val rawP = ((settingsListStaggerMsAnim.value - staggerStartMs) / 200f).coerceIn(0f, 1f)
+                                                    val easedP = NocturnaaOpenSectionEasing.transform(rawP).coerceIn(0f, 1f)
+                                                    alpha = easedP
+                                                    translationY = (1f - easedP) * eightDpRisePx
+                                                }
+                                            }
+                                    ) {
+                                        if (idx > 0) {
+                                            SettingsHairlineDivider()
+                                        }
+                                        settingItemComposable()
+                                    }
+                                }
+                            }
+                        }
+
+                        // B. COMPACT PEEK BAR (~72dp total panel height with handle above; crossfades with full content)
+                        if (peekProgressAnim.value > 0.01f) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .padding(horizontal = 16.dp)
+                                    .graphicsLayer {
+                                        alpha = ((peekProgressAnim.value - 0.15f) / 0.85f).coerceIn(0f, 1f)
+                                    },
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = selectedCatalogItem.fullTitle,
+                                    color = Color.White,
+                                    fontSize = 18.sp,
+                                    fontFamily = launcherFont,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp)
+                                        .padding(end = 12.dp)
+                                        .pointerInput(maxPeekShiftPx) {
+                                            val slop = viewConfiguration.touchSlop
+                                            val velocityTracker = VelocityTracker()
+                                            awaitEachGesture {
+                                                val down = awaitFirstDown(requireUnconsumed = false)
+                                                down.consume()
+                                                velocityTracker.resetTracking()
+                                                velocityTracker.addPosition(down.uptimeMillis, down.position)
+                                                val startY = down.position.y
+                                                var dragging = false
+                                                while (true) {
+                                                    val event = awaitPointerEvent()
+                                                    val change = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                                                    if (change == null) break
+                                                    velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                                    if (change.pressed) {
+                                                        if (!dragging && abs(change.position.y - startY) > slop) {
+                                                            dragging = true
+                                                        }
+                                                        if (dragging) {
+                                                            val delta = change.position.y - change.previousPosition.y
+                                                            change.consume()
+                                                            val nextP = (peekProgressAnim.value + delta / maxPeekShiftPx).coerceIn(0f, 1f)
+                                                            scope.launch { peekProgressAnim.snapTo(nextP) }
+                                                        }
+                                                    } else {
+                                                        change.consume()
+                                                        if (dragging) {
+                                                            settleHandleDrag(velocityTracker.calculateVelocity().y)
+                                                        } else {
+                                                            fireLightTick()
+                                                            animatePanelToPeek(false)
+                                                        }
+                                                        break
+                                                    }
+                                                }
+                                            }
+                                        }
+                                )
+
+                                Box(
+                                    modifier = Modifier.sizeIn(minWidth = 64.dp, minHeight = 48.dp),
+                                    contentAlignment = Alignment.CenterEnd
+                                ) {
+                                    if (setActiveAlpha > 0.01f) {
+                                        Row(
+                                            modifier = Modifier
+                                                .graphicsLayer { alpha = setActiveAlpha }
+                                                .padding(horizontal = 4.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(6.dp)
+                                                    .background(accentColor, CircleShape)
+                                            )
+                                            Text(
+                                                text = "ACTIVE",
+                                                color = accentColor,
+                                                fontSize = 11.sp,
+                                                fontFamily = launcherFont,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+
+                                    if (setActiveAlpha < 0.99f) {
+                                        Box(
+                                            modifier = Modifier
+                                                .sizeIn(minWidth = 64.dp, minHeight = 48.dp)
+                                                .graphicsLayer { alpha = 1f - setActiveAlpha }
+                                                .nocturnaaCleanTap(enabled = !isSelectedActive) {
+                                                    fireLightTick()
+                                                    onChangeWallpaperPreset(selectedWallpaperId)
+                                                },
+                                            contentAlignment = Alignment.CenterEnd
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(accentColor, RoundedCornerShape(50))
+                                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = "SET",
+                                                    color = Color.Black,
+                                                    fontSize = 11.sp,
+                                                    fontFamily = launcherFont,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -12397,7 +12677,7 @@ private fun buildLiveWallpaperRowSettingItems(
                     accentColor = accentColor,
                     lomoFontFamily = launcherFont,
                     onSelect = { sel ->
-                        val fps = sel.toIntOrNull() ?: 30
+                        val fps = sel.toIntOrNull() ?: 60
                         commitAndRefresh(liveWpConfig.copy(ripplesFps = fps))
                     }
                 )
@@ -13110,7 +13390,20 @@ private fun buildLiveWallpaperRowSettingItems(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp, bottom = 6.dp),
+                .heightIn(min = 48.dp)
+                .padding(top = 6.dp, bottom = 4.dp)
+                .nocturnaaCleanTap(enabled = !isAtDefault) {
+                    val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                    val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
+                    }
+                    vib?.vibrate(effect)
+                    val resetCfg = liveWpConfig.resetWallpaper(id)
+                    commitAndRefresh(resetCfg)
+                },
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -13119,20 +13412,7 @@ private fun buildLiveWallpaperRowSettingItems(
                 fontSize = 12.sp,
                 fontFamily = launcherFont,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .clickable(enabled = !isAtDefault) {
-                        val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-                        val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
-                        } else {
-                            @Suppress("DEPRECATION")
-                            VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
-                        }
-                        vib?.vibrate(effect)
-                        val resetCfg = liveWpConfig.resetWallpaper(id)
-                        commitAndRefresh(resetCfg)
-                    }
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
             )
         }
     }
@@ -13729,7 +14009,11 @@ private fun buildAppDrawerSettingsSectionItems(
 }
 
 // ============================================================================
-// ONE REUSABLE SLIDER COMPONENT FOR ALL LAUNCHER SETTINGS (Image 2 Style)
+// ONE REUSABLE SLIDER COMPONENT FOR ALL LAUNCHER SETTINGS
+// - 48dp hit zone around the thumb ONLY (touching elsewhere on the track does nothing)
+// - Does NOT consume touch-down; waits for 8dp touch slop and locks to slider ONLY if |dx| > 1.5 * |dy|
+// - Otherwise hands gesture to parent scroll without changing the value
+// - Tick labels act ONLY on a clean tap (<250ms, within slop) when parent list was not scrolling/flinging
 // ============================================================================
 @Composable
 fun NocturnaaSettingSlider(
@@ -13752,6 +14036,7 @@ fun NocturnaaSettingSlider(
     previewContent: (@Composable (Float) -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
     val minV = valueRange.start
     val maxV = valueRange.endInclusive
     val span = (maxV - minV).coerceAtLeast(0.0001f)
@@ -13761,6 +14046,12 @@ fun NocturnaaSettingSlider(
     var dragRawValue by remember { mutableStateOf(clampedTarget) }
     var chipPreviewTick by remember { mutableStateOf(0) }
     var showChipPreview by remember { mutableStateOf(false) }
+
+    val isParentScrollingProvider = LocalParentScrollInProgress.current
+    val currentIsParentScrolling by rememberUpdatedState(isParentScrollingProvider)
+    val minSlopPx = with(density) { 8.dp.toPx() }
+    val thumbHitRadiusPx = with(density) { 24.dp.toPx() } // 48dp diameter hit area around thumb
+    val thumbDrawRadiusPx = with(density) { 6.dp.toPx() }
 
     LaunchedEffect(clampedTarget, isDragging) {
         if (!isDragging) {
@@ -13823,11 +14114,13 @@ fun NocturnaaSettingSlider(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+            .padding(vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 36.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -13835,10 +14128,11 @@ fun NocturnaaSettingSlider(
                 text = title,
                 color = Color.White,
                 fontSize = 13.sp,
-                fontFamily = lomoFontFamily
+                fontFamily = lomoFontFamily,
+                modifier = Modifier.weight(1f).padding(end = 8.dp)
             )
             Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
@@ -13848,23 +14142,25 @@ fun NocturnaaSettingSlider(
                     fontFamily = lomoFontFamily,
                     fontWeight = FontWeight.Bold
                 )
-                Text(
-                    text = "Reset",
-                    color = if (isAtDefault) Color(0xFF4D4D4D) else Color(0xFF9E9E9E),
-                    fontSize = 11.sp,
-                    fontFamily = LocalLauncherFont.current,
+                Box(
                     modifier = Modifier
-                        .clickable {
-                            if (!isAtDefault) {
-                                fireSliderHaptic()
-                                dragRawValue = defaultValue
-                                currentOnValueChange(defaultValue)
-                                currentOnValueChangeFinished?.invoke()
-                                chipPreviewTick++
-                            }
-                        }
-                        .padding(horizontal = 2.dp, vertical = 2.dp)
-                )
+                        .sizeIn(minWidth = 48.dp, minHeight = 36.dp)
+                        .nocturnaaCleanTap(enabled = !isAtDefault) {
+                            fireSliderHaptic()
+                            dragRawValue = defaultValue
+                            currentOnValueChange(defaultValue)
+                            currentOnValueChangeFinished?.invoke()
+                            chipPreviewTick++
+                        },
+                    contentAlignment = Alignment.CenterEnd
+                ) {
+                    Text(
+                        text = "Reset",
+                        color = if (isAtDefault) Color(0xFF4D4D4D) else Color(0xFF9E9E9E),
+                        fontSize = 11.sp,
+                        fontFamily = LocalLauncherFont.current
+                    )
+                }
             }
         }
 
@@ -13876,51 +14172,93 @@ fun NocturnaaSettingSlider(
             lineHeight = 15.sp
         )
 
+        // 48dp tall interactive track container; drag starts ONLY within 48dp hit zone around thumb
+        // and ONLY after horizontal movement > touchSlop with |dx| > 1.5 * |dy|.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(26.dp)
+                .height(48.dp)
                 .pointerInput(minV, maxV, step, hapticStep, presetChips) {
+                    val slop = max(viewConfiguration.touchSlop, minSlopPx)
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        down.consume()
-                        isDragging = true
+                        // Never consume down! And ignore if parent list was scrolling/flinging on down.
+                        if (currentIsParentScrolling()) return@awaitEachGesture
+
                         val w = size.width.toFloat().coerceAtLeast(1f)
-                        val initFrac = (down.position.x / w).coerceIn(0f, 1f)
-                        val initVal = snapToStep(minV + initFrac * span)
-                        var prevVal = initVal
-                        var lastBucket = (initVal / hapticStep.coerceAtLeast(0.1f)).roundToInt()
-                        dragRawValue = initVal
-                        currentOnValueChange(initVal)
+                        val usableW = (w - thumbDrawRadiusPx * 2f).coerceAtLeast(1f)
+                        val curNorm = ((currentDisplayVal - minV) / span).coerceIn(0f, 1f)
+                        val thumbCenterX = thumbDrawRadiusPx + curNorm * usableW
 
-                        do {
+                        // Check 48dp hit zone (+/- 24dp) around the current thumb position
+                        if (abs(down.position.x - thumbCenterX) > thumbHitRadiusPx) {
+                            return@awaitEachGesture
+                        }
+
+                        val startX = down.position.x
+                        val startY = down.position.y
+                        var horizontalCommitted = false
+                        var prevVal = snapToStep(currentDisplayVal)
+                        var lastBucket = (prevVal / hapticStep.coerceAtLeast(0.1f)).roundToInt()
+
+                        while (true) {
                             val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull()
-                            if (change != null && change.pressed) {
-                                change.consume()
-                                val curW = size.width.toFloat().coerceAtLeast(1f)
-                                val frac = (change.position.x / curW).coerceIn(0f, 1f)
-                                val nextVal = snapToStep(minV + frac * span)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                            if (change == null) break
 
-                                val crossedTick = if (presetChips.isNotEmpty()) {
-                                    presetChips.any { (tVal, _) ->
-                                        (prevVal < tVal && nextVal >= tVal) || (prevVal > tVal && nextVal <= tVal)
-                                    }
-                                } else false
-                                val nextBucket = (nextVal / hapticStep.coerceAtLeast(0.1f)).roundToInt()
-
-                                if (crossedTick || nextBucket != lastBucket) {
-                                    lastBucket = nextBucket
-                                    fireSliderHaptic()
-                                }
-                                prevVal = nextVal
-                                dragRawValue = nextVal
-                                currentOnValueChange(nextVal)
+                            if (!horizontalCommitted && (change.isConsumed || currentIsParentScrolling())) {
+                                break
                             }
-                        } while (event.changes.any { it.pressed })
 
-                        isDragging = false
-                        currentOnValueChangeFinished?.invoke()
+                            if (change.pressed) {
+                                val dx = change.position.x - startX
+                                val dy = change.position.y - startY
+
+                                if (!horizontalCommitted) {
+                                    if (dx * dx + dy * dy >= slop * slop) {
+                                        if (abs(dx) > 1.5f * abs(dy)) {
+                                            horizontalCommitted = true
+                                            isDragging = true
+                                        } else {
+                                            // Vertical movement -> let parent scroll and leave value untouched!
+                                            break
+                                        }
+                                    }
+                                }
+
+                                if (horizontalCommitted) {
+                                    change.consume()
+                                    val curW = (size.width.toFloat() - thumbDrawRadiusPx * 2f).coerceAtLeast(1f)
+                                    val frac = ((change.position.x - thumbDrawRadiusPx) / curW).coerceIn(0f, 1f)
+                                    val nextVal = snapToStep(minV + frac * span)
+
+                                    val crossedTick = if (presetChips.isNotEmpty()) {
+                                        presetChips.any { (tVal, _) ->
+                                            (prevVal < tVal && nextVal >= tVal) || (prevVal > tVal && nextVal <= tVal)
+                                        }
+                                    } else false
+                                    val nextBucket = (nextVal / hapticStep.coerceAtLeast(0.1f)).roundToInt()
+
+                                    if (crossedTick || nextBucket != lastBucket) {
+                                        lastBucket = nextBucket
+                                        fireSliderHaptic()
+                                    }
+                                    prevVal = nextVal
+                                    dragRawValue = nextVal
+                                    currentOnValueChange(nextVal)
+                                }
+                            } else {
+                                if (horizontalCommitted) {
+                                    change.consume()
+                                }
+                                break
+                            }
+                        }
+
+                        if (horizontalCommitted) {
+                            isDragging = false
+                            currentOnValueChangeFinished?.invoke()
+                        }
                     }
                 },
             contentAlignment = Alignment.CenterStart
@@ -13957,18 +14295,48 @@ fun NocturnaaSettingSlider(
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(24.dp)
+                    .height(28.dp)
                     .pointerInput(presetChips) {
-                        detectTapGestures { tapOffset ->
-                            val w = size.width.toFloat().coerceAtLeast(1f)
-                            val tapValue = minV + (tapOffset.x / w).coerceIn(0f, 1f) * span
-                            val nearest = presetChips.minByOrNull { abs(it.first - tapValue) }
-                            if (nearest != null) {
-                                fireSliderHaptic()
-                                dragRawValue = nearest.first
-                                currentOnValueChange(nearest.first)
-                                currentOnValueChangeFinished?.invoke()
-                                chipPreviewTick++
+                        val slop = max(viewConfiguration.touchSlop, minSlopPx)
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            // Do NOT consume down! And ignore if list was scrolling or flinging when finger went down.
+                            if (currentIsParentScrolling()) return@awaitEachGesture
+                            val downTimeMs = System.currentTimeMillis()
+                            val startPos = down.position
+                            var aborted = false
+
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                                if (change == null) break
+                                if (change.isConsumed || currentIsParentScrolling()) {
+                                    aborted = true
+                                    break
+                                }
+                                val dx = change.position.x - startPos.x
+                                val dy = change.position.y - startPos.y
+                                if (dx * dx + dy * dy > slop * slop) {
+                                    aborted = true
+                                    break
+                                }
+                                if (!change.pressed) {
+                                    val elapsed = System.currentTimeMillis() - downTimeMs
+                                    if (!aborted && elapsed <= 250L && !currentIsParentScrolling()) {
+                                        change.consume()
+                                        val w = size.width.toFloat().coerceAtLeast(1f)
+                                        val tapValue = minV + (startPos.x / w).coerceIn(0f, 1f) * span
+                                        val nearest = presetChips.minByOrNull { abs(it.first - tapValue) }
+                                        if (nearest != null) {
+                                            fireSliderHaptic()
+                                            dragRawValue = nearest.first
+                                            currentOnValueChange(nearest.first)
+                                            currentOnValueChangeFinished?.invoke()
+                                            chipPreviewTick++
+                                        }
+                                    }
+                                    break
+                                }
                             }
                         }
                     }
@@ -15023,15 +15391,38 @@ private class NewLiveWallpapersEngine {
         isAntiAlias = false
         style = AndroidPaint.Style.STROKE
     }
+    val pointPaint = AndroidPaint().apply {
+        isAntiAlias = false
+        style = AndroidPaint.Style.STROKE
+        strokeCap = AndroidPaint.Cap.BUTT
+    }
     val textPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
         textAlign = AndroidPaint.Align.CENTER
         typeface = Typeface.MONOSPACE
         isFakeBoldText = true
     }
 
-    // Cached static layer bitmap (reused in place when dimensions match)
+    // Plain float fields for canvas dimensions and elapsed time (never mutates Compose state inside onDraw!)
+    var lastCanvasW: Float = 1080f
+    var lastCanvasH: Float = 2400f
+    var liveTimeSec: Float = 0f
+
+    // Cached static layer bitmap for Year in Dots & Moon Phase
     var cachedStaticBitmap: Bitmap? = null
     var cachedKey: String = ""
+
+    // 5. Touch Ripples pre-allocated static dot grid array + 4 white opacity buckets + 1 accent bucket (drawn via drawPoints)
+    var baseGridPts = FloatArray(16384)
+    var baseGridFloatCount = 0
+    var baseGridCacheKey = ""
+    var baseGridCols = 0
+    var baseGridRows = 0
+    var baseGridOffsetX = 0f
+    var baseGridOffsetY = 0f
+    val rippleWhiteBuckets = Array(4) { FloatArray(4096) }
+    val rippleWhiteFloatCounts = IntArray(4)
+    val rippleAccentPts = FloatArray(4096)
+    var rippleAccentFloatCount = 0
 
     // 6. Oscilloscope pre-allocated 300-point normalized ring buffer & 6 batched Paths
     val oscNormX = FloatArray(300)
@@ -15066,6 +15457,36 @@ private class NewLiveWallpapersEngine {
     fun nextRand01(): Float {
         rngSeed = (rngSeed * 25214903917L + 11L) and ((1L shl 48) - 1)
         return ((rngSeed ushr 24).toInt() and 0xFFFFFF).toFloat() / 16777216f
+    }
+
+    fun ensureTouchRipplesGrid(w: Float, h: Float, stepPx: Float, cacheKey: String) {
+        if (baseGridCacheKey == cacheKey && baseGridFloatCount > 0) return
+        baseGridCacheKey = cacheKey
+        val offsetX = (w % stepPx) * 0.5f
+        val offsetY = (h % stepPx) * 0.5f
+        val cols = ((w - offsetX) / stepPx).toInt() + 1
+        val rows = ((h - offsetY) / stepPx).toInt() + 1
+        baseGridCols = cols.coerceAtLeast(1)
+        baseGridRows = rows.coerceAtLeast(1)
+        baseGridOffsetX = offsetX
+        baseGridOffsetY = offsetY
+
+        val neededFloats = baseGridCols * baseGridRows * 2
+        if (baseGridPts.size < neededFloats) {
+            baseGridPts = FloatArray(neededFloats + 512)
+        }
+        var idx = 0
+        for (r in 0 until baseGridRows) {
+            val y = offsetY + r * stepPx
+            if (y > h) break
+            for (c in 0 until baseGridCols) {
+                val x = offsetX + c * stepPx
+                if (x > w) break
+                baseGridPts[idx++] = x
+                baseGridPts[idx++] = y
+            }
+        }
+        baseGridFloatCount = idx
     }
 
     fun ensureRainInitialized(maxRows: Int) {
@@ -15199,13 +15620,11 @@ fun OledWallpaperCanvas(
     val realScreenWidthPx = with(density) {
         configuration.screenWidthDp.coerceAtLeast(320).dp.toPx()
     }.coerceAtLeast(1f)
+    val baseDpPx = with(density) { 1.dp.toPx() }
 
-    var liveTimeSec by remember(preset) { mutableStateOf(0f) }
-    var starfieldFrameTick by remember { mutableStateOf(0) }
-    var newWpFrameTick by remember { mutableStateOf(0) }
+    // Draw-phase invalidation ticks: NEVER read in composable scope so OledWallpaperCanvas never recomposes per frame!
+    var drawFrameTick by remember { mutableStateOf(0) }
     var midnightDateTick by remember { mutableStateOf(0) }
-    var canvasWidthPx by remember { mutableStateOf(realScreenWidthPx) }
-    var canvasHeightPx by remember { mutableStateOf(realScreenWidthPx * 1.77f) }
 
     val currentConfig by rememberUpdatedState(liveWpConfig)
 
@@ -15258,23 +15677,20 @@ fun OledWallpaperCanvas(
         }
     }
 
-    // Re-initialize Oscilloscope curve immediately when Curve setting changes
     LaunchedEffect(preset, liveWpConfig.oscilloscopeCurve) {
         if (preset == "live_oscilloscope") {
             newWpEngine.ensureOscilloscopeInitialized(liveWpConfig.oscilloscopeCurve)
-            newWpFrameTick = (newWpFrameTick + 1) and 0x7FFFFFFF
+            drawFrameTick = (drawFrameTick + 1) and 0x7FFFFFFF
         }
     }
 
-    // Sonar immediate ring trigger (used by preview when a Sonar setting changes or preview is tapped)
     LaunchedEffect(sonarTriggerToken) {
         if (preset == "live_sonar" && sonarTriggerToken > 0) {
-            liveTimeSec = 0f
-            newWpFrameTick = (newWpFrameTick + 1) and 0x7FFFFFFF
+            newWpEngine.liveTimeSec = 0f
+            drawFrameTick = (drawFrameTick + 1) and 0x7FFFFFFF
         }
     }
 
-    // Midnight timer for Year in Dots & Moon Phase so they redraw automatically at 00:00:00 with 0 continuous frames
     LaunchedEffect(preset, isScreenVisible, dateChangeTrigger) {
         if ((preset == "live_year_in_dots" || preset == "live_moon_phase") && isScreenVisible) {
             while (true) {
@@ -15289,165 +15705,133 @@ fun OledWallpaperCanvas(
                 val waitMs = (nextMidnight.timeInMillis - now.timeInMillis).coerceAtLeast(1000L)
                 delay(waitMs)
                 midnightDateTick = (midnightDateTick + 1) and 0x7FFFFFFF
-                newWpFrameTick = (newWpFrameTick + 1) and 0x7FFFFFFF
+                drawFrameTick = (drawFrameTick + 1) and 0x7FFFFFFF
             }
         }
     }
 
-    // Fixed automatic low-battery behavior: below 15% battery or when Battery Saver is on,
-    // every live wallpaper renders one static frame and stops animating (0 fps).
     val isLowBatteryPaused = isLive && (batteryPct < 15 || isPowerSaveMode)
-
     val canAnimateNow = isLive &&
         isScreenVisible &&
         isLifecycleResumed &&
         !isLowBatteryPaused
 
-    // 1. Frame loop for 3D Starfield & CRT Scanlines (respecting each wallpaper's own Frame rate setting: 15 / 30 / 60)
-    if (canAnimateNow && (preset == "live_starfield_3d" || preset == "live_raster_lines")) {
-        LaunchedEffect(preset, canAnimateNow) {
-            var lastNanos = 0L
-            while (true) {
-                val cfg = currentConfig
-                val targetFps = if (preset == "live_starfield_3d") {
-                    cfg.starfieldFps.coerceIn(15, 60)
-                } else {
-                    cfg.crtFps.coerceIn(15, 60)
-                }
-                val minFrameIntervalNanos = 1_000_000_000L / targetFps.toLong()
-
-                withFrameNanos { nanos ->
-                    val dt = if (lastNanos == 0L) (1f / targetFps.toFloat()) else ((nanos - lastNanos) / 1_000_000_000f).coerceIn(0.001f, 0.12f)
-                    lastNanos = nanos
-                    if (preset == "live_starfield_3d") {
-                        val densityMult = cfg.starfieldDensityPct.coerceIn(25, 200) / 100f
-                        val speedMult = cfg.starfieldSpeedPct.coerceIn(25, 200) / 100f
-                        val targetStars = (DeepSpaceStarfieldSimulation.DEFAULT_STAR_COUNT * densityMult)
-                            .roundToInt()
-                            .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_STAR_COUNT)
-                        starfieldSimulation.step(dt, speedMult, targetStars)
-                        starfieldFrameTick = (starfieldFrameTick + 1) and 0x7FFFFFFF
-                    } else {
-                        val bandSpeedMult = cfg.crtBandSpeedPct.coerceIn(25, 200) / 100f
-                        liveTimeSec = (liveTimeSec + dt * 0.42f * bandSpeedMult) % 7200f
-                    }
-                }
-
-                if (targetFps < 60) {
-                    val sleepMs = (minFrameIntervalNanos / 1_000_000L) - 14L
-                    if (sleepMs > 2L) {
-                        delay(sleepMs)
-                    }
-                }
-            }
-        }
-    }
-
-    // 2. Shared sleep-capable frame driver for the 7 new pixel-art wallpapers:
-    //    - Static ("live_year_in_dots", "live_moon_phase"): 0 continuous frames (sleeps completely)
-    //    - Event-driven ("live_touch_ripples"): sleeps when no ripple is active; wakes on touchRippleBus.triggerCount
-    //    - Timer-driven ("live_sonar"): sleeps during the quiet gap between rings via delay()
-    //    - Continuous ("live_oscilloscope", "live_pixel_rain", "live_constellations_new"): runs at the wallpaper's own Frame rate setting
+    // Pure vsync-driven frame loop for all animated wallpapers:
+    // - Wakes immediately on touchRippleBus.triggerCount or sonarTriggerToken
+    // - Respects Frame rate cap (15 / 30 / 60) by skipping vsyncs in withFrameNanos (zero delay() drift!)
+    // - Sleeps completely (0 fps, 0 CPU) when no ripple is active in Touch Ripples or during the quiet gap in Sonar
     val rippleWakeToken = touchRippleBus?.triggerCount ?: 0
-    if (canAnimateNow && preset in NEW_7_LIVE_WALLPAPER_IDS && preset != "live_year_in_dots" && preset != "live_moon_phase") {
+    if (canAnimateNow && preset in VALID_LIVE_WALLPAPER_IDS && preset != "live_year_in_dots" && preset != "live_moon_phase") {
         LaunchedEffect(preset, canAnimateNow, rippleWakeToken, sonarTriggerToken) {
-            var lastNanos = 0L
+            var lastAcceptedNanos = 0L
 
             while (true) {
                 val cfg = currentConfig
                 val effectiveFps = when (preset) {
+                    "live_starfield_3d" -> cfg.starfieldFps.coerceIn(15, 60)
+                    "live_raster_lines" -> cfg.crtFps.coerceIn(15, 60)
                     "live_touch_ripples" -> cfg.ripplesFps.coerceIn(30, 60)
                     "live_oscilloscope" -> cfg.oscilloscopeFps.coerceIn(15, 60)
                     "live_sonar" -> cfg.sonarFps.coerceIn(15, 60)
                     "live_pixel_rain" -> cfg.rainFps.coerceIn(15, 30)
                     "live_constellations_new" -> cfg.conFps.coerceIn(15, 60)
-                    else -> 30
+                    else -> 60
                 }
-                val minFrameIntervalNanos = 1_000_000_000L / effectiveFps.toLong()
+                // Subtract 2.4ms tolerance so 30fps (33.3ms) and 15fps (66.6ms) lock cleanly to every 2nd or 4th vsync on 60Hz/120Hz
+                val minFrameIntervalNanos = (1_000_000_000L / effectiveFps.toLong()) - 2_400_000L
 
-                when (preset) {
-                    "live_touch_ripples" -> {
-                        val bus = touchRippleBus ?: break
-                        val nowSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
-                        val speedMult = cfg.ripplesSpeedPct.coerceIn(25, 200) / 100f
-                        val durationSec = (1.4f / speedMult).coerceAtLeast(0.35f)
-                        val maxSlots = cfg.ripplesMaxCount.coerceIn(1, 5)
-                        var anyActive = false
-                        for (i in 0 until maxSlots) {
-                            if (bus.rippleActive[i]) {
-                                val age = nowSec - bus.rippleBirthSec[i]
-                                if (age in 0f..durationSec) {
-                                    anyActive = true
-                                } else {
-                                    bus.rippleActive[i] = false
-                                }
+                if (preset == "live_touch_ripples") {
+                    val bus = touchRippleBus ?: break
+                    val nowSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
+                    val speedMult = cfg.ripplesSpeedPct.coerceIn(25, 200) / 100f
+                    val durationSec = (1.4f / speedMult).coerceAtLeast(0.35f)
+                    val maxSlots = cfg.ripplesMaxCount.coerceIn(1, 5)
+                    var anyActive = false
+                    for (i in 0 until maxSlots) {
+                        if (bus.rippleActive[i]) {
+                            val age = nowSec - bus.rippleBirthSec[i]
+                            if (age in 0f..durationSec) {
+                                anyActive = true
+                            } else {
+                                bus.rippleActive[i] = false
                             }
                         }
-                        if (!anyActive) {
-                            newWpFrameTick = (newWpFrameTick + 1) and 0x7FFFFFFF
-                            break
-                        }
                     }
-
-                    "live_sonar" -> {
-                        val speedMult = cfg.sonarSpeedPct.coerceIn(25, 200) / 100f
-                        val intervalSec = cfg.sonarIntervalSec.coerceIn(4, 20).toFloat()
-                        val activeRingSec = (6.0f / speedMult).coerceAtLeast(1.3f)
-                        val echoMarginSec = cfg.sonarEchoRings.coerceIn(0, 2) * 0.5f
-                        val totalWaveSec = activeRingSec + echoMarginSec
-                        val cycleSec = max(intervalSec, totalWaveSec + 0.25f)
-                        val phaseSec = liveTimeSec % cycleSec
-                        if (phaseSec > totalWaveSec) {
-                            newWpFrameTick = (newWpFrameTick + 1) and 0x7FFFFFFF
-                            val sleepMs = ((cycleSec - phaseSec) * 1000f).toLong().coerceAtLeast(16L)
-                            delay(sleepMs)
-                            liveTimeSec = (liveTimeSec + (cycleSec - phaseSec)) % 36000f
-                            lastNanos = 0L
-                            continue
-                        }
+                    if (!anyActive) {
+                        drawFrameTick = (drawFrameTick + 1) and 0x7FFFFFFF
+                        break
+                    }
+                } else if (preset == "live_sonar") {
+                    val speedMult = cfg.sonarSpeedPct.coerceIn(25, 200) / 100f
+                    val intervalSec = cfg.sonarIntervalSec.coerceIn(4, 20).toFloat()
+                    val activeRingSec = (6.0f / speedMult).coerceAtLeast(1.3f)
+                    val echoMarginSec = cfg.sonarEchoRings.coerceIn(0, 2) * 0.5f
+                    val totalWaveSec = activeRingSec + echoMarginSec
+                    val cycleSec = max(intervalSec, totalWaveSec + 0.25f)
+                    val phaseSec = newWpEngine.liveTimeSec % cycleSec
+                    if (phaseSec > totalWaveSec) {
+                        drawFrameTick = (drawFrameTick + 1) and 0x7FFFFFFF
+                        val sleepMs = ((cycleSec - phaseSec) * 1000f).toLong().coerceAtLeast(16L)
+                        delay(sleepMs)
+                        newWpEngine.liveTimeSec = (newWpEngine.liveTimeSec + (cycleSec - phaseSec)) % 36000f
+                        lastAcceptedNanos = 0L
+                        continue
                     }
                 }
 
-                var frameDeltaSec = 0f
                 withFrameNanos { nanos ->
-                    frameDeltaSec = if (lastNanos == 0L) {
+                    if (lastAcceptedNanos != 0L && effectiveFps < 60 && (nanos - lastAcceptedNanos) < minFrameIntervalNanos) {
+                        // Skip this vsync without invalidating Canvas
+                        return@withFrameNanos
+                    }
+                    val dt = if (lastAcceptedNanos == 0L) {
                         1f / effectiveFps.toFloat()
                     } else {
-                        ((nanos - lastNanos) / 1_000_000_000f).coerceIn(0.001f, 0.15f)
+                        ((nanos - lastAcceptedNanos) / 1_000_000_000f).coerceIn(0.001f, 0.15f)
                     }
-                    lastNanos = nanos
-                }
+                    lastAcceptedNanos = nanos
 
-                val cfgNow = currentConfig
-                liveTimeSec = (liveTimeSec + frameDeltaSec) % 36000f
+                    val cfgNow = currentConfig
+                    when (preset) {
+                        "live_starfield_3d" -> {
+                            val densityMult = cfgNow.starfieldDensityPct.coerceIn(25, 200) / 100f
+                            val speedMult = cfgNow.starfieldSpeedPct.coerceIn(25, 200) / 100f
+                            val targetStars = (DeepSpaceStarfieldSimulation.DEFAULT_STAR_COUNT * densityMult)
+                                .roundToInt()
+                                .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_STAR_COUNT)
+                            starfieldSimulation.step(dt, speedMult, targetStars)
+                        }
+                        "live_raster_lines" -> {
+                            val bandSpeedMult = cfgNow.crtBandSpeedPct.coerceIn(25, 200) / 100f
+                            newWpEngine.liveTimeSec = (newWpEngine.liveTimeSec + dt * 0.42f * bandSpeedMult) % 7200f
+                        }
+                        "live_oscilloscope" -> {
+                            newWpEngine.liveTimeSec = (newWpEngine.liveTimeSec + dt) % 36000f
+                            val spd = cfgNow.oscilloscopeSpeedPct.coerceIn(25, 200) / 100f
+                            newWpEngine.stepOscilloscope(dt, spd, cfgNow.oscilloscopeCurve)
+                        }
+                        "live_pixel_rain" -> {
+                            newWpEngine.liveTimeSec = (newWpEngine.liveTimeSec + dt) % 36000f
+                            val spd = cfgNow.rainSpeedPct.coerceIn(25, 200) / 100f
+                            val vScale = if (isPreview) (newWpEngine.lastCanvasW / realScreenWidthPx).coerceIn(0.15f, 1.0f) else 1.0f
+                            val dropPx = (cfgNow.rainPixelSizeDp.coerceIn(2, 8) * baseDpPx * vScale).coerceAtLeast(1.5f)
+                            val maxRows = (newWpEngine.lastCanvasH / dropPx).toInt().coerceAtLeast(10)
+                            newWpEngine.stepPixelRain(dt, spd, maxRows, cfgNow.rainMaxDrops)
+                        }
+                        "live_constellations_new" -> {
+                            newWpEngine.liveTimeSec = (newWpEngine.liveTimeSec + dt) % 36000f
+                            val spd = cfgNow.conSpeedPct.coerceIn(25, 200) / 100f
+                            val vScale = if (isPreview) (newWpEngine.lastCanvasW / realScreenWidthPx).coerceIn(0.15f, 1.0f) else 1.0f
+                            val dpScaled = baseDpPx * vScale
+                            newWpEngine.stepConstellations(dt, spd, dpScaled, newWpEngine.lastCanvasW, newWpEngine.lastCanvasH, cfgNow.conStarCount)
+                        }
+                        else -> {
+                            newWpEngine.liveTimeSec = (newWpEngine.liveTimeSec + dt) % 36000f
+                        }
+                    }
 
-                when (preset) {
-                    "live_oscilloscope" -> {
-                        val spd = cfgNow.oscilloscopeSpeedPct.coerceIn(25, 200) / 100f
-                        newWpEngine.stepOscilloscope(frameDeltaSec, spd, cfgNow.oscilloscopeCurve)
-                    }
-                    "live_pixel_rain" -> {
-                        val spd = cfgNow.rainSpeedPct.coerceIn(25, 200) / 100f
-                        val vScale = if (isPreview) (canvasWidthPx / realScreenWidthPx).coerceIn(0.15f, 1.0f) else 1.0f
-                        val dropPx = (cfgNow.rainPixelSizeDp.coerceIn(2, 8) * with(density) { 1.dp.toPx() } * vScale).coerceAtLeast(1.5f)
-                        val maxRows = (canvasHeightPx / dropPx).toInt().coerceAtLeast(10)
-                        newWpEngine.stepPixelRain(frameDeltaSec, spd, maxRows, cfgNow.rainMaxDrops)
-                    }
-                    "live_constellations_new" -> {
-                        val spd = cfgNow.conSpeedPct.coerceIn(25, 200) / 100f
-                        val vScale = if (isPreview) (canvasWidthPx / realScreenWidthPx).coerceIn(0.15f, 1.0f) else 1.0f
-                        val dpScaled = with(density) { 1.dp.toPx() } * vScale
-                        newWpEngine.stepConstellations(frameDeltaSec, spd, dpScaled, canvasWidthPx, canvasHeightPx, cfgNow.conStarCount)
-                    }
-                }
-
-                newWpFrameTick = (newWpFrameTick + 1) and 0x7FFFFFFF
-
-                if (effectiveFps < 60) {
-                    val targetSleepMs = (minFrameIntervalNanos / 1_000_000L) - 14L
-                    if (targetSleepMs > 2L) {
-                        delay(targetSleepMs)
-                    }
+                    // Invalidate ONLY the Canvas draw scope!
+                    drawFrameTick = (drawFrameTick + 1) and 0x7FFFFFFF
                 }
             }
         }
@@ -15457,51 +15841,52 @@ fun OledWallpaperCanvas(
         return
     }
 
-    // For static wallpapers that still reference densityMult/opacityMult/scaleMult below
     val densityMult = 1.0f
     val opacityMult = 1.0f
     val scaleMult = 1.0f
 
     Canvas(modifier = Modifier.fillMaxSize()) {
+        // Read drawFrameTick and midnightDateTick inside the draw phase ONLY (0 composable recompositions!)
+        val frameToken = drawFrameTick + midnightDateTick
+        if (frameToken < 0) return@Canvas
+
         val w = size.width
         val h = size.height
-        canvasWidthPx = w
-        canvasHeightPx = h
+        newWpEngine.lastCanvasW = w
+        newWpEngine.lastCanvasH = h
         val minDim = min(w, h)
         val maxDim = max(w, h)
         val fullDiag = hypot(w, h)
-        val t = liveTimeSec
+        val t = newWpEngine.liveTimeSec
         val viewportScale = if (isPreview) (w / realScreenWidthPx).coerceIn(0.15f, 1.0f) else 1.0f
         val dpPx = 1.dp.toPx() * viewportScale
 
         when (preset) {
             // ================================================================
-            // 1. 3D STARFIELD (defaults reproduce today's look bit-for-bit)
+            // 1. 3D STARFIELD
             // ================================================================
             "live_starfield_3d" -> {
-                if (starfieldFrameTick >= 0) {
-                    val sfDensity = liveWpConfig.starfieldDensityPct.coerceIn(25, 200) / 100f
-                    val sfSize = liveWpConfig.starfieldSizePct.coerceIn(50, 200) / 100f
-                    val sfBrightness = liveWpConfig.starfieldBrightnessPct.coerceIn(20, 100) / 100f
-                    val activeStars = (DeepSpaceStarfieldSimulation.DEFAULT_STAR_COUNT * sfDensity)
-                        .roundToInt()
-                        .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_STAR_COUNT)
-                    drawIntoCanvas { composeCanvas ->
-                        starfieldSimulation.draw(
-                            nativeCanvas = composeCanvas.nativeCanvas,
-                            width = w,
-                            height = h,
-                            densityPxPerDp = dpPx,
-                            activeCount = activeStars,
-                            opacityMultiplier = sfBrightness,
-                            scaleMultiplier = sfSize
-                        )
-                    }
+                val sfDensity = liveWpConfig.starfieldDensityPct.coerceIn(25, 200) / 100f
+                val sfSize = liveWpConfig.starfieldSizePct.coerceIn(50, 200) / 100f
+                val sfBrightness = liveWpConfig.starfieldBrightnessPct.coerceIn(20, 100) / 100f
+                val activeStars = (DeepSpaceStarfieldSimulation.DEFAULT_STAR_COUNT * sfDensity)
+                    .roundToInt()
+                    .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_STAR_COUNT)
+                drawIntoCanvas { composeCanvas ->
+                    starfieldSimulation.draw(
+                        nativeCanvas = composeCanvas.nativeCanvas,
+                        width = w,
+                        height = h,
+                        densityPxPerDp = dpPx,
+                        activeCount = activeStars,
+                        opacityMultiplier = sfBrightness,
+                        scaleMultiplier = sfSize
+                    )
                 }
             }
 
             // ================================================================
-            // 2. CRT SCANLINES (defaults reproduce today's look bit-for-bit)
+            // 2. CRT SCANLINES
             // ================================================================
             "live_raster_lines" -> {
                 val crtDensity = liveWpConfig.crtLineDensityPct.coerceIn(50, 200) / 100f
@@ -15512,7 +15897,7 @@ fun OledWallpaperCanvas(
                 val baseScanAlpha = (0.11f * crtStrength * crtBrightness).coerceIn(0.01f, 0.45f)
                 val majorScanAlpha = (0.19f * crtStrength * crtBrightness).coerceIn(0.02f, 0.60f)
 
-                val beamFrac = if (isLowBatteryPaused && t == 0f) 0.35f else ((t * 0.24f) % 1.0f)
+                val beamFrac = if ((isLowBatteryPaused || !canAnimateNow) && t == 0f) 0.35f else ((t * 0.24f) % 1.0f)
                 val beamY = beamFrac * h
                 val beamHalfBand = (h * 0.14f).coerceAtLeast(36f * viewportScale)
 
@@ -15561,7 +15946,7 @@ fun OledWallpaperCanvas(
             // 3. YEAR IN DOTS (Static, 0 continuous frames)
             // ================================================================
             "live_year_in_dots" -> {
-                if (newWpFrameTick >= 0 && midnightDateTick >= 0 && dateChangeTrigger >= 0) {
+                if (dateChangeTrigger >= 0) {
                     val cal = Calendar.getInstance()
                     val year = cal.get(Calendar.YEAR)
                     val todayDay = cal.get(Calendar.DAY_OF_YEAR)
@@ -15656,7 +16041,7 @@ fun OledWallpaperCanvas(
             // 4. MOON PHASE (Static pixel-art moon, 0 continuous frames)
             // ================================================================
             "live_moon_phase" -> {
-                if (newWpFrameTick >= 0 && midnightDateTick >= 0 && dateChangeTrigger >= 0) {
+                if (dateChangeTrigger >= 0) {
                     val cal = Calendar.getInstance()
                     val dayKey = "${cal.get(Calendar.YEAR)}_${cal.get(Calendar.DAY_OF_YEAR)}"
                     val bScale = (liveWpConfig.moonBrightnessPct.coerceIn(20, 100) / 70f)
@@ -15750,103 +16135,137 @@ fun OledWallpaperCanvas(
             }
 
             // ================================================================
-            // 5. TOUCH RIPPLES (Event-driven, 0 fps when idle)
+            // 5. TOUCH RIPPLES (60fps Vsync-Driven, 1 drawPoints Base Grid + 4 Opacity Buckets + 1 Accent Bucket, Zero sqrt!)
             // ================================================================
             "live_touch_ripples" -> {
-                if (newWpFrameTick >= 0) {
-                    val bScale = (liveWpConfig.ripplesBrightnessPct.coerceIn(20, 100) / 70f)
-                    val speedMult = (liveWpConfig.ripplesSpeedPct.coerceIn(25, 200) / 100f)
-                    val spacingDp = liveWpConfig.ripplesSpacingDp.coerceIn(12, 40)
-                    val dotDp = liveWpConfig.ripplesDotSizeDp.coerceIn(1, 4)
-                    val reachPct = liveWpConfig.ripplesReachPct.coerceIn(30, 100)
-                    val maxRipples = liveWpConfig.ripplesMaxCount.coerceIn(1, 5)
-                    val wInt = w.roundToInt().coerceAtLeast(1)
-                    val hInt = h.roundToInt().coerceAtLeast(1)
-                    val stepPx = (spacingDp * dpPx).coerceAtLeast(3f)
-                    val dotPx = (dotDp * dpPx).coerceAtLeast(1f)
-                    val cacheKey = "tr_base_${wInt}_${hInt}_${spacingDp}_${dotDp}_${liveWpConfig.ripplesBrightnessPct}"
+                val bScale = (liveWpConfig.ripplesBrightnessPct.coerceIn(20, 100) / 70f)
+                val speedMult = (liveWpConfig.ripplesSpeedPct.coerceIn(25, 200) / 100f)
+                val spacingDp = liveWpConfig.ripplesSpacingDp.coerceIn(12, 40)
+                val dotDp = liveWpConfig.ripplesDotSizeDp.coerceIn(1, 4)
+                val reachPct = liveWpConfig.ripplesReachPct.coerceIn(30, 100)
+                val maxRipples = liveWpConfig.ripplesMaxCount.coerceIn(1, 5)
+                val wInt = w.roundToInt().coerceAtLeast(1)
+                val hInt = h.roundToInt().coerceAtLeast(1)
+                val stepPx = (spacingDp * dpPx).coerceAtLeast(3f)
+                val dotPx = (dotDp * dpPx).coerceAtLeast(1f)
+                val gridKey = "tr_pts_${wInt}_${hInt}_${spacingDp}"
 
-                    if (newWpEngine.cachedKey != cacheKey || newWpEngine.cachedStaticBitmap == null) {
-                        val bmp = if (newWpEngine.cachedStaticBitmap?.width == wInt && newWpEngine.cachedStaticBitmap?.height == hInt) {
-                            newWpEngine.cachedStaticBitmap!!.apply { eraseColor(android.graphics.Color.BLACK) }
-                        } else {
-                            Bitmap.createBitmap(wInt, hInt, Bitmap.Config.ARGB_8888)
-                        }
-                        val c = android.graphics.Canvas(bmp)
-                        val baseAlpha = (0.06f * 255f * bScale).roundToInt().coerceIn(5, 100)
-                        newWpEngine.paint.color = android.graphics.Color.argb(baseAlpha, 255, 255, 255)
-                        val halfDot = dotPx * 0.5f
-                        var y = (h % stepPx) * 0.5f
-                        while (y <= h) {
-                            var x = (w % stepPx) * 0.5f
-                            while (x <= w) {
-                                c.drawRect(x - halfDot, y - halfDot, x + halfDot, y + halfDot, newWpEngine.paint)
-                                x += stepPx
-                            }
-                            y += stepPx
-                        }
-                        newWpEngine.cachedStaticBitmap = bmp
-                        newWpEngine.cachedKey = cacheKey
+                newWpEngine.ensureTouchRipplesGrid(w, h, stepPx, gridKey)
+
+                drawIntoCanvas { composeCanvas ->
+                    val nc = composeCanvas.nativeCanvas
+                    val ptPaint = newWpEngine.pointPaint
+                    ptPaint.strokeWidth = dotPx
+
+                    // 1. Draw the entire static dot grid in ONE drawPoints call with one paint
+                    val baseAlpha = (0.06f * 255f * bScale).roundToInt().coerceIn(5, 100)
+                    ptPaint.color = android.graphics.Color.argb(baseAlpha, 255, 255, 255)
+                    if (newWpEngine.baseGridFloatCount > 0) {
+                        nc.drawPoints(newWpEngine.baseGridPts, 0, newWpEngine.baseGridFloatCount, ptPaint)
                     }
 
-                    drawIntoCanvas { composeCanvas ->
-                        val nc = composeCanvas.nativeCanvas
-                        newWpEngine.cachedStaticBitmap?.let { nc.drawBitmap(it, 0f, 0f, null) }
+                    // 2. For each active ripple, compute integer cell bounds and squared distances (no sqrt!)
+                    //    and group highlighted dots into 4 white opacity buckets + 1 accent leading-edge bucket
+                    val bus = touchRippleBus
+                    if (bus != null) {
+                        val nowSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
+                        val maxRadius = (reachPct / 100f) * h
+                        val durationSec = (1.4f / speedMult).coerceAtLeast(0.35f)
+                        val offsetX = newWpEngine.baseGridOffsetX
+                        val offsetY = newWpEngine.baseGridOffsetY
+                        val numCols = newWpEngine.baseGridCols
+                        val numRows = newWpEngine.baseGridRows
 
-                        val bus = touchRippleBus
-                        if (bus != null) {
-                            val nowSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
-                            val maxRadius = (reachPct / 100f) * h
-                            val durationSec = (1.4f / speedMult).coerceAtLeast(0.35f)
-                            val halfDot = dotPx * 0.5f
-                            val p = newWpEngine.paint
-                            val accR = (accentColor.red * 255f).roundToInt()
-                            val accG = (accentColor.green * 255f).roundToInt()
-                            val accB = (accentColor.blue * 255f).roundToInt()
+                        for (b in 0 until 4) {
+                            newWpEngine.rippleWhiteFloatCounts[b] = 0
+                        }
+                        newWpEngine.rippleAccentFloatCount = 0
 
-                            for (rIdx in 0 until maxRipples) {
-                                if (!bus.rippleActive[rIdx]) continue
-                                val age = nowSec - bus.rippleBirthSec[rIdx]
-                                if (age < 0f || age > durationSec) continue
-                                val norm = (age / durationSec).coerceIn(0f, 1f)
-                                val easeOut = 1f - (1f - norm) * (1f - norm)
-                                val ringRadius = maxRadius * easeOut
-                                val fadeTail = (1f - norm).coerceIn(0f, 1f)
-                                val rx = bus.rippleX[rIdx]
-                                val ry = bus.rippleY[rIdx]
-                                val minX = (rx - ringRadius - stepPx).coerceAtLeast(0f)
-                                val maxX = (rx + ringRadius + stepPx).coerceAtMost(w)
-                                val minY = (ry - ringRadius - stepPx).coerceAtLeast(0f)
-                                val maxY = (ry + ringRadius + stepPx).coerceAtMost(h)
+                        for (rIdx in 0 until maxRipples) {
+                            if (!bus.rippleActive[rIdx]) continue
+                            val age = nowSec - bus.rippleBirthSec[rIdx]
+                            if (age < 0f || age > durationSec) continue
+                            val norm = (age / durationSec).coerceIn(0f, 1f)
+                            val easeOut = 1f - (1f - norm) * (1f - norm)
+                            val ringRadius = maxRadius * easeOut
+                            val fadeTail = (1f - norm).coerceIn(0f, 1f)
+                            if (fadeTail <= 0.02f) continue
 
-                                val startGridX = (w % stepPx) * 0.5f + ((minX / stepPx).toInt() * stepPx)
-                                val startGridY = (h % stepPx) * 0.5f + ((minY / stepPx).toInt() * stepPx)
+                            val rx = bus.rippleX[rIdx]
+                            val ry = bus.rippleY[rIdx]
+                            val rOuter = ringRadius + stepPx
+                            val rInner = (ringRadius - stepPx).coerceAtLeast(0f)
+                            val rOuterSq = rOuter * rOuter
+                            val rInnerSq = rInner * rInner
+                            val ringRadiusSq = ringRadius * ringRadius
+                            val innerBandSpanSq = (ringRadiusSq - rInnerSq).coerceAtLeast(1f)
+                            // Inner hollow square (inscribed inside rInner) that can be skipped completely
+                            val hollowHalf = rInner * 0.70f
 
-                                var gy = startGridY
-                                while (gy <= maxY) {
-                                    val dy = gy - ry
-                                    var gx = startGridX
-                                    while (gx <= maxX) {
-                                        val dx = gx - rx
-                                        val dist = hypot(dx, dy)
-                                        val diff = abs(dist - ringRadius)
-                                        if (diff <= stepPx) {
-                                            val prox = (1f - diff / stepPx).coerceIn(0f, 1f)
-                                            val isLeadingEdge = dist >= ringRadius
-                                            if (isLeadingEdge) {
-                                                val a = ((0.06f + 0.74f * prox * fadeTail) * 255f * bScale).roundToInt().coerceIn(10, 255)
-                                                p.color = android.graphics.Color.argb(a, accR, accG, accB)
-                                            } else {
-                                                val a = ((0.06f + 0.54f * prox * fadeTail) * 255f * bScale).roundToInt().coerceIn(10, 255)
-                                                p.color = android.graphics.Color.argb(a, 255, 255, 255)
+                            val colMin = ((rx - rOuter - offsetX) / stepPx).toInt().coerceAtLeast(0)
+                            val colMax = ((rx + rOuter - offsetX) / stepPx).toInt().coerceAtMost(numCols - 1)
+                            val rowMin = ((ry - rOuter - offsetY) / stepPx).toInt().coerceAtLeast(0)
+                            val rowMax = ((ry + rOuter - offsetY) / stepPx).toInt().coerceAtMost(numRows - 1)
+
+                            for (row in rowMin..rowMax) {
+                                val gy = offsetY + row * stepPx
+                                val dy = gy - ry
+                                val absDy = abs(dy)
+                                val dySq = dy * dy
+                                for (col in colMin..colMax) {
+                                    val gx = offsetX + col * stepPx
+                                    val dx = gx - rx
+                                    if (absDy < hollowHalf && abs(dx) < hollowHalf) continue
+                                    val dSq = dx * dx + dySq
+                                    if (dSq in rInnerSq..rOuterSq) {
+                                        if (dSq >= ringRadiusSq) {
+                                            // Leading edge -> accent bucket
+                                            val curCnt = newWpEngine.rippleAccentFloatCount
+                                            if (curCnt + 2 <= newWpEngine.rippleAccentPts.size) {
+                                                newWpEngine.rippleAccentPts[curCnt] = gx
+                                                newWpEngine.rippleAccentPts[curCnt + 1] = gy
+                                                newWpEngine.rippleAccentFloatCount = curCnt + 2
                                             }
-                                            nc.drawRect(gx - halfDot, gy - halfDot, gx + halfDot, gy + halfDot, p)
+                                        } else {
+                                            // Inner ring -> 4 white opacity levels
+                                            val prox = ((dSq - rInnerSq) / innerBandSpanSq).coerceIn(0f, 0.999f)
+                                            val weighted = (prox * fadeTail).coerceIn(0f, 0.999f)
+                                            val bucket = (weighted * 4f).toInt().coerceIn(0, 3)
+                                            val curCnt = newWpEngine.rippleWhiteFloatCounts[bucket]
+                                            val arr = newWpEngine.rippleWhiteBuckets[bucket]
+                                            if (curCnt + 2 <= arr.size) {
+                                                arr[curCnt] = gx
+                                                arr[curCnt + 1] = gy
+                                                newWpEngine.rippleWhiteFloatCounts[bucket] = curCnt + 2
+                                            }
                                         }
-                                        gx += stepPx
                                     }
-                                    gy += stepPx
                                 }
                             }
+                        }
+
+                        // Draw the 4 white opacity buckets (4 paint changes total)
+                        val whiteOpacities = floatArrayOf(0.18f, 0.32f, 0.46f, 0.60f)
+                        for (b in 0 until 4) {
+                            val cnt = newWpEngine.rippleWhiteFloatCounts[b]
+                            if (cnt > 0) {
+                                val aInt = (whiteOpacities[b] * 255f * bScale).roundToInt().coerceIn(10, 255)
+                                ptPaint.color = android.graphics.Color.argb(aInt, 255, 255, 255)
+                                nc.drawPoints(newWpEngine.rippleWhiteBuckets[b], 0, cnt, ptPaint)
+                            }
+                        }
+
+                        // Draw the accent leading-edge bucket (1 paint change)
+                        val accCnt = newWpEngine.rippleAccentFloatCount
+                        if (accCnt > 0) {
+                            val accA = (0.80f * 255f * bScale).roundToInt().coerceIn(20, 255)
+                            ptPaint.color = android.graphics.Color.argb(
+                                accA,
+                                (accentColor.red * 255f).roundToInt(),
+                                (accentColor.green * 255f).roundToInt(),
+                                (accentColor.blue * 255f).roundToInt()
+                            )
+                            nc.drawPoints(newWpEngine.rippleAccentPts, 0, accCnt, ptPaint)
                         }
                     }
                 }
@@ -15856,68 +16275,65 @@ fun OledWallpaperCanvas(
             // 6. OSCILLOSCOPE (Pre-allocated 300-point normalized ring buffer batched into 6 opacity Paths)
             // ================================================================
             "live_oscilloscope" -> {
-                if (newWpFrameTick >= 0) {
-                    val bScale = (liveWpConfig.oscilloscopeBrightnessPct.coerceIn(20, 100) / 70f)
-                    val sizeScale = liveWpConfig.oscilloscopeSizePct.coerceIn(40, 120) / 100f
-                    val thickPx = (liveWpConfig.oscilloscopeThicknessDp.coerceIn(1f, 4f) * dpPx).coerceAtLeast(1f)
-                    val trailPts = liveWpConfig.oscilloscopeTrailPoints.coerceIn(60, 300)
+                val bScale = (liveWpConfig.oscilloscopeBrightnessPct.coerceIn(20, 100) / 70f)
+                val sizeScale = liveWpConfig.oscilloscopeSizePct.coerceIn(40, 120) / 100f
+                val thickPx = (liveWpConfig.oscilloscopeThicknessDp.coerceIn(1f, 4f) * dpPx).coerceAtLeast(1f)
+                val trailPts = liveWpConfig.oscilloscopeTrailPoints.coerceIn(60, 300)
 
-                    newWpEngine.ensureOscilloscopeInitialized(liveWpConfig.oscilloscopeCurve)
+                newWpEngine.ensureOscilloscopeInitialized(liveWpConfig.oscilloscopeCurve)
 
-                    drawIntoCanvas { composeCanvas ->
-                        val nc = composeCanvas.nativeCanvas
-                        val sp = newWpEngine.strokePaint
-                        sp.strokeWidth = thickPx
-                        val accR = (accentColor.red * 255f).roundToInt()
-                        val accG = (accentColor.green * 255f).roundToInt()
-                        val accB = (accentColor.blue * 255f).roundToInt()
+                drawIntoCanvas { composeCanvas ->
+                    val nc = composeCanvas.nativeCanvas
+                    val sp = newWpEngine.strokePaint
+                    sp.strokeWidth = thickPx
+                    val accR = (accentColor.red * 255f).roundToInt()
+                    val accG = (accentColor.green * 255f).roundToInt()
+                    val accB = (accentColor.blue * 255f).roundToInt()
 
-                        val cx = 0.5f * w
-                        val cy = 0.5f * h
-                        val ampX = 0.38f * w * sizeScale
-                        val ampY = 0.30f * h * sizeScale
+                    val cx = 0.5f * w
+                    val cy = 0.5f * h
+                    val ampX = 0.38f * w * sizeScale
+                    val ampY = 0.30f * h * sizeScale
 
-                        val totalPts = min(trailPts, newWpEngine.oscCount)
-                        val oldestIdx = (newWpEngine.oscHead - totalPts + 1 + 300) % 300
-                        val groupSize = (totalPts / 6).coerceAtLeast(1)
+                    val totalPts = min(trailPts, newWpEngine.oscCount)
+                    val oldestIdx = (newWpEngine.oscHead - totalPts + 1 + 300) % 300
+                    val groupSize = (totalPts / 6).coerceAtLeast(1)
 
-                        for (g in 0 until 6) {
-                            val path = newWpEngine.oscBatchPaths[g]
-                            path.reset()
-                            val startStep = g * groupSize
-                            val endStep = if (g == 5) (totalPts - 1) else ((g + 1) * groupSize).coerceAtMost(totalPts - 1)
-                            if (startStep >= endStep) continue
+                    for (g in 0 until 6) {
+                        val path = newWpEngine.oscBatchPaths[g]
+                        path.reset()
+                        val startStep = g * groupSize
+                        val endStep = if (g == 5) (totalPts - 1) else ((g + 1) * groupSize).coerceAtMost(totalPts - 1)
+                        if (startStep >= endStep) continue
 
-                            val firstRingIdx = (oldestIdx + startStep) % 300
-                            path.moveTo(
-                                cx + ampX * newWpEngine.oscNormX[firstRingIdx],
-                                cy + ampY * newWpEngine.oscNormY[firstRingIdx]
-                            )
-                            for (step in (startStep + 1)..endStep) {
-                                val rIdx = (oldestIdx + step) % 300
-                                path.lineTo(
-                                    cx + ampX * newWpEngine.oscNormX[rIdx],
-                                    cy + ampY * newWpEngine.oscNormY[rIdx]
-                                )
-                            }
-                            val groupFrac = (g + 1) / 6f
-                            val alphaInt = (groupFrac * groupFrac * 255f * bScale).roundToInt().coerceIn(8, 255)
-                            sp.color = android.graphics.Color.argb(alphaInt, accR, accG, accB)
-                            nc.drawPath(path, sp)
-                        }
-
-                        // Tiny 3dp white square pixel at the head
-                        val headX = cx + ampX * newWpEngine.oscNormX[newWpEngine.oscHead]
-                        val headY = cy + ampY * newWpEngine.oscNormY[newWpEngine.oscHead]
-                        val halfHead = (1.5f * dpPx).coerceAtLeast(1f)
-                        newWpEngine.paint.color = android.graphics.Color.argb(
-                            (255f * bScale).roundToInt().coerceIn(40, 255),
-                            255,
-                            255,
-                            255
+                        val firstRingIdx = (oldestIdx + startStep) % 300
+                        path.moveTo(
+                            cx + ampX * newWpEngine.oscNormX[firstRingIdx],
+                            cy + ampY * newWpEngine.oscNormY[firstRingIdx]
                         )
-                        nc.drawRect(headX - halfHead, headY - halfHead, headX + halfHead, headY + halfHead, newWpEngine.paint)
+                        for (step in (startStep + 1)..endStep) {
+                            val rIdx = (oldestIdx + step) % 300
+                            path.lineTo(
+                                cx + ampX * newWpEngine.oscNormX[rIdx],
+                                cy + ampY * newWpEngine.oscNormY[rIdx]
+                            )
+                        }
+                        val groupFrac = (g + 1) / 6f
+                        val alphaInt = (groupFrac * groupFrac * 255f * bScale).roundToInt().coerceIn(8, 255)
+                        sp.color = android.graphics.Color.argb(alphaInt, accR, accG, accB)
+                        nc.drawPath(path, sp)
                     }
+
+                    val headX = cx + ampX * newWpEngine.oscNormX[newWpEngine.oscHead]
+                    val headY = cy + ampY * newWpEngine.oscNormY[newWpEngine.oscHead]
+                    val halfHead = (1.5f * dpPx).coerceAtLeast(1f)
+                    newWpEngine.paint.color = android.graphics.Color.argb(
+                        (255f * bScale).roundToInt().coerceIn(40, 255),
+                        255,
+                        255,
+                        255
+                    )
+                    nc.drawRect(headX - halfHead, headY - halfHead, headX + halfHead, headY + halfHead, newWpEngine.paint)
                 }
             }
 
@@ -15925,104 +16341,100 @@ fun OledWallpaperCanvas(
             // 7. SONAR (Expanding ring with interval, reach, thickness, and 0-2 echo rings)
             // ================================================================
             "live_sonar" -> {
-                if (newWpFrameTick >= 0) {
-                    val bScale = (liveWpConfig.sonarBrightnessPct.coerceIn(20, 100) / 70f)
-                    val speedMult = (liveWpConfig.sonarSpeedPct.coerceIn(25, 200) / 100f)
-                    val intervalSec = liveWpConfig.sonarIntervalSec.coerceIn(4, 20).toFloat()
-                    val reachScale = liveWpConfig.sonarReachPct.coerceIn(50, 150) / 100f
-                    val strokePx = (liveWpConfig.sonarThicknessDp.coerceIn(1f, 4f) * dpPx).coerceAtLeast(1f)
-                    val echoCount = liveWpConfig.sonarEchoRings.coerceIn(0, 2)
+                val bScale = (liveWpConfig.sonarBrightnessPct.coerceIn(20, 100) / 70f)
+                val speedMult = (liveWpConfig.sonarSpeedPct.coerceIn(25, 200) / 100f)
+                val intervalSec = liveWpConfig.sonarIntervalSec.coerceIn(4, 20).toFloat()
+                val reachScale = liveWpConfig.sonarReachPct.coerceIn(50, 150) / 100f
+                val strokePx = (liveWpConfig.sonarThicknessDp.coerceIn(1f, 4f) * dpPx).coerceAtLeast(1f)
+                val echoCount = liveWpConfig.sonarEchoRings.coerceIn(0, 2)
 
-                    val activeRingSec = (6.0f / speedMult).coerceAtLeast(1.3f)
-                    val totalWaveSec = activeRingSec + echoCount * 0.5f
-                    val cycleSec = max(intervalSec, totalWaveSec + 0.25f)
-                    val phaseSec = when {
-                        isLowBatteryPaused -> activeRingSec * 0.45f
-                        isPreview && !canAnimateNow && t == 0f -> activeRingSec * 0.38f
-                        else -> t % cycleSec
-                    }
+                val activeRingSec = (6.0f / speedMult).coerceAtLeast(1.3f)
+                val totalWaveSec = activeRingSec + echoCount * 0.5f
+                val cycleSec = max(intervalSec, totalWaveSec + 0.25f)
+                val phaseSec = when {
+                    isLowBatteryPaused -> activeRingSec * 0.45f
+                    isPreview && !canAnimateNow && t == 0f -> activeRingSec * 0.38f
+                    else -> t % cycleSec
+                }
 
-                    val origin = when (liveWpConfig.sonarOrigin) {
-                        "bottom_left" -> Offset(0f, h)
-                        "center" -> Offset(w * 0.5f, h * 0.5f)
-                        else -> Offset(w, h)
-                    }
-                    val maxRadius = reachScale * h
+                val origin = when (liveWpConfig.sonarOrigin) {
+                    "bottom_left" -> Offset(0f, h)
+                    "center" -> Offset(w * 0.5f, h * 0.5f)
+                    else -> Offset(w, h)
+                }
+                val maxRadius = reachScale * h
 
-                    for (echoIdx in 0..echoCount) {
-                        val ringAge = phaseSec - echoIdx * 0.5f
-                        if (ringAge in 0f..activeRingSec) {
-                            val norm = (ringAge / activeRingSec).coerceIn(0f, 1f)
-                            val easeOut = 1f - (1f - norm) * (1f - norm)
-                            val radius = maxRadius * easeOut
-                            val echoWeight = when (echoIdx) {
-                                0 -> 1.0f
-                                1 -> 0.50f
-                                else -> 0.25f
-                            }
-                            val alpha = (0.60f * echoWeight * (1f - norm) * bScale).coerceIn(0f, 1f)
-                            if (radius > 1f && alpha > 0.005f) {
-                                drawCircle(
-                                    color = accentColor.copy(alpha = alpha),
-                                    radius = radius,
-                                    center = origin,
-                                    style = Stroke(width = strokePx)
-                                )
-                            }
+                for (echoIdx in 0..echoCount) {
+                    val ringAge = phaseSec - echoIdx * 0.5f
+                    if (ringAge in 0f..activeRingSec) {
+                        val norm = (ringAge / activeRingSec).coerceIn(0f, 1f)
+                        val easeOut = 1f - (1f - norm) * (1f - norm)
+                        val radius = maxRadius * easeOut
+                        val echoWeight = when (echoIdx) {
+                            0 -> 1.0f
+                            1 -> 0.50f
+                            else -> 0.25f
+                        }
+                        val alpha = (0.60f * echoWeight * (1f - norm) * bScale).coerceIn(0f, 1f)
+                        if (radius > 1f && alpha > 0.005f) {
+                            drawCircle(
+                                color = accentColor.copy(alpha = alpha),
+                                radius = radius,
+                                center = origin,
+                                style = Stroke(width = strokePx)
+                            )
                         }
                     }
                 }
             }
 
             // ================================================================
-            // 8. PIXEL RAIN (Stepped square drops with configurable density, size, tail & accent %)
+            // 8. PIXEL RAIN
             // ================================================================
             "live_pixel_rain" -> {
-                if (newWpFrameTick >= 0) {
-                    val bScale = (liveWpConfig.rainBrightnessPct.coerceIn(20, 100) / 70f)
-                    val maxDrops = liveWpConfig.rainMaxDrops.coerceIn(6, 60)
-                    val dropPx = (liveWpConfig.rainPixelSizeDp.coerceIn(2, 8) * dpPx).coerceAtLeast(1.5f)
-                    val tailLen = liveWpConfig.rainTailLength.coerceIn(0, 5)
-                    val accentPct = liveWpConfig.rainAccentPct.coerceIn(0, 50)
-                    val colSpan = w / 28f
-                    val maxRows = (h / dropPx).toInt().coerceAtLeast(10)
+                val bScale = (liveWpConfig.rainBrightnessPct.coerceIn(20, 100) / 70f)
+                val maxDrops = liveWpConfig.rainMaxDrops.coerceIn(6, 60)
+                val dropPx = (liveWpConfig.rainPixelSizeDp.coerceIn(2, 8) * dpPx).coerceAtLeast(1.5f)
+                val tailLen = liveWpConfig.rainTailLength.coerceIn(0, 5)
+                val accentPct = liveWpConfig.rainAccentPct.coerceIn(0, 50)
+                val colSpan = w / 28f
+                val maxRows = (h / dropPx).toInt().coerceAtLeast(10)
 
-                    newWpEngine.ensureRainInitialized(maxRows)
+                newWpEngine.ensureRainInitialized(maxRows)
 
-                    drawIntoCanvas { composeCanvas ->
-                        val nc = composeCanvas.nativeCanvas
-                        val p = newWpEngine.paint
-                        val accR = (accentColor.red * 255f).roundToInt()
-                        val accG = (accentColor.green * 255f).roundToInt()
-                        val accB = (accentColor.blue * 255f).roundToInt()
+                drawIntoCanvas { composeCanvas ->
+                    val nc = composeCanvas.nativeCanvas
+                    val p = newWpEngine.paint
+                    val accR = (accentColor.red * 255f).roundToInt()
+                    val accG = (accentColor.green * 255f).roundToInt()
+                    val accB = (accentColor.blue * 255f).roundToInt()
 
-                        for (i in 0 until maxDrops) {
-                            val col = newWpEngine.rainCol[i]
-                            val headRow = newWpEngine.rainRow[i]
-                            val xLeft = col * colSpan + (colSpan - dropPx) * 0.5f
-                            val baseAlpha = (newWpEngine.rainHeadAlpha[i] * bScale).coerceIn(0.05f, 1f)
-                            val isAcc = newWpEngine.rainColorBucket[i] < accentPct
+                    for (i in 0 until maxDrops) {
+                        val col = newWpEngine.rainCol[i]
+                        val headRow = newWpEngine.rainRow[i]
+                        val xLeft = col * colSpan + (colSpan - dropPx) * 0.5f
+                        val baseAlpha = (newWpEngine.rainHeadAlpha[i] * bScale).coerceIn(0.05f, 1f)
+                        val isAcc = newWpEngine.rainColorBucket[i] < accentPct
 
-                            for (tailIdx in 0..tailLen) {
-                                val r = headRow - tailIdx
-                                if (r in 0..maxRows) {
-                                    val yTop = r * dropPx
-                                    val mult = when (tailIdx) {
-                                        0 -> 1.0f
-                                        1 -> 0.40f
-                                        2 -> 0.16f
-                                        3 -> 0.08f
-                                        4 -> 0.04f
-                                        else -> 0.02f
-                                    }
-                                    val aInt = (baseAlpha * mult * 255f).roundToInt().coerceIn(5, 255)
-                                    p.color = if (isAcc) {
-                                        android.graphics.Color.argb(aInt, accR, accG, accB)
-                                    } else {
-                                        android.graphics.Color.argb(aInt, 255, 255, 255)
-                                    }
-                                    nc.drawRect(xLeft, yTop, xLeft + dropPx, yTop + dropPx, p)
+                        for (tailIdx in 0..tailLen) {
+                            val r = headRow - tailIdx
+                            if (r in 0..maxRows) {
+                                val yTop = r * dropPx
+                                val mult = when (tailIdx) {
+                                    0 -> 1.0f
+                                    1 -> 0.40f
+                                    2 -> 0.16f
+                                    3 -> 0.08f
+                                    4 -> 0.04f
+                                    else -> 0.02f
                                 }
+                                val aInt = (baseAlpha * mult * 255f).roundToInt().coerceIn(5, 255)
+                                p.color = if (isAcc) {
+                                    android.graphics.Color.argb(aInt, accR, accG, accB)
+                                } else {
+                                    android.graphics.Color.argb(aInt, 255, 255, 255)
+                                }
+                                nc.drawRect(xLeft, yTop, xLeft + dropPx, yTop + dropPx, p)
                             }
                         }
                     }
@@ -16030,109 +16442,107 @@ fun OledWallpaperCanvas(
             }
 
             // ================================================================
-            // 9. CONSTELLATIONS (Drifting square stars with configurable count, link distance, max links & accent %)
+            // 9. CONSTELLATIONS
             // ================================================================
             "live_constellations_new" -> {
-                if (newWpFrameTick >= 0) {
-                    val bScale = (liveWpConfig.conBrightnessPct.coerceIn(20, 100) / 70f)
-                    val starCount = liveWpConfig.conStarCount.coerceIn(15, 80)
-                    val linkDistFrac = liveWpConfig.conLinkDistPct.coerceIn(10, 40) / 100f
-                    val starSizePx = (liveWpConfig.conStarSizeDp.coerceIn(1f, 4f) * dpPx).coerceAtLeast(1f)
-                    val lineThickPx = (liveWpConfig.conLineThicknessDp.coerceIn(0.5f, 2f) * dpPx).coerceAtLeast(0.5f)
-                    val maxLinks = liveWpConfig.conMaxLinks.coerceIn(1, 3)
-                    val accentPct = liveWpConfig.conAccentPct.coerceIn(0, 40)
+                val bScale = (liveWpConfig.conBrightnessPct.coerceIn(20, 100) / 70f)
+                val starCount = liveWpConfig.conStarCount.coerceIn(15, 80)
+                val linkDistFrac = liveWpConfig.conLinkDistPct.coerceIn(10, 40) / 100f
+                val starSizePx = (liveWpConfig.conStarSizeDp.coerceIn(1f, 4f) * dpPx).coerceAtLeast(1f)
+                val lineThickPx = (liveWpConfig.conLineThicknessDp.coerceIn(0.5f, 2f) * dpPx).coerceAtLeast(0.5f)
+                val maxLinks = liveWpConfig.conMaxLinks.coerceIn(1, 3)
+                val accentPct = liveWpConfig.conAccentPct.coerceIn(0, 40)
 
-                    newWpEngine.ensureConstellationsInitialized(w, h)
+                newWpEngine.ensureConstellationsInitialized(w, h)
 
-                    drawIntoCanvas { composeCanvas ->
-                        val nc = composeCanvas.nativeCanvas
-                        val p = newWpEngine.paint
-                        val sp = newWpEngine.strokePaint
-                        sp.strokeWidth = lineThickPx
-                        val maxDist = linkDistFrac * w
-                        val maxDistSq = maxDist * maxDist
-                        val xs = newWpEngine.conX
-                        val ys = newWpEngine.conY
+                drawIntoCanvas { composeCanvas ->
+                    val nc = composeCanvas.nativeCanvas
+                    val p = newWpEngine.paint
+                    val sp = newWpEngine.strokePaint
+                    sp.strokeWidth = lineThickPx
+                    val maxDist = linkDistFrac * w
+                    val maxDistSq = maxDist * maxDist
+                    val xs = newWpEngine.conX
+                    val ys = newWpEngine.conY
 
-                        for (i in 0 until starCount) {
-                            val xi = xs[i]
-                            val yi = ys[i]
-                            var best1Idx = -1
-                            var best1DistSq = maxDistSq
-                            var best2Idx = -1
-                            var best2DistSq = maxDistSq
-                            var best3Idx = -1
-                            var best3DistSq = maxDistSq
+                    for (i in 0 until starCount) {
+                        val xi = xs[i]
+                        val yi = ys[i]
+                        var best1Idx = -1
+                        var best1DistSq = maxDistSq
+                        var best2Idx = -1
+                        var best2DistSq = maxDistSq
+                        var best3Idx = -1
+                        var best3DistSq = maxDistSq
 
-                            for (j in 0 until starCount) {
-                                if (i == j) continue
-                                val dx = xs[j] - xi
-                                val dy = ys[j] - yi
-                                val dSq = dx * dx + dy * dy
-                                if (dSq < best1DistSq) {
-                                    best3DistSq = best2DistSq
-                                    best3Idx = best2Idx
-                                    best2DistSq = best1DistSq
-                                    best2Idx = best1Idx
-                                    best1DistSq = dSq
-                                    best1Idx = j
-                                } else if (dSq < best2DistSq) {
-                                    best3DistSq = best2DistSq
-                                    best3Idx = best2Idx
-                                    best2DistSq = dSq
-                                    best2Idx = j
-                                } else if (dSq < best3DistSq) {
-                                    best3DistSq = dSq
-                                    best3Idx = j
-                                }
-                            }
-
-                            if (best1Idx >= 0 && maxLinks >= 1) {
-                                val d1 = sqrt(best1DistSq)
-                                val a1 = (0.25f * (1f - d1 / maxDist) * 255f * bScale).roundToInt().coerceIn(0, 200)
-                                if (a1 > 3) {
-                                    sp.color = android.graphics.Color.argb(a1, 255, 255, 255)
-                                    nc.drawLine(xi, yi, xs[best1Idx], ys[best1Idx], sp)
-                                }
-                            }
-                            if (best2Idx >= 0 && maxLinks >= 2) {
-                                val d2 = sqrt(best2DistSq)
-                                val a2 = (0.25f * (1f - d2 / maxDist) * 255f * bScale).roundToInt().coerceIn(0, 200)
-                                if (a2 > 3) {
-                                    sp.color = android.graphics.Color.argb(a2, 255, 255, 255)
-                                    nc.drawLine(xi, yi, xs[best2Idx], ys[best2Idx], sp)
-                                }
-                            }
-                            if (best3Idx >= 0 && maxLinks >= 3) {
-                                val d3 = sqrt(best3DistSq)
-                                val a3 = (0.25f * (1f - d3 / maxDist) * 255f * bScale).roundToInt().coerceIn(0, 200)
-                                if (a3 > 3) {
-                                    sp.color = android.graphics.Color.argb(a3, 255, 255, 255)
-                                    nc.drawLine(xi, yi, xs[best3Idx], ys[best3Idx], sp)
-                                }
+                        for (j in 0 until starCount) {
+                            if (i == j) continue
+                            val dx = xs[j] - xi
+                            val dy = ys[j] - yi
+                            val dSq = dx * dx + dy * dy
+                            if (dSq < best1DistSq) {
+                                best3DistSq = best2DistSq
+                                best3Idx = best2Idx
+                                best2DistSq = best1DistSq
+                                best2Idx = best1Idx
+                                best1DistSq = dSq
+                                best1Idx = j
+                            } else if (dSq < best2DistSq) {
+                                best3DistSq = best2DistSq
+                                best3Idx = best2Idx
+                                best2DistSq = dSq
+                                best2Idx = j
+                            } else if (dSq < best3DistSq) {
+                                best3DistSq = dSq
+                                best3Idx = j
                             }
                         }
 
-                        val half = starSizePx * 0.5f
-                        val whiteStarColor = android.graphics.Color.argb(
-                            (0.40f * 255f * bScale).roundToInt().coerceIn(15, 255),
-                            255,
-                            255,
-                            255
-                        )
-                        val accentStarColor = android.graphics.Color.argb(
-                            (0.85f * 255f * bScale).roundToInt().coerceIn(30, 255),
-                            (accentColor.red * 255f).roundToInt(),
-                            (accentColor.green * 255f).roundToInt(),
-                            (accentColor.blue * 255f).roundToInt()
-                        )
-                        for (i in 0 until starCount) {
-                            val isAcc = ((i * 29 + 7) % 100) < accentPct
-                            p.color = if (isAcc) accentStarColor else whiteStarColor
-                            val sx = xs[i]
-                            val sy = ys[i]
-                            nc.drawRect(sx - half, sy - half, sx + half, sy + half, p)
+                        if (best1Idx >= 0 && maxLinks >= 1) {
+                            val d1 = sqrt(best1DistSq)
+                            val a1 = (0.25f * (1f - d1 / maxDist) * 255f * bScale).roundToInt().coerceIn(0, 200)
+                            if (a1 > 3) {
+                                sp.color = android.graphics.Color.argb(a1, 255, 255, 255)
+                                nc.drawLine(xi, yi, xs[best1Idx], ys[best1Idx], sp)
+                            }
                         }
+                        if (best2Idx >= 0 && maxLinks >= 2) {
+                            val d2 = sqrt(best2DistSq)
+                            val a2 = (0.25f * (1f - d2 / maxDist) * 255f * bScale).roundToInt().coerceIn(0, 200)
+                            if (a2 > 3) {
+                                sp.color = android.graphics.Color.argb(a2, 255, 255, 255)
+                                nc.drawLine(xi, yi, xs[best2Idx], ys[best2Idx], sp)
+                            }
+                        }
+                        if (best3Idx >= 0 && maxLinks >= 3) {
+                            val d3 = sqrt(best3DistSq)
+                            val a3 = (0.25f * (1f - d3 / maxDist) * 255f * bScale).roundToInt().coerceIn(0, 200)
+                            if (a3 > 3) {
+                                sp.color = android.graphics.Color.argb(a3, 255, 255, 255)
+                                nc.drawLine(xi, yi, xs[best3Idx], ys[best3Idx], sp)
+                            }
+                        }
+                    }
+
+                    val half = starSizePx * 0.5f
+                    val whiteStarColor = android.graphics.Color.argb(
+                        (0.40f * 255f * bScale).roundToInt().coerceIn(15, 255),
+                        255,
+                        255,
+                        255
+                    )
+                    val accentStarColor = android.graphics.Color.argb(
+                        (0.85f * 255f * bScale).roundToInt().coerceIn(30, 255),
+                        (accentColor.red * 255f).roundToInt(),
+                        (accentColor.green * 255f).roundToInt(),
+                        (accentColor.blue * 255f).roundToInt()
+                    )
+                    for (i in 0 until starCount) {
+                        val isAcc = ((i * 29 + 7) % 100) < accentPct
+                        p.color = if (isAcc) accentStarColor else whiteStarColor
+                        val sx = xs[i]
+                        val sy = ys[i]
+                        nc.drawRect(sx - half, sy - half, sx + half, sy + half, p)
                     }
                 }
             }
