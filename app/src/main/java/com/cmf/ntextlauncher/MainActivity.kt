@@ -36,6 +36,7 @@ import android.provider.Settings
 import android.util.Base64
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.BackEventCompat
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.*
@@ -110,6 +111,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -1581,6 +1583,323 @@ class TouchRippleEventBus {
     }
 }
 
+data class LiveWallpaperCatalogItem(
+    val id: String,
+    val tileTitle: String,
+    val fullTitle: String,
+    val description: String
+)
+
+val LIVE_WALLPAPER_CATALOG = listOf(
+    LiveWallpaperCatalogItem("live_starfield_3d", "Starfield", "3D Starfield", "1,200-Star 3D Night Sky"),
+    LiveWallpaperCatalogItem("live_raster_lines", "CRT", "CRT Scanlines", "Faint Lines & Refresh Beam"),
+    LiveWallpaperCatalogItem("live_year_in_dots", "Year in Dots", "Year in Dots", "Every day of the year as a dot. Today glows."),
+    LiveWallpaperCatalogItem("live_moon_phase", "Moon Phase", "Moon Phase", "The real moon, as it looks tonight."),
+    LiveWallpaperCatalogItem("live_touch_ripples", "Ripples", "Touch Ripples", "A dark dot grid that ripples where you touch."),
+    LiveWallpaperCatalogItem("live_oscilloscope", "Oscilloscope", "Oscilloscope", "A glowing line tracing slow, looping curves."),
+    LiveWallpaperCatalogItem("live_sonar", "Sonar", "Sonar", "A single ring that drifts out from the corner every few seconds."),
+    LiveWallpaperCatalogItem("live_pixel_rain", "Pixel Rain", "Pixel Rain", "A few lonely pixels falling in the dark."),
+    LiveWallpaperCatalogItem("live_constellations_new", "Constellations", "Constellations", "Stars drifting slowly and linking up when close.")
+)
+
+/**
+ * Renders a static 136x136 thumbnail Bitmap for a live wallpaper at its current settings.
+ * Executed on Dispatchers.Default (background thread) and cached as an ImageBitmap.
+ */
+fun renderWallpaperThumbnailBitmap(
+    id: String,
+    cfg: LiveWallpaperConfig,
+    accentColor: Color,
+    sizePx: Int = 136
+): ImageBitmap {
+    val s = sizePx.coerceAtLeast(64)
+    val wf = s.toFloat()
+    val hf = s.toFloat()
+    val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+    val c = android.graphics.Canvas(bmp)
+    c.drawColor(android.graphics.Color.BLACK)
+
+    val fillPaint = AndroidPaint().apply {
+        isAntiAlias = false
+        style = AndroidPaint.Style.FILL
+    }
+    val smoothFillPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+        style = AndroidPaint.Style.FILL
+    }
+    val strokePaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+        style = AndroidPaint.Style.STROKE
+    }
+
+    val accR = (accentColor.red * 255f).roundToInt().coerceIn(0, 255)
+    val accG = (accentColor.green * 255f).roundToInt().coerceIn(0, 255)
+    val accB = (accentColor.blue * 255f).roundToInt().coerceIn(0, 255)
+
+    when (id) {
+        "live_starfield_3d" -> {
+            val densityMult = cfg.starfieldDensityPct.coerceIn(25, 200) / 100f
+            val sizeMult = cfg.starfieldSizePct.coerceIn(50, 200) / 100f
+            val brightMult = cfg.starfieldBrightnessPct.coerceIn(20, 100) / 100f
+            val count = (48 * densityMult).roundToInt().coerceIn(14, 96)
+            for (i in 0 until count) {
+                val sx = (((i * 73 + 19) % 97) / 97f) * wf
+                val sy = (((i * 151 + 43) % 89) / 89f) * hf
+                val isAcc = (i % 7 == 0)
+                val alpha = ((0.30f + ((i * 29) % 65) / 100f) * brightMult * 255f).roundToInt().coerceIn(20, 255)
+                smoothFillPaint.color = if (isAcc) {
+                    android.graphics.Color.argb(alpha, accR, accG, accB)
+                } else {
+                    android.graphics.Color.argb(alpha, 255, 255, 255)
+                }
+                val r = ((if (i % 5 == 0) 1.6f else 1.0f) * sizeMult * (wf / 136f)).coerceAtLeast(0.8f)
+                c.drawCircle(sx, sy, r, smoothFillPaint)
+            }
+        }
+
+        "live_raster_lines" -> {
+            val densityMult = cfg.crtLineDensityPct.coerceIn(50, 200) / 100f
+            val strengthMult = cfg.crtLineStrengthPct.coerceIn(20, 100) / 100f
+            val brightMult = cfg.crtBrightnessPct.coerceIn(20, 100) / 100f
+            val pitch = (3.4f * (wf / 136f) / densityMult).coerceAtLeast(1.8f)
+            val beamY = hf * 0.45f
+            val beamHalf = hf * 0.24f
+            var y = 0f
+            var row = 0
+            while (y <= hf) {
+                val dist = abs(y - beamY)
+                val boost = if (dist < beamHalf) {
+                    val f = 1f - dist / beamHalf
+                    f * f * 0.28f * brightMult
+                } else 0f
+                val baseA = (if (row % 4 == 0) 0.24f else 0.14f) * strengthMult * brightMult + boost
+                val aInt = (baseA.coerceIn(0.03f, 0.75f) * 255f).roundToInt()
+                strokePaint.strokeWidth = if (row % 4 == 0) 1.2f else 0.8f
+                strokePaint.color = android.graphics.Color.argb(aInt, 255, 255, 255)
+                c.drawLine(0f, y, wf, y, strokePaint)
+                y += pitch
+                row++
+            }
+        }
+
+        "live_year_in_dots" -> {
+            val cols = (cfg.yearDotsColumns.coerceIn(10, 30) / 2).coerceIn(6, 12)
+            val rows = 8
+            val bScale = cfg.yearDotsBrightnessPct.coerceIn(20, 100) / 70f
+            val isRound = cfg.yearDotsShape == "round"
+            val margin = 0.14f * wf
+            val gridW = wf - margin * 2f
+            val cell = gridW / cols.toFloat()
+            val dotSz = (cell * (cfg.yearDotsSizePct.coerceIn(15, 50) / 100f) * 1.35f).coerceAtLeast(2f)
+            val gridH = rows * cell
+            val startY = when (cfg.yearDotsVerticalPos) {
+                "top" -> hf * 0.12f
+                "bottom" -> (hf * 0.88f - gridH).coerceAtLeast(hf * 0.10f)
+                else -> (hf - gridH) * 0.5f
+            }
+            val total = cols * rows
+            val todayIdx = (total * 0.68f).roundToInt().coerceIn(0, total - 1)
+            val pastA = (0.42f * 255f * bScale).roundToInt().coerceIn(20, 255)
+            val futA = (0.12f * 255f * bScale).roundToInt().coerceIn(10, 180)
+            val p = if (isRound) smoothFillPaint else fillPaint
+            for (idx in 0 until total) {
+                val r = idx / cols
+                val col = idx % cols
+                val cx = margin + (col + 0.5f) * cell
+                val cy = startY + (r + 0.5f) * cell
+                val sz = if (idx == todayIdx) dotSz * 1.45f else dotSz
+                p.color = when {
+                    idx == todayIdx -> android.graphics.Color.argb((255f * bScale.coerceIn(0.3f, 1f)).roundToInt().coerceIn(60, 255), accR, accG, accB)
+                    idx < todayIdx -> android.graphics.Color.argb(pastA, 255, 255, 255)
+                    else -> android.graphics.Color.argb(futA, 255, 255, 255)
+                }
+                val half = sz * 0.5f
+                if (isRound) {
+                    c.drawCircle(cx, cy, half, p)
+                } else {
+                    c.drawRect(cx - half, cy - half, cx + half, cy + half, p)
+                }
+            }
+        }
+
+        "live_moon_phase" -> {
+            val bScale = cfg.moonBrightnessPct.coerceIn(20, 100) / 70f
+            val julianDay = (System.currentTimeMillis() / 86400000.0) + 2440587.5
+            val rawPhase = ((julianDay - 2451550.1) / 29.530588853) % 1.0
+            val phase = (if (rawPhase < 0.0) rawPhase + 1.0 else rawPhase).toFloat()
+            val detail = (cfg.moonPixelDetail.coerceIn(15, 41) / 2).let { if (it % 2 == 0) it + 1 else it }.coerceIn(9, 21)
+            val halfGrid = detail / 2
+            val halfGridF = halfGrid.coerceAtLeast(1).toFloat()
+            val discDiam = wf * (0.42f + (cfg.moonSizePct.coerceIn(15, 45) - 15) / 30f * 0.28f)
+            val pxSz = (discDiam / detail.toFloat()).coerceAtLeast(2f)
+            val cx = wf * 0.5f
+            val cy = hf * (0.35f + (cfg.moonVerticalPct.coerceIn(20, 80) - 20) / 60f * 0.30f)
+            val litColor = android.graphics.Color.argb((0.90f * 255f * bScale).roundToInt().coerceIn(40, 255), 255, 255, 255)
+            val unlitColor = android.graphics.Color.argb((0.10f * 255f * bScale).roundToInt().coerceIn(12, 140), 255, 255, 255)
+            val cosPhase = cos(phase * 2.0 * PI).toFloat()
+            for (gy in -halfGrid..halfGrid) {
+                val ny = gy / halfGridF
+                for (gx in -halfGrid..halfGrid) {
+                    val nx = gx / halfGridF
+                    if (nx * nx + ny * ny <= 1.0f) {
+                        val xMax = sqrt((1f - ny * ny).coerceAtLeast(0f))
+                        val xTerm = cosPhase * xMax
+                        val isLit = if (phase < 0.5f) nx >= xTerm else nx <= -xTerm
+                        fillPaint.color = if (isLit) litColor else unlitColor
+                        val left = cx + gx * pxSz - pxSz * 0.45f
+                        val top = cy + gy * pxSz - pxSz * 0.45f
+                        c.drawRect(left, top, left + pxSz * 0.90f, top + pxSz * 0.90f, fillPaint)
+                    }
+                }
+            }
+        }
+
+        "live_touch_ripples" -> {
+            val bScale = cfg.ripplesBrightnessPct.coerceIn(20, 100) / 70f
+            val cx = wf * 0.5f
+            val cy = hf * 0.5f
+            val maxR = wf * 0.46f * (cfg.ripplesReachPct.coerceIn(30, 100) / 70f).coerceIn(0.6f, 1.15f)
+            strokePaint.strokeWidth = (1.6f * (wf / 136f)).coerceAtLeast(1.2f)
+            for (rIdx in 1..5) {
+                val frac = rIdx / 5f
+                val rad = maxR * frac
+                val alpha = ((1f - frac * 0.72f) * 0.68f * bScale * 255f).roundToInt().coerceIn(18, 235)
+                strokePaint.color = if (rIdx == 5) {
+                    android.graphics.Color.argb(alpha, accR, accG, accB)
+                } else {
+                    android.graphics.Color.argb(alpha, 255, 255, 255)
+                }
+                c.drawCircle(cx, cy, rad, strokePaint)
+            }
+        }
+
+        "live_oscilloscope" -> {
+            val bScale = cfg.oscilloscopeBrightnessPct.coerceIn(20, 100) / 70f
+            val sizeScale = (cfg.oscilloscopeSizePct.coerceIn(40, 120) / 100f).coerceIn(0.55f, 1.15f)
+            val (freqA, freqB) = when (cfg.oscilloscopeCurve) {
+                "5:4" -> 5f to 4f
+                "2:1" -> 2f to 1f
+                "1:1" -> 1f to 1f
+                else -> 3f to 2f
+            }
+            val path = android.graphics.Path()
+            val pts = 90
+            val cx = wf * 0.5f
+            val cy = hf * 0.5f
+            val ampX = wf * 0.36f * sizeScale
+            val ampY = hf * 0.30f * sizeScale
+            for (i in 0 until pts) {
+                val t = i * 0.055f
+                val px = cx + ampX * sin(freqA * t + 0.4f)
+                val py = cy + ampY * sin(freqB * t)
+                if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+            }
+            strokePaint.strokeWidth = (cfg.oscilloscopeThicknessDp.coerceIn(1f, 4f) * (wf / 136f)).coerceAtLeast(1.3f)
+            strokePaint.color = android.graphics.Color.argb(
+                (0.88f * bScale * 255f).roundToInt().coerceIn(40, 255),
+                accR, accG, accB
+            )
+            c.drawPath(path, strokePaint)
+        }
+
+        "live_sonar" -> {
+            val bScale = cfg.sonarBrightnessPct.coerceIn(20, 100) / 70f
+            val (ox, oy) = when (cfg.sonarOrigin) {
+                "bottom_left" -> 0f to hf
+                "center" -> (wf * 0.5f) to (hf * 0.5f)
+                else -> wf to hf
+            }
+            val baseR = wf * 0.68f
+            val echoes = cfg.sonarEchoRings.coerceIn(0, 2)
+            for (e in 0..echoes) {
+                val rad = baseR - e * (wf * 0.14f)
+                if (rad > 4f) {
+                    val wMult = when (e) {
+                        0 -> 1.0f
+                        1 -> 0.50f
+                        else -> 0.25f
+                    }
+                    strokePaint.strokeWidth = (cfg.sonarThicknessDp.coerceIn(1f, 4f) * 1.2f * (wf / 136f)).coerceAtLeast(1.4f)
+                    strokePaint.color = android.graphics.Color.argb(
+                        (0.78f * wMult * bScale * 255f).roundToInt().coerceIn(25, 255),
+                        accR, accG, accB
+                    )
+                    c.drawCircle(ox, oy, rad, strokePaint)
+                }
+            }
+        }
+
+        "live_pixel_rain" -> {
+            val bScale = cfg.rainBrightnessPct.coerceIn(20, 100) / 70f
+            val drops = (cfg.rainMaxDrops.coerceIn(6, 60) / 2).coerceIn(5, 18)
+            val pxSz = (cfg.rainPixelSizeDp.coerceIn(2, 8) * 0.75f * (wf / 136f)).coerceAtLeast(2.2f)
+            val tailLen = cfg.rainTailLength.coerceIn(0, 5)
+            val accPct = cfg.rainAccentPct.coerceIn(0, 50)
+            for (i in 0 until drops) {
+                val x = (((i * 41 + 11) % 89) / 89f) * (wf - pxSz * 2f) + pxSz
+                val headY = (((i * 67 + 23) % 83) / 83f) * (hf * 0.75f) + hf * 0.18f
+                val isAcc = ((i * 29) % 100) < accPct
+                for (tIdx in 0..tailLen) {
+                    val y = headY - tIdx * (pxSz * 1.15f)
+                    if (y >= 0f && y <= hf - pxSz) {
+                        val mult = when (tIdx) {
+                            0 -> 1.0f
+                            1 -> 0.45f
+                            2 -> 0.22f
+                            else -> 0.12f
+                        }
+                        val aInt = (0.75f * mult * bScale * 255f).roundToInt().coerceIn(14, 255)
+                        fillPaint.color = if (isAcc) {
+                            android.graphics.Color.argb(aInt, accR, accG, accB)
+                        } else {
+                            android.graphics.Color.argb(aInt, 255, 255, 255)
+                        }
+                        c.drawRect(x, y, x + pxSz, y + pxSz, fillPaint)
+                    }
+                }
+            }
+        }
+
+        "live_constellations_new" -> {
+            val bScale = cfg.conBrightnessPct.coerceIn(20, 100) / 70f
+            val count = (cfg.conStarCount.coerceIn(15, 80) / 2).coerceIn(10, 28)
+            val xs = FloatArray(count)
+            val ys = FloatArray(count)
+            for (i in 0 until count) {
+                xs[i] = (((i * 61 + 17) % 97) / 97f) * (wf * 0.84f) + wf * 0.08f
+                ys[i] = (((i * 103 + 31) % 89) / 89f) * (hf * 0.84f) + hf * 0.08f
+            }
+            val maxDist = (cfg.conLinkDistPct.coerceIn(10, 40) / 100f) * wf * 1.45f
+            val maxLinks = cfg.conMaxLinks.coerceIn(1, 3)
+            strokePaint.strokeWidth = (cfg.conLineThicknessDp.coerceIn(0.5f, 2f) * (wf / 136f)).coerceAtLeast(0.8f)
+            for (i in 0 until count) {
+                var linked = 0
+                for (j in (i + 1) until count) {
+                    val d = hypot(xs[j] - xs[i], ys[j] - ys[i])
+                    if (d < maxDist && linked < maxLinks) {
+                        linked++
+                        val aInt = (0.36f * (1f - d / maxDist) * bScale * 255f).roundToInt().coerceIn(12, 190)
+                        strokePaint.color = android.graphics.Color.argb(aInt, 255, 255, 255)
+                        c.drawLine(xs[i], ys[i], xs[j], ys[j], strokePaint)
+                    }
+                }
+            }
+            val starPx = (cfg.conStarSizeDp.coerceIn(1f, 4f) * (wf / 136f)).coerceAtLeast(1.8f)
+            val half = starPx * 0.5f
+            val accPct = cfg.conAccentPct.coerceIn(0, 40)
+            for (i in 0 until count) {
+                val isAcc = ((i * 29 + 7) % 100) < accPct
+                fillPaint.color = if (isAcc) {
+                    android.graphics.Color.argb((0.90f * bScale * 255f).roundToInt().coerceIn(40, 255), accR, accG, accB)
+                } else {
+                    android.graphics.Color.argb((0.65f * bScale * 255f).roundToInt().coerceIn(30, 255), 255, 255, 255)
+                }
+                c.drawRect(xs[i] - half, ys[i] - half, xs[i] + half, ys[i] + half, fillPaint)
+            }
+        }
+    }
+
+    return bmp.asImageBitmap()
+}
+
 // ============================================================================
 // MAIN COMPOSABLE ROOT
 // ============================================================================
@@ -1667,6 +1986,24 @@ fun NTextLauncherApp(
         mutableStateOf(pm?.isPowerSaveMode ?: false)
     }
     var dateChangeTrigger by remember { mutableStateOf(0) }
+    var isLiveWallpapersWindowOpen by remember { mutableStateOf(false) }
+    var isLiveWallpapersWindowFullyOpen by remember { mutableStateOf(false) }
+    var liveWallpapersPredictiveBackProgress by remember { mutableStateOf(0f) }
+    val wallpaperTileThumbnails = remember { mutableStateMapOf<String, ImageBitmap>() }
+
+    // Pre-warm all 9 live wallpaper tile thumbnails once on a background thread at idle/startup
+    LaunchedEffect(accentHex) {
+        val currentCfg = liveWpConfig
+        val currentAccent = resolveLauncherAccentColor(accentHex)
+        withContext(Dispatchers.Default) {
+            for (item in LIVE_WALLPAPER_CATALOG) {
+                val bmp = renderWallpaperThumbnailBitmap(item.id, currentCfg, currentAccent, 136)
+                withContext(Dispatchers.Main) {
+                    wallpaperTileThumbnails[item.id] = bmp
+                }
+            }
+        }
+    }
     var wallpaperDimPercent by remember { mutableStateOf(prefs.getInt("wp_dim", 0)) }
     var settingsBgMode by remember { mutableStateOf(prefs.getString("settings_bg_mode", "opaque") ?: "opaque") }
     var settingsBgIntensity by remember { mutableStateOf(prefs.getInt("settings_bg_intensity", 65)) }
@@ -2760,14 +3097,50 @@ fun NTextLauncherApp(
         }
     }
 
+    LaunchedEffect(currentView) {
+        if (currentView != LauncherView.SETTINGS) {
+            isLiveWallpapersWindowOpen = false
+            isLiveWallpapersWindowFullyOpen = false
+            liveWallpapersPredictiveBackProgress = 0f
+        }
+    }
+
     val backDispatcher = activity.onBackPressedDispatcher
-    DisposableEffect(backDispatcher, currentView, editMode, isOnLeftPage, contextMenuTarget, showHomeQuickMenu) {
+    DisposableEffect(
+        backDispatcher,
+        currentView,
+        isLiveWallpapersWindowOpen,
+        editMode,
+        isOnLeftPage,
+        contextMenuTarget,
+        showHomeQuickMenu
+    ) {
         val callback = object : OnBackPressedCallback(true) {
+            override fun handleOnBackStarted(backEvent: BackEventCompat) {
+                if (currentView == LauncherView.SETTINGS && isLiveWallpapersWindowOpen) {
+                    liveWallpapersPredictiveBackProgress = 0f
+                }
+            }
+
+            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
+                if (currentView == LauncherView.SETTINGS && isLiveWallpapersWindowOpen) {
+                    liveWallpapersPredictiveBackProgress = backEvent.progress.coerceIn(0f, 1f)
+                }
+            }
+
+            override fun handleOnBackCancelled() {
+                liveWallpapersPredictiveBackProgress = 0f
+            }
+
             override fun handleOnBackPressed() {
+                liveWallpapersPredictiveBackProgress = 0f
                 when {
                     contextMenuTarget != null -> contextMenuTarget = null
                     showHomeQuickMenu -> showHomeQuickMenu = false
                     editMode -> editMode = false
+                    currentView == LauncherView.SETTINGS && isLiveWallpapersWindowOpen -> {
+                        isLiveWallpapersWindowOpen = false
+                    }
                     currentView != LauncherView.HOME_AND_DRAWER -> currentView = LauncherView.HOME_AND_DRAWER
                     drawerProgress.value > 0.01f -> animateDrawerTo(0f)
                     leftPageProgress.value > 0.05f -> animateLeftPageTo(0f)
@@ -2810,7 +3183,7 @@ fun NTextLauncherApp(
             val isWallpaperScreenVisible = shouldRunWidgetsAndWallpapers && when (currentView) {
                 LauncherView.HOME_AND_DRAWER -> !isDrawerFullyOpen
                 LauncherView.WIDGETS -> false
-                LauncherView.SETTINGS -> settingsBgMode != "opaque"
+                LauncherView.SETTINGS -> settingsBgMode != "opaque" && !isLiveWallpapersWindowFullyOpen
             }
             OledWallpaperCanvas(
                 preset = wallpaperPreset,
@@ -3406,6 +3779,29 @@ fun NTextLauncherApp(
                                 isPowerSaveMode = isPowerSaveMode,
                                 dateChangeTrigger = dateChangeTrigger,
                                 isSettingsScreenVisible = shouldRunWidgetsAndWallpapers && currentView == LauncherView.SETTINGS,
+                                isLiveWallpapersWindowOpen = isLiveWallpapersWindowOpen,
+                                liveWallpapersPredictiveBackProgress = liveWallpapersPredictiveBackProgress,
+                                wallpaperTileThumbnails = wallpaperTileThumbnails,
+                                onOpenLiveWallpapersWindow = {
+                                    liveWallpapersPredictiveBackProgress = 0f
+                                    isLiveWallpapersWindowOpen = true
+                                },
+                                onCloseLiveWallpapersWindow = {
+                                    liveWallpapersPredictiveBackProgress = 0f
+                                    isLiveWallpapersWindowOpen = false
+                                },
+                                onLiveWallpapersFullyOpenChanged = { fullyOpen ->
+                                    isLiveWallpapersWindowFullyOpen = fullyOpen
+                                },
+                                onRefreshWallpaperThumbnail = { wpId, updatedCfg ->
+                                    val curAccent = resolveLauncherAccentColor(accentHex)
+                                    scope.launch(Dispatchers.Default) {
+                                        val bmp = renderWallpaperThumbnailBitmap(wpId, updatedCfg, curAccent, 136)
+                                        withContext(Dispatchers.Main) {
+                                            wallpaperTileThumbnails[wpId] = bmp
+                                        }
+                                    }
+                                },
                                 settingsBgMode = settingsBgMode,
                                 settingsBgIntensity = settingsBgIntensity,
                                 drawerBgMode = drawerBgMode,
@@ -9819,6 +10215,129 @@ fun NocturnaaSegmentedSettingRow(
     }
 }
 
+// ============================================================================
+// REUSABLE SUB-PAGE TRANSITION HOST (Single 0..1 Progress, Interruptible & Reversible)
+// ============================================================================
+@Composable
+fun NocturnaaSubPageTransitionHost(
+    isSubPageOpen: Boolean,
+    predictiveBackProgress: Float = 0f,
+    onFullyOpenChanged: (Boolean) -> Unit = {},
+    mainPageContent: @Composable () -> Unit,
+    subPageContent: @Composable (progressProvider: () -> Float, isFullyOpen: Boolean) -> Unit
+) {
+    val context = LocalContext.current
+    val transitionProgress = remember { Animatable(if (isSubPageOpen) 1f else 0f) }
+
+    LaunchedEffect(isSubPageOpen) {
+        val animScale = try {
+            Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        } catch (_: Exception) {
+            1f
+        }
+        val cur = transitionProgress.value.coerceIn(0f, 1f)
+        if (animScale <= 0f) {
+            transitionProgress.snapTo(if (isSubPageOpen) 1f else 0f)
+        } else if (isSubPageOpen) {
+            val rem = (1f - cur).coerceIn(0f, 1f)
+            val dur = (480f * rem).roundToInt().coerceAtLeast(16)
+            transitionProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = dur, easing = NocturnaaOpenSectionEasing)
+            )
+        } else {
+            val rem = cur.coerceIn(0f, 1f)
+            val dur = (380f * rem).roundToInt().coerceAtLeast(16)
+            transitionProgress.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = dur, easing = NocturnaaCloseSectionEasing)
+            )
+        }
+    }
+
+    val isFullyOpen = isSubPageOpen && transitionProgress.value >= 0.999f && predictiveBackProgress <= 0.001f
+    LaunchedEffect(isFullyOpen) {
+        onFullyOpenChanged(isFullyOpen)
+    }
+
+    val effectiveProgressProvider = remember(transitionProgress, predictiveBackProgress) {
+        {
+            val baseP = transitionProgress.value.coerceIn(0f, 1f)
+            val backP = predictiveBackProgress.coerceIn(0f, 1f)
+            (baseP * (1f - backP * 0.25f)).coerceIn(0f, 1f)
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Outgoing main Settings screen: moves left by 18% of screen width and fades to 0% opacity by 70% progress.
+        // Kept in composition at all times so scroll position and open section are preserved.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    val p = effectiveProgressProvider()
+                    if (p <= 0.0005f) {
+                        translationX = 0f
+                        alpha = 1f
+                    } else if (p >= 0.999f) {
+                        translationX = -size.width * 2f
+                        alpha = 0f
+                    } else {
+                        translationX = -0.18f * size.width * p
+                        alpha = (1f - (p / 0.70f)).coerceIn(0f, 1f)
+                    }
+                }
+        ) {
+            mainPageContent()
+        }
+
+        // Incoming sub-page window: slides in from 100% of screen width to 0 (and follows predictive back gesture).
+        if (isSubPageOpen || transitionProgress.value > 0.0005f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val p = transitionProgress.value.coerceIn(0f, 1f)
+                        val backP = predictiveBackProgress.coerceIn(0f, 1f)
+                        translationX = (1f - p) * size.width + backP * size.width * 0.16f
+                        val scale = 1f - 0.06f * backP
+                        scaleX = scale
+                        scaleY = scale
+                    }
+            ) {
+                subPageContent(effectiveProgressProvider, isFullyOpen)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AutoShrinkTileLabel(
+    text: String,
+    color: Color,
+    fontFamily: FontFamily,
+    fontWeight: FontWeight
+) {
+    var fontSizeSp by remember(text, fontFamily) { mutableStateOf(10f) }
+    Text(
+        text = text,
+        color = color,
+        fontSize = fontSizeSp.sp,
+        fontFamily = fontFamily,
+        fontWeight = fontWeight,
+        textAlign = TextAlign.Center,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
+        onTextLayout = { result ->
+            if (result.hasVisualOverflow && fontSizeSp > 8.0f) {
+                fontSizeSp = (fontSizeSp - 0.5f).coerceAtLeast(8.0f)
+            }
+        },
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
 @Composable
 fun LauncherSettingsView(
     fontId: String,
@@ -9843,6 +10362,13 @@ fun LauncherSettingsView(
     isPowerSaveMode: Boolean = false,
     dateChangeTrigger: Int = 0,
     isSettingsScreenVisible: Boolean = true,
+    isLiveWallpapersWindowOpen: Boolean = false,
+    liveWallpapersPredictiveBackProgress: Float = 0f,
+    wallpaperTileThumbnails: Map<String, ImageBitmap> = emptyMap(),
+    onOpenLiveWallpapersWindow: () -> Unit = {},
+    onCloseLiveWallpapersWindow: () -> Unit = {},
+    onLiveWallpapersFullyOpenChanged: (Boolean) -> Unit = {},
+    onRefreshWallpaperThumbnail: (String, LiveWallpaperConfig) -> Unit = { _, _ -> },
     settingsBgMode: String,
     settingsBgIntensity: Int,
     drawerBgMode: String = "opaque",
@@ -9875,7 +10401,6 @@ fun LauncherSettingsView(
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
-    val configuration = LocalConfiguration.current
     val settingsScrollState = rememberScrollState()
     var viewportHeightPx by remember { mutableStateOf(0) }
 
@@ -9883,20 +10408,6 @@ fun LauncherSettingsView(
     var openSectionIndex by remember { mutableStateOf<Int?>(null) }
     var expandedFontMenu by remember { mutableStateOf(false) }
     var openWallpaperSubSection by remember { mutableStateOf<String?>(null) }
-    // Only one live wallpaper row is open at a time inside Live Wallpapers
-    var openLiveWallpaperId by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(openSectionIndex, openWallpaperSubSection) {
-        if (openSectionIndex != 2 || openWallpaperSubSection != "live") {
-            openLiveWallpaperId = null
-        }
-    }
-
-    val activePreviewWallpaperId = if (openSectionIndex == 2 && openWallpaperSubSection == "live") {
-        openLiveWallpaperId
-    } else {
-        null
-    }
 
     val accentColor = resolveLauncherAccentColor(accentHex)
     val innerCardShape = RoundedCornerShape(8.dp)
@@ -9950,21 +10461,15 @@ fun LauncherSettingsView(
                 wallpaperPreset = wallpaperPreset,
                 wallpaperDimPercent = wallpaperDimPercent,
                 hasCustomUserImage = hasCustomUserImage,
-                liveWpConfig = liveWpConfig,
-                onUpdateLiveWpConfig = onUpdateLiveWpConfig,
                 accentHex = accentHex,
                 openWallpaperSubSection = openWallpaperSubSection,
                 onToggleWallpaperSubSection = { subKey ->
                     openWallpaperSubSection = if (openWallpaperSubSection == subKey) null else subKey
                 },
-                openLiveWallpaperId = openLiveWallpaperId,
-                onToggleLiveWallpaperRow = { wpId ->
-                    openLiveWallpaperId = if (openLiveWallpaperId == wpId) null else wpId
-                },
+                onOpenLiveWallpapersWindow = onOpenLiveWallpapersWindow,
                 accentColor = accentColor,
                 innerCardBorderColor = innerCardBorderColor,
                 innerCardShape = innerCardShape,
-                innerSubCardShape = innerSubCardShape,
                 launcherFont = launcherFont,
                 onChangeWallpaperPreset = onChangeWallpaperPreset,
                 onChangeWallpaperDim = onChangeWallpaperDim,
@@ -10040,122 +10545,559 @@ fun LauncherSettingsView(
     }
     val containerShape = RoundedCornerShape(24.dp)
 
-    // Pinned 9:16 Live Preview state (Part 5)
-    val isShortScreen = configuration.screenHeightDp < 640
-    val previewCardWidthDp = if (isShortScreen) 96.dp else 120.dp
-    val previewCardHeightDp = if (isShortScreen) 171.dp else 213.dp
-    val previewCardWidthPx = with(density) { previewCardWidthDp.toPx() }
-    val previewCardHeightPx = with(density) { previewCardHeightDp.toPx() }
-    val previewCardShape = RoundedCornerShape(20.dp)
+    NocturnaaSubPageTransitionHost(
+        isSubPageOpen = isLiveWallpapersWindowOpen,
+        predictiveBackProgress = liveWallpapersPredictiveBackProgress,
+        onFullyOpenChanged = onLiveWallpapersFullyOpenChanged,
+        mainPageContent = {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(rootBgColor)
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(top = 16.dp)
+            ) {
+                // Fixed Header at the top: "Nocturnaa Settings" + Outlined "DONE" pill
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Nocturnaa Settings",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontFamily = launcherFont,
+                        fontWeight = FontWeight.Bold
+                    )
+                    OutlinedDonePillButton(
+                        lomoFontFamily = launcherFont,
+                        onClick = onBack
+                    )
+                }
 
-    val previewRippleBus = remember(activePreviewWallpaperId) { TouchRippleEventBus() }
-    var previewSonarTriggerToken by remember(activePreviewWallpaperId) { mutableStateOf(0) }
+                Spacer(modifier = Modifier.height(20.dp))
 
-    // Automatic ripple every 2 seconds while Touch Ripples row is open
-    val maxRipplesState by rememberUpdatedState(liveWpConfig.ripplesMaxCount)
-    LaunchedEffect(activePreviewWallpaperId, isSettingsScreenVisible) {
-        if (activePreviewWallpaperId == "live_touch_ripples" && isSettingsScreenVisible) {
-            var stepIdx = 0
-            val samplePoints = arrayOf(
-                0.50f to 0.50f,
-                0.34f to 0.38f,
-                0.66f to 0.62f,
-                0.42f to 0.66f,
-                0.58f to 0.34f
-            )
-            while (true) {
-                val (fx, fy) = samplePoints[stepIdx % samplePoints.size]
-                stepIdx++
-                val nowSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
-                previewRippleBus.onTouchDown(
-                    x = previewCardWidthPx * fx,
-                    y = previewCardHeightPx * fy,
-                    nowSec = nowSec,
-                    maxSlots = maxRipplesState
-                )
-                delay(2000L)
+                // Vertically scrollable content area while the header stays at the top
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .onSizeChanged { viewportHeightPx = it.height }
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(settingsScrollState)
+                            .padding(horizontal = 16.dp)
+                            .padding(bottom = 32.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(containerShape)
+                                .background(Color.Black, containerShape)
+                                .border(1.dp, Color.White.copy(alpha = 0.14f), containerShape)
+                        ) {
+                            settingsSections.forEachIndexed { index, sectionSpec ->
+                                val autoNumberTag = String.format(Locale.US, "%02d", index + 1)
+                                NocturnaaCollapsibleSection(
+                                    indexTag = autoNumberTag,
+                                    title = sectionSpec.title,
+                                    expanded = openSectionIndex == index,
+                                    accentColor = accentColor,
+                                    lomoFontFamily = launcherFont,
+                                    minHeaderHeight = 44.dp,
+                                    headerHorizontalPadding = 16.dp,
+                                    contentHorizontalPadding = 16.dp,
+                                    expandedBgColor = Color(0xFF0C0C0C),
+                                    onHeaderHeightMeasured = { hPx -> headerHeightsPx[index] = hPx },
+                                    onToggle = {
+                                        openSectionIndex = if (openSectionIndex == index) null else index
+                                    },
+                                    items = sectionSpec.items
+                                )
+
+                                if (index < settingsSections.lastIndex) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(1.dp)
+                                            .background(Color.White.copy(alpha = 0.08f))
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
+        },
+        subPageContent = { progressProvider, isFullyOpen ->
+            LiveWallpapersWindow(
+                wallpaperPreset = wallpaperPreset,
+                liveWpConfig = liveWpConfig,
+                onUpdateLiveWpConfig = onUpdateLiveWpConfig,
+                accentColor = accentColor,
+                innerCardBorderColor = innerCardBorderColor,
+                innerSubCardShape = innerSubCardShape,
+                launcherFont = launcherFont,
+                batteryPct = batteryPct,
+                isPowerSaveMode = isPowerSaveMode,
+                dateChangeTrigger = dateChangeTrigger,
+                isSettingsScreenVisible = isSettingsScreenVisible,
+                isWindowFullyOpen = isFullyOpen,
+                transitionProgressProvider = progressProvider,
+                wallpaperTileThumbnails = wallpaperTileThumbnails,
+                onRefreshWallpaperThumbnail = onRefreshWallpaperThumbnail,
+                onChangeWallpaperPreset = onChangeWallpaperPreset,
+                onNavigateBack = onCloseLiveWallpapersWindow,
+                onCloseAllSettings = {
+                    onCloseLiveWallpapersWindow()
+                    onBack()
+                }
+            )
+        }
+    )
+}
+
+// ============================================================================
+// FULL-SCREEN "LIVE WALLPAPERS" WINDOW (Mockup Layout, 3-Snap Spring Panel & Choreographed Entry)
+// ============================================================================
+@Composable
+fun LiveWallpapersWindow(
+    wallpaperPreset: String,
+    liveWpConfig: LiveWallpaperConfig,
+    onUpdateLiveWpConfig: (LiveWallpaperConfig) -> Unit,
+    accentColor: Color,
+    innerCardBorderColor: Color,
+    innerSubCardShape: RoundedCornerShape,
+    launcherFont: FontFamily,
+    batteryPct: Int,
+    isPowerSaveMode: Boolean,
+    dateChangeTrigger: Int,
+    isSettingsScreenVisible: Boolean,
+    isWindowFullyOpen: Boolean,
+    transitionProgressProvider: () -> Float,
+    wallpaperTileThumbnails: Map<String, ImageBitmap>,
+    onRefreshWallpaperThumbnail: (String, LiveWallpaperConfig) -> Unit,
+    onChangeWallpaperPreset: (String) -> Unit,
+    onNavigateBack: () -> Unit,
+    onCloseAllSettings: () -> Unit
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+
+    fun fireLightTick() {
+        val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
+        } else {
+            @Suppress("DEPRECATION")
+            VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
+        }
+        vib?.vibrate(effect)
+    }
+
+    // Section 5: When the window opens, the ACTIVE wallpaper is selected (or 3D Starfield if a static wallpaper is active)
+    var selectedWallpaperId by remember {
+        mutableStateOf(
+            if (wallpaperPreset in VALID_LIVE_WALLPAPER_IDS) wallpaperPreset else "live_starfield_3d"
+        )
+    }
+
+    // 200ms preview crossfade when switching selected tiles
+    var previousWallpaperId by remember { mutableStateOf<String?>(null) }
+    val previewCrossfadeAnim = remember { Animatable(1f) }
+
+    // 120ms fade-out + 8dp rise & 30ms stagger fade-in for the settings list when switching tiles
+    var displayedSettingsWallpaperId by remember { mutableStateOf(selectedWallpaperId) }
+    val settingsListFadeOutAnim = remember { Animatable(1f) }
+    val settingsListStaggerMsAnim = remember { Animatable(1000f) }
+    var isFadingOutOldSettings by remember { mutableStateOf(false) }
+    val settingsScrollState = rememberScrollState()
+
+    val selectedIndex = remember(selectedWallpaperId) {
+        LIVE_WALLPAPER_CATALOG.indexOfFirst { it.id == selectedWallpaperId }.coerceAtLeast(0)
+    }
+    // Short spring for the selected tile's 2dp accent ring
+    val animatedRingCol by animateFloatAsState(
+        targetValue = (selectedIndex % 5).toFloat(),
+        animationSpec = spring(dampingRatio = 0.80f, stiffness = 620f),
+        label = "tileRingColSpring"
+    )
+    val animatedRingRow by animateFloatAsState(
+        targetValue = (selectedIndex / 5).toFloat(),
+        animationSpec = spring(dampingRatio = 0.80f, stiffness = 620f),
+        label = "tileRingRowSpring"
+    )
+
+    fun selectTileForEditing(targetId: String) {
+        if (targetId == selectedWallpaperId) return
+        fireLightTick()
+        val oldId = selectedWallpaperId
+        selectedWallpaperId = targetId
+        previousWallpaperId = oldId
+        scope.launch {
+            previewCrossfadeAnim.snapTo(0f)
+            previewCrossfadeAnim.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 200, easing = LinearOutSlowInEasing)
+            )
+            previousWallpaperId = null
+        }
+        scope.launch {
+            isFadingOutOldSettings = true
+            settingsListFadeOutAnim.snapTo(1f)
+            settingsListFadeOutAnim.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing)
+            )
+            displayedSettingsWallpaperId = targetId
+            settingsScrollState.scrollTo(0)
+            isFadingOutOldSettings = false
+            settingsListFadeOutAnim.snapTo(1f)
+            settingsListStaggerMsAnim.snapTo(0f)
+            settingsListStaggerMsAnim.animateTo(
+                targetValue = 520f,
+                animationSpec = tween(durationMillis = 520, easing = LinearEasing)
+            )
         }
     }
 
-    // Sonar preview: start a ring immediately whenever any Sonar setting changes
+    // Preview Touch Ripples & Sonar interactive + automatic triggers
+    val previewRippleBus = remember(selectedWallpaperId) { TouchRippleEventBus() }
+    var previewSonarTriggerToken by remember(selectedWallpaperId) { mutableStateOf(0) }
+    val maxRipplesState by rememberUpdatedState(liveWpConfig.ripplesMaxCount)
+
     val sonarSettingsSignature = Triple(
         liveWpConfig.sonarOrigin to liveWpConfig.sonarIntervalSec,
         liveWpConfig.sonarSpeedPct to liveWpConfig.sonarReachPct,
         Triple(liveWpConfig.sonarThicknessDp, liveWpConfig.sonarEchoRings, liveWpConfig.sonarBrightnessPct to liveWpConfig.sonarFps)
     )
-    LaunchedEffect(activePreviewWallpaperId, sonarSettingsSignature) {
-        if (activePreviewWallpaperId == "live_sonar") {
+    LaunchedEffect(selectedWallpaperId, sonarSettingsSignature) {
+        if (selectedWallpaperId == "live_sonar") {
             previewSonarTriggerToken = (previewSonarTriggerToken + 1) and 0x7FFFFFFF
         }
     }
 
-    Column(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(rootBgColor)
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(top = 16.dp)
+            .background(Color.Black)
+            .pointerInput(Unit) {
+                // Consume background taps so they never leak to the underlying Settings screen
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                }
+            }
     ) {
-        // Fixed Header at the top: "Nocturnaa Settings" + Outlined "DONE" pill
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Nocturnaa Settings",
-                color = Color.White,
-                fontSize = 18.sp,
-                fontFamily = launcherFont,
-                fontWeight = FontWeight.Bold
-            )
-            OutlinedDonePillButton(
-                lomoFontFamily = launcherFont,
-                onClick = onBack
+        val screenWidthPx = with(density) { maxWidth.toPx().coerceAtLeast(1f) }
+        val screenHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
+        val screenAspect = (screenWidthPx / screenHeightPx).coerceIn(0.35f, 0.85f)
+
+        val statusTopPx = max(
+            WindowInsets.statusBars.getTop(density),
+            WindowInsets.displayCutout.getTop(density)
+        ).toFloat()
+        val navBottomPx = WindowInsets.navigationBars.getBottom(density).toFloat()
+
+        // Section 4: Three Snap Positions for the Floating Bottom Panel
+        // - Expanded: top of panel at ~24% of screen height
+        // - Default: top of panel at ~51% of screen height
+        // - Peek: only the drag handle and the title row (with SET / ACTIVE) are visible
+        val expandedTopY = 0.24f * screenHeightPx
+        val defaultTopY = 0.51f * screenHeightPx
+        val panelBottomMarginPx = with(density) { 16.dp.toPx() }
+        val panelBottomY = (screenHeightPx - navBottomPx - panelBottomMarginPx).coerceAtLeast(defaultTopY + 120f)
+        val maxPanelHeightPx = (panelBottomY - expandedTopY).coerceAtLeast(1f)
+        val defaultOffsetPx = (defaultTopY - expandedTopY).coerceAtLeast(0f)
+
+        var measuredTileGridHeightPx by remember { mutableStateOf(with(density) { 172.dp.toPx() }) }
+        var measuredTitleBlockHeightPx by remember { mutableStateOf(with(density) { 64.dp.toPx() }) }
+        val handleAndPaddingPx = with(density) { 36.dp.toPx() }
+        val peekCardHeightPx = (handleAndPaddingPx + measuredTitleBlockHeightPx).coerceAtLeast(with(density) { 96.dp.toPx() })
+        val peekOffsetPx = (maxPanelHeightPx - peekCardHeightPx).coerceAtLeast(defaultOffsetPx + with(density) { 48.dp.toPx() })
+
+        val panelOffsetAnim = remember { Animatable(defaultOffsetPx) }
+        // Bottom panel entry spring (from 80ms, slides up from 40% of its resting height below resting position)
+        val panelEntrySpring = remember { Animatable(0f) }
+
+        LaunchedEffect(Unit) {
+            panelOffsetAnim.snapTo(defaultOffsetPx)
+            panelEntrySpring.snapTo(0f)
+            delay(80L)
+            panelEntrySpring.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f)
             )
         }
 
-        // Part 5: Pinned Live Preview directly under the "Nocturnaa Settings" header, above the scrolling content
-        if (activePreviewWallpaperId != null) {
-            Spacer(modifier = Modifier.height(10.dp))
-            Column(
+        fun settlePanelWithVelocity(velocityY: Float) {
+            val cur = panelOffsetAnim.value
+            val snaps = floatArrayOf(0f, defaultOffsetPx, peekOffsetPx)
+            val projected = (cur + velocityY * 0.14f).coerceIn(0f, peekOffsetPx)
+            val targetSnap = when {
+                velocityY < -650f -> if (cur > defaultOffsetPx + 20f) defaultOffsetPx else 0f
+                velocityY > 650f -> if (cur < defaultOffsetPx - 20f) defaultOffsetPx else peekOffsetPx
+                else -> snaps.minByOrNull { abs(it - projected) } ?: defaultOffsetPx
+            }
+            scope.launch {
+                panelOffsetAnim.animateTo(
+                    targetValue = targetSnap,
+                    initialVelocity = velocityY,
+                    animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f)
+                )
+            }
+        }
+
+        // NestedScrollConnection so scrolling the settings list expands the panel first when dragging up,
+        // and lowers the panel when dragging down at the top of the scroll list.
+        val panelNestedScrollConnection = remember(defaultOffsetPx, peekOffsetPx) {
+            object : NestedScrollConnection {
+                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                    val dy = available.y
+                    val curOffset = panelOffsetAnim.value
+                    // Upward drag while panel is not yet fully expanded -> expand panel first
+                    if (dy < 0f && curOffset > 0.5f) {
+                        val next = (curOffset + dy).coerceIn(0f, peekOffsetPx)
+                        val consumedY = next - curOffset
+                        scope.launch { panelOffsetAnim.snapTo(next) }
+                        return Offset(0f, consumedY)
+                    }
+                    // Downward drag while panel is between Expanded and Peek and scroll is at top -> lower panel
+                    if (dy > 0f && settingsScrollState.value == 0 && curOffset < peekOffsetPx) {
+                        val next = (curOffset + dy).coerceIn(0f, peekOffsetPx)
+                        val consumedY = next - curOffset
+                        scope.launch { panelOffsetAnim.snapTo(next) }
+                        return Offset(0f, consumedY)
+                    }
+                    return Offset.Zero
+                }
+
+                override fun onPostScroll(
+                    consumed: Offset,
+                    available: Offset,
+                    source: NestedScrollSource
+                ): Offset {
+                    val dy = available.y
+                    if (dy > 0f && settingsScrollState.value == 0) {
+                        val curOffset = panelOffsetAnim.value
+                        val next = (curOffset + dy).coerceIn(0f, peekOffsetPx)
+                        val consumedY = next - curOffset
+                        scope.launch { panelOffsetAnim.snapTo(next) }
+                        return Offset(0f, consumedY)
+                    }
+                    return Offset.Zero
+                }
+
+                override suspend fun onPreFling(available: Velocity): Velocity {
+                    val curOffset = panelOffsetAnim.value
+                    if (curOffset > 1f && (settingsScrollState.value == 0 || curOffset < defaultOffsetPx - 2f || curOffset > defaultOffsetPx + 2f)) {
+                        settlePanelWithVelocity(available.y)
+                        return available
+                    }
+                    return Velocity.Zero
+                }
+            }
+        }
+
+        // Fixed internal resolution for the Live Preview Card (largest size it can have: 55% of screen height)
+        val maxPreviewHeightPx = 0.55f * screenHeightPx
+        val minPreviewHeightPx = with(density) { 150.dp.toPx() }.coerceAtMost(maxPreviewHeightPx)
+        val maxPreviewWidthPx = maxPreviewHeightPx * screenAspect
+        val maxPreviewWidthDp = with(density) { maxPreviewWidthPx.toDp() }
+        val maxPreviewHeightDp = with(density) { maxPreviewHeightPx.toDp() }
+        val previewCardShape = RoundedCornerShape(20.dp)
+
+        // Seed an immediate ripple on selection & every 2 seconds while Touch Ripples is selected and window is open
+        LaunchedEffect(selectedWallpaperId, isWindowFullyOpen, isSettingsScreenVisible) {
+            if (selectedWallpaperId == "live_touch_ripples") {
+                val now0 = (System.nanoTime() / 1_000_000_000.0).toFloat()
+                previewRippleBus.onTouchDown(maxPreviewWidthPx * 0.5f, maxPreviewHeightPx * 0.5f, now0, maxRipplesState)
+                if (isWindowFullyOpen && isSettingsScreenVisible) {
+                    var stepIdx = 1
+                    val samplePts = arrayOf(
+                        0.50f to 0.50f,
+                        0.34f to 0.38f,
+                        0.66f to 0.62f,
+                        0.42f to 0.66f,
+                        0.58f to 0.34f
+                    )
+                    while (true) {
+                        delay(2000L)
+                        val (fx, fy) = samplePts[stepIdx % samplePts.size]
+                        stepIdx++
+                        val nowSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
+                        previewRippleBus.onTouchDown(
+                            x = maxPreviewWidthPx * fx,
+                            y = maxPreviewHeightPx * fy,
+                            nowSec = nowSec,
+                            maxSlots = maxRipplesState
+                        )
+                    }
+                }
+            }
+        }
+
+        val headerAreaHeightPx = statusTopPx + with(density) { 86.dp.toPx() }
+        val sixteenDpPx = with(density) { 16.dp.toPx() }
+
+        // 1. TOP HEADER + "LIVE PREVIEW" LABEL
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+                .padding(top = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Header row: thin back chevron, "Live Wallpapers" title, and outlined "DONE" pill (fades in 80ms -> 300ms)
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.Black),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(horizontal = 16.dp)
+                    .graphicsLayer {
+                        val tMs = transitionProgressProvider().coerceIn(0f, 1f) * 480f
+                        alpha = ((tMs - 80f) / 220f).coerceIn(0f, 1f)
+                    },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                fireLightTick()
+                                onNavigateBack()
+                            },
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Canvas(modifier = Modifier.size(16.dp)) {
+                            val w = size.width
+                            val h = size.height
+                            val path = Path().apply {
+                                moveTo(w * 0.68f, h * 0.14f)
+                                lineTo(w * 0.24f, h * 0.50f)
+                                lineTo(w * 0.68f, h * 0.86f)
+                            }
+                            drawPath(
+                                path = path,
+                                color = Color.White.copy(alpha = 0.78f),
+                                style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Live Wallpapers",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontFamily = launcherFont,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                OutlinedDonePillButton(
+                    lomoFontFamily = launcherFont,
+                    onClick = {
+                        fireLightTick()
+                        onCloseAllSettings()
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Centered static accent dot + "LIVE PREVIEW" in dim grey
+            Row(
+                modifier = Modifier
+                    .graphicsLayer {
+                        val tMs = transitionProgressProvider().coerceIn(0f, 1f) * 480f
+                        alpha = ((tMs - 100f) / 260f).coerceIn(0f, 1f)
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .padding(vertical = 10.dp)
-                        .size(width = previewCardWidthDp, height = previewCardHeightDp)
-                        .clip(previewCardShape)
-                        .background(Color.Black, previewCardShape)
-                        .border(1.dp, Color.White.copy(alpha = 0.14f), previewCardShape)
-                        .pointerInput(activePreviewWallpaperId) {
-                            awaitEachGesture {
-                                val down = awaitFirstDown(requireUnconsumed = false)
-                                down.consume()
-                                if (activePreviewWallpaperId == "live_touch_ripples") {
-                                    val nowSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
-                                    previewRippleBus.onTouchDown(
-                                        x = down.position.x,
-                                        y = down.position.y,
-                                        nowSec = nowSec,
-                                        maxSlots = maxRipplesState
-                                    )
-                                } else if (activePreviewWallpaperId == "live_sonar") {
-                                    previewSonarTriggerToken = (previewSonarTriggerToken + 1) and 0x7FFFFFFF
-                                }
-                            }
+                        .size(6.dp)
+                        .background(accentColor, CircleShape)
+                )
+                Text(
+                    text = "LIVE PREVIEW",
+                    color = Color.White.copy(alpha = 0.50f),
+                    fontSize = 11.sp,
+                    fontFamily = launcherFont,
+                    letterSpacing = 1.sp
+                )
+            }
+        }
+
+        // 2. FIXED-RESOLUTION LIVE PREVIEW CARD (Scaled continuously via graphicsLayer as the bottom panel moves)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = with(density) { headerAreaHeightPx.toDp() })
+                .size(width = maxPreviewWidthDp, height = maxPreviewHeightDp)
+                .graphicsLayer {
+                    val tMs = transitionProgressProvider().coerceIn(0f, 1f) * 480f
+                    val entryProg = NocturnaaOpenSectionEasing.transform(((tMs - 100f) / 380f).coerceIn(0f, 1f))
+                    val entryScale = 0.92f + 0.08f * entryProg
+
+                    val currentPanelTopY = expandedTopY + panelOffsetAnim.value
+                    val freeSpacePx = currentPanelTopY - headerAreaHeightPx - sixteenDpPx
+                    val targetPreviewHeightPx = freeSpacePx.coerceIn(minPreviewHeightPx, maxPreviewHeightPx)
+                    val panelFollowScale = (targetPreviewHeightPx / maxPreviewHeightPx).coerceIn(0.25f, 1.0f)
+
+                    val finalScale = panelFollowScale * entryScale
+                    transformOrigin = TransformOrigin(0.5f, 0f)
+                    scaleX = finalScale
+                    scaleY = finalScale
+                    alpha = entryProg
+                }
+                .clip(previewCardShape)
+                .background(Color.Black, previewCardShape)
+                .border(1.dp, Color.White.copy(alpha = 0.14f), previewCardShape)
+                .pointerInput(selectedWallpaperId) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        if (selectedWallpaperId == "live_touch_ripples") {
+                            val nowSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
+                            previewRippleBus.onTouchDown(
+                                x = down.position.x,
+                                y = down.position.y,
+                                nowSec = nowSec,
+                                maxSlots = maxRipplesState
+                            )
+                        } else if (selectedWallpaperId == "live_sonar") {
+                            previewSonarTriggerToken = (previewSonarTriggerToken + 1) and 0x7FFFFFFF
+                        }
+                    }
+                }
+        ) {
+            val outgoingId = previousWallpaperId
+            if (outgoingId != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            alpha = (1f - previewCrossfadeAnim.value).coerceIn(0f, 1f)
                         }
                 ) {
                     OledWallpaperCanvas(
-                        preset = activePreviewWallpaperId,
+                        preset = outgoingId,
                         accentColor = accentColor,
                         dimPercent = 0,
                         liveWpConfig = liveWpConfig,
@@ -10165,73 +11107,420 @@ fun LauncherSettingsView(
                         touchRippleBus = previewRippleBus,
                         sonarTriggerToken = previewSonarTriggerToken,
                         lomoFontFamily = launcherFont,
-                        isScreenVisible = isSettingsScreenVisible,
+                        isScreenVisible = false,
                         isPreview = true,
                         userWallpaperRefreshTrigger = 0
                     )
                 }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(1.dp)
-                        .background(Color.White.copy(alpha = 0.14f))
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = if (outgoingId != null) previewCrossfadeAnim.value.coerceIn(0f, 1f) else 1f
+                    }
+            ) {
+                // Live preview renders one static first frame immediately during the transition (isWindowFullyOpen == false),
+                // and starts its live animation loop only after the transition has finished!
+                OledWallpaperCanvas(
+                    preset = selectedWallpaperId,
+                    accentColor = accentColor,
+                    dimPercent = 0,
+                    liveWpConfig = liveWpConfig,
+                    batteryPct = batteryPct,
+                    isPowerSaveMode = isPowerSaveMode,
+                    dateChangeTrigger = dateChangeTrigger,
+                    touchRippleBus = previewRippleBus,
+                    sonarTriggerToken = previewSonarTriggerToken,
+                    lomoFontFamily = launcherFont,
+                    isScreenVisible = isWindowFullyOpen && isSettingsScreenVisible,
+                    isPreview = true,
+                    userWallpaperRefreshTrigger = 0
                 )
             }
-            Spacer(modifier = Modifier.height(10.dp))
-        } else {
-            // Container starts 20dp under the header (title + DONE) when no preview is pinned
-            Spacer(modifier = Modifier.height(20.dp))
         }
 
-        // Vertically scrollable content area while the header (and pinned live preview) stays at the top
+        // 3. FLOATING BOTTOM PANEL (3 Snap Positions: Expanded 24% H, Default 51% H, Peek)
+        val panelTopDp = with(density) { expandedTopY.toDp() }
+        val maxPanelHeightDp = with(density) { maxPanelHeightPx.toDp() }
+        val panelCornerPx = with(density) { 28.dp.toPx() }
+        val panelBorderStrokePx = with(density) { 1.dp.toPx() }
+        val eightDpRisePx = with(density) { 8.dp.toPx() }
+
         Box(
             modifier = Modifier
-                .weight(1f)
+                .padding(horizontal = 16.dp)
+                .offset(y = panelTopDp)
                 .fillMaxWidth()
-                .onSizeChanged { viewportHeightPx = it.height }
+                .height(maxPanelHeightDp)
+                .graphicsLayer {
+                    val p = transitionProgressProvider().coerceIn(0f, 1f)
+                    val tMs = p * 480f
+                    alpha = ((tMs - 80f) / 140f).coerceIn(0f, 1f)
+                    val curPanelH = (size.height - panelOffsetAnim.value).coerceAtLeast(1f)
+                    val entrySlideFactor = (1f - panelEntrySpring.value.coerceIn(0f, 1f)) * (1f - (1f - p))
+                    val closeSlideFactor = (1f - p)
+                    translationY = max(entrySlideFactor, closeSlideFactor) * 0.40f * curPanelH
+                }
+                .drawWithContent {
+                    val topY = panelOffsetAnim.value.coerceIn(0f, size.height - 40f)
+                    val cardRectH = (size.height - topY).coerceAtLeast(1f)
+                    drawIntoCanvas { canvas ->
+                        val nc = canvas.nativeCanvas
+                        val saveCount = nc.save()
+                        val clipPath = android.graphics.Path().apply {
+                            addRoundRect(
+                                0f,
+                                topY,
+                                size.width,
+                                size.height,
+                                panelCornerPx,
+                                panelCornerPx,
+                                android.graphics.Path.Direction.CW
+                            )
+                        }
+                        nc.clipPath(clipPath)
+                        drawRoundRect(
+                            color = Color(0xFF080808),
+                            topLeft = Offset(0f, topY),
+                            size = Size(size.width, cardRectH),
+                            cornerRadius = CornerRadius(panelCornerPx, panelCornerPx)
+                        )
+                        this@drawWithContent.drawContent()
+                        nc.restoreToCount(saveCount)
+                    }
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = 0.07f),
+                        topLeft = Offset(0f, topY),
+                        size = Size(size.width, cardRectH),
+                        cornerRadius = CornerRadius(panelCornerPx, panelCornerPx),
+                        style = Stroke(width = panelBorderStrokePx)
+                    )
+                }
+                .nestedScroll(panelNestedScrollConnection)
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(settingsScrollState)
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 32.dp)
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        translationY = panelOffsetAnim.value
+                    }
+                    .padding(horizontal = 12.dp, vertical = 12.dp)
             ) {
-                // ONE rounded container with 1dp white border at 14%, 24dp corner radius, #000000 background, clipped to 24dp
+                // Drag Handle + Upper Panel Header (draggable anywhere on handle/tiles/title row)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(containerShape)
-                        .background(Color.Black, containerShape)
-                        .border(1.dp, Color.White.copy(alpha = 0.14f), containerShape)
+                        .pointerInput(defaultOffsetPx, peekOffsetPx) {
+                            val velocityTracker = VelocityTracker()
+                            detectVerticalDragGestures(
+                                onDragStart = {
+                                    velocityTracker.resetTracking()
+                                },
+                                onVerticalDrag = { change, dragAmount ->
+                                    velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                    change.consume()
+                                    val next = (panelOffsetAnim.value + dragAmount).coerceIn(0f, peekOffsetPx)
+                                    scope.launch { panelOffsetAnim.snapTo(next) }
+                                },
+                                onDragEnd = {
+                                    val vy = velocityTracker.calculateVelocity().y
+                                    settlePanelWithVelocity(vy)
+                                },
+                                onDragCancel = {
+                                    settlePanelWithVelocity(0f)
+                                }
+                            )
+                        }
                 ) {
-                    settingsSections.forEachIndexed { index, sectionSpec ->
-                        val autoNumberTag = String.format(Locale.US, "%02d", index + 1)
-                        NocturnaaCollapsibleSection(
-                            indexTag = autoNumberTag,
-                            title = sectionSpec.title,
-                            expanded = openSectionIndex == index,
-                            accentColor = accentColor,
-                            lomoFontFamily = launcherFont,
-                            minHeaderHeight = 44.dp,
-                            headerHorizontalPadding = 16.dp,
-                            contentHorizontalPadding = 16.dp,
-                            expandedBgColor = Color(0xFF0C0C0C),
-                            onHeaderHeightMeasured = { hPx -> headerHeightsPx[index] = hPx },
-                            onToggle = {
-                                openSectionIndex = if (openSectionIndex == index) null else index
-                            },
-                            items = sectionSpec.items
+                    // Drag handle at top center (40dp wide, 4dp tall, white at 25%)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(width = 40.dp, height = 4.dp)
+                                .background(Color.White.copy(alpha = 0.25f), RoundedCornerShape(2.dp))
                         )
+                    }
 
-                        // Edge-to-edge 1dp divider at 8% white between rows; NO divider under the last row
-                        if (index < settingsSections.lastIndex) {
-                            Box(
+                    // a. THE WALLPAPER TILE GRID (5 columns, 8dp gap, square tiles, 14dp radius, wraps automatically)
+                    BoxWithConstraints(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { measuredTileGridHeightPx = it.height.toFloat().coerceAtLeast(1f) }
+                            .graphicsLayer {
+                                val peekFrac = if (peekOffsetPx > defaultOffsetPx + 1f) {
+                                    ((panelOffsetAnim.value - defaultOffsetPx) / (peekOffsetPx - defaultOffsetPx)).coerceIn(0f, 1f)
+                                } else 0f
+                                alpha = (1f - peekFrac * 1.4f).coerceIn(0f, 1f)
+                                translationY = -peekFrac * measuredTileGridHeightPx
+                            }
+                    ) {
+                        val gridWidthDp = maxWidth
+                        val gapDp = 8.dp
+                        val cellWidthDp = (gridWidthDp - gapDp * 4) / 5f
+                        var tileRowPitchPx by remember { mutableStateOf(with(density) { (cellWidthDp + 22.dp).toPx() }) }
+
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            LIVE_WALLPAPER_CATALOG.chunked(5).forEachIndexed { rowIdx, rowItems ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .onSizeChanged {
+                                            if (rowIdx == 0 && it.height > 0) {
+                                                tileRowPitchPx = it.height.toFloat() + with(density) { 8.dp.toPx() }
+                                            }
+                                        },
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    for (colIdx in 0 until 5) {
+                                        val item = rowItems.getOrNull(colIdx)
+                                        if (item != null) {
+                                            val tileIdx = rowIdx * 5 + colIdx
+                                            val isSelected = selectedWallpaperId == item.id
+                                            val isActiveWp = wallpaperPreset == item.id
+                                            val thumbBmp = wallpaperTileThumbnails[item.id]
+
+                                            Column(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .graphicsLayer {
+                                                        val tMs = transitionProgressProvider().coerceIn(0f, 1f) * 480f
+                                                        val startMs = 160f + min(tileIdx * 25f, 225f)
+                                                        alpha = ((tMs - startMs) / 160f).coerceIn(0f, 1f)
+                                                    }
+                                                    .clickable(
+                                                        interactionSource = remember { MutableInteractionSource() },
+                                                        indication = null
+                                                    ) {
+                                                        selectTileForEditing(item.id)
+                                                    },
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .aspectRatio(1f)
+                                                        .clip(RoundedCornerShape(14.dp))
+                                                        .background(Color.Black, RoundedCornerShape(14.dp))
+                                                        .border(
+                                                            width = 1.dp,
+                                                            color = Color.White.copy(alpha = 0.08f),
+                                                            shape = RoundedCornerShape(14.dp)
+                                                        )
+                                                ) {
+                                                    if (thumbBmp != null) {
+                                                        Image(
+                                                            bitmap = thumbBmp,
+                                                            contentDescription = item.tileTitle,
+                                                            modifier = Modifier.fillMaxSize()
+                                                        )
+                                                    }
+                                                    // Active wallpaper dot in top-right corner
+                                                    if (isActiveWp) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .align(Alignment.TopEnd)
+                                                                .padding(top = 5.dp, end = 5.dp)
+                                                                .size(7.dp)
+                                                                .background(accentColor, CircleShape)
+                                                        )
+                                                    }
+                                                }
+
+                                                AutoShrinkTileLabel(
+                                                    text = item.tileTitle,
+                                                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.55f),
+                                                    fontFamily = launcherFont,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            }
+                                        } else {
+                                            Spacer(modifier = Modifier.weight(1f))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Spring-animated 2dp accent ring that moves smoothly to the selected tile
+                        val cellStepPx = with(density) { (cellWidthDp + gapDp).toPx() }
+                        Box(
+                            modifier = Modifier
+                                .size(cellWidthDp)
+                                .graphicsLayer {
+                                    val tMs = transitionProgressProvider().coerceIn(0f, 1f) * 480f
+                                    val startMs = 160f + min(selectedIndex * 25f, 225f)
+                                    alpha = ((tMs - startMs) / 160f).coerceIn(0f, 1f)
+                                    translationX = animatedRingCol * cellStepPx
+                                    translationY = animatedRingRow * tileRowPitchPx
+                                }
+                                .border(2.dp, accentColor, RoundedCornerShape(14.dp))
+                        )
+                    }
+                }
+
+                // b. TITLE ROW + c. SCROLLABLE SETTINGS LIST (shifts up in Peek mode so Title Row sits right under handle)
+                val selectedCatalogItem = remember(selectedWallpaperId) {
+                    LIVE_WALLPAPER_CATALOG.firstOrNull { it.id == selectedWallpaperId } ?: LIVE_WALLPAPER_CATALOG.first()
+                }
+                val isSelectedActive = wallpaperPreset == selectedWallpaperId
+                val setActiveAlpha by animateFloatAsState(
+                    targetValue = if (isSelectedActive) 1f else 0f,
+                    animationSpec = tween(durationMillis = 200),
+                    label = "setActiveCrossfade"
+                )
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .graphicsLayer {
+                            val peekFrac = if (peekOffsetPx > defaultOffsetPx + 1f) {
+                                ((panelOffsetAnim.value - defaultOffsetPx) / (peekOffsetPx - defaultOffsetPx)).coerceIn(0f, 1f)
+                            } else 0f
+                            translationY = -peekFrac * measuredTileGridHeightPx
+                        }
+                ) {
+                    // b. Title row: full name at ~20sp on left, ACTIVE / filled SET pill on right, description under it
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { measuredTitleBlockHeightPx = it.height.toFloat().coerceAtLeast(1f) }
+                            .padding(top = 12.dp, bottom = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = selectedCatalogItem.fullTitle,
+                                color = Color.White,
+                                fontSize = 20.sp,
+                                fontFamily = launcherFont,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f).padding(end = 12.dp)
+                            )
+
+                            Box(contentAlignment = Alignment.CenterEnd) {
+                                // "ACTIVE" indicator (accent dot + ACTIVE text)
+                                if (setActiveAlpha > 0.01f) {
+                                    Row(
+                                        modifier = Modifier
+                                            .graphicsLayer { alpha = setActiveAlpha }
+                                            .padding(horizontal = 4.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .background(accentColor, CircleShape)
+                                        )
+                                        Text(
+                                            text = "ACTIVE",
+                                            color = accentColor,
+                                            fontSize = 11.sp,
+                                            fontFamily = launcherFont,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                // Filled accent "SET" pill with black text
+                                if (setActiveAlpha < 0.99f) {
+                                    Box(
+                                        modifier = Modifier
+                                            .graphicsLayer { alpha = 1f - setActiveAlpha }
+                                            .background(accentColor, RoundedCornerShape(50))
+                                            .clickable(
+                                                enabled = !isSelectedActive,
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) {
+                                                fireLightTick()
+                                                onChangeWallpaperPreset(selectedWallpaperId)
+                                            }
+                                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "SET",
+                                            color = Color.Black,
+                                            fontSize = 11.sp,
+                                            fontFamily = launcherFont,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = selectedCatalogItem.description,
+                            color = Color.White.copy(alpha = 0.50f),
+                            fontSize = 11.sp,
+                            fontFamily = LocalLauncherFont.current,
+                            lineHeight = 15.sp
+                        )
+                    }
+
+                    // c. Hairline divider + vertically scrollable per-wallpaper settings rows
+                    SettingsHairlineDivider()
+
+                    val currentWpSettingItems = buildLiveWallpaperRowSettingItems(
+                        id = displayedSettingsWallpaperId,
+                        liveWpConfig = liveWpConfig,
+                        onUpdateLiveWpConfig = onUpdateLiveWpConfig,
+                        onSettingInteractionFinished = { updatedCfg ->
+                            onRefreshWallpaperThumbnail(displayedSettingsWallpaperId, updatedCfg)
+                        },
+                        accentColor = accentColor,
+                        innerCardBorderColor = innerCardBorderColor,
+                        innerSubCardShape = innerSubCardShape,
+                        launcherFont = launcherFont
+                    )
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .verticalScroll(settingsScrollState)
+                            .padding(bottom = with(density) { defaultOffsetPx.toDp() } + 28.dp)
+                    ) {
+                        currentWpSettingItems.forEachIndexed { idx, settingItemComposable ->
+                            val staggerStartMs = (idx * 30f).coerceAtMost(240f)
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(1.dp)
-                                    .background(Color.White.copy(alpha = 0.08f))
-                            )
+                                    .graphicsLayer {
+                                        if (isFadingOutOldSettings) {
+                                            alpha = settingsListFadeOutAnim.value.coerceIn(0f, 1f)
+                                            translationY = 0f
+                                        } else {
+                                            val rawP = ((settingsListStaggerMsAnim.value - staggerStartMs) / 200f).coerceIn(0f, 1f)
+                                            val easedP = NocturnaaOpenSectionEasing.transform(rawP).coerceIn(0f, 1f)
+                                            alpha = easedP
+                                            translationY = (1f - easedP) * eightDpRisePx
+                                        }
+                                    }
+                            ) {
+                                if (idx > 0) {
+                                    SettingsHairlineDivider()
+                                }
+                                settingItemComposable()
+                            }
                         }
                     }
                 }
@@ -10484,12 +11773,18 @@ private fun buildLiveWallpaperRowSettingItems(
     id: String,
     liveWpConfig: LiveWallpaperConfig,
     onUpdateLiveWpConfig: (LiveWallpaperConfig) -> Unit,
+    onSettingInteractionFinished: (LiveWallpaperConfig) -> Unit = {},
     accentColor: Color,
     innerCardBorderColor: Color,
     innerSubCardShape: RoundedCornerShape,
     launcherFont: FontFamily
 ): List<@Composable () -> Unit> = buildList {
     val frameRateDescription = "Higher is smoother but uses more battery. 30 is a good balance."
+
+    fun commitAndRefresh(updated: LiveWallpaperConfig) {
+        onUpdateLiveWpConfig(updated)
+        onSettingInteractionFinished(updated)
+    }
 
     when (id) {
         // 1. 3D Starfield
@@ -10514,7 +11809,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.starfieldDensityPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(starfieldDensityPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -10537,7 +11833,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.starfieldSpeedPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(starfieldSpeedPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -10560,7 +11857,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.starfieldSizePct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(starfieldSizePct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -10583,7 +11881,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.starfieldBrightnessPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(starfieldBrightnessPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -10596,7 +11895,7 @@ private fun buildLiveWallpaperRowSettingItems(
                     lomoFontFamily = launcherFont,
                     onSelect = { sel ->
                         val fps = sel.toIntOrNull() ?: 60
-                        onUpdateLiveWpConfig(liveWpConfig.copy(starfieldFps = fps))
+                        commitAndRefresh(liveWpConfig.copy(starfieldFps = fps))
                     }
                 )
             }
@@ -10624,7 +11923,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.crtLineDensityPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(crtLineDensityPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -10647,7 +11947,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.crtLineStrengthPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(crtLineStrengthPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -10670,7 +11971,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.crtBandSpeedPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(crtBandSpeedPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -10693,7 +11995,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.crtBrightnessPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(crtBrightnessPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -10706,7 +12009,7 @@ private fun buildLiveWallpaperRowSettingItems(
                     lomoFontFamily = launcherFont,
                     onSelect = { sel ->
                         val fps = sel.toIntOrNull() ?: 60
-                        onUpdateLiveWpConfig(liveWpConfig.copy(crtFps = fps))
+                        commitAndRefresh(liveWpConfig.copy(crtFps = fps))
                     }
                 )
             }
@@ -10734,7 +12037,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.yearDotsColumns) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(yearDotsColumns = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -10757,7 +12061,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.yearDotsSizePct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(yearDotsSizePct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -10769,7 +12074,7 @@ private fun buildLiveWallpaperRowSettingItems(
                     accentColor = accentColor,
                     lomoFontFamily = launcherFont,
                     onSelect = { sh ->
-                        onUpdateLiveWpConfig(liveWpConfig.copy(yearDotsShape = sh))
+                        commitAndRefresh(liveWpConfig.copy(yearDotsShape = sh))
                     }
                 )
             }
@@ -10782,7 +12087,7 @@ private fun buildLiveWallpaperRowSettingItems(
                     accentColor = accentColor,
                     lomoFontFamily = launcherFont,
                     onSelect = { pos ->
-                        onUpdateLiveWpConfig(liveWpConfig.copy(yearDotsVerticalPos = pos))
+                        commitAndRefresh(liveWpConfig.copy(yearDotsVerticalPos = pos))
                     }
                 )
             }
@@ -10794,7 +12099,7 @@ private fun buildLiveWallpaperRowSettingItems(
                     accentColor = accentColor,
                     lomoFontFamily = launcherFont,
                     onCheckedChange = { show ->
-                        onUpdateLiveWpConfig(liveWpConfig.copy(yearDotsShowCounter = show))
+                        commitAndRefresh(liveWpConfig.copy(yearDotsShowCounter = show))
                     }
                 )
             }
@@ -10818,7 +12123,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.yearDotsBrightnessPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(yearDotsBrightnessPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
         }
@@ -10845,7 +12151,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.moonSizePct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(moonSizePct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -10869,7 +12176,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (nextOdd != liveWpConfig.moonPixelDetail) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(moonPixelDetail = nextOdd))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -10892,7 +12200,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.moonVerticalPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(moonVerticalPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -10903,7 +12212,7 @@ private fun buildLiveWallpaperRowSettingItems(
                     accentColor = accentColor,
                     lomoFontFamily = launcherFont,
                     onCheckedChange = { show ->
-                        onUpdateLiveWpConfig(liveWpConfig.copy(moonShowPhaseName = show))
+                        commitAndRefresh(liveWpConfig.copy(moonShowPhaseName = show))
                     }
                 )
             }
@@ -10927,7 +12236,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.moonBrightnessPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(moonBrightnessPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
         }
@@ -10954,7 +12264,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.ripplesSpacingDp) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(ripplesSpacingDp = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -10977,7 +12288,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.ripplesDotSizeDp) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(ripplesDotSizeDp = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11000,7 +12312,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.ripplesReachPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(ripplesReachPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11023,7 +12336,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.ripplesSpeedPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(ripplesSpeedPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11046,7 +12360,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.ripplesMaxCount) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(ripplesMaxCount = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11069,7 +12384,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.ripplesBrightnessPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(ripplesBrightnessPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11082,7 +12398,7 @@ private fun buildLiveWallpaperRowSettingItems(
                     lomoFontFamily = launcherFont,
                     onSelect = { sel ->
                         val fps = sel.toIntOrNull() ?: 30
-                        onUpdateLiveWpConfig(liveWpConfig.copy(ripplesFps = fps))
+                        commitAndRefresh(liveWpConfig.copy(ripplesFps = fps))
                     }
                 )
             }
@@ -11099,7 +12415,7 @@ private fun buildLiveWallpaperRowSettingItems(
                     accentColor = accentColor,
                     lomoFontFamily = launcherFont,
                     onSelect = { ratio ->
-                        onUpdateLiveWpConfig(liveWpConfig.copy(oscilloscopeCurve = ratio))
+                        commitAndRefresh(liveWpConfig.copy(oscilloscopeCurve = ratio))
                     }
                 )
             }
@@ -11123,7 +12439,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.oscilloscopeSpeedPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(oscilloscopeSpeedPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11146,7 +12463,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.oscilloscopeSizePct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(oscilloscopeSizePct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11169,7 +12487,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (abs(next - liveWpConfig.oscilloscopeThicknessDp) > 0.01f) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(oscilloscopeThicknessDp = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11192,7 +12511,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.oscilloscopeTrailPoints) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(oscilloscopeTrailPoints = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11215,7 +12535,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.oscilloscopeBrightnessPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(oscilloscopeBrightnessPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11228,7 +12549,7 @@ private fun buildLiveWallpaperRowSettingItems(
                     lomoFontFamily = launcherFont,
                     onSelect = { sel ->
                         val fps = sel.toIntOrNull() ?: 30
-                        onUpdateLiveWpConfig(liveWpConfig.copy(oscilloscopeFps = fps))
+                        commitAndRefresh(liveWpConfig.copy(oscilloscopeFps = fps))
                     }
                 )
             }
@@ -11245,7 +12566,7 @@ private fun buildLiveWallpaperRowSettingItems(
                     accentColor = accentColor,
                     lomoFontFamily = launcherFont,
                     onSelect = { orig ->
-                        onUpdateLiveWpConfig(liveWpConfig.copy(sonarOrigin = orig))
+                        commitAndRefresh(liveWpConfig.copy(sonarOrigin = orig))
                     }
                 )
             }
@@ -11269,7 +12590,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.sonarIntervalSec) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(sonarIntervalSec = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11292,7 +12614,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.sonarSpeedPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(sonarSpeedPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11315,7 +12638,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.sonarReachPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(sonarReachPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11338,7 +12662,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (abs(next - liveWpConfig.sonarThicknessDp) > 0.01f) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(sonarThicknessDp = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11361,7 +12686,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.sonarEchoRings) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(sonarEchoRings = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11384,7 +12710,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.sonarBrightnessPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(sonarBrightnessPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11397,7 +12724,7 @@ private fun buildLiveWallpaperRowSettingItems(
                     lomoFontFamily = launcherFont,
                     onSelect = { sel ->
                         val fps = sel.toIntOrNull() ?: 30
-                        onUpdateLiveWpConfig(liveWpConfig.copy(sonarFps = fps))
+                        commitAndRefresh(liveWpConfig.copy(sonarFps = fps))
                     }
                 )
             }
@@ -11425,7 +12752,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.rainMaxDrops) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(rainMaxDrops = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11448,7 +12776,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.rainSpeedPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(rainSpeedPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11471,7 +12800,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.rainPixelSizeDp) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(rainPixelSizeDp = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11494,7 +12824,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.rainTailLength) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(rainTailLength = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11517,7 +12848,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.rainAccentPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(rainAccentPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11540,7 +12872,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.rainBrightnessPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(rainBrightnessPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11553,7 +12886,7 @@ private fun buildLiveWallpaperRowSettingItems(
                     lomoFontFamily = launcherFont,
                     onSelect = { sel ->
                         val fps = sel.toIntOrNull() ?: 15
-                        onUpdateLiveWpConfig(liveWpConfig.copy(rainFps = fps))
+                        commitAndRefresh(liveWpConfig.copy(rainFps = fps))
                     }
                 )
             }
@@ -11581,7 +12914,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.conStarCount) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(conStarCount = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11604,7 +12938,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.conLinkDistPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(conLinkDistPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11627,7 +12962,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.conSpeedPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(conSpeedPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11650,7 +12986,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (abs(next - liveWpConfig.conStarSizeDp) > 0.01f) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(conStarSizeDp = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11673,7 +13010,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (abs(next - liveWpConfig.conLineThicknessDp) > 0.01f) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(conLineThicknessDp = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11696,7 +13034,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.conMaxLinks) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(conMaxLinks = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11719,7 +13058,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.conAccentPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(conAccentPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11742,7 +13082,8 @@ private fun buildLiveWallpaperRowSettingItems(
                         if (next != liveWpConfig.conBrightnessPct) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(conBrightnessPct = next))
                         }
-                    }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
                 )
             }
             add {
@@ -11755,26 +13096,26 @@ private fun buildLiveWallpaperRowSettingItems(
                     lomoFontFamily = launcherFont,
                     onSelect = { sel ->
                         val fps = sel.toIntOrNull() ?: 30
-                        onUpdateLiveWpConfig(liveWpConfig.copy(conFps = fps))
+                        commitAndRefresh(liveWpConfig.copy(conFps = fps))
                     }
                 )
             }
         }
     }
 
-    // Bottom of open wallpaper row: "Reset this wallpaper" text button
+    // Bottom of open wallpaper settings: dim "Reset this wallpaper" text button
     add {
         val context = LocalContext.current
         val isAtDefault = liveWpConfig.isWallpaperAtDefault(id)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 4.dp),
+                .padding(top = 10.dp, bottom = 6.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = "Reset this wallpaper",
-                color = if (isAtDefault) Color(0xFF555555) else accentColor,
+                color = if (isAtDefault) Color(0xFF444444) else Color(0xFF9E9E9E),
                 fontSize = 12.sp,
                 fontFamily = launcherFont,
                 fontWeight = FontWeight.Bold,
@@ -11788,7 +13129,8 @@ private fun buildLiveWallpaperRowSettingItems(
                             VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
                         }
                         vib?.vibrate(effect)
-                        onUpdateLiveWpConfig(liveWpConfig.resetWallpaper(id))
+                        val resetCfg = liveWpConfig.resetWallpaper(id)
+                        commitAndRefresh(resetCfg)
                     }
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             )
@@ -11800,17 +13142,13 @@ private fun buildWallpapersAndSettingsSectionItems(
     wallpaperPreset: String,
     wallpaperDimPercent: Int,
     hasCustomUserImage: Boolean,
-    liveWpConfig: LiveWallpaperConfig,
-    onUpdateLiveWpConfig: (LiveWallpaperConfig) -> Unit,
     accentHex: String,
     openWallpaperSubSection: String?,
     onToggleWallpaperSubSection: (String) -> Unit,
-    openLiveWallpaperId: String?,
-    onToggleLiveWallpaperRow: (String) -> Unit,
+    onOpenLiveWallpapersWindow: () -> Unit,
     accentColor: Color,
     innerCardBorderColor: Color,
     innerCardShape: RoundedCornerShape,
-    innerSubCardShape: RoundedCornerShape,
     launcherFont: FontFamily,
     onChangeWallpaperPreset: (String) -> Unit,
     onChangeWallpaperDim: (Int) -> Unit,
@@ -11818,19 +13156,6 @@ private fun buildWallpapersAndSettingsSectionItems(
     onOpenSystemWallpaperPicker: () -> Unit,
     onChangeAccent: (String) -> Unit
 ): List<@Composable () -> Unit> {
-    // Part 1 & Part 3: The 9 remaining live wallpapers with exact descriptions
-    val liveWallpaperOptions = listOf(
-        Triple("live_starfield_3d", "3D Starfield", "1,200-Star 3D Night Sky"),
-        Triple("live_raster_lines", "CRT Scanlines", "Faint Lines & Refresh Beam"),
-        Triple("live_year_in_dots", "Year in Dots", "Every day of the year as a dot. Today glows."),
-        Triple("live_moon_phase", "Moon Phase", "The real moon, as it looks tonight."),
-        Triple("live_touch_ripples", "Touch Ripples", "A dark dot grid that ripples where you touch."),
-        Triple("live_oscilloscope", "Oscilloscope", "A glowing line tracing slow, looping curves."),
-        Triple("live_sonar", "Sonar", "A single ring that drifts out from the corner every few seconds."),
-        Triple("live_pixel_rain", "Pixel Rain", "A few lonely pixels falling in the dark."),
-        Triple("live_constellations_new", "Constellations", "Stars drifting slowly and linking up when close.")
-    )
-
     val staticWallpaperOptions = listOf(
         Triple("oled", "PURE AMOLED", "True #000000"),
         Triple("dots", "DOT MATRIX", "Full-Screen Dot Grid"),
@@ -11945,82 +13270,51 @@ private fun buildWallpapersAndSettingsSectionItems(
             }
         },
         {
-            val liveItems = buildList<@Composable () -> Unit> {
-                liveWallpaperOptions.forEach { (id, title, desc) ->
-                    add {
-                        val context = LocalContext.current
-                        val isActive = wallpaperPreset == id
-                        val isRowOpen = openLiveWallpaperId == id
-                        val rowSettingItems = buildLiveWallpaperRowSettingItems(
-                            id = id,
-                            liveWpConfig = liveWpConfig,
-                            onUpdateLiveWpConfig = onUpdateLiveWpConfig,
-                            accentColor = accentColor,
-                            innerCardBorderColor = innerCardBorderColor,
-                            innerSubCardShape = innerSubCardShape,
-                            launcherFont = launcherFont
-                        )
-                        NocturnaaCollapsibleSection(
-                            indexTag = null,
-                            title = title,
-                            subtitle = desc,
-                            expanded = isRowOpen,
-                            accentColor = accentColor,
-                            lomoFontFamily = launcherFont,
-                            minHeaderHeight = 40.dp,
-                            headerHorizontalPadding = 10.dp,
-                            contentHorizontalPadding = 10.dp,
-                            expandedBgColor = Color(0xFF0A0A0A),
-                            headerTrailingContent = {
-                                if (isActive) {
-                                    Text(
-                                        text = "ACTIVE",
-                                        color = accentColor,
-                                        fontSize = 10.sp,
-                                        fontFamily = launcherFont,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
-                                    )
-                                } else {
-                                    Text(
-                                        text = "SET",
-                                        color = Color.White,
-                                        fontSize = 10.sp,
-                                        fontFamily = launcherFont,
-                                        modifier = Modifier
-                                            .border(1.dp, Color(0xFF4D4D4D), RoundedCornerShape(50))
-                                            .clickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null
-                                            ) {
-                                                val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-                                                val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                                    VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
-                                                } else {
-                                                    @Suppress("DEPRECATION")
-                                                    VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
-                                                }
-                                                vib?.vibrate(effect)
-                                                onChangeWallpaperPreset(id)
-                                            }
-                                            .padding(horizontal = 12.dp, vertical = 4.dp)
-                                    )
-                                }
-                            },
-                            onToggle = { onToggleLiveWallpaperRow(id) },
-                            items = rowSettingItems
+            // Section 1: In "Wallpapers and Settings", the "Live Wallpapers" row stays; tapping it opens the new full-screen window.
+            val context = LocalContext.current
+            val activeLiveTitle = LIVE_WALLPAPER_CATALOG.firstOrNull { it.id == wallpaperPreset }?.fullTitle
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 40.dp)
+                    .clickable {
+                        val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                        val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
+                        }
+                        vib?.vibrate(effect)
+                        onOpenLiveWallpapersWindow()
+                    }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        text = "Live Wallpapers",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontFamily = launcherFont
+                    )
+                    if (activeLiveTitle != null) {
+                        Text(
+                            text = activeLiveTitle,
+                            color = accentColor,
+                            fontSize = 11.sp,
+                            fontFamily = LocalLauncherFont.current
                         )
                     }
                 }
+                Text(
+                    text = "›",
+                    color = Color(0xFF737373),
+                    fontSize = 18.sp,
+                    fontFamily = launcherFont
+                )
             }
-            CollapsibleSubSection(
-                title = "Live Wallpapers",
-                expanded = openWallpaperSubSection == "live",
-                accentColor = accentColor,
-                lomoFontFamily = launcherFont,
-                onToggle = { onToggleWallpaperSubSection("live") },
-                items = liveItems
-            )
         },
         {
             val staticItems = buildList<@Composable () -> Unit> {
@@ -12454,6 +13748,7 @@ fun NocturnaaSettingSlider(
     presetChips: List<Pair<Float, String>> = emptyList(),
     embedInCard: Boolean = false,
     onValueChange: (Float) -> Unit,
+    onValueChangeFinished: (() -> Unit)? = null,
     previewContent: (@Composable (Float) -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -12492,6 +13787,7 @@ fun NocturnaaSettingSlider(
     )
 
     val currentOnValueChange by rememberUpdatedState(onValueChange)
+    val currentOnValueChangeFinished by rememberUpdatedState(onValueChangeFinished)
     val currentDisplayVal by rememberUpdatedState(animatedDisplayValue)
 
     fun fireSliderHaptic() {
@@ -12563,6 +13859,7 @@ fun NocturnaaSettingSlider(
                                 fireSliderHaptic()
                                 dragRawValue = defaultValue
                                 currentOnValueChange(defaultValue)
+                                currentOnValueChangeFinished?.invoke()
                                 chipPreviewTick++
                             }
                         }
@@ -12623,6 +13920,7 @@ fun NocturnaaSettingSlider(
                         } while (event.changes.any { it.pressed })
 
                         isDragging = false
+                        currentOnValueChangeFinished?.invoke()
                     }
                 },
             contentAlignment = Alignment.CenterStart
@@ -12669,6 +13967,7 @@ fun NocturnaaSettingSlider(
                                 fireSliderHaptic()
                                 dragRawValue = nearest.first
                                 currentOnValueChange(nearest.first)
+                                currentOnValueChangeFinished?.invoke()
                                 chipPreviewTick++
                             }
                         }
@@ -14637,7 +15936,11 @@ fun OledWallpaperCanvas(
                     val activeRingSec = (6.0f / speedMult).coerceAtLeast(1.3f)
                     val totalWaveSec = activeRingSec + echoCount * 0.5f
                     val cycleSec = max(intervalSec, totalWaveSec + 0.25f)
-                    val phaseSec = if (isLowBatteryPaused) (activeRingSec * 0.45f) else (t % cycleSec)
+                    val phaseSec = when {
+                        isLowBatteryPaused -> activeRingSec * 0.45f
+                        isPreview && !canAnimateNow && t == 0f -> activeRingSec * 0.38f
+                        else -> t % cycleSec
+                    }
 
                     val origin = when (liveWpConfig.sonarOrigin) {
                         "bottom_left" -> Offset(0f, h)
