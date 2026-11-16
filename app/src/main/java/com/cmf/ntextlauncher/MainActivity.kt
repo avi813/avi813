@@ -162,6 +162,7 @@ import android.graphics.BitmapFactory
 import android.graphics.drawable.ColorDrawable
 import android.view.WindowManager
 import android.view.Choreographer
+import android.view.View
 import android.graphics.LinearGradient
 import android.graphics.Matrix
 import androidx.compose.ui.viewinterop.AndroidView
@@ -15783,7 +15784,7 @@ private class NewLiveWallpapersEngine {
     }
 }
 
-private class LiveWallpaperHardwareView(context: Context) : View(context), Choreographer.FrameCallback {
+private class LiveWallpaperHardwareView(context: Context) : android.view.View(context), android.view.Choreographer.FrameCallback {
     private val starfieldSimulation = DeepSpaceStarfieldSimulation()
     private val engine = NewLiveWallpapersEngine()
 
@@ -16004,8 +16005,8 @@ private class LiveWallpaperHardwareView(context: Context) : View(context), Chore
         }
         lastVsyncFrameNanos = frameTimeNanos
 
-        val w = width.toFloat()
-        val h = height.toFloat()
+        val w = getWidth().toFloat()
+        val h = getHeight().toFloat()
         val viewportScale = if (isPreview && realScreenWidthPx > 0f) (w / realScreenWidthPx).coerceIn(0.15f, 1.0f) else 1.0f
         val dpPx = baseDpPx * viewportScale
 
@@ -16076,8 +16077,8 @@ private class LiveWallpaperHardwareView(context: Context) : View(context), Chore
 
     override fun onDraw(canvas: android.graphics.Canvas) {
         val drawStartNs = System.nanoTime()
-        val w = width.toFloat()
-        val h = height.toFloat()
+        val w = getWidth().toFloat()
+        val h = getHeight().toFloat()
         if (w <= 0f || h <= 0f) return
 
         val viewportScale = if (isPreview && realScreenWidthPx > 0f) (w / realScreenWidthPx).coerceIn(0.15f, 1.0f) else 1.0f
