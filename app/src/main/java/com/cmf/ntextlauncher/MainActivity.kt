@@ -161,6 +161,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.drawable.ColorDrawable
 import android.view.WindowManager
+import android.view.Choreographer
+import android.graphics.LinearGradient
+import android.graphics.Matrix
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import android.graphics.BlendMode as AndroidBlendMode
 import android.graphics.ColorMatrix as AndroidColorMatrix
@@ -1568,23 +1572,84 @@ fun loadAndMigrateLiveWallpaperConfig(prefs: SharedPreferences): LiveWallpaperCo
     )
 }
 
+// Runtime-only hidden debug FPS readout state (OFF by default, never persisted to SharedPreferences)
+object DebugWallpaperFpsState {
+    @Volatile
+    var enabled: Boolean = false
+    private val listeners = arrayOfNulls<() -> Unit>(6)
+
+    fun registerListener(listener: () -> Unit) {
+        for (i in listeners.indices) {
+            if (listeners[i] === listener) return
+        }
+        for (i in listeners.indices) {
+            if (listeners[i] == null) {
+                listeners[i] = listener
+                return
+            }
+        }
+        listeners[0] = listener
+    }
+
+    fun unregisterListener(listener: () -> Unit) {
+        for (i in listeners.indices) {
+            if (listeners[i] === listener) {
+                listeners[i] = null
+            }
+        }
+    }
+
+    fun toggle() {
+        enabled = !enabled
+        for (i in listeners.indices) {
+            listeners[i]?.invoke()
+        }
+    }
+}
+
+// Zero-allocation primitive-array Touch Ripple state bus:
+// - Stores 64-bit Long System.nanoTime() start timestamps (never 32-bit Float uptime seconds!)
+// - Zero Compose mutableStateOf writes on touch-down; wakes the Choreographer View directly on the same frame.
 class TouchRippleEventBus {
     val rippleX = FloatArray(5)
     val rippleY = FloatArray(5)
-    val rippleBirthSec = FloatArray(5) { -100f }
+    val rippleStartNanos = LongArray(5) { 0L }
     val rippleActive = BooleanArray(5) { false }
     var nextSlot = 0
-    var triggerCount by mutableStateOf(0)
+    private val wakeListeners = arrayOfNulls<() -> Unit>(4)
 
-    fun onTouchDown(x: Float, y: Float, nowSec: Float, maxSlots: Int = 3) {
+    fun registerWakeListener(listener: () -> Unit) {
+        for (i in wakeListeners.indices) {
+            if (wakeListeners[i] === listener) return
+        }
+        for (i in wakeListeners.indices) {
+            if (wakeListeners[i] == null) {
+                wakeListeners[i] = listener
+                return
+            }
+        }
+        wakeListeners[0] = listener
+    }
+
+    fun unregisterWakeListener(listener: () -> Unit) {
+        for (i in wakeListeners.indices) {
+            if (wakeListeners[i] === listener) {
+                wakeListeners[i] = null
+            }
+        }
+    }
+
+    fun onTouchDown(x: Float, y: Float, nowNanos: Long = System.nanoTime(), maxSlots: Int = 3) {
         val cap = maxSlots.coerceIn(1, 5)
         val slot = nextSlot % cap
         nextSlot = (slot + 1) % cap
         rippleX[slot] = x
         rippleY[slot] = y
-        rippleBirthSec[slot] = nowSec
+        rippleStartNanos[slot] = nowNanos
         rippleActive[slot] = true
-        triggerCount = (triggerCount + 1) and 0x7FFFFFFF
+        for (i in wakeListeners.indices) {
+            wakeListeners[i]?.invoke()
+        }
     }
 }
 
@@ -3312,8 +3377,7 @@ fun NTextLauncherApp(
                                         awaitEachGesture {
                                             val down = awaitFirstDown(requireUnconsumed = false)
                                             if (drawerProgress.value < 0.1f) {
-                                                val nowSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
-                                                touchRippleBus.onTouchDown(down.position.x, down.position.y, nowSec, liveWpConfig.ripplesMaxCount)
+                                                touchRippleBus.onTouchDown(down.position.x, down.position.y, System.nanoTime(), liveWpConfig.ripplesMaxCount)
                                             }
                                         }
                                     }
@@ -10978,8 +11042,7 @@ fun LiveWallpapersWindow(
             // Seed an immediate ripple on selection & every 2 seconds while Touch Ripples is selected and window is open
             LaunchedEffect(selectedWallpaperId, isWindowFullyOpen, isSettingsScreenVisible) {
                 if (selectedWallpaperId == "live_touch_ripples") {
-                    val now0 = (System.nanoTime() / 1_000_000_000.0).toFloat()
-                    previewRippleBus.onTouchDown(fixedInternalWidthPx * 0.5f, fixedInternalHeightPx * 0.5f, now0, maxRipplesState)
+                    previewRippleBus.onTouchDown(fixedInternalWidthPx * 0.5f, fixedInternalHeightPx * 0.5f, System.nanoTime(), maxRipplesState)
                     if (isWindowFullyOpen && isSettingsScreenVisible) {
                         var stepIdx = 1
                         val samplePts = arrayOf(
@@ -10993,11 +11056,10 @@ fun LiveWallpapersWindow(
                             delay(2000L)
                             val (fx, fy) = samplePts[stepIdx % samplePts.size]
                             stepIdx++
-                            val nowSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
                             previewRippleBus.onTouchDown(
                                 x = fixedInternalWidthPx * fx,
                                 y = fixedInternalHeightPx * fy,
-                                nowSec = nowSec,
+                                nowNanos = System.nanoTime(),
                                 maxSlots = maxRipplesState
                             )
                         }
@@ -11090,14 +11152,23 @@ fun LiveWallpapersWindow(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // Centered static accent dot + "LIVE PREVIEW" in dim grey
+                // Centered static accent dot + "LIVE PREVIEW" in dim grey (long-press toggles hidden debug FPS readout)
                 Row(
                     modifier = Modifier
                         .padding(bottom = 4.dp)
                         .graphicsLayer {
                             val tMs = transitionProgressProvider().coerceIn(0f, 1f) * 480f
                             alpha = ((tMs - 100f) / 260f).coerceIn(0f, 1f)
-                        },
+                        }
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onLongPress = {
+                                    fireLightTick()
+                                    DebugWallpaperFpsState.toggle()
+                                }
+                            )
+                        }
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -11242,11 +11313,10 @@ fun LiveWallpapersWindow(
                                         val normX = (startPos.x / size.width.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f)
                                         val normY = (startPos.y / size.height.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f)
                                         if (selectedWallpaperId == "live_touch_ripples") {
-                                            val nowSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
                                             previewRippleBus.onTouchDown(
                                                 x = normX * fixedInternalWidthPx,
                                                 y = normY * fixedInternalHeightPx,
-                                                nowSec = nowSec,
+                                                nowNanos = System.nanoTime(),
                                                 maxSlots = maxRipplesState
                                             )
                                             // Exception: in Default, a tap both triggers the ripple and goes to Peek;
@@ -15377,7 +15447,11 @@ class DeepSpaceStarfieldSimulation {
 }
 
 // ============================================================================
-// ZERO-ALLOCATION PIXEL-ART ENGINE & BITMAP CACHE FOR THE 9 LIVE WALLPAPERS
+// HARDWARE-ACCELERATED CHOREOGRAPHER VSYNC VIEW & ENGINE FOR THE 9 LIVE WALLPAPERS
+// - Driven strictly by android.view.Choreographer.FrameCallback (zero coroutines, zero timers)
+// - Self-contained android.view.View: invalidates only itself, 0 Compose recompositions per frame
+// - 64-bit Long nanosecond timing for Touch Ripples, Sonar, Oscilloscope, Pixel Rain & Constellations
+// - 1 drawPoints call for resting grid + at most 5 drawPoints calls with 5 pre-allocated Paints for ripples
 // ============================================================================
 private class NewLiveWallpapersEngine {
     val paint = AndroidPaint().apply {
@@ -15391,10 +15465,8 @@ private class NewLiveWallpapersEngine {
         isAntiAlias = false
         style = AndroidPaint.Style.STROKE
     }
-    val pointPaint = AndroidPaint().apply {
-        isAntiAlias = false
+    val sonarRingPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
         style = AndroidPaint.Style.STROKE
-        strokeCap = AndroidPaint.Cap.BUTT
     }
     val textPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
         textAlign = AndroidPaint.Align.CENTER
@@ -15402,10 +15474,54 @@ private class NewLiveWallpapersEngine {
         isFakeBoldText = true
     }
 
-    // Plain float fields for canvas dimensions and elapsed time (never mutates Compose state inside onDraw!)
-    var lastCanvasW: Float = 1080f
-    var lastCanvasH: Float = 2400f
-    var liveTimeSec: Float = 0f
+    // Touch Ripples: 1 pre-allocated Paint for resting grid + 5 pre-allocated Paints for active ripples
+    val baseGridPaint = AndroidPaint().apply {
+        isAntiAlias = false
+        style = AndroidPaint.Style.STROKE
+        strokeCap = AndroidPaint.Cap.SQUARE
+    }
+    val rippleWhitePaints = Array(4) {
+        AndroidPaint().apply {
+            isAntiAlias = false
+            style = AndroidPaint.Style.STROKE
+            strokeCap = AndroidPaint.Cap.SQUARE
+        }
+    }
+    val rippleAccentPaint = AndroidPaint().apply {
+        isAntiAlias = false
+        style = AndroidPaint.Style.STROKE
+        strokeCap = AndroidPaint.Cap.SQUARE
+    }
+    val rippleWhiteBaseOpacities = floatArrayOf(0.18f, 0.32f, 0.46f, 0.60f)
+    var cachedRipplePaintKey: Long = 0L
+
+    // CRT Scanlines pre-allocated Shader & Matrix (zero per-frame gradient/list allocations)
+    val crtLinePaint = AndroidPaint().apply {
+        isAntiAlias = false
+        style = AndroidPaint.Style.STROKE
+    }
+    val crtBandPaint = AndroidPaint().apply {
+        isAntiAlias = false
+        style = AndroidPaint.Style.FILL
+    }
+    val crtBandMatrix = Matrix()
+    var crtBandShader: LinearGradient? = null
+    var crtBandShaderColor: Int = 0
+
+    // Universal dimmer paint
+    val dimmerPaint = AndroidPaint().apply {
+        isAntiAlias = false
+        style = AndroidPaint.Style.FILL
+    }
+
+    // Debug FPS & frame-time readout paint and pre-allocated CharArray buffer (zero per-frame String allocations)
+    val debugFpsPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+        textAlign = AndroidPaint.Align.LEFT
+        typeface = Typeface.MONOSPACE
+        color = android.graphics.Color.argb(135, 255, 255, 255)
+    }
+    val debugFpsChars = CharArray(24)
+    var debugFpsCharLen = 4
 
     // Cached static layer bitmap for Year in Dots & Moon Phase
     var cachedStaticBitmap: Bitmap? = null
@@ -15431,7 +15547,7 @@ private class NewLiveWallpapersEngine {
     var oscCount = 0
     var oscInitialized = false
     var oscCurveKey = ""
-    var oscTimeSec = 0f
+    var oscPhaseRad = 0.0 // 64-bit Double phase accumulator so precision never degrades over uptime
     val oscBatchPaths = Array(6) { android.graphics.Path() }
 
     // 8. Pixel Rain pre-allocated 60 drops (28 columns)
@@ -15451,6 +15567,55 @@ private class NewLiveWallpapersEngine {
     var conInitialized = false
     var conWidth = 0f
     var conHeight = 0f
+
+    init {
+        setDebugTextIdle()
+    }
+
+    fun setDebugTextIdle() {
+        debugFpsChars[0] = 'I'
+        debugFpsChars[1] = 'D'
+        debugFpsChars[2] = 'L'
+        debugFpsChars[3] = 'E'
+        debugFpsCharLen = 4
+    }
+
+    // Formats "FPS XX | X.Xms" directly into debugFpsChars without allocating any String or StringBuilder!
+    fun formatDebugFps(fps: Int, avgTenthsMs: Int) {
+        var idx = 0
+        debugFpsChars[idx++] = 'F'
+        debugFpsChars[idx++] = 'P'
+        debugFpsChars[idx++] = 'S'
+        debugFpsChars[idx++] = ' '
+        val clampedFps = fps.coerceIn(0, 999)
+        if (clampedFps >= 100) {
+            debugFpsChars[idx++] = ('0'.code + (clampedFps / 100)).toChar()
+            debugFpsChars[idx++] = ('0'.code + ((clampedFps / 10) % 10)).toChar()
+            debugFpsChars[idx++] = ('0'.code + (clampedFps % 10)).toChar()
+        } else if (clampedFps >= 10) {
+            debugFpsChars[idx++] = ('0'.code + (clampedFps / 10)).toChar()
+            debugFpsChars[idx++] = ('0'.code + (clampedFps % 10)).toChar()
+        } else {
+            debugFpsChars[idx++] = ('0'.code + clampedFps).toChar()
+        }
+        debugFpsChars[idx++] = ' '
+        debugFpsChars[idx++] = '|'
+        debugFpsChars[idx++] = ' '
+        val safeTenths = avgTenthsMs.coerceIn(0, 999)
+        val wholeMs = safeTenths / 10
+        val fracMs = safeTenths % 10
+        if (wholeMs >= 10) {
+            debugFpsChars[idx++] = ('0'.code + (wholeMs / 10)).toChar()
+            debugFpsChars[idx++] = ('0'.code + (wholeMs % 10)).toChar()
+        } else {
+            debugFpsChars[idx++] = ('0'.code + wholeMs).toChar()
+        }
+        debugFpsChars[idx++] = '.'
+        debugFpsChars[idx++] = ('0'.code + fracMs).toChar()
+        debugFpsChars[idx++] = 'm'
+        debugFpsChars[idx++] = 's'
+        debugFpsCharLen = idx
+    }
 
     // Simple deterministic LCG for zero-allocation pseudo-random numbers
     private var rngSeed = 0x5DEECE66DL
@@ -15487,6 +15652,29 @@ private class NewLiveWallpapersEngine {
             }
         }
         baseGridFloatCount = idx
+    }
+
+    fun ensureTouchRipplePaints(dotPx: Float, bScale: Float, accentArgb: Int) {
+        val dotBits = dotPx.toRawBits().toLong() and 0xFFFFFFFFL
+        val bBits = (bScale * 1000f).toInt().toLong() and 0xFFFFL
+        val key = (dotBits shl 32) or (bBits shl 16) or (accentArgb.toLong() and 0xFFFFL)
+        if (cachedRipplePaintKey == key && baseGridPaint.strokeWidth == dotPx) return
+        cachedRipplePaintKey = key
+
+        baseGridPaint.strokeWidth = dotPx
+        val baseAlpha = (0.06f * 255f * bScale).roundToInt().coerceIn(5, 100)
+        baseGridPaint.color = android.graphics.Color.argb(baseAlpha, 255, 255, 255)
+
+        for (b in 0 until 4) {
+            val p = rippleWhitePaints[b]
+            p.strokeWidth = dotPx
+            val aInt = (rippleWhiteBaseOpacities[b] * 255f * bScale).roundToInt().coerceIn(10, 255)
+            p.color = android.graphics.Color.argb(aInt, 255, 255, 255)
+        }
+
+        rippleAccentPaint.strokeWidth = dotPx
+        val accA = (0.80f * 255f * bScale).roundToInt().coerceIn(20, 255)
+        rippleAccentPaint.color = (accA shl 24) or (accentArgb and 0x00FFFFFF)
     }
 
     fun ensureRainInitialized(maxRows: Int) {
@@ -15560,18 +15748,18 @@ private class NewLiveWallpapersEngine {
         oscInitialized = true
         oscCurveKey = curveRatio
         val (freqA, freqB) = when (curveRatio) {
-            "5:4" -> 5f to 4f
-            "2:1" -> 2f to 1f
-            "1:1" -> 1f to 1f
-            else -> 3f to 2f
+            "5:4" -> 5.0 to 4.0
+            "2:1" -> 2.0 to 1.0
+            "1:1" -> 1.0 to 1.0
+            else -> 3.0 to 2.0
         }
         oscCount = 300
-        val stepT = 0.018f
-        var t0 = oscTimeSec - 299 * stepT
+        val stepT = 0.018
+        var t0 = oscPhaseRad - 299.0 * stepT
         for (i in 0 until 300) {
-            val delta = if (curveRatio == "1:1") (PI.toFloat() * 0.5f + t0 * 0.12f) else (t0 * 0.17f)
-            oscNormX[i] = sin(freqA * t0 + delta)
-            oscNormY[i] = sin(freqB * t0)
+            val delta = if (curveRatio == "1:1") (PI * 0.5 + t0 * 0.12) else (t0 * 0.17)
+            oscNormX[i] = sin(freqA * t0 + delta).toFloat()
+            oscNormY[i] = sin(freqB * t0).toFloat()
             t0 += stepT
         }
         oscHead = 299
@@ -15581,17 +15769,1032 @@ private class NewLiveWallpapersEngine {
         ensureOscilloscopeInitialized(curveRatio)
         if (dtSec <= 0f) return
         val (freqA, freqB) = when (curveRatio) {
-            "5:4" -> 5f to 4f
-            "2:1" -> 2f to 1f
-            "1:1" -> 1f to 1f
-            else -> 3f to 2f
+            "5:4" -> 5.0 to 4.0
+            "2:1" -> 2.0 to 1.0
+            "1:1" -> 1.0 to 1.0
+            else -> 3.0 to 2.0
         }
-        oscTimeSec = (oscTimeSec + dtSec * 0.85f * speedMult) % 36000f
-        val delta = if (curveRatio == "1:1") (PI.toFloat() * 0.5f + oscTimeSec * 0.12f) else (oscTimeSec * 0.17f)
+        oscPhaseRad = (oscPhaseRad + dtSec.toDouble() * 0.85 * speedMult.toDouble()) % (2000.0 * PI)
+        val delta = if (curveRatio == "1:1") (PI * 0.5 + oscPhaseRad * 0.12) else (oscPhaseRad * 0.17)
         oscHead = (oscHead + 1) % 300
-        oscNormX[oscHead] = sin(freqA * oscTimeSec + delta)
-        oscNormY[oscHead] = sin(freqB * oscTimeSec)
+        oscNormX[oscHead] = sin(freqA * oscPhaseRad + delta).toFloat()
+        oscNormY[oscHead] = sin(freqB * oscPhaseRad).toFloat()
         if (oscCount < 300) oscCount++
+    }
+}
+
+private class LiveWallpaperHardwareView(context: Context) : View(context), Choreographer.FrameCallback {
+    private val starfieldSimulation = DeepSpaceStarfieldSimulation()
+    private val engine = NewLiveWallpapersEngine()
+
+    var preset: String = "live_starfield_3d"
+    var accentArgb: Int = android.graphics.Color.rgb(255, 59, 0)
+    var dimPercent: Int = 0
+    var config: LiveWallpaperConfig = LiveWallpaperConfig()
+    var batteryPct: Int = 85
+    var isPowerSaveMode: Boolean = false
+    var dateChangeTrigger: Int = 0
+    var isScreenVisible: Boolean = true
+    var isLifecycleResumed: Boolean = true
+    var isPreview: Boolean = false
+    var realScreenWidthPx: Float = 1080f
+    var baseDpPx: Float = 2.625f
+    var topStatusInsetPx: Float = 0f
+
+    private var boundRippleBus: TouchRippleEventBus? = null
+    private var lastSonarTriggerToken: Int = 0
+
+    // Choreographer vsync loop state (64-bit Long nanosecond timestamps only)
+    private var isVsyncLoopPosted: Boolean = false
+    private var isSonarSleepingBetweenRings: Boolean = false
+    private var lastVsyncFrameNanos: Long = 0L
+    private var crtPhaseDouble: Double = 0.0
+    private var sonarCycleElapsedSec: Double = 0.0
+
+    // Debug FPS & frame-time measurement counters (updated once per second, 0 allocations)
+    private var fpsWindowStartNanos: Long = 0L
+    private var fpsFramesDrawnInWindow: Int = 0
+    private var fpsAccumDrawNanos: Long = 0L
+
+    private val rippleWakeCallback: () -> Unit = {
+        if (preset == "live_touch_ripples" && canAnimateNow()) {
+            ensureVsyncLoopRunning()
+            invalidate()
+        }
+    }
+
+    private val debugToggleCallback: () -> Unit = {
+        if (!isVsyncLoopPosted) {
+            engine.setDebugTextIdle()
+        }
+        invalidate()
+    }
+
+    private val sonarWakeRunnable = Runnable {
+        isSonarSleepingBetweenRings = false
+        if (preset == "live_sonar" && canAnimateNow()) {
+            lastVsyncFrameNanos = 0L
+            ensureVsyncLoopRunning()
+        }
+    }
+
+    fun bindRippleBus(bus: TouchRippleEventBus?) {
+        if (boundRippleBus === bus) return
+        boundRippleBus?.unregisterWakeListener(rippleWakeCallback)
+        boundRippleBus = bus
+        bus?.registerWakeListener(rippleWakeCallback)
+    }
+
+    fun onSonarTriggerTokenUpdated(token: Int) {
+        if (token != lastSonarTriggerToken) {
+            lastSonarTriggerToken = token
+            if (preset == "live_sonar" && token > 0) {
+                sonarCycleElapsedSec = 0.0
+                removeCallbacks(sonarWakeRunnable)
+                isSonarSleepingBetweenRings = false
+                lastVsyncFrameNanos = 0L
+                if (canAnimateNow()) {
+                    ensureVsyncLoopRunning()
+                }
+                invalidate()
+            }
+        }
+    }
+
+    private fun isLowBatteryPaused(): Boolean {
+        return batteryPct < 15 || isPowerSaveMode
+    }
+
+    private fun canAnimateNow(): Boolean {
+        return isAttachedToWindow &&
+            isScreenVisible &&
+            isLifecycleResumed &&
+            !isLowBatteryPaused() &&
+            preset in VALID_LIVE_WALLPAPER_IDS &&
+            preset != "live_year_in_dots" &&
+            preset != "live_moon_phase"
+    }
+
+    private fun hasActiveTouchRipples(nowNanos: Long): Boolean {
+        val bus = boundRippleBus ?: return false
+        val speedMult = config.ripplesSpeedPct.coerceIn(25, 200) / 100f
+        val durationSec = (1.4f / speedMult).coerceAtLeast(0.35f)
+        val maxSlots = config.ripplesMaxCount.coerceIn(1, 5)
+        var anyActive = false
+        for (i in 0 until maxSlots) {
+            if (bus.rippleActive[i]) {
+                val ageSec = (nowNanos - bus.rippleStartNanos[i]) * 1e-9f
+                if (ageSec in 0f..durationSec) {
+                    anyActive = true
+                } else {
+                    bus.rippleActive[i] = false
+                }
+            }
+        }
+        return anyActive
+    }
+
+    fun syncAnimationState() {
+        if (isScreenVisible && isLifecycleResumed) {
+            starfieldSimulation.resume()
+        } else {
+            starfieldSimulation.pause()
+        }
+        if (preset == "live_oscilloscope") {
+            engine.ensureOscilloscopeInitialized(config.oscilloscopeCurve)
+        }
+        if (!canAnimateNow()) {
+            stopVsyncLoopAndGoIdle()
+            invalidate()
+            return
+        }
+        if (preset == "live_touch_ripples") {
+            if (hasActiveTouchRipples(System.nanoTime())) {
+                ensureVsyncLoopRunning()
+            } else {
+                stopVsyncLoopAndGoIdle()
+                invalidate()
+            }
+        } else if (preset == "live_sonar") {
+            if (!isSonarSleepingBetweenRings) {
+                ensureVsyncLoopRunning()
+            }
+        } else {
+            removeCallbacks(sonarWakeRunnable)
+            isSonarSleepingBetweenRings = false
+            ensureVsyncLoopRunning()
+        }
+        invalidate()
+    }
+
+    private fun ensureVsyncLoopRunning() {
+        if (!isVsyncLoopPosted && isAttachedToWindow) {
+            isVsyncLoopPosted = true
+            lastVsyncFrameNanos = 0L
+            Choreographer.getInstance().postFrameCallback(this)
+        }
+    }
+
+    private fun stopVsyncLoopAndGoIdle() {
+        if (isVsyncLoopPosted) {
+            Choreographer.getInstance().removeFrameCallback(this)
+            isVsyncLoopPosted = false
+        }
+        removeCallbacks(sonarWakeRunnable)
+        isSonarSleepingBetweenRings = false
+        lastVsyncFrameNanos = 0L
+        fpsWindowStartNanos = 0L
+        fpsFramesDrawnInWindow = 0
+        fpsAccumDrawNanos = 0L
+        engine.setDebugTextIdle()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        DebugWallpaperFpsState.registerListener(debugToggleCallback)
+        boundRippleBus?.registerWakeListener(rippleWakeCallback)
+        syncAnimationState()
+    }
+
+    override fun onDetachedFromWindow() {
+        stopVsyncLoopAndGoIdle()
+        DebugWallpaperFpsState.unregisterListener(debugToggleCallback)
+        boundRippleBus?.unregisterWakeListener(rippleWakeCallback)
+        super.onDetachedFromWindow()
+    }
+
+    override fun doFrame(frameTimeNanos: Long) {
+        isVsyncLoopPosted = false
+        if (!canAnimateNow()) {
+            stopVsyncLoopAndGoIdle()
+            invalidate()
+            return
+        }
+
+        val targetFps = when (preset) {
+            "live_starfield_3d" -> config.starfieldFps.coerceIn(15, 60)
+            "live_raster_lines" -> config.crtFps.coerceIn(15, 60)
+            "live_touch_ripples" -> config.ripplesFps.coerceIn(30, 60)
+            "live_oscilloscope" -> config.oscilloscopeFps.coerceIn(15, 60)
+            "live_sonar" -> config.sonarFps.coerceIn(15, 60)
+            "live_pixel_rain" -> config.rainFps.coerceIn(15, 30)
+            "live_constellations_new" -> config.conFps.coerceIn(15, 60)
+            else -> 60
+        }
+
+        // Exact Frame Rate -> Nanosecond Interval conversion:
+        // 60 fps -> 16_666_666 ns (16.67ms)
+        // 30 fps -> 33_333_333 ns (33.33ms)
+        // 15 fps -> 66_666_666 ns (66.67ms)
+        // Subtract 4ms vsync jitter margin so 30fps and 15fps lock cleanly onto every 2nd or 4th 60Hz/120Hz vsync.
+        val targetIntervalNanos = 1_000_000_000L / targetFps.toLong()
+        val minDeltaNanos = targetIntervalNanos - 4_000_000L
+
+        if (lastVsyncFrameNanos != 0L && (frameTimeNanos - lastVsyncFrameNanos) < minDeltaNanos) {
+            // Skip this vsync and post for the next vsync without drawing
+            isVsyncLoopPosted = true
+            Choreographer.getInstance().postFrameCallback(this)
+            return
+        }
+
+        val dtSec = if (lastVsyncFrameNanos == 0L) {
+            1f / targetFps.toFloat()
+        } else {
+            ((frameTimeNanos - lastVsyncFrameNanos) * 1e-9f).coerceIn(0.001f, 0.12f)
+        }
+        lastVsyncFrameNanos = frameTimeNanos
+
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val viewportScale = if (isPreview && realScreenWidthPx > 0f) (w / realScreenWidthPx).coerceIn(0.15f, 1.0f) else 1.0f
+        val dpPx = baseDpPx * viewportScale
+
+        when (preset) {
+            "live_touch_ripples" -> {
+                if (!hasActiveTouchRipples(frameTimeNanos)) {
+                    stopVsyncLoopAndGoIdle()
+                    invalidate()
+                    return
+                }
+            }
+            "live_starfield_3d" -> {
+                val densityMult = config.starfieldDensityPct.coerceIn(25, 200) / 100f
+                val speedMult = config.starfieldSpeedPct.coerceIn(25, 200) / 100f
+                val targetStars = (DeepSpaceStarfieldSimulation.DEFAULT_STAR_COUNT * densityMult)
+                    .roundToInt()
+                    .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_STAR_COUNT)
+                starfieldSimulation.step(dtSec, speedMult, targetStars)
+            }
+            "live_raster_lines" -> {
+                val bandSpeedMult = config.crtBandSpeedPct.coerceIn(25, 200) / 100f
+                crtPhaseDouble = (crtPhaseDouble + dtSec.toDouble() * 0.42 * bandSpeedMult.toDouble()) % 1000.0
+            }
+            "live_oscilloscope" -> {
+                val spd = config.oscilloscopeSpeedPct.coerceIn(25, 200) / 100f
+                engine.stepOscilloscope(dtSec, spd, config.oscilloscopeCurve)
+            }
+            "live_sonar" -> {
+                val speedMult = config.sonarSpeedPct.coerceIn(25, 200) / 100f
+                val intervalSec = config.sonarIntervalSec.coerceIn(4, 20).toDouble()
+                val activeRingSec = (6.0 / speedMult.toDouble()).coerceAtLeast(1.3)
+                val echoMarginSec = config.sonarEchoRings.coerceIn(0, 2) * 0.5
+                val totalWaveSec = activeRingSec + echoMarginSec
+                val cycleSec = max(intervalSec, totalWaveSec + 0.25)
+
+                sonarCycleElapsedSec = (sonarCycleElapsedSec + dtSec.toDouble()) % cycleSec
+                if (sonarCycleElapsedSec > totalWaveSec) {
+                    // Quiet gap between sonar rings: stop Choreographer callbacks and wake when next ring begins
+                    val sleepMs = ((cycleSec - sonarCycleElapsedSec) * 1000.0).toLong().coerceAtLeast(16L)
+                    sonarCycleElapsedSec = 0.0
+                    isSonarSleepingBetweenRings = true
+                    fpsWindowStartNanos = 0L
+                    fpsFramesDrawnInWindow = 0
+                    fpsAccumDrawNanos = 0L
+                    engine.setDebugTextIdle()
+                    invalidate()
+                    postDelayed(sonarWakeRunnable, sleepMs)
+                    return
+                }
+            }
+            "live_pixel_rain" -> {
+                val spd = config.rainSpeedPct.coerceIn(25, 200) / 100f
+                val dropPx = (config.rainPixelSizeDp.coerceIn(2, 8) * dpPx).coerceAtLeast(1.5f)
+                val maxRows = (h / dropPx).toInt().coerceAtLeast(10)
+                engine.stepPixelRain(dtSec, spd, maxRows, config.rainMaxDrops)
+            }
+            "live_constellations_new" -> {
+                val spd = config.conSpeedPct.coerceIn(25, 200) / 100f
+                engine.stepConstellations(dtSec, spd, dpPx, w, h, config.conStarCount)
+            }
+        }
+
+        // Invalidate ONLY this hardware-accelerated View (0 Compose recompositions) and schedule next vsync
+        invalidate()
+        isVsyncLoopPosted = true
+        Choreographer.getInstance().postFrameCallback(this)
+    }
+
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        val drawStartNs = System.nanoTime()
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0f || h <= 0f) return
+
+        val viewportScale = if (isPreview && realScreenWidthPx > 0f) (w / realScreenWidthPx).coerceIn(0.15f, 1.0f) else 1.0f
+        val dpPx = baseDpPx * viewportScale
+        val accR = android.graphics.Color.red(accentArgb)
+        val accG = android.graphics.Color.green(accentArgb)
+        val accB = android.graphics.Color.blue(accentArgb)
+
+        when (preset) {
+            // ================================================================
+            // 1. 3D STARFIELD
+            // ================================================================
+            "live_starfield_3d" -> {
+                val sfDensity = config.starfieldDensityPct.coerceIn(25, 200) / 100f
+                val sfSize = config.starfieldSizePct.coerceIn(50, 200) / 100f
+                val sfBrightness = config.starfieldBrightnessPct.coerceIn(20, 100) / 100f
+                val activeStars = (DeepSpaceStarfieldSimulation.DEFAULT_STAR_COUNT * sfDensity)
+                    .roundToInt()
+                    .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_STAR_COUNT)
+                starfieldSimulation.draw(
+                    nativeCanvas = canvas,
+                    width = w,
+                    height = h,
+                    densityPxPerDp = dpPx,
+                    activeCount = activeStars,
+                    opacityMultiplier = sfBrightness,
+                    scaleMultiplier = sfSize
+                )
+            }
+
+            // ================================================================
+            // 2. CRT SCANLINES (Zero per-frame Brush/List allocations)
+            // ================================================================
+            "live_raster_lines" -> {
+                val crtDensity = config.crtLineDensityPct.coerceIn(50, 200) / 100f
+                val crtStrength = config.crtLineStrengthPct.coerceIn(20, 100) / 100f
+                val crtBrightness = config.crtBrightnessPct.coerceIn(20, 100) / 100f
+
+                val pitch = (3.2f * dpPx / crtDensity).coerceAtLeast(1.5f * viewportScale)
+                val baseScanAlpha = (0.11f * crtStrength * crtBrightness).coerceIn(0.01f, 0.45f)
+                val majorScanAlpha = (0.19f * crtStrength * crtBrightness).coerceIn(0.02f, 0.60f)
+
+                val beamFrac = if ((isLowBatteryPaused() || !canAnimateNow()) && crtPhaseDouble == 0.0) {
+                    0.35f
+                } else {
+                    ((crtPhaseDouble * 0.24) % 1.0).toFloat()
+                }
+                val beamY = beamFrac * h
+                val beamHalfBand = (h * 0.14f).coerceAtLeast(36f * viewportScale)
+                val minorStroke = 0.75f * viewportScale.coerceAtLeast(0.55f)
+                val majorStroke = 1.15f * viewportScale.coerceAtLeast(0.55f)
+
+                var rowIdx = 0
+                var y = 0f
+                val lp = engine.crtLinePaint
+                while (y <= h) {
+                    val distFromBeam = abs(y - beamY)
+                    val wrapDist = min(distFromBeam, h - distFromBeam)
+                    val beamBoost = if (wrapDist < beamHalfBand) {
+                        val f = 1f - (wrapDist / beamHalfBand)
+                        f * f * 0.22f * crtBrightness
+                    } else 0f
+
+                    val isMajorLine = (rowIdx % 4 == 0)
+                    val lineAlpha = ((if (isMajorLine) majorScanAlpha else baseScanAlpha) + beamBoost).coerceIn(0.01f, 0.70f)
+                    val aInt = (lineAlpha * 255f).roundToInt().coerceIn(2, 255)
+                    lp.strokeWidth = if (isMajorLine) majorStroke else minorStroke
+                    lp.color = android.graphics.Color.argb(aInt, accR, accG, accB)
+                    canvas.drawLine(0f, y, w, y, lp)
+                    y += pitch
+                    rowIdx++
+                }
+
+                val bandTop = (beamY - beamHalfBand).coerceAtLeast(0f)
+                val bandBottom = (beamY + beamHalfBand).coerceAtMost(h)
+                val bandH = bandBottom - bandTop
+                if (bandH > 1f) {
+                    val midAlpha = ((0.065f * crtBrightness).coerceIn(0.01f, 0.22f) * 255f).roundToInt().coerceIn(2, 255)
+                    val midColor = android.graphics.Color.argb(midAlpha, accR, accG, accB)
+                    if (engine.crtBandShader == null || engine.crtBandShaderColor != midColor) {
+                        engine.crtBandShaderColor = midColor
+                        engine.crtBandShader = LinearGradient(
+                            0f, 0f, 0f, 1f,
+                            intArrayOf(android.graphics.Color.TRANSPARENT, midColor, android.graphics.Color.TRANSPARENT),
+                            null,
+                            AndroidShader.TileMode.CLAMP
+                        )
+                        engine.crtBandPaint.shader = engine.crtBandShader
+                    }
+                    engine.crtBandMatrix.reset()
+                    engine.crtBandMatrix.postScale(1f, bandH)
+                    engine.crtBandMatrix.postTranslate(0f, bandTop)
+                    engine.crtBandShader?.setLocalMatrix(engine.crtBandMatrix)
+                    canvas.drawRect(0f, bandTop, w, bandBottom, engine.crtBandPaint)
+                }
+            }
+
+            // ================================================================
+            // 3. YEAR IN DOTS (Static, 0 continuous frames)
+            // ================================================================
+            "live_year_in_dots" -> {
+                val cal = Calendar.getInstance()
+                val year = cal.get(Calendar.YEAR)
+                val todayDay = cal.get(Calendar.DAY_OF_YEAR)
+                val totalDays = cal.getActualMaximum(Calendar.DAY_OF_YEAR)
+                val bScale = (config.yearDotsBrightnessPct.coerceIn(20, 100) / 70f)
+                val cols = config.yearDotsColumns.coerceIn(10, 30)
+                val dotSizePct = config.yearDotsSizePct.coerceIn(15, 50)
+                val isRound = config.yearDotsShape == "round"
+                val posMode = config.yearDotsVerticalPos
+                val showCounter = config.yearDotsShowCounter
+                val todayColor = android.graphics.Color.argb(
+                    (255f * bScale.coerceIn(0.25f, 1f)).roundToInt().coerceIn(40, 255),
+                    accR, accG, accB
+                )
+                val wInt = w.roundToInt().coerceAtLeast(1)
+                val hInt = h.roundToInt().coerceAtLeast(1)
+                val cacheKey = "yd_${wInt}_${hInt}_${year}_${todayDay}_${totalDays}_${todayColor}_${cols}_${dotSizePct}_${isRound}_${posMode}_${showCounter}_${config.yearDotsBrightnessPct}"
+
+                if (engine.cachedKey != cacheKey || engine.cachedStaticBitmap == null) {
+                    val bmp = if (engine.cachedStaticBitmap?.width == wInt && engine.cachedStaticBitmap?.height == hInt) {
+                        engine.cachedStaticBitmap!!.apply { eraseColor(android.graphics.Color.BLACK) }
+                    } else {
+                        Bitmap.createBitmap(wInt, hInt, Bitmap.Config.ARGB_8888)
+                    }
+                    val c = android.graphics.Canvas(bmp)
+                    val marginX = 0.12f * w
+                    val gridW = 0.76f * w
+                    val rows = (totalDays + cols - 1) / cols
+                    val cellSize = gridW / cols.toFloat()
+                    val dotSize = ((dotSizePct / 100f) * cellSize).coerceAtLeast(1.2f * viewportScale)
+                    val todaySize = dotSize * 1.5f
+                    val gridH = rows * cellSize
+                    val startY = when (posMode) {
+                        "top" -> h * 0.16f
+                        "bottom" -> (h * 0.82f - gridH).coerceAtLeast(h * 0.08f)
+                        else -> (h - gridH) * 0.5f
+                    }
+
+                    val pastAlpha = (0.35f * 255f * bScale).roundToInt().coerceIn(15, 255)
+                    val futureAlpha = (0.08f * 255f * bScale).roundToInt().coerceIn(6, 180)
+                    val pastColor = android.graphics.Color.argb(pastAlpha, 255, 255, 255)
+                    val futureColor = android.graphics.Color.argb(futureAlpha, 255, 255, 255)
+                    val p = if (isRound) engine.roundPaint else engine.paint
+
+                    for (day in 1..totalDays) {
+                        val idx = day - 1
+                        val r = idx / cols
+                        val col = idx % cols
+                        val cx = marginX + (col + 0.5f) * cellSize
+                        val cy = startY + (r + 0.5f) * cellSize
+                        val sz = if (day == todayDay) todaySize else dotSize
+                        p.color = when {
+                            day == todayDay -> todayColor
+                            day < todayDay -> pastColor
+                            else -> futureColor
+                        }
+                        val half = sz * 0.5f
+                        if (isRound) {
+                            c.drawCircle(cx, cy, half, p)
+                        } else {
+                            c.drawRect(cx - half, cy - half, cx + half, cy + half, p)
+                        }
+                    }
+
+                    if (showCounter) {
+                        val counterAlpha = (0.40f * 255f * bScale).roundToInt().coerceIn(20, 255)
+                        engine.textPaint.color = android.graphics.Color.argb(counterAlpha, 255, 255, 255)
+                        engine.textPaint.textSize = (10f * dpPx).coerceAtLeast(6f)
+                        c.drawText(
+                            "DAY $todayDay / $totalDays",
+                            w * 0.5f,
+                            startY + gridH + 20f * dpPx,
+                            engine.textPaint
+                        )
+                    }
+
+                    engine.cachedStaticBitmap = bmp
+                    engine.cachedKey = cacheKey
+                }
+
+                engine.cachedStaticBitmap?.let { bmp ->
+                    canvas.drawBitmap(bmp, 0f, 0f, null)
+                }
+            }
+
+            // ================================================================
+            // 4. MOON PHASE (Static pixel-art moon, 0 continuous frames)
+            // ================================================================
+            "live_moon_phase" -> {
+                val cal = Calendar.getInstance()
+                val dayKey = "${cal.get(Calendar.YEAR)}_${cal.get(Calendar.DAY_OF_YEAR)}"
+                val bScale = (config.moonBrightnessPct.coerceIn(20, 100) / 70f)
+                val moonSizePct = config.moonSizePct.coerceIn(15, 45)
+                val rawDetail = config.moonPixelDetail.coerceIn(15, 41)
+                val detail = if (rawDetail % 2 == 0) (rawDetail + 1).coerceAtMost(41) else rawDetail
+                val vertPct = config.moonVerticalPct.coerceIn(20, 80)
+                val showName = config.moonShowPhaseName
+                val wInt = w.roundToInt().coerceAtLeast(1)
+                val hInt = h.roundToInt().coerceAtLeast(1)
+                val cacheKey = "mp_${wInt}_${hInt}_${dayKey}_${moonSizePct}_${detail}_${vertPct}_${showName}_${config.moonBrightnessPct}"
+
+                if (engine.cachedKey != cacheKey || engine.cachedStaticBitmap == null) {
+                    val bmp = if (engine.cachedStaticBitmap?.width == wInt && engine.cachedStaticBitmap?.height == hInt) {
+                        engine.cachedStaticBitmap!!.apply { eraseColor(android.graphics.Color.BLACK) }
+                    } else {
+                        Bitmap.createBitmap(wInt, hInt, Bitmap.Config.ARGB_8888)
+                    }
+                    val c = android.graphics.Canvas(bmp)
+
+                    val julianDay = (System.currentTimeMillis() / 86400000.0) + 2440587.5
+                    val rawPhase = ((julianDay - 2451550.1) / 29.530588853) % 1.0
+                    val phase = (if (rawPhase < 0.0) rawPhase + 1.0 else rawPhase).toFloat()
+
+                    val discDiameterPx = (moonSizePct / 100f) * w
+                    val pxSize = (discDiameterPx / detail.toFloat()).coerceAtLeast(1f)
+                    val halfGrid = detail / 2
+                    val halfGridF = halfGrid.coerceAtLeast(1).toFloat()
+                    val cx = 0.50f * w
+                    val cy = (vertPct / 100f) * h
+                    val litAlpha = (0.90f * 255f * bScale).roundToInt().coerceIn(30, 255)
+                    val unlitAlpha = (0.06f * 255f * bScale).roundToInt().coerceIn(6, 120)
+                    val litColor = android.graphics.Color.argb(litAlpha, 255, 255, 255)
+                    val unlitColor = android.graphics.Color.argb(unlitAlpha, 255, 255, 255)
+                    val p = engine.paint
+                    val cosPhase = cos(phase * 2.0 * PI).toFloat()
+
+                    for (gy in -halfGrid..halfGrid) {
+                        val ny = gy / halfGridF
+                        for (gx in -halfGrid..halfGrid) {
+                            val nx = gx / halfGridF
+                            val rSq = nx * nx + ny * ny
+                            if (rSq <= 1.0f) {
+                                val xMax = sqrt((1f - ny * ny).coerceAtLeast(0f))
+                                val xTerm = cosPhase * xMax
+                                val isLit = if (phase < 0.5f) {
+                                    nx >= xTerm
+                                } else {
+                                    nx <= -xTerm
+                                }
+                                p.color = if (isLit) litColor else unlitColor
+                                val left = cx + gx * pxSize - pxSize * 0.45f
+                                val top = cy + gy * pxSize - pxSize * 0.45f
+                                c.drawRect(left, top, left + pxSize * 0.90f, top + pxSize * 0.90f, p)
+                            }
+                        }
+                    }
+
+                    if (showName) {
+                        val phaseName = when {
+                            phase < 0.03f || phase >= 0.97f -> "NEW MOON"
+                            phase < 0.22f -> "WAXING CRESCENT"
+                            phase < 0.28f -> "FIRST QUARTER"
+                            phase < 0.47f -> "WAXING GIBBOUS"
+                            phase < 0.53f -> "FULL MOON"
+                            phase < 0.72f -> "WANING GIBBOUS"
+                            phase < 0.78f -> "LAST QUARTER"
+                            else -> "WANING CRESCENT"
+                        }
+                        val textAlpha = (0.40f * 255f * bScale).roundToInt().coerceIn(20, 255)
+                        engine.textPaint.color = android.graphics.Color.argb(textAlpha, 255, 255, 255)
+                        engine.textPaint.textSize = (10f * dpPx).coerceAtLeast(6f)
+                        c.drawText(
+                            phaseName,
+                            cx,
+                            cy + (halfGrid + 1.5f) * pxSize + 20f * dpPx,
+                            engine.textPaint
+                        )
+                    }
+
+                    engine.cachedStaticBitmap = bmp
+                    engine.cachedKey = cacheKey
+                }
+
+                engine.cachedStaticBitmap?.let { bmp ->
+                    canvas.drawBitmap(bmp, 0f, 0f, null)
+                }
+            }
+
+            // ================================================================
+            // 5. TOUCH RIPPLES (Choreographer Vsync, 1 drawPoints Grid + 5 Pre-Allocated Ripple Paints)
+            // ================================================================
+            "live_touch_ripples" -> {
+                val bScale = (config.ripplesBrightnessPct.coerceIn(20, 100) / 70f)
+                val speedMult = (config.ripplesSpeedPct.coerceIn(25, 200) / 100f)
+                val spacingDp = config.ripplesSpacingDp.coerceIn(12, 40)
+                val dotDp = config.ripplesDotSizeDp.coerceIn(1, 4)
+                val reachPct = config.ripplesReachPct.coerceIn(30, 100)
+                val maxRipples = config.ripplesMaxCount.coerceIn(1, 5)
+                val wInt = w.roundToInt().coerceAtLeast(1)
+                val hInt = h.roundToInt().coerceAtLeast(1)
+                val stepPx = (spacingDp * dpPx).coerceAtLeast(3f)
+                val dotPx = (dotDp * dpPx).coerceAtLeast(1f)
+                val gridKey = "tr_pts_${wInt}_${hInt}_${spacingDp}"
+
+                engine.ensureTouchRipplesGrid(w, h, stepPx, gridKey)
+                engine.ensureTouchRipplePaints(dotPx, bScale, accentArgb)
+
+                // 1. Draw the entire resting grid in ONE canvas.drawPoints call with ONE pre-allocated Paint
+                if (engine.baseGridFloatCount > 0) {
+                    canvas.drawPoints(engine.baseGridPts, 0, engine.baseGridFloatCount, engine.baseGridPaint)
+                }
+
+                // 2. Per-frame ripple pass: integer cell bounds, squared distance filter against (R - band)^2..(R + band)^2,
+                //    exact sqrt(dSq) ONLY for dots inside the band, and at most 5 drawPoints calls with 5 pre-allocated Paints
+                val bus = boundRippleBus
+                if (bus != null) {
+                    val nowNanos = if (lastVsyncFrameNanos != 0L) lastVsyncFrameNanos else drawStartNs
+                    val maxRadius = (reachPct / 100f) * h
+                    val durationSec = (1.4f / speedMult).coerceAtLeast(0.35f)
+                    val offsetX = engine.baseGridOffsetX
+                    val offsetY = engine.baseGridOffsetY
+                    val numCols = engine.baseGridCols
+                    val numRows = engine.baseGridRows
+                    val band = stepPx
+                    val invBand = 1f / band.coerceAtLeast(1f)
+
+                    for (b in 0 until 4) {
+                        engine.rippleWhiteFloatCounts[b] = 0
+                    }
+                    engine.rippleAccentFloatCount = 0
+
+                    for (rIdx in 0 until maxRipples) {
+                        if (!bus.rippleActive[rIdx]) continue
+                        val ageSec = (nowNanos - bus.rippleStartNanos[rIdx]) * 1e-9f
+                        if (ageSec < 0f || ageSec > durationSec) {
+                            bus.rippleActive[rIdx] = false
+                            continue
+                        }
+                        val norm = (ageSec / durationSec).coerceIn(0f, 1f)
+                        val easeOut = 1f - (1f - norm) * (1f - norm)
+                        val R = maxRadius * easeOut
+                        val fade = (1f - norm).coerceIn(0f, 1f)
+                        if (fade <= 0.02f) continue
+
+                        val rx = bus.rippleX[rIdx]
+                        val ry = bus.rippleY[rIdx]
+                        val rOuter = R + band
+                        val rInner = (R - band).coerceAtLeast(0f)
+                        val rOuterSq = rOuter * rOuter
+                        val rInnerSq = rInner * rInner
+                        val hollowHalf = rInner * 0.70f
+
+                        val colMin = ((rx - rOuter - offsetX) / stepPx).toInt().coerceAtLeast(0)
+                        val colMax = ((rx + rOuter - offsetX) / stepPx).toInt().coerceAtMost(numCols - 1)
+                        val rowMin = ((ry - rOuter - offsetY) / stepPx).toInt().coerceAtLeast(0)
+                        val rowMax = ((ry + rOuter - offsetY) / stepPx).toInt().coerceAtMost(numRows - 1)
+
+                        for (row in rowMin..rowMax) {
+                            val gy = offsetY + row * stepPx
+                            val dy = gy - ry
+                            val absDy = abs(dy)
+                            val dySq = dy * dy
+                            for (col in colMin..colMax) {
+                                val gx = offsetX + col * stepPx
+                                val dx = gx - rx
+                                if (absDy < hollowHalf && abs(dx) < hollowHalf) continue
+                                val dSq = dx * dx + dySq
+                                if (dSq in rInnerSq..rOuterSq) {
+                                    // Compute exact distance ONLY for the few dots inside the ring band
+                                    val d = sqrt(dSq)
+                                    if (d >= R) {
+                                        val curCnt = engine.rippleAccentFloatCount
+                                        if (curCnt + 2 <= engine.rippleAccentPts.size) {
+                                            engine.rippleAccentPts[curCnt] = gx
+                                            engine.rippleAccentPts[curCnt + 1] = gy
+                                            engine.rippleAccentFloatCount = curCnt + 2
+                                        }
+                                    } else {
+                                        val prox = ((d - rInner) * invBand).coerceIn(0f, 0.999f)
+                                        val weighted = (prox * fade).coerceIn(0f, 0.999f)
+                                        val bucket = (weighted * 4f).toInt().coerceIn(0, 3)
+                                        val curCnt = engine.rippleWhiteFloatCounts[bucket]
+                                        val arr = engine.rippleWhiteBuckets[bucket]
+                                        if (curCnt + 2 <= arr.size) {
+                                            arr[curCnt] = gx
+                                            arr[curCnt + 1] = gy
+                                            engine.rippleWhiteFloatCounts[bucket] = curCnt + 2
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Draw the 4 white opacity groups and 1 accent group (at most 5 drawPoints calls & 5 pre-allocated Paints)
+                    for (b in 0 until 4) {
+                        val cnt = engine.rippleWhiteFloatCounts[b]
+                        if (cnt > 0) {
+                            canvas.drawPoints(engine.rippleWhiteBuckets[b], 0, cnt, engine.rippleWhitePaints[b])
+                        }
+                    }
+                    val accCnt = engine.rippleAccentFloatCount
+                    if (accCnt > 0) {
+                        canvas.drawPoints(engine.rippleAccentPts, 0, accCnt, engine.rippleAccentPaint)
+                    }
+                }
+            }
+
+            // ================================================================
+            // 6. OSCILLOSCOPE (Pre-allocated 300-point ring buffer batched into 6 opacity Paths)
+            // ================================================================
+            "live_oscilloscope" -> {
+                val bScale = (config.oscilloscopeBrightnessPct.coerceIn(20, 100) / 70f)
+                val sizeScale = config.oscilloscopeSizePct.coerceIn(40, 120) / 100f
+                val thickPx = (config.oscilloscopeThicknessDp.coerceIn(1f, 4f) * dpPx).coerceAtLeast(1f)
+                val trailPts = config.oscilloscopeTrailPoints.coerceIn(60, 300)
+
+                engine.ensureOscilloscopeInitialized(config.oscilloscopeCurve)
+
+                val sp = engine.strokePaint
+                sp.strokeWidth = thickPx
+
+                val cx = 0.5f * w
+                val cy = 0.5f * h
+                val ampX = 0.38f * w * sizeScale
+                val ampY = 0.30f * h * sizeScale
+
+                val totalPts = min(trailPts, engine.oscCount)
+                val oldestIdx = (engine.oscHead - totalPts + 1 + 300) % 300
+                val groupSize = (totalPts / 6).coerceAtLeast(1)
+
+                for (g in 0 until 6) {
+                    val path = engine.oscBatchPaths[g]
+                    path.reset()
+                    val startStep = g * groupSize
+                    val endStep = if (g == 5) (totalPts - 1) else ((g + 1) * groupSize).coerceAtMost(totalPts - 1)
+                    if (startStep >= endStep) continue
+
+                    val firstRingIdx = (oldestIdx + startStep) % 300
+                    path.moveTo(
+                        cx + ampX * engine.oscNormX[firstRingIdx],
+                        cy + ampY * engine.oscNormY[firstRingIdx]
+                    )
+                    for (step in (startStep + 1)..endStep) {
+                        val rIdx = (oldestIdx + step) % 300
+                        path.lineTo(
+                            cx + ampX * engine.oscNormX[rIdx],
+                            cy + ampY * engine.oscNormY[rIdx]
+                        )
+                    }
+                    val groupFrac = (g + 1) / 6f
+                    val alphaInt = (groupFrac * groupFrac * 255f * bScale).roundToInt().coerceIn(8, 255)
+                    sp.color = android.graphics.Color.argb(alphaInt, accR, accG, accB)
+                    canvas.drawPath(path, sp)
+                }
+
+                val headX = cx + ampX * engine.oscNormX[engine.oscHead]
+                val headY = cy + ampY * engine.oscNormY[engine.oscHead]
+                val halfHead = (1.5f * dpPx).coerceAtLeast(1f)
+                engine.paint.color = android.graphics.Color.argb(
+                    (255f * bScale).roundToInt().coerceIn(40, 255),
+                    255, 255, 255
+                )
+                canvas.drawRect(headX - halfHead, headY - halfHead, headX + halfHead, headY + halfHead, engine.paint)
+            }
+
+            // ================================================================
+            // 7. SONAR (Choreographer vsync during ring, 0 fps during quiet gap)
+            // ================================================================
+            "live_sonar" -> {
+                val bScale = (config.sonarBrightnessPct.coerceIn(20, 100) / 70f)
+                val speedMult = (config.sonarSpeedPct.coerceIn(25, 200) / 100f)
+                val intervalSec = config.sonarIntervalSec.coerceIn(4, 20).toFloat()
+                val reachScale = config.sonarReachPct.coerceIn(50, 150) / 100f
+                val strokePx = (config.sonarThicknessDp.coerceIn(1f, 4f) * dpPx).coerceAtLeast(1f)
+                val echoCount = config.sonarEchoRings.coerceIn(0, 2)
+
+                val activeRingSec = (6.0f / speedMult).coerceAtLeast(1.3f)
+                val totalWaveSec = activeRingSec + echoCount * 0.5f
+                val cycleSec = max(intervalSec, totalWaveSec + 0.25f)
+                val phaseSec = when {
+                    isLowBatteryPaused() -> activeRingSec * 0.45f
+                    isPreview && !canAnimateNow() && sonarCycleElapsedSec == 0.0 -> activeRingSec * 0.38f
+                    isSonarSleepingBetweenRings -> totalWaveSec + 1f
+                    else -> sonarCycleElapsedSec.toFloat() % cycleSec
+                }
+
+                val originX: Float
+                val originY: Float
+                when (config.sonarOrigin) {
+                    "bottom_left" -> {
+                        originX = 0f
+                        originY = h
+                    }
+                    "center" -> {
+                        originX = w * 0.5f
+                        originY = h * 0.5f
+                    }
+                    else -> {
+                        originX = w
+                        originY = h
+                    }
+                }
+                val maxRadius = reachScale * h
+                val srp = engine.sonarRingPaint
+                srp.strokeWidth = strokePx
+
+                for (echoIdx in 0..echoCount) {
+                    val ringAge = phaseSec - echoIdx * 0.5f
+                    if (ringAge in 0f..activeRingSec) {
+                        val norm = (ringAge / activeRingSec).coerceIn(0f, 1f)
+                        val easeOut = 1f - (1f - norm) * (1f - norm)
+                        val radius = maxRadius * easeOut
+                        val echoWeight = when (echoIdx) {
+                            0 -> 1.0f
+                            1 -> 0.50f
+                            else -> 0.25f
+                        }
+                        val alpha = (0.60f * echoWeight * (1f - norm) * bScale).coerceIn(0f, 1f)
+                        val aInt = (alpha * 255f).roundToInt().coerceIn(0, 255)
+                        if (radius > 1f && aInt > 1) {
+                            srp.color = android.graphics.Color.argb(aInt, accR, accG, accB)
+                            canvas.drawCircle(originX, originY, radius, srp)
+                        }
+                    }
+                }
+            }
+
+            // ================================================================
+            // 8. PIXEL RAIN
+            // ================================================================
+            "live_pixel_rain" -> {
+                val bScale = (config.rainBrightnessPct.coerceIn(20, 100) / 70f)
+                val maxDrops = config.rainMaxDrops.coerceIn(6, 60)
+                val dropPx = (config.rainPixelSizeDp.coerceIn(2, 8) * dpPx).coerceAtLeast(1.5f)
+                val tailLen = config.rainTailLength.coerceIn(0, 5)
+                val accentPct = config.rainAccentPct.coerceIn(0, 50)
+                val colSpan = w / 28f
+                val maxRows = (h / dropPx).toInt().coerceAtLeast(10)
+
+                engine.ensureRainInitialized(maxRows)
+
+                val p = engine.paint
+                for (i in 0 until maxDrops) {
+                    val col = engine.rainCol[i]
+                    val headRow = engine.rainRow[i]
+                    val xLeft = col * colSpan + (colSpan - dropPx) * 0.5f
+                    val baseAlpha = (engine.rainHeadAlpha[i] * bScale).coerceIn(0.05f, 1f)
+                    val isAcc = engine.rainColorBucket[i] < accentPct
+
+                    for (tailIdx in 0..tailLen) {
+                        val r = headRow - tailIdx
+                        if (r in 0..maxRows) {
+                            val yTop = r * dropPx
+                            val mult = when (tailIdx) {
+                                0 -> 1.0f
+                                1 -> 0.40f
+                                2 -> 0.16f
+                                3 -> 0.08f
+                                4 -> 0.04f
+                                else -> 0.02f
+                            }
+                            val aInt = (baseAlpha * mult * 255f).roundToInt().coerceIn(5, 255)
+                            p.color = if (isAcc) {
+                                android.graphics.Color.argb(aInt, accR, accG, accB)
+                            } else {
+                                android.graphics.Color.argb(aInt, 255, 255, 255)
+                            }
+                            canvas.drawRect(xLeft, yTop, xLeft + dropPx, yTop + dropPx, p)
+                        }
+                    }
+                }
+            }
+
+            // ================================================================
+            // 9. CONSTELLATIONS
+            // ================================================================
+            "live_constellations_new" -> {
+                val bScale = (config.conBrightnessPct.coerceIn(20, 100) / 70f)
+                val starCount = config.conStarCount.coerceIn(15, 80)
+                val linkDistFrac = config.conLinkDistPct.coerceIn(10, 40) / 100f
+                val starSizePx = (config.conStarSizeDp.coerceIn(1f, 4f) * dpPx).coerceAtLeast(1f)
+                val lineThickPx = (config.conLineThicknessDp.coerceIn(0.5f, 2f) * dpPx).coerceAtLeast(0.5f)
+                val maxLinks = config.conMaxLinks.coerceIn(1, 3)
+                val accentPct = config.conAccentPct.coerceIn(0, 40)
+
+                engine.ensureConstellationsInitialized(w, h)
+
+                val p = engine.paint
+                val sp = engine.strokePaint
+                sp.strokeWidth = lineThickPx
+                val maxDist = linkDistFrac * w
+                val maxDistSq = maxDist * maxDist
+                val xs = engine.conX
+                val ys = engine.conY
+
+                for (i in 0 until starCount) {
+                    val xi = xs[i]
+                    val yi = ys[i]
+                    var best1Idx = -1
+                    var best1DistSq = maxDistSq
+                    var best2Idx = -1
+                    var best2DistSq = maxDistSq
+                    var best3Idx = -1
+                    var best3DistSq = maxDistSq
+
+                    for (j in 0 until starCount) {
+                        if (i == j) continue
+                        val dx = xs[j] - xi
+                        val dy = ys[j] - yi
+                        val dSq = dx * dx + dy * dy
+                        if (dSq < best1DistSq) {
+                            best3DistSq = best2DistSq
+                            best3Idx = best2Idx
+                            best2DistSq = best1DistSq
+                            best2Idx = best1Idx
+                            best1DistSq = dSq
+                            best1Idx = j
+                        } else if (dSq < best2DistSq) {
+                            best3DistSq = best2DistSq
+                            best3Idx = best2Idx
+                            best2DistSq = dSq
+                            best2Idx = j
+                        } else if (dSq < best3DistSq) {
+                            best3DistSq = dSq
+                            best3Idx = j
+                        }
+                    }
+
+                    if (best1Idx >= 0 && maxLinks >= 1) {
+                        val d1 = sqrt(best1DistSq)
+                        val a1 = (0.25f * (1f - d1 / maxDist) * 255f * bScale).roundToInt().coerceIn(0, 200)
+                        if (a1 > 3) {
+                            sp.color = android.graphics.Color.argb(a1, 255, 255, 255)
+                            canvas.drawLine(xi, yi, xs[best1Idx], ys[best1Idx], sp)
+                        }
+                    }
+                    if (best2Idx >= 0 && maxLinks >= 2) {
+                        val d2 = sqrt(best2DistSq)
+                        val a2 = (0.25f * (1f - d2 / maxDist) * 255f * bScale).roundToInt().coerceIn(0, 200)
+                        if (a2 > 3) {
+                            sp.color = android.graphics.Color.argb(a2, 255, 255, 255)
+                            canvas.drawLine(xi, yi, xs[best2Idx], ys[best2Idx], sp)
+                        }
+                    }
+                    if (best3Idx >= 0 && maxLinks >= 3) {
+                        val d3 = sqrt(best3DistSq)
+                        val a3 = (0.25f * (1f - d3 / maxDist) * 255f * bScale).roundToInt().coerceIn(0, 200)
+                        if (a3 > 3) {
+                            sp.color = android.graphics.Color.argb(a3, 255, 255, 255)
+                            canvas.drawLine(xi, yi, xs[best3Idx], ys[best3Idx], sp)
+                        }
+                    }
+                }
+
+                val half = starSizePx * 0.5f
+                val whiteStarColor = android.graphics.Color.argb(
+                    (0.40f * 255f * bScale).roundToInt().coerceIn(15, 255),
+                    255, 255, 255
+                )
+                val accentStarColor = android.graphics.Color.argb(
+                    (0.85f * 255f * bScale).roundToInt().coerceIn(30, 255),
+                    accR, accG, accB
+                )
+                for (i in 0 until starCount) {
+                    val isAcc = ((i * 29 + 7) % 100) < accentPct
+                    p.color = if (isAcc) accentStarColor else whiteStarColor
+                    val sx = xs[i]
+                    val sy = ys[i]
+                    canvas.drawRect(sx - half, sy - half, sx + half, sy + half, p)
+                }
+            }
+        }
+
+        // Universal Wallpaper Dimmer Overlay
+        if (dimPercent > 0) {
+            val dimAlpha = (dimPercent.coerceIn(0, 90) * 255) / 100
+            engine.dimmerPaint.color = android.graphics.Color.argb(dimAlpha, 0, 0, 0)
+            canvas.drawRect(0f, 0f, w, h, engine.dimmerPaint)
+        }
+
+        // Hidden Debug FPS Readout (updated once per second, zero per-frame allocations)
+        val drawEndNs = System.nanoTime()
+        if (isVsyncLoopPosted) {
+            if (fpsWindowStartNanos == 0L) {
+                fpsWindowStartNanos = drawStartNs
+                fpsFramesDrawnInWindow = 0
+                fpsAccumDrawNanos = 0L
+            }
+            fpsFramesDrawnInWindow++
+            fpsAccumDrawNanos += (drawEndNs - drawStartNs).coerceAtLeast(0L)
+            val elapsedWindowNs = drawEndNs - fpsWindowStartNanos
+            if (elapsedWindowNs >= 1_000_000_000L) {
+                val measuredFps = ((fpsFramesDrawnInWindow * 1_000_000_000L + elapsedWindowNs / 2L) / elapsedWindowNs).toInt()
+                val avgDrawNanos = fpsAccumDrawNanos / fpsFramesDrawnInWindow.coerceAtLeast(1)
+                val avgTenthsMs = ((avgDrawNanos + 50_000L) / 100_000L).toInt()
+                engine.formatDebugFps(measuredFps, avgTenthsMs)
+                fpsWindowStartNanos = drawEndNs
+                fpsFramesDrawnInWindow = 0
+                fpsAccumDrawNanos = 0L
+            } else if (engine.debugFpsCharLen == 4) {
+                // First active frame after waking from IDLE: immediately show target/initial readout
+                val firstTenthsMs = (((drawEndNs - drawStartNs).coerceAtLeast(0L) + 50_000L) / 100_000L).toInt()
+                val initFps = when (preset) {
+                    "live_starfield_3d" -> config.starfieldFps.coerceIn(15, 60)
+                    "live_raster_lines" -> config.crtFps.coerceIn(15, 60)
+                    "live_touch_ripples" -> config.ripplesFps.coerceIn(30, 60)
+                    "live_oscilloscope" -> config.oscilloscopeFps.coerceIn(15, 60)
+                    "live_sonar" -> config.sonarFps.coerceIn(15, 60)
+                    "live_pixel_rain" -> config.rainFps.coerceIn(15, 30)
+                    "live_constellations_new" -> config.conFps.coerceIn(15, 60)
+                    else -> 60
+                }
+                engine.formatDebugFps(initFps, firstTenthsMs)
+            }
+        } else {
+            engine.setDebugTextIdle()
+        }
+
+        if (DebugWallpaperFpsState.enabled) {
+            val textSizePx = if (isPreview) (10.5f * baseDpPx) else (10f * baseDpPx)
+            engine.debugFpsPaint.textSize = textSizePx
+            val padX = if (isPreview) (10f * baseDpPx) else (12f * baseDpPx)
+            val padY = if (isPreview) (18f * baseDpPx) else (topStatusInsetPx + 14f * baseDpPx)
+            canvas.drawText(engine.debugFpsChars, 0, engine.debugFpsCharLen, padX, padY, engine.debugFpsPaint)
+        }
     }
 }
 
@@ -15615,47 +16818,90 @@ fun OledWallpaperCanvas(
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val isLive = preset.startsWith("live_")
+    val isLive = preset in VALID_LIVE_WALLPAPER_IDS
 
     val realScreenWidthPx = with(density) {
         configuration.screenWidthDp.coerceAtLeast(320).dp.toPx()
     }.coerceAtLeast(1f)
     val baseDpPx = with(density) { 1.dp.toPx() }
+    val topStatusInsetPx = max(
+        WindowInsets.statusBars.getTop(density).toFloat(),
+        WindowInsets.displayCutout.getTop(density).toFloat()
+    )
 
-    // Draw-phase invalidation ticks: NEVER read in composable scope so OledWallpaperCanvas never recomposes per frame!
-    var drawFrameTick by remember { mutableStateOf(0) }
+    var isLifecycleResumed by remember { mutableStateOf(true) }
     var midnightDateTick by remember { mutableStateOf(0) }
 
-    val currentConfig by rememberUpdatedState(liveWpConfig)
-
-    val starfieldSimulation = remember { DeepSpaceStarfieldSimulation() }
-    val newWpEngine = remember { NewLiveWallpapersEngine() }
-    var isLifecycleResumed by remember { mutableStateOf(true) }
-
-    DisposableEffect(lifecycleOwner, isScreenVisible) {
+    DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME, Lifecycle.Event.ON_START -> {
                     isLifecycleResumed = true
-                    if (isScreenVisible) starfieldSimulation.resume()
                 }
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
                     isLifecycleResumed = false
-                    starfieldSimulation.pause()
                 }
                 else -> {}
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        if (isScreenVisible && isLifecycleResumed) {
-            starfieldSimulation.resume()
-        } else {
-            starfieldSimulation.pause()
-        }
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            starfieldSimulation.pause()
         }
+    }
+
+    LaunchedEffect(preset, isScreenVisible, dateChangeTrigger) {
+        if ((preset == "live_year_in_dots" || preset == "live_moon_phase") && isScreenVisible) {
+            while (true) {
+                val now = Calendar.getInstance()
+                val nextMidnight = (now.clone() as Calendar).apply {
+                    add(Calendar.DAY_OF_YEAR, 1)
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 1)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                val waitMs = (nextMidnight.timeInMillis - now.timeInMillis).coerceAtLeast(1000L)
+                delay(waitMs)
+                midnightDateTick = (midnightDateTick + 1) and 0x7FFFFFFF
+            }
+        }
+    }
+
+    // All 9 Built-In Live Wallpapers render on a dedicated hardware-accelerated Choreographer View (0 Compose recompositions per frame!)
+    if (isLive) {
+        val accentArgb = android.graphics.Color.argb(
+            255,
+            (accentColor.red * 255f).roundToInt().coerceIn(0, 255),
+            (accentColor.green * 255f).roundToInt().coerceIn(0, 255),
+            (accentColor.blue * 255f).roundToInt().coerceIn(0, 255)
+        )
+        val combinedDateTrigger = dateChangeTrigger + midnightDateTick
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                LiveWallpaperHardwareView(ctx)
+            },
+            update = { view ->
+                view.preset = preset
+                view.accentArgb = accentArgb
+                view.dimPercent = dimPercent
+                view.config = liveWpConfig
+                view.batteryPct = batteryPct
+                view.isPowerSaveMode = isPowerSaveMode
+                view.dateChangeTrigger = combinedDateTrigger
+                view.isScreenVisible = isScreenVisible
+                view.isLifecycleResumed = isLifecycleResumed
+                view.isPreview = isPreview
+                view.realScreenWidthPx = realScreenWidthPx
+                view.baseDpPx = baseDpPx
+                view.topStatusInsetPx = topStatusInsetPx
+                view.bindRippleBus(touchRippleBus)
+                view.onSonarTriggerTokenUpdated(sonarTriggerToken)
+                view.syncAnimationState()
+            }
+        )
+        return
     }
 
     var customUserBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
@@ -15677,876 +16923,21 @@ fun OledWallpaperCanvas(
         }
     }
 
-    LaunchedEffect(preset, liveWpConfig.oscilloscopeCurve) {
-        if (preset == "live_oscilloscope") {
-            newWpEngine.ensureOscilloscopeInitialized(liveWpConfig.oscilloscopeCurve)
-            drawFrameTick = (drawFrameTick + 1) and 0x7FFFFFFF
-        }
-    }
-
-    LaunchedEffect(sonarTriggerToken) {
-        if (preset == "live_sonar" && sonarTriggerToken > 0) {
-            newWpEngine.liveTimeSec = 0f
-            drawFrameTick = (drawFrameTick + 1) and 0x7FFFFFFF
-        }
-    }
-
-    LaunchedEffect(preset, isScreenVisible, dateChangeTrigger) {
-        if ((preset == "live_year_in_dots" || preset == "live_moon_phase") && isScreenVisible) {
-            while (true) {
-                val now = Calendar.getInstance()
-                val nextMidnight = (now.clone() as Calendar).apply {
-                    add(Calendar.DAY_OF_YEAR, 1)
-                    set(Calendar.HOUR_OF_DAY, 0)
-                    set(Calendar.MINUTE, 0)
-                    set(Calendar.SECOND, 1)
-                    set(Calendar.MILLISECOND, 0)
-                }
-                val waitMs = (nextMidnight.timeInMillis - now.timeInMillis).coerceAtLeast(1000L)
-                delay(waitMs)
-                midnightDateTick = (midnightDateTick + 1) and 0x7FFFFFFF
-                drawFrameTick = (drawFrameTick + 1) and 0x7FFFFFFF
-            }
-        }
-    }
-
-    val isLowBatteryPaused = isLive && (batteryPct < 15 || isPowerSaveMode)
-    val canAnimateNow = isLive &&
-        isScreenVisible &&
-        isLifecycleResumed &&
-        !isLowBatteryPaused
-
-    // Pure vsync-driven frame loop for all animated wallpapers:
-    // - Wakes immediately on touchRippleBus.triggerCount or sonarTriggerToken
-    // - Respects Frame rate cap (15 / 30 / 60) by skipping vsyncs in withFrameNanos (zero delay() drift!)
-    // - Sleeps completely (0 fps, 0 CPU) when no ripple is active in Touch Ripples or during the quiet gap in Sonar
-    val rippleWakeToken = touchRippleBus?.triggerCount ?: 0
-    if (canAnimateNow && preset in VALID_LIVE_WALLPAPER_IDS && preset != "live_year_in_dots" && preset != "live_moon_phase") {
-        LaunchedEffect(preset, canAnimateNow, rippleWakeToken, sonarTriggerToken) {
-            var lastAcceptedNanos = 0L
-
-            while (true) {
-                val cfg = currentConfig
-                val effectiveFps = when (preset) {
-                    "live_starfield_3d" -> cfg.starfieldFps.coerceIn(15, 60)
-                    "live_raster_lines" -> cfg.crtFps.coerceIn(15, 60)
-                    "live_touch_ripples" -> cfg.ripplesFps.coerceIn(30, 60)
-                    "live_oscilloscope" -> cfg.oscilloscopeFps.coerceIn(15, 60)
-                    "live_sonar" -> cfg.sonarFps.coerceIn(15, 60)
-                    "live_pixel_rain" -> cfg.rainFps.coerceIn(15, 30)
-                    "live_constellations_new" -> cfg.conFps.coerceIn(15, 60)
-                    else -> 60
-                }
-                // Subtract 2.4ms tolerance so 30fps (33.3ms) and 15fps (66.6ms) lock cleanly to every 2nd or 4th vsync on 60Hz/120Hz
-                val minFrameIntervalNanos = (1_000_000_000L / effectiveFps.toLong()) - 2_400_000L
-
-                if (preset == "live_touch_ripples") {
-                    val bus = touchRippleBus ?: break
-                    val nowSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
-                    val speedMult = cfg.ripplesSpeedPct.coerceIn(25, 200) / 100f
-                    val durationSec = (1.4f / speedMult).coerceAtLeast(0.35f)
-                    val maxSlots = cfg.ripplesMaxCount.coerceIn(1, 5)
-                    var anyActive = false
-                    for (i in 0 until maxSlots) {
-                        if (bus.rippleActive[i]) {
-                            val age = nowSec - bus.rippleBirthSec[i]
-                            if (age in 0f..durationSec) {
-                                anyActive = true
-                            } else {
-                                bus.rippleActive[i] = false
-                            }
-                        }
-                    }
-                    if (!anyActive) {
-                        drawFrameTick = (drawFrameTick + 1) and 0x7FFFFFFF
-                        break
-                    }
-                } else if (preset == "live_sonar") {
-                    val speedMult = cfg.sonarSpeedPct.coerceIn(25, 200) / 100f
-                    val intervalSec = cfg.sonarIntervalSec.coerceIn(4, 20).toFloat()
-                    val activeRingSec = (6.0f / speedMult).coerceAtLeast(1.3f)
-                    val echoMarginSec = cfg.sonarEchoRings.coerceIn(0, 2) * 0.5f
-                    val totalWaveSec = activeRingSec + echoMarginSec
-                    val cycleSec = max(intervalSec, totalWaveSec + 0.25f)
-                    val phaseSec = newWpEngine.liveTimeSec % cycleSec
-                    if (phaseSec > totalWaveSec) {
-                        drawFrameTick = (drawFrameTick + 1) and 0x7FFFFFFF
-                        val sleepMs = ((cycleSec - phaseSec) * 1000f).toLong().coerceAtLeast(16L)
-                        delay(sleepMs)
-                        newWpEngine.liveTimeSec = (newWpEngine.liveTimeSec + (cycleSec - phaseSec)) % 36000f
-                        lastAcceptedNanos = 0L
-                        continue
-                    }
-                }
-
-                withFrameNanos { nanos ->
-                    if (lastAcceptedNanos != 0L && effectiveFps < 60 && (nanos - lastAcceptedNanos) < minFrameIntervalNanos) {
-                        // Skip this vsync without invalidating Canvas
-                        return@withFrameNanos
-                    }
-                    val dt = if (lastAcceptedNanos == 0L) {
-                        1f / effectiveFps.toFloat()
-                    } else {
-                        ((nanos - lastAcceptedNanos) / 1_000_000_000f).coerceIn(0.001f, 0.15f)
-                    }
-                    lastAcceptedNanos = nanos
-
-                    val cfgNow = currentConfig
-                    when (preset) {
-                        "live_starfield_3d" -> {
-                            val densityMult = cfgNow.starfieldDensityPct.coerceIn(25, 200) / 100f
-                            val speedMult = cfgNow.starfieldSpeedPct.coerceIn(25, 200) / 100f
-                            val targetStars = (DeepSpaceStarfieldSimulation.DEFAULT_STAR_COUNT * densityMult)
-                                .roundToInt()
-                                .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_STAR_COUNT)
-                            starfieldSimulation.step(dt, speedMult, targetStars)
-                        }
-                        "live_raster_lines" -> {
-                            val bandSpeedMult = cfgNow.crtBandSpeedPct.coerceIn(25, 200) / 100f
-                            newWpEngine.liveTimeSec = (newWpEngine.liveTimeSec + dt * 0.42f * bandSpeedMult) % 7200f
-                        }
-                        "live_oscilloscope" -> {
-                            newWpEngine.liveTimeSec = (newWpEngine.liveTimeSec + dt) % 36000f
-                            val spd = cfgNow.oscilloscopeSpeedPct.coerceIn(25, 200) / 100f
-                            newWpEngine.stepOscilloscope(dt, spd, cfgNow.oscilloscopeCurve)
-                        }
-                        "live_pixel_rain" -> {
-                            newWpEngine.liveTimeSec = (newWpEngine.liveTimeSec + dt) % 36000f
-                            val spd = cfgNow.rainSpeedPct.coerceIn(25, 200) / 100f
-                            val vScale = if (isPreview) (newWpEngine.lastCanvasW / realScreenWidthPx).coerceIn(0.15f, 1.0f) else 1.0f
-                            val dropPx = (cfgNow.rainPixelSizeDp.coerceIn(2, 8) * baseDpPx * vScale).coerceAtLeast(1.5f)
-                            val maxRows = (newWpEngine.lastCanvasH / dropPx).toInt().coerceAtLeast(10)
-                            newWpEngine.stepPixelRain(dt, spd, maxRows, cfgNow.rainMaxDrops)
-                        }
-                        "live_constellations_new" -> {
-                            newWpEngine.liveTimeSec = (newWpEngine.liveTimeSec + dt) % 36000f
-                            val spd = cfgNow.conSpeedPct.coerceIn(25, 200) / 100f
-                            val vScale = if (isPreview) (newWpEngine.lastCanvasW / realScreenWidthPx).coerceIn(0.15f, 1.0f) else 1.0f
-                            val dpScaled = baseDpPx * vScale
-                            newWpEngine.stepConstellations(dt, spd, dpScaled, newWpEngine.lastCanvasW, newWpEngine.lastCanvasH, cfgNow.conStarCount)
-                        }
-                        else -> {
-                            newWpEngine.liveTimeSec = (newWpEngine.liveTimeSec + dt) % 36000f
-                        }
-                    }
-
-                    // Invalidate ONLY the Canvas draw scope!
-                    drawFrameTick = (drawFrameTick + 1) and 0x7FFFFFFF
-                }
-            }
-        }
-    }
-
     if (!isPreview && (preset == "oled" || preset == "system_wallpaper") && dimPercent <= 0) {
         return
     }
 
-    val densityMult = 1.0f
     val opacityMult = 1.0f
     val scaleMult = 1.0f
 
     Canvas(modifier = Modifier.fillMaxSize()) {
-        // Read drawFrameTick and midnightDateTick inside the draw phase ONLY (0 composable recompositions!)
-        val frameToken = drawFrameTick + midnightDateTick
-        if (frameToken < 0) return@Canvas
-
         val w = size.width
         val h = size.height
-        newWpEngine.lastCanvasW = w
-        newWpEngine.lastCanvasH = h
         val minDim = min(w, h)
         val maxDim = max(w, h)
         val fullDiag = hypot(w, h)
-        val t = newWpEngine.liveTimeSec
-        val viewportScale = if (isPreview) (w / realScreenWidthPx).coerceIn(0.15f, 1.0f) else 1.0f
-        val dpPx = 1.dp.toPx() * viewportScale
 
         when (preset) {
-            // ================================================================
-            // 1. 3D STARFIELD
-            // ================================================================
-            "live_starfield_3d" -> {
-                val sfDensity = liveWpConfig.starfieldDensityPct.coerceIn(25, 200) / 100f
-                val sfSize = liveWpConfig.starfieldSizePct.coerceIn(50, 200) / 100f
-                val sfBrightness = liveWpConfig.starfieldBrightnessPct.coerceIn(20, 100) / 100f
-                val activeStars = (DeepSpaceStarfieldSimulation.DEFAULT_STAR_COUNT * sfDensity)
-                    .roundToInt()
-                    .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_STAR_COUNT)
-                drawIntoCanvas { composeCanvas ->
-                    starfieldSimulation.draw(
-                        nativeCanvas = composeCanvas.nativeCanvas,
-                        width = w,
-                        height = h,
-                        densityPxPerDp = dpPx,
-                        activeCount = activeStars,
-                        opacityMultiplier = sfBrightness,
-                        scaleMultiplier = sfSize
-                    )
-                }
-            }
-
-            // ================================================================
-            // 2. CRT SCANLINES
-            // ================================================================
-            "live_raster_lines" -> {
-                val crtDensity = liveWpConfig.crtLineDensityPct.coerceIn(50, 200) / 100f
-                val crtStrength = liveWpConfig.crtLineStrengthPct.coerceIn(20, 100) / 100f
-                val crtBrightness = liveWpConfig.crtBrightnessPct.coerceIn(20, 100) / 100f
-
-                val pitch = (3.2f * dpPx / crtDensity).coerceAtLeast(1.5f * viewportScale)
-                val baseScanAlpha = (0.11f * crtStrength * crtBrightness).coerceIn(0.01f, 0.45f)
-                val majorScanAlpha = (0.19f * crtStrength * crtBrightness).coerceIn(0.02f, 0.60f)
-
-                val beamFrac = if ((isLowBatteryPaused || !canAnimateNow) && t == 0f) 0.35f else ((t * 0.24f) % 1.0f)
-                val beamY = beamFrac * h
-                val beamHalfBand = (h * 0.14f).coerceAtLeast(36f * viewportScale)
-
-                var rowIdx = 0
-                var y = 0f
-                while (y <= h) {
-                    val distFromBeam = abs(y - beamY)
-                    val wrapDist = min(distFromBeam, h - distFromBeam)
-                    val beamBoost = if (wrapDist < beamHalfBand) {
-                        val f = 1f - (wrapDist / beamHalfBand)
-                        f * f * 0.22f * crtBrightness
-                    } else 0f
-
-                    val isMajorLine = (rowIdx % 4 == 0)
-                    val lineAlpha = ((if (isMajorLine) majorScanAlpha else baseScanAlpha) + beamBoost).coerceIn(0.01f, 0.70f)
-                    drawLine(
-                        color = accentColor.copy(alpha = lineAlpha),
-                        start = Offset(0f, y),
-                        end = Offset(w, y),
-                        strokeWidth = (if (isMajorLine) 1.15f else 0.75f) * viewportScale.coerceAtLeast(0.55f)
-                    )
-                    y += pitch
-                    rowIdx++
-                }
-
-                val bandTop = (beamY - beamHalfBand).coerceAtLeast(0f)
-                val bandBottom = (beamY + beamHalfBand).coerceAtMost(h)
-                if (bandBottom > bandTop) {
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                accentColor.copy(alpha = (0.065f * crtBrightness).coerceIn(0.01f, 0.22f)),
-                                Color.Transparent
-                            ),
-                            startY = bandTop,
-                            endY = bandBottom
-                        ),
-                        topLeft = Offset(0f, bandTop),
-                        size = Size(w, bandBottom - bandTop)
-                    )
-                }
-            }
-
-            // ================================================================
-            // 3. YEAR IN DOTS (Static, 0 continuous frames)
-            // ================================================================
-            "live_year_in_dots" -> {
-                if (dateChangeTrigger >= 0) {
-                    val cal = Calendar.getInstance()
-                    val year = cal.get(Calendar.YEAR)
-                    val todayDay = cal.get(Calendar.DAY_OF_YEAR)
-                    val totalDays = cal.getActualMaximum(Calendar.DAY_OF_YEAR)
-                    val bScale = (liveWpConfig.yearDotsBrightnessPct.coerceIn(20, 100) / 70f)
-                    val cols = liveWpConfig.yearDotsColumns.coerceIn(10, 30)
-                    val dotSizePct = liveWpConfig.yearDotsSizePct.coerceIn(15, 50)
-                    val isRound = liveWpConfig.yearDotsShape == "round"
-                    val posMode = liveWpConfig.yearDotsVerticalPos
-                    val showCounter = liveWpConfig.yearDotsShowCounter
-                    val accentArgb = android.graphics.Color.argb(
-                        (255f * bScale.coerceIn(0.25f, 1f)).roundToInt().coerceIn(40, 255),
-                        (accentColor.red * 255f).roundToInt(),
-                        (accentColor.green * 255f).roundToInt(),
-                        (accentColor.blue * 255f).roundToInt()
-                    )
-                    val wInt = w.roundToInt().coerceAtLeast(1)
-                    val hInt = h.roundToInt().coerceAtLeast(1)
-                    val cacheKey = "yd_${wInt}_${hInt}_${year}_${todayDay}_${totalDays}_${accentArgb}_${cols}_${dotSizePct}_${isRound}_${posMode}_${showCounter}_${liveWpConfig.yearDotsBrightnessPct}"
-
-                    if (newWpEngine.cachedKey != cacheKey || newWpEngine.cachedStaticBitmap == null) {
-                        val bmp = if (newWpEngine.cachedStaticBitmap?.width == wInt && newWpEngine.cachedStaticBitmap?.height == hInt) {
-                            newWpEngine.cachedStaticBitmap!!.apply { eraseColor(android.graphics.Color.BLACK) }
-                        } else {
-                            Bitmap.createBitmap(wInt, hInt, Bitmap.Config.ARGB_8888)
-                        }
-                        val c = android.graphics.Canvas(bmp)
-                        val marginX = 0.12f * w
-                        val gridW = 0.76f * w
-                        val rows = (totalDays + cols - 1) / cols
-                        val cellSize = gridW / cols.toFloat()
-                        val dotSize = ((dotSizePct / 100f) * cellSize).coerceAtLeast(1.2f * viewportScale)
-                        val todaySize = dotSize * 1.5f
-                        val gridH = rows * cellSize
-                        val startY = when (posMode) {
-                            "top" -> h * 0.16f
-                            "bottom" -> (h * 0.82f - gridH).coerceAtLeast(h * 0.08f)
-                            else -> (h - gridH) * 0.5f
-                        }
-
-                        val pastAlpha = (0.35f * 255f * bScale).roundToInt().coerceIn(15, 255)
-                        val futureAlpha = (0.08f * 255f * bScale).roundToInt().coerceIn(6, 180)
-                        val pastColor = android.graphics.Color.argb(pastAlpha, 255, 255, 255)
-                        val futureColor = android.graphics.Color.argb(futureAlpha, 255, 255, 255)
-                        val p = if (isRound) newWpEngine.roundPaint else newWpEngine.paint
-
-                        for (day in 1..totalDays) {
-                            val idx = day - 1
-                            val r = idx / cols
-                            val col = idx % cols
-                            val cx = marginX + (col + 0.5f) * cellSize
-                            val cy = startY + (r + 0.5f) * cellSize
-                            val sz = if (day == todayDay) todaySize else dotSize
-                            p.color = when {
-                                day == todayDay -> accentArgb
-                                day < todayDay -> pastColor
-                                else -> futureColor
-                            }
-                            val half = sz * 0.5f
-                            if (isRound) {
-                                c.drawCircle(cx, cy, half, p)
-                            } else {
-                                c.drawRect(cx - half, cy - half, cx + half, cy + half, p)
-                            }
-                        }
-
-                        if (showCounter) {
-                            val counterAlpha = (0.40f * 255f * bScale).roundToInt().coerceIn(20, 255)
-                            newWpEngine.textPaint.color = android.graphics.Color.argb(counterAlpha, 255, 255, 255)
-                            newWpEngine.textPaint.textSize = (10f * dpPx).coerceAtLeast(6f)
-                            c.drawText(
-                                "DAY $todayDay / $totalDays",
-                                w * 0.5f,
-                                startY + gridH + 20f * dpPx,
-                                newWpEngine.textPaint
-                            )
-                        }
-
-                        newWpEngine.cachedStaticBitmap = bmp
-                        newWpEngine.cachedKey = cacheKey
-                    }
-
-                    newWpEngine.cachedStaticBitmap?.let { bmp ->
-                        drawIntoCanvas { composeCanvas ->
-                            composeCanvas.nativeCanvas.drawBitmap(bmp, 0f, 0f, null)
-                        }
-                    }
-                }
-            }
-
-            // ================================================================
-            // 4. MOON PHASE (Static pixel-art moon, 0 continuous frames)
-            // ================================================================
-            "live_moon_phase" -> {
-                if (dateChangeTrigger >= 0) {
-                    val cal = Calendar.getInstance()
-                    val dayKey = "${cal.get(Calendar.YEAR)}_${cal.get(Calendar.DAY_OF_YEAR)}"
-                    val bScale = (liveWpConfig.moonBrightnessPct.coerceIn(20, 100) / 70f)
-                    val moonSizePct = liveWpConfig.moonSizePct.coerceIn(15, 45)
-                    val rawDetail = liveWpConfig.moonPixelDetail.coerceIn(15, 41)
-                    val detail = if (rawDetail % 2 == 0) (rawDetail + 1).coerceAtMost(41) else rawDetail
-                    val vertPct = liveWpConfig.moonVerticalPct.coerceIn(20, 80)
-                    val showName = liveWpConfig.moonShowPhaseName
-                    val wInt = w.roundToInt().coerceAtLeast(1)
-                    val hInt = h.roundToInt().coerceAtLeast(1)
-                    val cacheKey = "mp_${wInt}_${hInt}_${dayKey}_${moonSizePct}_${detail}_${vertPct}_${showName}_${liveWpConfig.moonBrightnessPct}"
-
-                    if (newWpEngine.cachedKey != cacheKey || newWpEngine.cachedStaticBitmap == null) {
-                        val bmp = if (newWpEngine.cachedStaticBitmap?.width == wInt && newWpEngine.cachedStaticBitmap?.height == hInt) {
-                            newWpEngine.cachedStaticBitmap!!.apply { eraseColor(android.graphics.Color.BLACK) }
-                        } else {
-                            Bitmap.createBitmap(wInt, hInt, Bitmap.Config.ARGB_8888)
-                        }
-                        val c = android.graphics.Canvas(bmp)
-
-                        val julianDay = (System.currentTimeMillis() / 86400000.0) + 2440587.5
-                        val rawPhase = ((julianDay - 2451550.1) / 29.530588853) % 1.0
-                        val phase = (if (rawPhase < 0.0) rawPhase + 1.0 else rawPhase).toFloat()
-
-                        val discDiameterPx = (moonSizePct / 100f) * w
-                        val pxSize = (discDiameterPx / detail.toFloat()).coerceAtLeast(1f)
-                        val halfGrid = detail / 2
-                        val halfGridF = halfGrid.coerceAtLeast(1).toFloat()
-                        val cx = 0.50f * w
-                        val cy = (vertPct / 100f) * h
-                        val litAlpha = (0.90f * 255f * bScale).roundToInt().coerceIn(30, 255)
-                        val unlitAlpha = (0.06f * 255f * bScale).roundToInt().coerceIn(6, 120)
-                        val litColor = android.graphics.Color.argb(litAlpha, 255, 255, 255)
-                        val unlitColor = android.graphics.Color.argb(unlitAlpha, 255, 255, 255)
-                        val p = newWpEngine.paint
-                        val cosPhase = cos(phase * 2.0 * PI).toFloat()
-
-                        for (gy in -halfGrid..halfGrid) {
-                            val ny = gy / halfGridF
-                            for (gx in -halfGrid..halfGrid) {
-                                val nx = gx / halfGridF
-                                val rSq = nx * nx + ny * ny
-                                if (rSq <= 1.0f) {
-                                    val xMax = sqrt((1f - ny * ny).coerceAtLeast(0f))
-                                    val xTerm = cosPhase * xMax
-                                    val isLit = if (phase < 0.5f) {
-                                        nx >= xTerm
-                                    } else {
-                                        nx <= -xTerm
-                                    }
-                                    p.color = if (isLit) litColor else unlitColor
-                                    val left = cx + gx * pxSize - pxSize * 0.45f
-                                    val top = cy + gy * pxSize - pxSize * 0.45f
-                                    c.drawRect(left, top, left + pxSize * 0.90f, top + pxSize * 0.90f, p)
-                                }
-                            }
-                        }
-
-                        if (showName) {
-                            val phaseName = when {
-                                phase < 0.03f || phase >= 0.97f -> "NEW MOON"
-                                phase < 0.22f -> "WAXING CRESCENT"
-                                phase < 0.28f -> "FIRST QUARTER"
-                                phase < 0.47f -> "WAXING GIBBOUS"
-                                phase < 0.53f -> "FULL MOON"
-                                phase < 0.72f -> "WANING GIBBOUS"
-                                phase < 0.78f -> "LAST QUARTER"
-                                else -> "WANING CRESCENT"
-                            }
-                            val textAlpha = (0.40f * 255f * bScale).roundToInt().coerceIn(20, 255)
-                            newWpEngine.textPaint.color = android.graphics.Color.argb(textAlpha, 255, 255, 255)
-                            newWpEngine.textPaint.textSize = (10f * dpPx).coerceAtLeast(6f)
-                            c.drawText(
-                                phaseName,
-                                cx,
-                                cy + (halfGrid + 1.5f) * pxSize + 20f * dpPx,
-                                newWpEngine.textPaint
-                            )
-                        }
-
-                        newWpEngine.cachedStaticBitmap = bmp
-                        newWpEngine.cachedKey = cacheKey
-                    }
-
-                    newWpEngine.cachedStaticBitmap?.let { bmp ->
-                        drawIntoCanvas { composeCanvas ->
-                            composeCanvas.nativeCanvas.drawBitmap(bmp, 0f, 0f, null)
-                        }
-                    }
-                }
-            }
-
-            // ================================================================
-            // 5. TOUCH RIPPLES (60fps Vsync-Driven, 1 drawPoints Base Grid + 4 Opacity Buckets + 1 Accent Bucket, Zero sqrt!)
-            // ================================================================
-            "live_touch_ripples" -> {
-                val bScale = (liveWpConfig.ripplesBrightnessPct.coerceIn(20, 100) / 70f)
-                val speedMult = (liveWpConfig.ripplesSpeedPct.coerceIn(25, 200) / 100f)
-                val spacingDp = liveWpConfig.ripplesSpacingDp.coerceIn(12, 40)
-                val dotDp = liveWpConfig.ripplesDotSizeDp.coerceIn(1, 4)
-                val reachPct = liveWpConfig.ripplesReachPct.coerceIn(30, 100)
-                val maxRipples = liveWpConfig.ripplesMaxCount.coerceIn(1, 5)
-                val wInt = w.roundToInt().coerceAtLeast(1)
-                val hInt = h.roundToInt().coerceAtLeast(1)
-                val stepPx = (spacingDp * dpPx).coerceAtLeast(3f)
-                val dotPx = (dotDp * dpPx).coerceAtLeast(1f)
-                val gridKey = "tr_pts_${wInt}_${hInt}_${spacingDp}"
-
-                newWpEngine.ensureTouchRipplesGrid(w, h, stepPx, gridKey)
-
-                drawIntoCanvas { composeCanvas ->
-                    val nc = composeCanvas.nativeCanvas
-                    val ptPaint = newWpEngine.pointPaint
-                    ptPaint.strokeWidth = dotPx
-
-                    // 1. Draw the entire static dot grid in ONE drawPoints call with one paint
-                    val baseAlpha = (0.06f * 255f * bScale).roundToInt().coerceIn(5, 100)
-                    ptPaint.color = android.graphics.Color.argb(baseAlpha, 255, 255, 255)
-                    if (newWpEngine.baseGridFloatCount > 0) {
-                        nc.drawPoints(newWpEngine.baseGridPts, 0, newWpEngine.baseGridFloatCount, ptPaint)
-                    }
-
-                    // 2. For each active ripple, compute integer cell bounds and squared distances (no sqrt!)
-                    //    and group highlighted dots into 4 white opacity buckets + 1 accent leading-edge bucket
-                    val bus = touchRippleBus
-                    if (bus != null) {
-                        val nowSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
-                        val maxRadius = (reachPct / 100f) * h
-                        val durationSec = (1.4f / speedMult).coerceAtLeast(0.35f)
-                        val offsetX = newWpEngine.baseGridOffsetX
-                        val offsetY = newWpEngine.baseGridOffsetY
-                        val numCols = newWpEngine.baseGridCols
-                        val numRows = newWpEngine.baseGridRows
-
-                        for (b in 0 until 4) {
-                            newWpEngine.rippleWhiteFloatCounts[b] = 0
-                        }
-                        newWpEngine.rippleAccentFloatCount = 0
-
-                        for (rIdx in 0 until maxRipples) {
-                            if (!bus.rippleActive[rIdx]) continue
-                            val age = nowSec - bus.rippleBirthSec[rIdx]
-                            if (age < 0f || age > durationSec) continue
-                            val norm = (age / durationSec).coerceIn(0f, 1f)
-                            val easeOut = 1f - (1f - norm) * (1f - norm)
-                            val ringRadius = maxRadius * easeOut
-                            val fadeTail = (1f - norm).coerceIn(0f, 1f)
-                            if (fadeTail <= 0.02f) continue
-
-                            val rx = bus.rippleX[rIdx]
-                            val ry = bus.rippleY[rIdx]
-                            val rOuter = ringRadius + stepPx
-                            val rInner = (ringRadius - stepPx).coerceAtLeast(0f)
-                            val rOuterSq = rOuter * rOuter
-                            val rInnerSq = rInner * rInner
-                            val ringRadiusSq = ringRadius * ringRadius
-                            val innerBandSpanSq = (ringRadiusSq - rInnerSq).coerceAtLeast(1f)
-                            // Inner hollow square (inscribed inside rInner) that can be skipped completely
-                            val hollowHalf = rInner * 0.70f
-
-                            val colMin = ((rx - rOuter - offsetX) / stepPx).toInt().coerceAtLeast(0)
-                            val colMax = ((rx + rOuter - offsetX) / stepPx).toInt().coerceAtMost(numCols - 1)
-                            val rowMin = ((ry - rOuter - offsetY) / stepPx).toInt().coerceAtLeast(0)
-                            val rowMax = ((ry + rOuter - offsetY) / stepPx).toInt().coerceAtMost(numRows - 1)
-
-                            for (row in rowMin..rowMax) {
-                                val gy = offsetY + row * stepPx
-                                val dy = gy - ry
-                                val absDy = abs(dy)
-                                val dySq = dy * dy
-                                for (col in colMin..colMax) {
-                                    val gx = offsetX + col * stepPx
-                                    val dx = gx - rx
-                                    if (absDy < hollowHalf && abs(dx) < hollowHalf) continue
-                                    val dSq = dx * dx + dySq
-                                    if (dSq in rInnerSq..rOuterSq) {
-                                        if (dSq >= ringRadiusSq) {
-                                            // Leading edge -> accent bucket
-                                            val curCnt = newWpEngine.rippleAccentFloatCount
-                                            if (curCnt + 2 <= newWpEngine.rippleAccentPts.size) {
-                                                newWpEngine.rippleAccentPts[curCnt] = gx
-                                                newWpEngine.rippleAccentPts[curCnt + 1] = gy
-                                                newWpEngine.rippleAccentFloatCount = curCnt + 2
-                                            }
-                                        } else {
-                                            // Inner ring -> 4 white opacity levels
-                                            val prox = ((dSq - rInnerSq) / innerBandSpanSq).coerceIn(0f, 0.999f)
-                                            val weighted = (prox * fadeTail).coerceIn(0f, 0.999f)
-                                            val bucket = (weighted * 4f).toInt().coerceIn(0, 3)
-                                            val curCnt = newWpEngine.rippleWhiteFloatCounts[bucket]
-                                            val arr = newWpEngine.rippleWhiteBuckets[bucket]
-                                            if (curCnt + 2 <= arr.size) {
-                                                arr[curCnt] = gx
-                                                arr[curCnt + 1] = gy
-                                                newWpEngine.rippleWhiteFloatCounts[bucket] = curCnt + 2
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Draw the 4 white opacity buckets (4 paint changes total)
-                        val whiteOpacities = floatArrayOf(0.18f, 0.32f, 0.46f, 0.60f)
-                        for (b in 0 until 4) {
-                            val cnt = newWpEngine.rippleWhiteFloatCounts[b]
-                            if (cnt > 0) {
-                                val aInt = (whiteOpacities[b] * 255f * bScale).roundToInt().coerceIn(10, 255)
-                                ptPaint.color = android.graphics.Color.argb(aInt, 255, 255, 255)
-                                nc.drawPoints(newWpEngine.rippleWhiteBuckets[b], 0, cnt, ptPaint)
-                            }
-                        }
-
-                        // Draw the accent leading-edge bucket (1 paint change)
-                        val accCnt = newWpEngine.rippleAccentFloatCount
-                        if (accCnt > 0) {
-                            val accA = (0.80f * 255f * bScale).roundToInt().coerceIn(20, 255)
-                            ptPaint.color = android.graphics.Color.argb(
-                                accA,
-                                (accentColor.red * 255f).roundToInt(),
-                                (accentColor.green * 255f).roundToInt(),
-                                (accentColor.blue * 255f).roundToInt()
-                            )
-                            nc.drawPoints(newWpEngine.rippleAccentPts, 0, accCnt, ptPaint)
-                        }
-                    }
-                }
-            }
-
-            // ================================================================
-            // 6. OSCILLOSCOPE (Pre-allocated 300-point normalized ring buffer batched into 6 opacity Paths)
-            // ================================================================
-            "live_oscilloscope" -> {
-                val bScale = (liveWpConfig.oscilloscopeBrightnessPct.coerceIn(20, 100) / 70f)
-                val sizeScale = liveWpConfig.oscilloscopeSizePct.coerceIn(40, 120) / 100f
-                val thickPx = (liveWpConfig.oscilloscopeThicknessDp.coerceIn(1f, 4f) * dpPx).coerceAtLeast(1f)
-                val trailPts = liveWpConfig.oscilloscopeTrailPoints.coerceIn(60, 300)
-
-                newWpEngine.ensureOscilloscopeInitialized(liveWpConfig.oscilloscopeCurve)
-
-                drawIntoCanvas { composeCanvas ->
-                    val nc = composeCanvas.nativeCanvas
-                    val sp = newWpEngine.strokePaint
-                    sp.strokeWidth = thickPx
-                    val accR = (accentColor.red * 255f).roundToInt()
-                    val accG = (accentColor.green * 255f).roundToInt()
-                    val accB = (accentColor.blue * 255f).roundToInt()
-
-                    val cx = 0.5f * w
-                    val cy = 0.5f * h
-                    val ampX = 0.38f * w * sizeScale
-                    val ampY = 0.30f * h * sizeScale
-
-                    val totalPts = min(trailPts, newWpEngine.oscCount)
-                    val oldestIdx = (newWpEngine.oscHead - totalPts + 1 + 300) % 300
-                    val groupSize = (totalPts / 6).coerceAtLeast(1)
-
-                    for (g in 0 until 6) {
-                        val path = newWpEngine.oscBatchPaths[g]
-                        path.reset()
-                        val startStep = g * groupSize
-                        val endStep = if (g == 5) (totalPts - 1) else ((g + 1) * groupSize).coerceAtMost(totalPts - 1)
-                        if (startStep >= endStep) continue
-
-                        val firstRingIdx = (oldestIdx + startStep) % 300
-                        path.moveTo(
-                            cx + ampX * newWpEngine.oscNormX[firstRingIdx],
-                            cy + ampY * newWpEngine.oscNormY[firstRingIdx]
-                        )
-                        for (step in (startStep + 1)..endStep) {
-                            val rIdx = (oldestIdx + step) % 300
-                            path.lineTo(
-                                cx + ampX * newWpEngine.oscNormX[rIdx],
-                                cy + ampY * newWpEngine.oscNormY[rIdx]
-                            )
-                        }
-                        val groupFrac = (g + 1) / 6f
-                        val alphaInt = (groupFrac * groupFrac * 255f * bScale).roundToInt().coerceIn(8, 255)
-                        sp.color = android.graphics.Color.argb(alphaInt, accR, accG, accB)
-                        nc.drawPath(path, sp)
-                    }
-
-                    val headX = cx + ampX * newWpEngine.oscNormX[newWpEngine.oscHead]
-                    val headY = cy + ampY * newWpEngine.oscNormY[newWpEngine.oscHead]
-                    val halfHead = (1.5f * dpPx).coerceAtLeast(1f)
-                    newWpEngine.paint.color = android.graphics.Color.argb(
-                        (255f * bScale).roundToInt().coerceIn(40, 255),
-                        255,
-                        255,
-                        255
-                    )
-                    nc.drawRect(headX - halfHead, headY - halfHead, headX + halfHead, headY + halfHead, newWpEngine.paint)
-                }
-            }
-
-            // ================================================================
-            // 7. SONAR (Expanding ring with interval, reach, thickness, and 0-2 echo rings)
-            // ================================================================
-            "live_sonar" -> {
-                val bScale = (liveWpConfig.sonarBrightnessPct.coerceIn(20, 100) / 70f)
-                val speedMult = (liveWpConfig.sonarSpeedPct.coerceIn(25, 200) / 100f)
-                val intervalSec = liveWpConfig.sonarIntervalSec.coerceIn(4, 20).toFloat()
-                val reachScale = liveWpConfig.sonarReachPct.coerceIn(50, 150) / 100f
-                val strokePx = (liveWpConfig.sonarThicknessDp.coerceIn(1f, 4f) * dpPx).coerceAtLeast(1f)
-                val echoCount = liveWpConfig.sonarEchoRings.coerceIn(0, 2)
-
-                val activeRingSec = (6.0f / speedMult).coerceAtLeast(1.3f)
-                val totalWaveSec = activeRingSec + echoCount * 0.5f
-                val cycleSec = max(intervalSec, totalWaveSec + 0.25f)
-                val phaseSec = when {
-                    isLowBatteryPaused -> activeRingSec * 0.45f
-                    isPreview && !canAnimateNow && t == 0f -> activeRingSec * 0.38f
-                    else -> t % cycleSec
-                }
-
-                val origin = when (liveWpConfig.sonarOrigin) {
-                    "bottom_left" -> Offset(0f, h)
-                    "center" -> Offset(w * 0.5f, h * 0.5f)
-                    else -> Offset(w, h)
-                }
-                val maxRadius = reachScale * h
-
-                for (echoIdx in 0..echoCount) {
-                    val ringAge = phaseSec - echoIdx * 0.5f
-                    if (ringAge in 0f..activeRingSec) {
-                        val norm = (ringAge / activeRingSec).coerceIn(0f, 1f)
-                        val easeOut = 1f - (1f - norm) * (1f - norm)
-                        val radius = maxRadius * easeOut
-                        val echoWeight = when (echoIdx) {
-                            0 -> 1.0f
-                            1 -> 0.50f
-                            else -> 0.25f
-                        }
-                        val alpha = (0.60f * echoWeight * (1f - norm) * bScale).coerceIn(0f, 1f)
-                        if (radius > 1f && alpha > 0.005f) {
-                            drawCircle(
-                                color = accentColor.copy(alpha = alpha),
-                                radius = radius,
-                                center = origin,
-                                style = Stroke(width = strokePx)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ================================================================
-            // 8. PIXEL RAIN
-            // ================================================================
-            "live_pixel_rain" -> {
-                val bScale = (liveWpConfig.rainBrightnessPct.coerceIn(20, 100) / 70f)
-                val maxDrops = liveWpConfig.rainMaxDrops.coerceIn(6, 60)
-                val dropPx = (liveWpConfig.rainPixelSizeDp.coerceIn(2, 8) * dpPx).coerceAtLeast(1.5f)
-                val tailLen = liveWpConfig.rainTailLength.coerceIn(0, 5)
-                val accentPct = liveWpConfig.rainAccentPct.coerceIn(0, 50)
-                val colSpan = w / 28f
-                val maxRows = (h / dropPx).toInt().coerceAtLeast(10)
-
-                newWpEngine.ensureRainInitialized(maxRows)
-
-                drawIntoCanvas { composeCanvas ->
-                    val nc = composeCanvas.nativeCanvas
-                    val p = newWpEngine.paint
-                    val accR = (accentColor.red * 255f).roundToInt()
-                    val accG = (accentColor.green * 255f).roundToInt()
-                    val accB = (accentColor.blue * 255f).roundToInt()
-
-                    for (i in 0 until maxDrops) {
-                        val col = newWpEngine.rainCol[i]
-                        val headRow = newWpEngine.rainRow[i]
-                        val xLeft = col * colSpan + (colSpan - dropPx) * 0.5f
-                        val baseAlpha = (newWpEngine.rainHeadAlpha[i] * bScale).coerceIn(0.05f, 1f)
-                        val isAcc = newWpEngine.rainColorBucket[i] < accentPct
-
-                        for (tailIdx in 0..tailLen) {
-                            val r = headRow - tailIdx
-                            if (r in 0..maxRows) {
-                                val yTop = r * dropPx
-                                val mult = when (tailIdx) {
-                                    0 -> 1.0f
-                                    1 -> 0.40f
-                                    2 -> 0.16f
-                                    3 -> 0.08f
-                                    4 -> 0.04f
-                                    else -> 0.02f
-                                }
-                                val aInt = (baseAlpha * mult * 255f).roundToInt().coerceIn(5, 255)
-                                p.color = if (isAcc) {
-                                    android.graphics.Color.argb(aInt, accR, accG, accB)
-                                } else {
-                                    android.graphics.Color.argb(aInt, 255, 255, 255)
-                                }
-                                nc.drawRect(xLeft, yTop, xLeft + dropPx, yTop + dropPx, p)
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ================================================================
-            // 9. CONSTELLATIONS
-            // ================================================================
-            "live_constellations_new" -> {
-                val bScale = (liveWpConfig.conBrightnessPct.coerceIn(20, 100) / 70f)
-                val starCount = liveWpConfig.conStarCount.coerceIn(15, 80)
-                val linkDistFrac = liveWpConfig.conLinkDistPct.coerceIn(10, 40) / 100f
-                val starSizePx = (liveWpConfig.conStarSizeDp.coerceIn(1f, 4f) * dpPx).coerceAtLeast(1f)
-                val lineThickPx = (liveWpConfig.conLineThicknessDp.coerceIn(0.5f, 2f) * dpPx).coerceAtLeast(0.5f)
-                val maxLinks = liveWpConfig.conMaxLinks.coerceIn(1, 3)
-                val accentPct = liveWpConfig.conAccentPct.coerceIn(0, 40)
-
-                newWpEngine.ensureConstellationsInitialized(w, h)
-
-                drawIntoCanvas { composeCanvas ->
-                    val nc = composeCanvas.nativeCanvas
-                    val p = newWpEngine.paint
-                    val sp = newWpEngine.strokePaint
-                    sp.strokeWidth = lineThickPx
-                    val maxDist = linkDistFrac * w
-                    val maxDistSq = maxDist * maxDist
-                    val xs = newWpEngine.conX
-                    val ys = newWpEngine.conY
-
-                    for (i in 0 until starCount) {
-                        val xi = xs[i]
-                        val yi = ys[i]
-                        var best1Idx = -1
-                        var best1DistSq = maxDistSq
-                        var best2Idx = -1
-                        var best2DistSq = maxDistSq
-                        var best3Idx = -1
-                        var best3DistSq = maxDistSq
-
-                        for (j in 0 until starCount) {
-                            if (i == j) continue
-                            val dx = xs[j] - xi
-                            val dy = ys[j] - yi
-                            val dSq = dx * dx + dy * dy
-                            if (dSq < best1DistSq) {
-                                best3DistSq = best2DistSq
-                                best3Idx = best2Idx
-                                best2DistSq = best1DistSq
-                                best2Idx = best1Idx
-                                best1DistSq = dSq
-                                best1Idx = j
-                            } else if (dSq < best2DistSq) {
-                                best3DistSq = best2DistSq
-                                best3Idx = best2Idx
-                                best2DistSq = dSq
-                                best2Idx = j
-                            } else if (dSq < best3DistSq) {
-                                best3DistSq = dSq
-                                best3Idx = j
-                            }
-                        }
-
-                        if (best1Idx >= 0 && maxLinks >= 1) {
-                            val d1 = sqrt(best1DistSq)
-                            val a1 = (0.25f * (1f - d1 / maxDist) * 255f * bScale).roundToInt().coerceIn(0, 200)
-                            if (a1 > 3) {
-                                sp.color = android.graphics.Color.argb(a1, 255, 255, 255)
-                                nc.drawLine(xi, yi, xs[best1Idx], ys[best1Idx], sp)
-                            }
-                        }
-                        if (best2Idx >= 0 && maxLinks >= 2) {
-                            val d2 = sqrt(best2DistSq)
-                            val a2 = (0.25f * (1f - d2 / maxDist) * 255f * bScale).roundToInt().coerceIn(0, 200)
-                            if (a2 > 3) {
-                                sp.color = android.graphics.Color.argb(a2, 255, 255, 255)
-                                nc.drawLine(xi, yi, xs[best2Idx], ys[best2Idx], sp)
-                            }
-                        }
-                        if (best3Idx >= 0 && maxLinks >= 3) {
-                            val d3 = sqrt(best3DistSq)
-                            val a3 = (0.25f * (1f - d3 / maxDist) * 255f * bScale).roundToInt().coerceIn(0, 200)
-                            if (a3 > 3) {
-                                sp.color = android.graphics.Color.argb(a3, 255, 255, 255)
-                                nc.drawLine(xi, yi, xs[best3Idx], ys[best3Idx], sp)
-                            }
-                        }
-                    }
-
-                    val half = starSizePx * 0.5f
-                    val whiteStarColor = android.graphics.Color.argb(
-                        (0.40f * 255f * bScale).roundToInt().coerceIn(15, 255),
-                        255,
-                        255,
-                        255
-                    )
-                    val accentStarColor = android.graphics.Color.argb(
-                        (0.85f * 255f * bScale).roundToInt().coerceIn(30, 255),
-                        (accentColor.red * 255f).roundToInt(),
-                        (accentColor.green * 255f).roundToInt(),
-                        (accentColor.blue * 255f).roundToInt()
-                    )
-                    for (i in 0 until starCount) {
-                        val isAcc = ((i * 29 + 7) % 100) < accentPct
-                        p.color = if (isAcc) accentStarColor else whiteStarColor
-                        val sx = xs[i]
-                        val sy = ys[i]
-                        nc.drawRect(sx - half, sy - half, sx + half, sy + half, p)
-                    }
-                }
-            }
-
             "oled", "system_wallpaper" -> {
             }
 
