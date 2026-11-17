@@ -162,6 +162,8 @@ import android.graphics.BitmapFactory
 import android.graphics.drawable.ColorDrawable
 import android.view.WindowManager
 import android.view.Choreographer
+import androidx.compose.ui.platform.LocalView
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.graphics.LinearGradient
 import android.graphics.Matrix
@@ -3275,15 +3277,15 @@ fun NTextLauncherApp(
                 modifier = Modifier.fillMaxSize()
             ) {
                 if (editMode && currentView == LauncherView.HOME_AND_DRAWER && isDrawerNearClosed) {
-                    val topBtnShape = RoundedCornerShape(4.dp)
+                    val topBtnShape = NocturnaaShapes.S
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .windowInsetsPadding(WindowInsets.statusBars)
                             .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
                             .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 2.dp)
-                            .border(1.dp, Color(0xFF404040), RoundedCornerShape(8.dp))
-                            .background(Color(0xFF0A0A0A), RoundedCornerShape(8.dp))
+                            .border(1.dp, Color(0xFF404040), NocturnaaShapes.M)
+                            .background(Color(0xFF0A0A0A), NocturnaaShapes.M)
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
@@ -4049,7 +4051,7 @@ fun NTextLauncherApp(
                         .padding(horizontal = 24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    val appModalShape = RoundedCornerShape(14.dp)
+                    val appModalShape = NocturnaaShapes.M
                     val currentlyPinned = pinnedPackages.contains(targetApp.packageName)
                     val isAppPinned = isFromHome || currentlyPinned
 
@@ -4211,7 +4213,7 @@ fun NTextLauncherApp(
                         .padding(horizontal = 24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    val alertShape = RoundedCornerShape(14.dp)
+                    val alertShape = NocturnaaShapes.M
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -4338,7 +4340,7 @@ fun HomeActionsBottomSheet(
 
     val onePxDp = with(density) { 1f.toDp() }
     val bottomExtraMarginPx = with(density) { 48.dp.toPx() }
-    val cardShape = RoundedCornerShape(28.dp)
+    val cardShape = NocturnaaShapes.M
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -4465,7 +4467,7 @@ fun HomeActionsBottomSheet(
                         .align(Alignment.CenterHorizontally)
                         .width(40.dp)
                         .height(4.dp)
-                        .background(Color.White.copy(alpha = 0.25f), RoundedCornerShape(50))
+                        .background(Color.White.copy(alpha = 0.25f), NocturnaaShapes.XS)
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -4585,8 +4587,8 @@ private fun ActionsLargeTile(
         animationSpec = spring(dampingRatio = 0.82f, stiffness = 620f),
         label = "largeTilePressScale"
     )
-    val tileShape = RoundedCornerShape(20.dp)
-    val iconBoxShape = RoundedCornerShape(14.dp)
+    val tileShape = NocturnaaShapes.S
+    val iconBoxShape = NocturnaaShapes.S
     val painter = rememberVectorPainter(icon)
     val iconContainerColor = if (isActive) accentColor else accentColor.copy(alpha = 0.16f)
     val iconTint = if (isActive) Color.Black else accentColor
@@ -4672,8 +4674,8 @@ private fun ActionsSlimTile(
         animationSpec = spring(dampingRatio = 0.82f, stiffness = 620f),
         label = "slimTilePressScale"
     )
-    val tileShape = RoundedCornerShape(20.dp)
-    val iconBoxShape = RoundedCornerShape(12.dp)
+    val tileShape = NocturnaaShapes.S
+    val iconBoxShape = NocturnaaShapes.S
     val painter = rememberVectorPainter(icon)
 
     Row(
@@ -5175,7 +5177,7 @@ fun HomeScreenView(
                     )
                     .then(
                         if (editMode) {
-                            val outerEditShape = RoundedCornerShape(8.dp)
+                            val outerEditShape = NocturnaaShapes.M
                             Modifier
                                 .border(1.dp, Color(0xFF383838), outerEditShape)
                                 .background(Color(0xFF0A0A0A), outerEditShape)
@@ -5501,8 +5503,8 @@ private fun HomeWidgetEditHeader(
     onChangeGlobeRotX: (Float) -> Unit,
     onChangeGlobeRotY: (Float) -> Unit
 ) {
-                        val editBtnShape = RoundedCornerShape(4.dp)
-                        val editBoxShape = RoundedCornerShape(5.dp)
+                        val editBtnShape = NocturnaaShapes.S
+                        val editBoxShape = NocturnaaShapes.S
                         val sizeChoices = when (widgetId) {
                             "clock", "pinned_apps", "retro_flip_clock", "analog_chrono", "precision_chrono", "globe" -> listOf(
                                 "compact" to "S",
@@ -7792,8 +7794,8 @@ fun GlobeAxisControlRow(
     fontFamily: FontFamily,
     onChangeDeg: (Float) -> Unit
 ) {
-    val btnShape = RoundedCornerShape(4.dp)
-    val trackShape = RoundedCornerShape(999.dp)
+    val btnShape = NocturnaaShapes.S
+    val trackShape = NocturnaaShapes.XS
     val currentOnChange by rememberUpdatedState(onChangeDeg)
     val span = (maxDeg - minDeg).coerceAtLeast(1f)
     val fraction = ((degreeValue - minDeg) / span).coerceIn(0f, 1f)
@@ -9043,7 +9045,7 @@ fun AppDrawerView(
             .padding(start = 20.dp, top = 10.dp, bottom = 10.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            val searchShape = RoundedCornerShape(24.dp)
+            val searchShape = NocturnaaShapes.S
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -9461,11 +9463,12 @@ private fun AlphabetScrubberRail(
             val barCenterY = padPx + (bPos + 0.5f) * slotH
             val barTopY = (barCenterY - barH * 0.5f).coerceIn(0f, (h - barH).coerceAtLeast(0f))
 
+            val barCornerPx = NocturnaaShapes.XS_DP.toPx()
             drawRoundRect(
                 color = accentColor,
                 topLeft = Offset(barX, barTopY),
                 size = Size(barW, barH),
-                cornerRadius = CornerRadius(barW * 0.5f, barW * 0.5f)
+                cornerRadius = CornerRadius(barCornerPx, barCornerPx)
             )
         }
 
@@ -9575,6 +9578,49 @@ private fun AlphabetScrubberRail(
 // ============================================================================
 // CompositionLocal allowing child controls (sliders, tick labels, segmented controls, toggles, tiles, buttons)
 // to check whether their enclosing scroll container was scrolling/flinging when the touch began.
+// ============================================================================
+// CENTRALIZED ROUNDED-SQUARE SHAPE TOKENS (Used across all non-widget UI)
+// - XS = 2.dp: Tiny indicator marks, bars, ACTIVE / LIVE PREVIEW square dots, drag handles, inner bevel cap
+// - SWATCH = 3.dp: Accent colour swatches & rings, toggle thumb, slider thumb, inner segmented selection
+// - S = 4.dp: Buttons, chips, SET & DONE buttons, segmented control track, tiles, icon boxes, slider track, search bar
+// - TOGGLE_TRACK = 5.dp: Bevelled toggle switch track
+// - M = 6.dp: Large containers (Settings border container, Actions card, Live Wallpapers panel & preview card, dialogs, popups)
+// - NO non-widget UI element uses a corner radius larger than 6.dp!
+// ============================================================================
+object NocturnaaShapes {
+    val XS_DP = 2.dp
+    val SWATCH_DP = 3.dp
+    val S_DP = 4.dp
+    val TOGGLE_TRACK_DP = 5.dp
+    val M_DP = 6.dp
+
+    val XS = RoundedCornerShape(2.dp)
+    val SWATCH = RoundedCornerShape(3.dp)
+    val S = RoundedCornerShape(4.dp)
+    val TOGGLE_TRACK = RoundedCornerShape(5.dp)
+    val M = RoundedCornerShape(6.dp)
+}
+
+fun performNocturnaaToggleHaptic(view: android.view.View) {
+    if (!view.isHapticFeedbackEnabled) return
+    val constant = if (Build.VERSION.SDK_INT >= 34) {
+        HapticFeedbackConstants.SEGMENT_TICK
+    } else {
+        HapticFeedbackConstants.CLOCK_TICK
+    }
+    view.performHapticFeedback(constant)
+}
+
+fun performNocturnaaSliderStepHaptic(view: android.view.View) {
+    if (!view.isHapticFeedbackEnabled) return
+    val constant = if (Build.VERSION.SDK_INT >= 34) {
+        HapticFeedbackConstants.SEGMENT_FREQUENT_TICK
+    } else {
+        HapticFeedbackConstants.CLOCK_TICK
+    }
+    view.performHapticFeedback(constant)
+}
+
 val LocalParentScrollInProgress = compositionLocalOf<() -> Boolean> { { false } }
 
 /**
@@ -9640,14 +9686,16 @@ fun NocturnaaToggleSwitch(
     checked: Boolean,
     accentColor: Color,
     label: String = "",
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
+    val view = LocalView.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val currentOnCheckedChange by rememberUpdatedState(onCheckedChange)
     val currentChecked by rememberUpdatedState(checked)
+    val currentEnabled by rememberUpdatedState(enabled)
     val isParentScrollingProvider = LocalParentScrollInProgress.current
     val currentIsParentScrolling by rememberUpdatedState(isParentScrollingProvider)
     val minSlopPx = with(density) { 8.dp.toPx() }
@@ -9656,30 +9704,43 @@ fun NocturnaaToggleSwitch(
     val pressProgressAnim = remember { Animatable(0f) }
     var isDraggingThumb by remember { mutableStateOf(false) }
 
+    // Cache the bevelled thumb vertical gradients once per density (zero allocations inside onDraw!)
+    val insetPx = with(density) { 3.dp.toPx() }
+    val thumbSizePx = with(density) { 24.dp.toPx() }
+    val innerCapInsetPx = with(density) { 3.dp.toPx() }
+    val innerCapSizePx = thumbSizePx - innerCapInsetPx * 2f
+
+    val outerThumbBrush = remember(insetPx, thumbSizePx) {
+        Brush.verticalGradient(
+            colors = listOf(Color(0xFFF2F2F2), Color(0xFFC4C4C4)),
+            startY = insetPx,
+            endY = insetPx + thumbSizePx
+        )
+    }
+    val innerThumbBrush = remember(insetPx, innerCapInsetPx, innerCapSizePx) {
+        Brush.verticalGradient(
+            colors = listOf(Color(0xFFC9C9C9), Color(0xFFEDEDED)),
+            startY = insetPx + innerCapInsetPx,
+            endY = insetPx + innerCapInsetPx + innerCapSizePx
+        )
+    }
+
     LaunchedEffect(checked, isDraggingThumb) {
         if (!isDraggingThumb) {
             thumbProgressAnim.animateTo(
                 targetValue = if (checked) 1f else 0f,
-                animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f)
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f)
             )
         }
-    }
-
-    fun fireToggleHaptic() {
-        val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
-        } else {
-            @Suppress("DEPRECATION")
-            VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
-        }
-        vib?.vibrate(effect)
     }
 
     Box(
         modifier = modifier
             .width(56.dp)
-            .height(48.dp)
+            .height(30.dp)
+            .graphicsLayer {
+                alpha = if (enabled) 1f else 0.40f
+            }
             .semantics(mergeDescendants = true) {
                 role = Role.Switch
                 if (label.isNotEmpty()) {
@@ -9689,18 +9750,28 @@ fun NocturnaaToggleSwitch(
             }
             .pointerInput(Unit) {
                 val slop = max(viewConfiguration.touchSlop, minSlopPx)
+                val velocityTracker = VelocityTracker()
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    // Do NOT consume down!
-                    if (currentIsParentScrolling()) return@awaitEachGesture
-
-                    val w = size.width.toFloat().coerceAtLeast(1f)
+                    if (!currentEnabled || currentIsParentScrolling()) return@awaitEachGesture
+                    // Never consume down so vertical list scrolling works from anywhere on the toggle!
+                    val downTimeMs = android.os.SystemClock.uptimeMillis()
                     val startX = down.position.x
                     val startY = down.position.y
+                    val travelPx = (size.width.toFloat() - insetPx * 2f - thumbSizePx).coerceAtLeast(1f)
                     val initialFrac = thumbProgressAnim.value.coerceIn(0f, 1f)
                     var horizontalLocked = false
                     var cancelledForScroll = false
                     var latestFrac = initialFrac
+                    velocityTracker.resetTracking()
+                    velocityTracker.addPosition(down.uptimeMillis, down.position)
+
+                    scope.launch {
+                        pressProgressAnim.animateTo(
+                            targetValue = 1f,
+                            animationSpec = spring(dampingRatio = 0.85f, stiffness = 600f)
+                        )
+                    }
 
                     while (true) {
                         val event = awaitPointerEvent()
@@ -9710,22 +9781,17 @@ fun NocturnaaToggleSwitch(
                             cancelledForScroll = true
                             break
                         }
+                        velocityTracker.addPosition(change.uptimeMillis, change.position)
                         if (change.pressed) {
                             val dx = change.position.x - startX
                             val dy = change.position.y - startY
                             if (!horizontalLocked) {
                                 if (dx * dx + dy * dy >= slop * slop) {
-                                    if (abs(dx) > 1.5f * abs(dy)) {
+                                    if (abs(dx) > abs(dy)) {
                                         horizontalLocked = true
                                         isDraggingThumb = true
-                                        scope.launch {
-                                            pressProgressAnim.animateTo(
-                                                targetValue = 1f,
-                                                animationSpec = spring(dampingRatio = 0.85f, stiffness = 600f)
-                                            )
-                                        }
                                     } else {
-                                        // Vertical movement -> hand gesture to parent scroll
+                                        // Vertical movement -> hand gesture to parent scroll without changing toggle
                                         cancelledForScroll = true
                                         break
                                     }
@@ -9733,14 +9799,19 @@ fun NocturnaaToggleSwitch(
                             }
                             if (horizontalLocked) {
                                 change.consume()
-                                latestFrac = (initialFrac + dx / (w * 0.65f)).coerceIn(0f, 1f)
+                                latestFrac = (initialFrac + dx / travelPx).coerceIn(0f, 1f)
                                 scope.launch {
                                     thumbProgressAnim.snapTo(latestFrac)
                                 }
                             }
                         } else {
-                            if (horizontalLocked) {
+                            // Pointer lifted: consume the up event for BOTH clean tap (<300ms) and horizontal drag
+                            // so the enclosing NocturnaaToggleRow never double-fires onCheckedChange!
+                            val elapsedMs = android.os.SystemClock.uptimeMillis() - downTimeMs
+                            if (horizontalLocked || (!cancelledForScroll && elapsedMs <= 300L && !currentIsParentScrolling())) {
                                 change.consume()
+                            } else {
+                                cancelledForScroll = true
                             }
                             break
                         }
@@ -9758,26 +9829,32 @@ fun NocturnaaToggleSwitch(
                         scope.launch {
                             thumbProgressAnim.animateTo(
                                 targetValue = if (currentChecked) 1f else 0f,
-                                animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f)
+                                animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f)
                             )
                         }
                         return@awaitEachGesture
                     }
 
                     val nextState = if (horizontalLocked) {
-                        latestFrac >= 0.5f
+                        val vxPxPerSec = velocityTracker.calculateVelocity().x
+                        val vxDpPerSec = with(density) { vxPxPerSec.toDp().value }
+                        when {
+                            vxDpPerSec > 350f -> true
+                            vxDpPerSec < -350f -> false
+                            else -> latestFrac >= 0.5f
+                        }
                     } else {
                         !currentChecked
                     }
 
                     if (nextState != currentChecked) {
-                        fireToggleHaptic()
+                        performNocturnaaToggleHaptic(view)
                         currentOnCheckedChange(nextState)
                     } else {
                         scope.launch {
                             thumbProgressAnim.animateTo(
                                 targetValue = if (currentChecked) 1f else 0f,
-                                animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f)
+                                animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f)
                             )
                         }
                     }
@@ -9786,54 +9863,112 @@ fun NocturnaaToggleSwitch(
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val rawP = thumbProgressAnim.value
-            val clampedP = rawP.coerceIn(0f, 1f)
+            val clampedP = thumbProgressAnim.value.coerceIn(0f, 1f)
             val pressP = pressProgressAnim.value.coerceIn(0f, 1f)
 
-            val trackWidthPx = 52.dp.toPx()
-            val trackHeightPx = 8.dp.toPx()
-            val baseThumbDiaPx = (26.dp + 4.dp * pressP).toPx()
-            val baseThumbRadiusPx = baseThumbDiaPx * 0.5f
+            val trackW = size.width
+            val trackH = size.height
+            val trackCornerPx = NocturnaaShapes.TOGGLE_TRACK_DP.toPx()
+            val stroke1DpPx = 1.dp.toPx()
+            val halfStroke = stroke1DpPx * 0.5f
+            val twoDpPx = 2.dp.toPx()
 
-            val cy = size.height * 0.5f
-            val trackLeft = (size.width - trackWidthPx) * 0.5f
-            val trackRight = trackLeft + trackWidthPx
-
-            val trackColor = lerp(Color(0x33FFFFFF), accentColor, clampedP)
-            drawRoundRect(
-                color = trackColor,
-                topLeft = Offset(trackLeft, cy - trackHeightPx * 0.5f),
-                size = Size(trackWidthPx, trackHeightPx),
-                cornerRadius = CornerRadius(trackHeightPx * 0.5f, trackHeightPx * 0.5f)
+            val offTrackFill = Color(0xFF3A3A3A)
+            val offTrackBorder = Color(0xFF242424)
+            val onTrackFill = accentColor
+            val onTrackBorder = Color(
+                red = (accentColor.red * 0.65f).coerceIn(0f, 1f),
+                green = (accentColor.green * 0.65f).coerceIn(0f, 1f),
+                blue = (accentColor.blue * 0.65f).coerceIn(0f, 1f),
+                alpha = 1f
             )
 
-            val leftCenter = trackLeft + baseThumbRadiusPx * 0.55f
-            val rightCenter = trackRight - baseThumbRadiusPx * 0.55f
-            val thumbCenterX = leftCenter + (rightCenter - leftCenter) * rawP
+            val trackFillColor = lerp(offTrackFill, onTrackFill, clampedP)
+            val trackBorderColor = lerp(offTrackBorder, onTrackBorder, clampedP)
 
-            val transit = (4f * clampedP * (1f - clampedP)).coerceIn(0f, 1f)
-            val velFactor = (abs(thumbProgressAnim.velocity) / 4.5f).coerceIn(0f, 1f)
-            val stretch = max(transit * 0.85f, velFactor).coerceIn(0f, 1f)
-            val stretchScaleX = 1f + 0.25f * stretch
-            val stretchScaleY = 1f - 0.05f * stretch
-
-            val thumbW = baseThumbDiaPx * stretchScaleX
-            val thumbH = baseThumbDiaPx * stretchScaleY
-            val thumbColor = lerp(Color(0xBFFFFFFF), Color.White, clampedP)
-
+            // 1. Track base fill (56dp x 30dp, 5dp corner radius)
             drawRoundRect(
-                color = thumbColor,
-                topLeft = Offset(thumbCenterX - thumbW * 0.5f, cy - thumbH * 0.5f),
-                size = Size(thumbW, thumbH),
-                cornerRadius = CornerRadius(thumbH * 0.5f, thumbH * 0.5f)
+                color = trackFillColor,
+                topLeft = Offset.Zero,
+                size = Size(trackW, trackH),
+                cornerRadius = CornerRadius(trackCornerPx, trackCornerPx)
+            )
+
+            // 2. Inset 2dp darker band at the top inside edge (black at 25%) in both ON and OFF states
+            val innerTrackCornerPx = (trackCornerPx - stroke1DpPx).coerceAtLeast(1f)
+            val innerTrackW = (trackW - stroke1DpPx * 2f).coerceAtLeast(1f)
+            drawRoundRect(
+                color = Color.Black.copy(alpha = 0.25f),
+                topLeft = Offset(stroke1DpPx, stroke1DpPx),
+                size = Size(innerTrackW, (twoDpPx + innerTrackCornerPx * 2f).coerceAtMost(trackH - stroke1DpPx * 2f)),
+                cornerRadius = CornerRadius(innerTrackCornerPx, innerTrackCornerPx)
             )
             drawRoundRect(
-                color = Color(0x1FFFFFFF),
-                topLeft = Offset(thumbCenterX - thumbW * 0.5f, cy - thumbH * 0.5f),
-                size = Size(thumbW, thumbH),
-                cornerRadius = CornerRadius(thumbH * 0.5f, thumbH * 0.5f),
-                style = Stroke(width = 1.dp.toPx())
+                color = trackFillColor,
+                topLeft = Offset(stroke1DpPx, stroke1DpPx + twoDpPx),
+                size = Size(innerTrackW, (trackH - stroke1DpPx * 2f - twoDpPx).coerceAtLeast(1f)),
+                cornerRadius = CornerRadius(innerTrackCornerPx, innerTrackCornerPx)
             )
+
+            // 3. 1dp track border (#242424 when OFF, accentColor darkened by 35% when ON)
+            drawRoundRect(
+                color = trackBorderColor,
+                topLeft = Offset(halfStroke, halfStroke),
+                size = Size(trackW - stroke1DpPx, trackH - stroke1DpPx),
+                cornerRadius = CornerRadius(trackCornerPx - halfStroke, trackCornerPx - halfStroke),
+                style = Stroke(width = stroke1DpPx)
+            )
+
+            // 4. Bevelled 24dp square thumb (3dp outer radius, placed 3dp inside track)
+            val travelPx = (trackW - insetPx * 2f - thumbSizePx).coerceAtLeast(1f)
+            val thumbLeft = insetPx + travelPx * clampedP
+            val thumbTop = (trackH - thumbSizePx) * 0.5f
+            val outerThumbRadiusPx = NocturnaaShapes.SWATCH_DP.toPx()
+            val innerCapRadiusPx = NocturnaaShapes.XS_DP.toPx()
+
+            // 4a. Outer bevel square (#F2F2F2 top -> #C4C4C4 bottom)
+            drawRoundRect(
+                brush = outerThumbBrush,
+                topLeft = Offset(thumbLeft, thumbTop),
+                size = Size(thumbSizePx, thumbSizePx),
+                cornerRadius = CornerRadius(outerThumbRadiusPx, outerThumbRadiusPx)
+            )
+
+            // 4b. Inner raised cap inset by 3dp (2dp radius, opposite gradient #C9C9C9 top -> #EDEDED bottom)
+            drawRoundRect(
+                brush = innerThumbBrush,
+                topLeft = Offset(thumbLeft + innerCapInsetPx, thumbTop + innerCapInsetPx),
+                size = Size(innerCapSizePx, innerCapSizePx),
+                cornerRadius = CornerRadius(innerCapRadiusPx, innerCapRadiusPx)
+            )
+
+            // 4c. 1dp top highlight line (white at 60%)
+            val highlightY = thumbTop + stroke1DpPx * 1.5f
+            drawLine(
+                color = Color.White.copy(alpha = 0.60f),
+                start = Offset(thumbLeft + outerThumbRadiusPx, highlightY),
+                end = Offset(thumbLeft + thumbSizePx - outerThumbRadiusPx, highlightY),
+                strokeWidth = stroke1DpPx
+            )
+
+            // 4d. 1dp outer thumb border (#8E8E8E)
+            drawRoundRect(
+                color = Color(0xFF8E8E8E),
+                topLeft = Offset(thumbLeft + halfStroke, thumbTop + halfStroke),
+                size = Size(thumbSizePx - stroke1DpPx, thumbSizePx - stroke1DpPx),
+                cornerRadius = CornerRadius(outerThumbRadiusPx - halfStroke, outerThumbRadiusPx - halfStroke),
+                style = Stroke(width = stroke1DpPx)
+            )
+
+            // 4e. While pressed/dragged, darken the thumb by 6%
+            if (pressP > 0.001f) {
+                drawRoundRect(
+                    color = Color.Black.copy(alpha = 0.06f * pressP),
+                    topLeft = Offset(thumbLeft, thumbTop),
+                    size = Size(thumbSizePx, thumbSizePx),
+                    cornerRadius = CornerRadius(outerThumbRadiusPx, outerThumbRadiusPx)
+                )
+            }
         }
     }
 }
@@ -9845,29 +9980,22 @@ fun NocturnaaToggleRow(
     checked: Boolean,
     accentColor: Color,
     lomoFontFamily: FontFamily,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    val context = LocalContext.current
+    val view = LocalView.current
     val currentOnCheckedChange by rememberUpdatedState(onCheckedChange)
     val currentChecked by rememberUpdatedState(checked)
-
-    fun fireRowTick() {
-        val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
-        } else {
-            @Suppress("DEPRECATION")
-            VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
-        }
-        vib?.vibrate(effect)
-    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
-            .nocturnaaCleanTap {
-                fireRowTick()
+            .graphicsLayer {
+                alpha = if (enabled) 1f else 0.40f
+            }
+            .nocturnaaCleanTap(enabled = enabled, maxDurationMs = 300L) {
+                performNocturnaaToggleHaptic(view)
                 currentOnCheckedChange(!currentChecked)
             }
             .padding(vertical = 5.dp),
@@ -9898,6 +10026,7 @@ fun NocturnaaToggleRow(
             checked = checked,
             accentColor = accentColor,
             label = title,
+            enabled = enabled,
             onCheckedChange = onCheckedChange
         )
     }
@@ -9931,7 +10060,7 @@ fun OutlinedDonePillButton(
             fontSize = 11.sp,
             fontFamily = lomoFontFamily,
             modifier = Modifier
-                .border(1.dp, Color(0xFF4D4D4D), RoundedCornerShape(50))
+                .border(1.dp, Color(0xFF4D4D4D), NocturnaaShapes.S)
                 .padding(horizontal = 14.dp, vertical = 6.dp)
         )
     }
@@ -9945,7 +10074,7 @@ fun NocturnaaSegmentedControl(
     lomoFontFamily: FontFamily,
     onSelect: (String) -> Unit
 ) {
-    val context = LocalContext.current
+    val view = LocalView.current
     val selectedIndex = options.indexOfFirst { it.first == selectedId }.coerceAtLeast(0)
     val animatedIndex by animateFloatAsState(
         targetValue = selectedIndex.toFloat(),
@@ -9953,18 +10082,7 @@ fun NocturnaaSegmentedControl(
         label = "segmentedSlideSpring"
     )
 
-    fun fireSegTick() {
-        val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
-        } else {
-            @Suppress("DEPRECATION")
-            VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
-        }
-        vib?.vibrate(effect)
-    }
-
-    val trackShape = RoundedCornerShape(8.dp)
+    val trackShape = NocturnaaShapes.S
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -9978,11 +10096,12 @@ fun NocturnaaSegmentedControl(
             val count = options.size.coerceAtLeast(1)
             val segW = size.width / count.toFloat()
             val x = (animatedIndex * segW).coerceIn(0f, (size.width - segW).coerceAtLeast(0f))
+            val innerCornerPx = NocturnaaShapes.SWATCH_DP.toPx()
             drawRoundRect(
                 color = accentColor,
                 topLeft = Offset(x, 0f),
                 size = Size(segW, size.height),
-                cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
+                cornerRadius = CornerRadius(innerCornerPx, innerCornerPx)
             )
         }
 
@@ -9998,7 +10117,7 @@ fun NocturnaaSegmentedControl(
                         .fillMaxHeight()
                         .nocturnaaCleanTap {
                             if (optId != selectedId) {
-                                fireSegTick()
+                                performNocturnaaToggleHaptic(view)
                                 onSelect(optId)
                             }
                         },
@@ -10273,13 +10392,13 @@ fun WidgetsManagerView(
                                                     Box(
                                                         modifier = Modifier
                                                             .size(26.dp)
-                                                            .border(1.5.dp, Color.White, CircleShape)
+                                                            .border(1.5.dp, Color.White, NocturnaaShapes.SWATCH)
                                                     )
                                                 }
                                                 Box(
                                                     modifier = Modifier
                                                         .size(18.dp)
-                                                        .background(swatchColor, CircleShape)
+                                                        .background(swatchColor, NocturnaaShapes.SWATCH)
                                                 )
                                             }
                                             Text(
@@ -10319,8 +10438,8 @@ fun WidgetsManagerView(
                                 cursorBrush = SolidColor(accentColor),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .border(1.dp, Color(0x26FFFFFF), RoundedCornerShape(8.dp))
-                                    .background(Color(0xFF101010), RoundedCornerShape(8.dp))
+                                    .border(1.dp, Color(0x26FFFFFF), NocturnaaShapes.S)
+                                    .background(Color(0xFF101010), NocturnaaShapes.S)
                                     .padding(horizontal = 12.dp, vertical = 9.dp)
                             )
                         }
@@ -10571,8 +10690,8 @@ fun LauncherSettingsView(
     var openWallpaperSubSection by remember { mutableStateOf<String?>(null) }
 
     val accentColor = resolveLauncherAccentColor(accentHex)
-    val innerCardShape = RoundedCornerShape(8.dp)
-    val innerSubCardShape = RoundedCornerShape(8.dp)
+    val innerCardShape = NocturnaaShapes.S
+    val innerSubCardShape = NocturnaaShapes.S
     val innerCardBorderColor = Color(0x1AFFFFFF)
 
     val settingsSections = listOf(
@@ -10704,7 +10823,7 @@ fun LauncherSettingsView(
         "blurry" -> Color(0xFF060606).copy(alpha = 0.54f)
         else -> Color.Black.copy(alpha = (0.75f + normBg * 0.25f).coerceIn(0.78f, 1.0f))
     }
-    val containerShape = RoundedCornerShape(24.dp)
+    val containerShape = NocturnaaShapes.M
 
     NocturnaaSubPageTransitionHost(
         isSubPageOpen = isLiveWallpapersWindowOpen,
@@ -11038,7 +11157,7 @@ fun LiveWallpapersWindow(
             val fixedInternalWidthPx = fixedInternalHeightPx * screenAspect
             val fixedInternalWidthDp = with(density) { fixedInternalWidthPx.toDp() }
             val fixedInternalHeightDp = with(density) { fixedInternalHeightPx.toDp() }
-            val previewCardShape = RoundedCornerShape(20.dp)
+            val previewCardShape = NocturnaaShapes.M
 
             // Seed an immediate ripple on selection & every 2 seconds while Touch Ripples is selected and window is open
             LaunchedEffect(selectedWallpaperId, isWindowFullyOpen, isSettingsScreenVisible) {
@@ -11176,7 +11295,7 @@ fun LiveWallpapersWindow(
                     Box(
                         modifier = Modifier
                             .size(6.dp)
-                            .background(accentColor, CircleShape)
+                            .background(accentColor, NocturnaaShapes.XS)
                     )
                     Text(
                         text = "LIVE PREVIEW",
@@ -11345,7 +11464,7 @@ fun LiveWallpapersWindow(
             // 3. FLOATING BOTTOM PANEL (Fixed size at Default 51% H; translates down via Modifier.offset for Peek so hit-testing matches 1:1!)
             val defaultTopDp = with(density) { defaultTopY.toDp() }
             val defaultPanelHeightDp = with(density) { defaultPanelHeightPx.toDp() }
-            val panelCornerPx = with(density) { 28.dp.toPx() }
+            val panelCornerPx = with(density) { NocturnaaShapes.M_DP.toPx() }
             val panelBorderStrokePx = with(density) { 1.dp.toPx() }
             val eightDpRisePx = with(density) { 8.dp.toPx() }
 
@@ -11487,7 +11606,7 @@ fun LiveWallpapersWindow(
                         Box(
                             modifier = Modifier
                                 .size(width = 40.dp, height = 4.dp)
-                                .background(Color.White.copy(alpha = 0.25f), RoundedCornerShape(2.dp))
+                                .background(Color.White.copy(alpha = 0.25f), NocturnaaShapes.XS)
                         )
                     }
 
@@ -11560,12 +11679,12 @@ fun LiveWallpapersWindow(
                                                                 modifier = Modifier
                                                                     .fillMaxWidth()
                                                                     .aspectRatio(1f)
-                                                                    .clip(RoundedCornerShape(14.dp))
-                                                                    .background(Color.Black, RoundedCornerShape(14.dp))
+                                                                    .clip(NocturnaaShapes.S)
+                                                                    .background(Color.Black, NocturnaaShapes.S)
                                                                     .border(
                                                                         width = 1.dp,
                                                                         color = Color.White.copy(alpha = 0.08f),
-                                                                        shape = RoundedCornerShape(14.dp)
+                                                                        shape = NocturnaaShapes.S
                                                                     )
                                                             ) {
                                                                 if (thumbBmp != null) {
@@ -11581,7 +11700,7 @@ fun LiveWallpapersWindow(
                                                                             .align(Alignment.TopEnd)
                                                                             .padding(top = 5.dp, end = 5.dp)
                                                                             .size(7.dp)
-                                                                            .background(accentColor, CircleShape)
+                                                                            .background(accentColor, NocturnaaShapes.XS)
                                                                     )
                                                                 }
                                                             }
@@ -11613,7 +11732,7 @@ fun LiveWallpapersWindow(
                                                 translationX = animatedRingCol * cellStepPx
                                                 translationY = animatedRingRow * tileRowPitchPx
                                             }
-                                            .border(2.dp, accentColor, RoundedCornerShape(14.dp))
+                                            .border(2.dp, accentColor, NocturnaaShapes.S)
                                     )
                                 }
 
@@ -11658,7 +11777,7 @@ fun LiveWallpapersWindow(
                                                     Box(
                                                         modifier = Modifier
                                                             .size(6.dp)
-                                                            .background(accentColor, CircleShape)
+                                                            .background(accentColor, NocturnaaShapes.XS)
                                                     )
                                                     Text(
                                                         text = "ACTIVE",
@@ -11683,7 +11802,7 @@ fun LiveWallpapersWindow(
                                                 ) {
                                                     Box(
                                                         modifier = Modifier
-                                                            .background(accentColor, RoundedCornerShape(50))
+                                                            .background(accentColor, NocturnaaShapes.S)
                                                             .padding(horizontal = 16.dp, vertical = 6.dp),
                                                         contentAlignment = Alignment.Center
                                                     ) {
@@ -11831,7 +11950,7 @@ fun LiveWallpapersWindow(
                                             Box(
                                                 modifier = Modifier
                                                     .size(6.dp)
-                                                    .background(accentColor, CircleShape)
+                                                    .background(accentColor, NocturnaaShapes.XS)
                                             )
                                             Text(
                                                 text = "ACTIVE",
@@ -11856,7 +11975,7 @@ fun LiveWallpapersWindow(
                                         ) {
                                             Box(
                                                 modifier = Modifier
-                                                    .background(accentColor, RoundedCornerShape(50))
+                                                    .background(accentColor, NocturnaaShapes.S)
                                                     .padding(horizontal = 16.dp, vertical = 6.dp),
                                                 contentAlignment = Alignment.Center
                                             ) {
@@ -11985,7 +12104,7 @@ private fun buildTypographyAndLayoutSectionItems(
                                     .border(
                                         width = 1.5.dp,
                                         color = if (selected) accentColor else Color(0xFF555555),
-                                        shape = CircleShape
+                                        shape = NocturnaaShapes.SWATCH
                                     ),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -11993,7 +12112,7 @@ private fun buildTypographyAndLayoutSectionItems(
                                     Box(
                                         modifier = Modifier
                                             .size(8.dp)
-                                            .background(accentColor, CircleShape)
+                                            .background(accentColor, NocturnaaShapes.XS)
                                     )
                                 }
                             }
@@ -13702,7 +13821,7 @@ private fun buildWallpapersAndSettingsSectionItems(
                                     .border(
                                         width = 1.5.dp,
                                         color = if (active) accentColor else Color(0xFF555555),
-                                        shape = CircleShape
+                                        shape = NocturnaaShapes.SWATCH
                                     ),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -13710,7 +13829,7 @@ private fun buildWallpapersAndSettingsSectionItems(
                                     Box(
                                         modifier = Modifier
                                             .size(8.dp)
-                                            .background(accentColor, CircleShape)
+                                            .background(accentColor, NocturnaaShapes.XS)
                                     )
                                 }
                             }
@@ -13835,13 +13954,13 @@ private fun buildWallpapersAndSettingsSectionItems(
                                         Box(
                                             modifier = Modifier
                                                 .size(34.dp)
-                                                .border(1.5.dp, Color.White, CircleShape)
+                                                .border(1.5.dp, Color.White, NocturnaaShapes.SWATCH)
                                         )
                                     }
                                     Box(
                                         modifier = Modifier
                                             .size(24.dp)
-                                            .background(swatchCol, CircleShape)
+                                            .background(swatchCol, NocturnaaShapes.SWATCH)
                                     )
                                 }
                                 Text(
@@ -14106,7 +14225,7 @@ fun NocturnaaSettingSlider(
     onValueChangeFinished: (() -> Unit)? = null,
     previewContent: (@Composable (Float) -> Unit)? = null
 ) {
-    val context = LocalContext.current
+    val view = LocalView.current
     val density = LocalDensity.current
     val minV = valueRange.start
     val maxV = valueRange.endInclusive
@@ -14122,7 +14241,8 @@ fun NocturnaaSettingSlider(
     val currentIsParentScrolling by rememberUpdatedState(isParentScrollingProvider)
     val minSlopPx = with(density) { 8.dp.toPx() }
     val thumbHitRadiusPx = with(density) { 24.dp.toPx() } // 48dp diameter hit area around thumb
-    val thumbDrawRadiusPx = with(density) { 6.dp.toPx() }
+    val thumbHalfWidthPx = with(density) { 7.dp.toPx() } // 14dp wide thumb
+    val endPadPx = with(density) { 1.dp.toPx() }
 
     LaunchedEffect(clampedTarget, isDragging) {
         if (!isDragging) {
@@ -14152,17 +14272,6 @@ fun NocturnaaSettingSlider(
     val currentOnValueChangeFinished by rememberUpdatedState(onValueChangeFinished)
     val currentDisplayVal by rememberUpdatedState(animatedDisplayValue)
 
-    fun fireSliderHaptic() {
-        val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
-        } else {
-            @Suppress("DEPRECATION")
-            VibrationEffect.createOneShot(8L, VibrationEffect.DEFAULT_AMPLITUDE)
-        }
-        vib?.vibrate(effect)
-    }
-
     fun snapToStep(raw: Float): Float {
         val clamped = raw.coerceIn(minV, maxV)
         return if (step > 0f) {
@@ -14173,9 +14282,17 @@ fun NocturnaaSettingSlider(
         }
     }
 
+    val effectiveStep = if (step > 0f) step else 1f
+    val totalStepsCount = ((maxV - minV) / effectiveStep).roundToInt().coerceAtLeast(1)
+    val hapticStepStride = if (totalStepsCount > 50) 2 else 1
+
+    fun valueToStepIndex(v: Float): Int {
+        return ((v.coerceIn(minV, maxV) - minV) / effectiveStep).roundToInt().coerceIn(0, totalStepsCount)
+    }
+
     val snappedCurrent = snapToStep(animatedDisplayValue)
     val snappedDefault = snapToStep(defaultValue)
-    val isAtDefault = abs(snappedCurrent - snappedDefault) < (step * 0.25f).coerceAtLeast(0.01f)
+    val isAtDefault = abs(snappedCurrent - snappedDefault) < (effectiveStep * 0.25f).coerceAtLeast(0.01f)
     val formattedCurrent = if (step >= 1f || abs(snappedCurrent - snappedCurrent.roundToInt()) < 0.02f) {
         snappedCurrent.roundToInt().toString()
     } else {
@@ -14217,7 +14334,6 @@ fun NocturnaaSettingSlider(
                     modifier = Modifier
                         .sizeIn(minWidth = 48.dp, minHeight = 36.dp)
                         .nocturnaaCleanTap(enabled = !isAtDefault) {
-                            fireSliderHaptic()
                             dragRawValue = defaultValue
                             currentOnValueChange(defaultValue)
                             currentOnValueChangeFinished?.invoke()
@@ -14245,21 +14361,23 @@ fun NocturnaaSettingSlider(
 
         // 48dp tall interactive track container; drag starts ONLY within 48dp hit zone around thumb
         // and ONLY after horizontal movement > touchSlop with |dx| > 1.5 * |dy|.
+        // Haptics: subtle SEGMENT_FREQUENT_TICK / CLOCK_TICK while dragged (max 1 per 40ms, every 2nd step when >50 steps, never on down/release/ends).
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp)
-                .pointerInput(minV, maxV, step, hapticStep, presetChips) {
+                .pointerInput(minV, maxV, step, totalStepsCount, hapticStepStride) {
                     val slop = max(viewConfiguration.touchSlop, minSlopPx)
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         // Never consume down! And ignore if parent list was scrolling/flinging on down.
                         if (currentIsParentScrolling()) return@awaitEachGesture
 
+                        val marginPx = endPadPx + thumbHalfWidthPx
                         val w = size.width.toFloat().coerceAtLeast(1f)
-                        val usableW = (w - thumbDrawRadiusPx * 2f).coerceAtLeast(1f)
+                        val usableW = (w - marginPx * 2f).coerceAtLeast(1f)
                         val curNorm = ((currentDisplayVal - minV) / span).coerceIn(0f, 1f)
-                        val thumbCenterX = thumbDrawRadiusPx + curNorm * usableW
+                        val thumbCenterX = marginPx + curNorm * usableW
 
                         // Check 48dp hit zone (+/- 24dp) around the current thumb position
                         if (abs(down.position.x - thumbCenterX) > thumbHitRadiusPx) {
@@ -14269,8 +14387,8 @@ fun NocturnaaSettingSlider(
                         val startX = down.position.x
                         val startY = down.position.y
                         var horizontalCommitted = false
-                        var prevVal = snapToStep(currentDisplayVal)
-                        var lastBucket = (prevVal / hapticStep.coerceAtLeast(0.1f)).roundToInt()
+                        var lastHapticStepIdx = valueToStepIndex(snapToStep(currentDisplayVal))
+                        var lastHapticTimeMs = 0L
 
                         while (true) {
                             val event = awaitPointerEvent()
@@ -14290,6 +14408,7 @@ fun NocturnaaSettingSlider(
                                         if (abs(dx) > 1.5f * abs(dy)) {
                                             horizontalCommitted = true
                                             isDragging = true
+                                            lastHapticStepIdx = valueToStepIndex(snapToStep(currentDisplayVal))
                                         } else {
                                             // Vertical movement -> let parent scroll and leave value untouched!
                                             break
@@ -14299,22 +14418,23 @@ fun NocturnaaSettingSlider(
 
                                 if (horizontalCommitted) {
                                     change.consume()
-                                    val curW = (size.width.toFloat() - thumbDrawRadiusPx * 2f).coerceAtLeast(1f)
-                                    val frac = ((change.position.x - thumbDrawRadiusPx) / curW).coerceIn(0f, 1f)
+                                    val curUsableW = (size.width.toFloat() - marginPx * 2f).coerceAtLeast(1f)
+                                    val frac = ((change.position.x - marginPx) / curUsableW).coerceIn(0f, 1f)
                                     val nextVal = snapToStep(minV + frac * span)
+                                    val curStepIdx = valueToStepIndex(nextVal)
 
-                                    val crossedTick = if (presetChips.isNotEmpty()) {
-                                        presetChips.any { (tVal, _) ->
-                                            (prevVal < tVal && nextVal >= tVal) || (prevVal > tVal && nextVal <= tVal)
+                                    if (abs(curStepIdx - lastHapticStepIdx) >= hapticStepStride) {
+                                        lastHapticStepIdx = curStepIdx
+                                        // No haptic at the ends (0 or totalStepsCount) and rate-limited to at most once every 40ms
+                                        if (curStepIdx in 1 until totalStepsCount) {
+                                            val nowMs = android.os.SystemClock.uptimeMillis()
+                                            if (nowMs - lastHapticTimeMs >= 40L) {
+                                                lastHapticTimeMs = nowMs
+                                                performNocturnaaSliderStepHaptic(view)
+                                            }
                                         }
-                                    } else false
-                                    val nextBucket = (nextVal / hapticStep.coerceAtLeast(0.1f)).roundToInt()
-
-                                    if (crossedTick || nextBucket != lastBucket) {
-                                        lastBucket = nextBucket
-                                        fireSliderHaptic()
                                     }
-                                    prevVal = nextVal
+
                                     dragRawValue = nextVal
                                     currentOnValueChange(nextVal)
                                 }
@@ -14335,29 +14455,97 @@ fun NocturnaaSettingSlider(
             contentAlignment = Alignment.CenterStart
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val trackH = 2.dp.toPx()
-                val thumbRadius = 6.dp.toPx()
-                val usableW = (size.width - thumbRadius * 2f).coerceAtLeast(1f)
-                val norm = ((currentDisplayVal - minV) / span).coerceIn(0f, 1f)
-                val thumbX = thumbRadius + norm * usableW
-                val centerY = size.height * 0.5f
+                val stroke1DpPx = 1.dp.toPx()
+                val stroke1_5DpPx = 1.5.dp.toPx()
+                val half1 = stroke1DpPx * 0.5f
 
-                drawRect(
-                    color = Color(0x33FFFFFF),
-                    topLeft = Offset(thumbRadius, centerY - trackH * 0.5f),
-                    size = Size(usableW, trackH)
+                val trackH = 12.dp.toPx()
+                val trackRadiusPx = NocturnaaShapes.S_DP.toPx()
+                val thumbW = 14.dp.toPx()
+                val thumbH = 28.dp.toPx()
+                val thumbRadiusPx = NocturnaaShapes.SWATCH_DP.toPx()
+                val thumbHalfW = thumbW * 0.5f
+
+                val trackLeft = stroke1DpPx
+                val trackRight = (size.width - stroke1DpPx).coerceAtLeast(trackLeft + thumbW)
+                val trackTotalW = trackRight - trackLeft
+                val usableW = (trackTotalW - thumbW).coerceAtLeast(1f)
+
+                val norm = ((currentDisplayVal - minV) / span).coerceIn(0f, 1f)
+                val thumbCenterX = trackLeft + thumbHalfW + norm * usableW
+                val centerY = size.height * 0.5f
+                val trackTop = centerY - trackH * 0.5f
+
+                // 1. Track inner fills (left of thumb = current accentColor, right of thumb = #0A0A0A)
+                val fillInset = stroke1DpPx * 2f
+                val fillLeft = trackLeft + fillInset
+                val fillRight = trackRight - fillInset
+                val fillTop = trackTop + fillInset
+                val fillH = (trackH - fillInset * 2f).coerceAtLeast(1f)
+                val fillCorner = (trackRadiusPx - fillInset).coerceAtLeast(1f)
+
+                drawRoundRect(
+                    color = Color(0xFF0A0A0A),
+                    topLeft = Offset(fillLeft, fillTop),
+                    size = Size((fillRight - fillLeft).coerceAtLeast(1f), fillH),
+                    cornerRadius = CornerRadius(fillCorner, fillCorner)
                 )
-                if (thumbX > thumbRadius) {
-                    drawRect(
+
+                val activeFillW = (thumbCenterX - fillLeft).coerceIn(0f, fillRight - fillLeft)
+                if (activeFillW > 0.5f) {
+                    drawRoundRect(
                         color = accentColor,
-                        topLeft = Offset(thumbRadius, centerY - trackH * 0.5f),
-                        size = Size(thumbX - thumbRadius, trackH)
+                        topLeft = Offset(fillLeft, fillTop),
+                        size = Size(activeFillW, fillH),
+                        cornerRadius = CornerRadius(fillCorner, fillCorner)
                     )
                 }
-                drawCircle(
-                    color = accentColor,
-                    radius = thumbRadius,
-                    center = Offset(thumbX, centerY)
+
+                // 2. Track Double Outline: outer 1dp #5A5A5A + inner 1dp #151515
+                drawRoundRect(
+                    color = Color(0xFF5A5A5A),
+                    topLeft = Offset(trackLeft + half1, trackTop + half1),
+                    size = Size(trackTotalW - stroke1DpPx, trackH - stroke1DpPx),
+                    cornerRadius = CornerRadius(trackRadiusPx - half1, trackRadiusPx - half1),
+                    style = Stroke(width = stroke1DpPx)
+                )
+                val innerTrackStrokeOffset = stroke1DpPx + half1
+                val innerTrackCorner = (trackRadiusPx - innerTrackStrokeOffset).coerceAtLeast(1f)
+                drawRoundRect(
+                    color = Color(0xFF151515),
+                    topLeft = Offset(trackLeft + innerTrackStrokeOffset, trackTop + innerTrackStrokeOffset),
+                    size = Size(trackTotalW - innerTrackStrokeOffset * 2f, trackH - innerTrackStrokeOffset * 2f),
+                    cornerRadius = CornerRadius(innerTrackCorner, innerTrackCorner),
+                    style = Stroke(width = stroke1DpPx)
+                )
+
+                // 3. Thumb: 14dp wide x 28dp tall, 3dp radius, fill #EDEDED (darkened by 6% to #DFDFDF while dragged),
+                //    outer 1dp outline #8A8A8A + inner 1.5dp outline #1C1C1C
+                val thumbLeft = thumbCenterX - thumbHalfW
+                val thumbTop = centerY - thumbH * 0.5f
+                val thumbFillColor = if (isDragging) Color(0xFFDFDFDF) else Color(0xFFEDEDED)
+
+                drawRoundRect(
+                    color = thumbFillColor,
+                    topLeft = Offset(thumbLeft, thumbTop),
+                    size = Size(thumbW, thumbH),
+                    cornerRadius = CornerRadius(thumbRadiusPx, thumbRadiusPx)
+                )
+                drawRoundRect(
+                    color = Color(0xFF8A8A8A),
+                    topLeft = Offset(thumbLeft + half1, thumbTop + half1),
+                    size = Size(thumbW - stroke1DpPx, thumbH - stroke1DpPx),
+                    cornerRadius = CornerRadius(thumbRadiusPx - half1, thumbRadiusPx - half1),
+                    style = Stroke(width = stroke1DpPx)
+                )
+                val innerThumbOffset = stroke1DpPx + stroke1_5DpPx * 0.5f
+                val innerThumbCorner = (thumbRadiusPx - innerThumbOffset).coerceAtLeast(0.8f)
+                drawRoundRect(
+                    color = Color(0xFF1C1C1C),
+                    topLeft = Offset(thumbLeft + innerThumbOffset, thumbTop + innerThumbOffset),
+                    size = Size(thumbW - innerThumbOffset * 2f, thumbH - innerThumbOffset * 2f),
+                    cornerRadius = CornerRadius(innerThumbCorner, innerThumbCorner),
+                    style = Stroke(width = stroke1_5DpPx)
                 )
             }
         }
@@ -14399,7 +14587,6 @@ fun NocturnaaSettingSlider(
                                         val tapValue = minV + (startPos.x / w).coerceIn(0f, 1f) * span
                                         val nearest = presetChips.minByOrNull { abs(it.first - tapValue) }
                                         if (nearest != null) {
-                                            fireSliderHaptic()
                                             dragRawValue = nearest.first
                                             currentOnValueChange(nearest.first)
                                             currentOnValueChangeFinished?.invoke()
@@ -14413,16 +14600,16 @@ fun NocturnaaSettingSlider(
                     }
             ) {
                 val totalW = maxWidth
-                val thumbPad = 6.dp
+                val thumbPad = 8.dp
                 val usableTrackW = (totalW - thumbPad * 2).coerceAtLeast(1.dp)
 
                 Canvas(modifier = Modifier.fillMaxWidth().height(6.dp)) {
-                    val rPx = 6.dp.toPx()
+                    val rPx = 8.dp.toPx()
                     val uW = (size.width - rPx * 2f).coerceAtLeast(1f)
                     presetChips.forEach { (tickVal, _) ->
                         val norm = ((tickVal - minV) / span).coerceIn(0f, 1f)
                         val x = rPx + norm * uW
-                        val isTickActive = abs(currentDisplayVal - tickVal) < (step * 0.5f).coerceAtLeast(0.5f)
+                        val isTickActive = abs(currentDisplayVal - tickVal) < (effectiveStep * 0.5f).coerceAtLeast(0.5f)
                         drawLine(
                             color = if (isTickActive) accentColor else Color(0x55FFFFFF),
                             start = Offset(x, 0f),
@@ -14434,7 +14621,7 @@ fun NocturnaaSettingSlider(
 
                 presetChips.forEach { (tickVal, tickLabel) ->
                     val norm = ((tickVal - minV) / span).coerceIn(0f, 1f)
-                    val isTickActive = abs(clampedTarget - tickVal) < (step * 0.5f).coerceAtLeast(0.5f)
+                    val isTickActive = abs(clampedTarget - tickVal) < (effectiveStep * 0.5f).coerceAtLeast(0.5f)
                     val xOffset = (thumbPad + usableTrackW * norm - 19.dp).coerceIn(0.dp, (totalW - 38.dp).coerceAtLeast(0.dp))
                     Box(
                         modifier = Modifier
@@ -14528,11 +14715,12 @@ fun LetterStretchSettingCard(
                 val barX = railLeftEdgeX + waveShiftX - letterExtraLeftWidth - barGapPx - barWidthPx
                 val barTopY = (size.height - barHeightPx) * 0.5f
 
+                val barCornerPx = NocturnaaShapes.XS_DP.toPx()
                 drawRoundRect(
                     color = accentColor,
                     topLeft = Offset(barX, barTopY),
                     size = Size(barWidthPx, barHeightPx),
-                    cornerRadius = CornerRadius(barWidthPx * 0.5f, barWidthPx * 0.5f)
+                    cornerRadius = CornerRadius(barCornerPx, barCornerPx)
                 )
             }
 
@@ -14673,7 +14861,7 @@ fun SettingsBackdropControlCard(
     settingsBgIntensity: Int,
     accentColor: Color,
     innerCardBorderColor: Color = Color(0x1AFFFFFF),
-    innerCardShape: RoundedCornerShape = RoundedCornerShape(8.dp),
+    innerCardShape: RoundedCornerShape = NocturnaaShapes.S,
     lomoFontFamily: FontFamily = LocalLauncherFont.current,
     onChangeMode: (String) -> Unit,
     onChangeIntensity: (Int) -> Unit
@@ -14865,7 +15053,7 @@ fun SettingsBackdropControlCard(
                                 fontSize = 8.sp,
                                 fontFamily = lomoFontFamily,
                                 modifier = Modifier
-                                    .border(1.dp, Color(0xFF4D4D4D), RoundedCornerShape(50))
+                                    .border(1.dp, Color(0xFF4D4D4D), NocturnaaShapes.S)
                                     .padding(horizontal = 8.dp, vertical = 2.dp)
                             )
                         }
@@ -14943,11 +15131,52 @@ fun NocturnaaCollapsibleSection(
     val context = LocalContext.current
     val density = LocalDensity.current
     val eightDpPx = with(density) { 8.dp.toPx() }
+    val dissolveZone24DpPx = with(density) { 24.dp.toPx() }
+    val targetFade28DpPx = with(density) { 28.dp.toPx() }
+    val barWidth2DpPx = with(density) { 2.dp.toPx() }
 
     val heightProgressAnim = remember { Animatable(if (expanded) 1f else 0f) }
     val openClockMsAnim = remember { Animatable(if (expanded) 640f else 0f) }
-    val closeFadeAlphaAnim = remember { Animatable(if (expanded) 1f else 0f) }
     var isClosingPhase by remember { mutableStateOf(!expanded) }
+
+    var measuredHeaderHeightPx by remember { mutableStateOf(with(density) { minHeaderHeight.roundToPx() }) }
+    var measuredContentFullHeightPx by remember { mutableStateOf(0) }
+    val rowTopYInContentPx = remember(items.size) { IntArray((items.size + 4).coerceAtLeast(4)) }
+
+    // Pre-allocated smoothstep unit shader & matrix for the Left Accent Bar (zero per-frame gradient allocations!)
+    // Uses a 17-stop smoothstep curve (u^2 * (3 - 2u)) from 0% to 100% opacity, mirrored via Matrix for top & bottom fades.
+    val accentArgb = android.graphics.Color.argb(
+        255,
+        (accentColor.red * 255f).roundToInt().coerceIn(0, 255),
+        (accentColor.green * 255f).roundToInt().coerceIn(0, 255),
+        (accentColor.blue * 255f).roundToInt().coerceIn(0, 255)
+    )
+    val barShaderBundle = remember(accentArgb) {
+        val stopsCount = 17
+        val colors = IntArray(stopsCount)
+        val positions = FloatArray(stopsCount)
+        val r = android.graphics.Color.red(accentArgb)
+        val g = android.graphics.Color.green(accentArgb)
+        val b = android.graphics.Color.blue(accentArgb)
+        for (i in 0 until stopsCount) {
+            val u = i.toFloat() / (stopsCount - 1).toFloat()
+            val smooth = u * u * (3f - 2f * u)
+            val a = (smooth * 255f).roundToInt().coerceIn(0, 255)
+            positions[i] = u
+            colors[i] = android.graphics.Color.argb(a, r, g, b)
+        }
+        val unitShader = LinearGradient(0f, 0f, 0f, 1f, colors, positions, AndroidShader.TileMode.CLAMP)
+        val matrix = Matrix()
+        val fadePaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            style = AndroidPaint.Style.FILL
+            shader = unitShader
+        }
+        val solidPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            style = AndroidPaint.Style.FILL
+            color = accentArgb
+        }
+        Triple(unitShader, matrix, fadePaint to solidPaint)
+    }
 
     LaunchedEffect(expanded) {
         val animScale = try {
@@ -14959,10 +15188,8 @@ fun NocturnaaCollapsibleSection(
             isClosingPhase = !expanded
             heightProgressAnim.snapTo(if (expanded) 1f else 0f)
             openClockMsAnim.snapTo(if (expanded) 640f else 0f)
-            closeFadeAlphaAnim.snapTo(if (expanded) 1f else 0f)
         } else if (expanded) {
             isClosingPhase = false
-            closeFadeAlphaAnim.snapTo(1f)
             openClockMsAnim.snapTo(0f)
             launch {
                 heightProgressAnim.animateTo(
@@ -14978,13 +15205,6 @@ fun NocturnaaCollapsibleSection(
             }
         } else {
             isClosingPhase = true
-            closeFadeAlphaAnim.snapTo(1f)
-            launch {
-                closeFadeAlphaAnim.animateTo(
-                    targetValue = 0f,
-                    animationSpec = tween(durationMillis = 150, easing = NocturnaaCloseSectionEasing)
-                )
-            }
             launch {
                 heightProgressAnim.animateTo(
                     targetValue = 0f,
@@ -14994,13 +15214,13 @@ fun NocturnaaCollapsibleSection(
         }
     }
 
-    val hProg = heightProgressAnim.value.coerceIn(0f, 1f)
-    val chevronColor = androidx.compose.ui.graphics.lerp(Color(0xFF737373), accentColor, hProg)
+    val isContentVisible = expanded || heightProgressAnim.value > 0.0005f
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .drawBehind {
+                val hProg = heightProgressAnim.value.coerceIn(0f, 1f)
                 if (hProg > 0.001f) {
                     // Open section's slightly lighter surface (#0C0C0C) fades in and out in sync with the height
                     drawRect(
@@ -15008,26 +15228,38 @@ fun NocturnaaCollapsibleSection(
                         topLeft = Offset.Zero,
                         size = size
                     )
-                    // Seamless Left Accent Bar:
-                    // Vertical gradient: 0% at top -> full accentColor over first 20dp (or 25% if shorter than 80dp) ->
-                    // solid in the middle -> 0% over last 20dp. Constant fade length while growing/shrinking, no hard edges or caps.
-                    val barHeightPx = size.height * hProg
+                    // Section 5: Symmetric Smoothstep Left Accent Bar
+                    // - Top end stays anchored at y = 0f (top of the section)
+                    // - Bottom end moves down with the section's animated height: barHeightPx = (headerH + contentFullH) * hProg
+                    // - Both ends fade over 28dp using the exact same smoothstep curve (scaled down symmetrically if shorter than 56dp)
+                    // - Zero scaleY stretching, zero hard edges, zero rounded caps, zero per-frame allocations!
+                    val totalOpenH = (measuredHeaderHeightPx + measuredContentFullHeightPx).toFloat().coerceAtLeast(size.height)
+                    val barHeightPx = (totalOpenH * hProg).coerceAtMost(size.height)
                     if (barHeightPx > 0.5f) {
-                        val fadePx = min(20.dp.toPx(), barHeightPx * 0.25f)
-                        val fadeStop = (fadePx / barHeightPx).coerceIn(0f, 0.25f)
-                        val transparentAccent = accentColor.copy(alpha = 0f)
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                0f to transparentAccent,
-                                fadeStop to accentColor,
-                                (1f - fadeStop) to accentColor,
-                                1f to transparentAccent,
-                                startY = 0f,
-                                endY = barHeightPx
-                            ),
-                            topLeft = Offset.Zero,
-                            size = Size(2.dp.toPx(), barHeightPx)
-                        )
+                        val fadeLenPx = min(targetFade28DpPx, barHeightPx * 0.5f).coerceAtLeast(0.5f)
+                        val (unitShader, shaderMatrix, paintsPair) = barShaderBundle
+                        val (fadePaint, solidPaint) = paintsPair
+                        drawIntoCanvas { composeCanvas ->
+                            val nc = composeCanvas.nativeCanvas
+                            // 1. Top smoothstep fade (0% -> 100% over 0..fadeLenPx)
+                            shaderMatrix.reset()
+                            shaderMatrix.setScale(1f, fadeLenPx)
+                            unitShader.setLocalMatrix(shaderMatrix)
+                            nc.drawRect(0f, 0f, barWidth2DpPx, fadeLenPx, fadePaint)
+
+                            // 2. Full-opacity middle span (fadeLenPx .. barHeightPx - fadeLenPx)
+                            val midBottom = barHeightPx - fadeLenPx
+                            if (midBottom > fadeLenPx) {
+                                nc.drawRect(0f, fadeLenPx, barWidth2DpPx, midBottom, solidPaint)
+                            }
+
+                            // 3. Bottom smoothstep fade (100% -> 0% over (barHeightPx - fadeLenPx)..barHeightPx, exact mirror!)
+                            shaderMatrix.reset()
+                            shaderMatrix.setScale(1f, -fadeLenPx)
+                            shaderMatrix.postTranslate(0f, barHeightPx)
+                            unitShader.setLocalMatrix(shaderMatrix)
+                            nc.drawRect(0f, midBottom.coerceAtLeast(0f), barWidth2DpPx, barHeightPx, fadePaint)
+                        }
                     }
                 }
             }
@@ -15036,7 +15268,10 @@ fun NocturnaaCollapsibleSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = minHeaderHeight)
-                .onSizeChanged { onHeaderHeightMeasured?.invoke(it.height) }
+                .onSizeChanged {
+                    measuredHeaderHeightPx = it.height
+                    onHeaderHeightMeasured?.invoke(it.height)
+                }
                 .clickable { onToggle() }
                 .padding(horizontal = headerHorizontalPadding, vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -15094,28 +15329,51 @@ fun NocturnaaCollapsibleSection(
             if (headerTrailingContent != null) {
                 headerTrailingContent()
             } else {
-                // Chevron vertically centered with row text, rotating 0° -> 90° with the same duration and curve as height
+                val hProgForChevron = heightProgressAnim.value.coerceIn(0f, 1f)
+                val chevronColor = androidx.compose.ui.graphics.lerp(Color(0xFF737373), accentColor, hProgForChevron)
                 Text(
                     text = "›",
                     color = chevronColor,
                     fontSize = 18.sp,
                     fontFamily = lomoFontFamily,
                     modifier = Modifier.graphicsLayer {
-                        rotationZ = 90f * hProg
+                        rotationZ = 90f * heightProgressAnim.value.coerceIn(0f, 1f)
                     }
                 )
             }
         }
 
-        // Render section content at its final size and reveal with an animated height clip (zero reflow during animation)
-        if (expanded || hProg > 0.0005f) {
+        // Section 4: Uncropped Collapsible Section Content
+        // - 8dp clip bleed on left, right, and top (plus bottom once open) so overhanging thumbs, borders, swatch rings & descenders never clip
+        // - Measures the real full content height (including top/bottom paddings and overhangs) whenever font, font size, or content changes
+        // - Per-row dissolve over a 24dp zone above the moving clip edge when opening and in reverse when closing (no offscreen layer needed)
+        if (isContentVisible) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clipToBounds()
+                    .drawWithContent {
+                        val curHProg = heightProgressAnim.value.coerceIn(0f, 1f)
+                        val bottomBleed = if (curHProg >= 0.999f) eightDpPx else 0f
+                        drawIntoCanvas { canvas ->
+                            val nc = canvas.nativeCanvas
+                            val saveCount = nc.save()
+                            nc.clipRect(
+                                -eightDpPx,
+                                -eightDpPx,
+                                size.width + eightDpPx,
+                                size.height + bottomBleed
+                            )
+                            this@drawWithContent.drawContent()
+                            nc.restoreToCount(saveCount)
+                        }
+                    }
                     .layout { measurable, constraints ->
                         val placeable = measurable.measure(constraints)
-                        val clippedHeight = (placeable.height * hProg).roundToInt()
+                        if (placeable.height != measuredContentFullHeightPx) {
+                            measuredContentFullHeightPx = placeable.height
+                        }
+                        val curHProg = heightProgressAnim.value.coerceIn(0f, 1f)
+                        val clippedHeight = (placeable.height * curHProg).roundToInt()
                         layout(placeable.width, clippedHeight) {
                             placeable.placeRelative(0, 0)
                         }
@@ -15127,7 +15385,8 @@ fun NocturnaaCollapsibleSection(
                         .padding(
                             start = contentHorizontalPadding,
                             end = contentHorizontalPadding,
-                            bottom = 9.dp
+                            top = 2.dp,
+                            bottom = 12.dp
                         )
                 ) {
                     items.forEachIndexed { itemIdx, itemComposable ->
@@ -15136,14 +15395,34 @@ fun NocturnaaCollapsibleSection(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .onGloballyPositioned { coords ->
+                                    if (itemIdx < rowTopYInContentPx.size) {
+                                        rowTopYInContentPx[itemIdx] = coords.positionInParent().y.roundToInt()
+                                    }
+                                }
                                 .graphicsLayer {
+                                    val curHProg = heightProgressAnim.value.coerceIn(0f, 1f)
+                                    val totalH = measuredContentFullHeightPx.toFloat().coerceAtLeast(1f)
+                                    val movingEdgeY = totalH * curHProg
+                                    val rowTop = if (itemIdx < rowTopYInContentPx.size) {
+                                        rowTopYInContentPx[itemIdx].toFloat()
+                                    } else 0f
+
+                                    // Dissolve softly from 0% to 100% over the 24dp zone above the moving edge (and in reverse when closing)
+                                    val rawEdgeFrac = if (curHProg >= 0.999f) {
+                                        1f
+                                    } else {
+                                        ((movingEdgeY - rowTop) / dissolveZone24DpPx).coerceIn(0f, 1f)
+                                    }
+                                    val edgeDissolveAlpha = rawEdgeFrac * rawEdgeFrac * (3f - 2f * rawEdgeFrac)
+
                                     if (isClosingPhase) {
-                                        alpha = closeFadeAlphaAnim.value.coerceIn(0f, 1f)
+                                        alpha = edgeDissolveAlpha
                                         translationY = 0f
                                     } else {
                                         val rawLinear = ((openClockMsAnim.value - startMs) / 260f).coerceIn(0f, 1f)
                                         val itemProg = NocturnaaOpenSectionEasing.transform(rawLinear).coerceIn(0f, 1f)
-                                        alpha = itemProg
+                                        alpha = (itemProg * edgeDissolveAlpha).coerceIn(0f, 1f)
                                         translationY = (1f - itemProg) * eightDpPx
                                     }
                                 }
@@ -15259,7 +15538,7 @@ fun SettingCard(
             fontSize = 10.sp,
             fontFamily = lomoFontFamily,
             modifier = Modifier
-                .border(1.dp, Color(0xFF4D4D4D), RoundedCornerShape(50))
+                .border(1.dp, Color(0xFF4D4D4D), NocturnaaShapes.S)
                 .padding(horizontal = 14.dp, vertical = 5.dp)
         )
     }
