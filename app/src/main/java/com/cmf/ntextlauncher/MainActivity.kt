@@ -1213,6 +1213,7 @@ data class LiveWallpaperConfig(
     val starfieldTimeWarpEnabled: Boolean = true,
     val starfieldTapsToWarp: Int = 5,
     val starfieldWarpCooldownSec: Int = 6,
+    val starfieldWarpHoldSec: Float = 3.0f,
     val starfieldWarpVibration: Boolean = true,
     // 2. CRT Scanlines
     val crtLineDensityPct: Int = 100,
@@ -1289,6 +1290,7 @@ data class LiveWallpaperConfig(
                 starfieldTimeWarpEnabled = d.starfieldTimeWarpEnabled,
                 starfieldTapsToWarp = d.starfieldTapsToWarp,
                 starfieldWarpCooldownSec = d.starfieldWarpCooldownSec,
+                starfieldWarpHoldSec = d.starfieldWarpHoldSec,
                 starfieldWarpVibration = d.starfieldWarpVibration
             )
             "live_raster_lines" -> copy(
@@ -1392,7 +1394,7 @@ val NEW_7_LIVE_WALLPAPER_IDS = setOf(
 
 val VALID_WP_PREF_KEYS = setOf(
     "wp_dim",
-    "wp_sf_density", "wp_sf_speed", "wp_sf_size", "wp_sf_brightness", "wp_sf_fps", "wp_sf_warp_enabled", "wp_sf_warp_taps", "wp_sf_warp_cooldown", "wp_sf_warp_vib",
+    "wp_sf_density", "wp_sf_speed", "wp_sf_size", "wp_sf_brightness", "wp_sf_fps", "wp_sf_warp_enabled", "wp_sf_warp_taps", "wp_sf_warp_cooldown", "wp_sf_warp_hold", "wp_sf_warp_vib",
     "wp_crt_density", "wp_crt_strength", "wp_crt_speed", "wp_crt_brightness", "wp_crt_fps",
     "wp_yd_cols", "wp_yd_size", "wp_yd_shape", "wp_yd_pos", "wp_yd_counter", "wp_yd_brightness",
     "wp_mp_size", "wp_mp_detail", "wp_mp_vert", "wp_mp_phase", "wp_mp_brightness",
@@ -1413,6 +1415,7 @@ fun saveLiveWallpaperConfigToPrefs(prefs: SharedPreferences, cfg: LiveWallpaperC
         .putBoolean("wp_sf_warp_enabled", cfg.starfieldTimeWarpEnabled)
         .putInt("wp_sf_warp_taps", cfg.starfieldTapsToWarp)
         .putInt("wp_sf_warp_cooldown", cfg.starfieldWarpCooldownSec)
+        .putFloat("wp_sf_warp_hold", cfg.starfieldWarpHoldSec)
         .putBoolean("wp_sf_warp_vib", cfg.starfieldWarpVibration)
         .putInt("wp_crt_density", cfg.crtLineDensityPct)
         .putInt("wp_crt_strength", cfg.crtLineStrengthPct)
@@ -1515,6 +1518,7 @@ fun loadAndMigrateLiveWallpaperConfig(prefs: SharedPreferences): LiveWallpaperCo
         starfieldTimeWarpEnabled = prefs.getBoolean("wp_sf_warp_enabled", true),
         starfieldTapsToWarp = prefs.getInt("wp_sf_warp_taps", 5).coerceIn(3, 10),
         starfieldWarpCooldownSec = prefs.getInt("wp_sf_warp_cooldown", 6).coerceIn(2, 30),
+        starfieldWarpHoldSec = ((prefs.getFloat("wp_sf_warp_hold", 3.0f) * 2f).roundToInt() / 2f).coerceIn(1.0f, 8.0f),
         starfieldWarpVibration = prefs.getBoolean("wp_sf_warp_vib", true),
 
         crtLineDensityPct = prefs.getInt("wp_crt_density", migratedSfCrtDensity.coerceIn(50, 200)).coerceIn(50, 200),
@@ -1674,31 +1678,31 @@ class TouchRippleEventBus {
 }
 
 // ============================================================================
-// 3D STARFIELD TIME WARP CONTROLLER (Zero-allocation frame state, tap counting,
-// 150ms 2.5x charge-up cue, 3.55s Charge -> Warp -> Flash -> Return sequence,
-// smooth dual-sine screen shake, and system-touch-feedback-respecting haptics)
+// 3D STARFIELD TIME WARP CONTROLLER
+// - Pure bookkeeping before the final required tap: 0 visual/audio/haptic/FPS changes,
+//   0 redraw/wake calls, 0 Compose state writes until tapCount == Taps to warp.
+// - 5-Phase State Machine driven strictly from T0 (warpStartNanos):
+//   * WAIT (0..500ms): nothing changes on screen, no shake, no haptic, no FPS boost; taps ignored.
+//   * RAMP (500..2700ms, 2.2s): v(u) = 1 + 59 * s(u), continuous dot-to-line streaks, +100% extra stars
+//     (capped at 1200 total) fading in over first 60% of RAMP, shake 0 -> 2dp, 60fps boost starts,
+//     and ONE pre-built 55ms-segment haptic waveform starts.
+//   * HOLD (2700ms..2700ms + WarpHold, default 3.0s): 60x speed, full streaks, ~3dp shake.
+//   * GLOW (1200ms after HOLD): final speed surge 60x -> 72x (smoothstep), 256x256 radial bloom bitmap
+//     scaling lerp(6%, 125%) * diag * u^3 with opacity u^2 + full-screen white smoothstep((u - 0.8)/0.2)
+//     covering all home content, shake 3 -> 4dp, EFFECT_HEAVY_CLICK thump at u = 0.85,
+//     and instant reset underneath at u = 1 (speed 1x, no streaks, no extra stars, no shake, no bloom).
+//   * RETURN (900ms): white layer fades 100% -> 0% with cubic ease-out, then cooldown starts.
 // ============================================================================
 class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
     companion object {
-        // Charge (0..700ms): 23 steps of 30ms = 690ms, amplitudes rising 20 -> 70 (out of 255)
-        val CHARGE_TIMINGS = LongArray(23) { 30L }
-        val CHARGE_AMPLITUDES = IntArray(23) { idx ->
-            (20 + (50 * idx) / 22).coerceIn(20, 70)
-        }
-        // Fallback short on/off pulses for devices without amplitude control
-        val CHARGE_FALLBACK_TIMINGS = LongArray(24) { idx ->
-            if (idx % 2 == 0) 18L else 12L
-        }
+        const val PHASE_IDLE = 0
+        const val PHASE_WAIT = 1
+        const val PHASE_RAMP = 2
+        const val PHASE_HOLD = 3
+        const val PHASE_GLOW = 4
+        const val PHASE_RETURN = 5
 
-        // Warp (700..2200ms): 50 steps of 30ms = 1500ms, sustained rumble between 70 and 110
-        val WARP_TIMINGS = LongArray(50) { 30L }
-        val WARP_AMPLITUDES = IntArray(50) { idx ->
-            val variation = (sin(idx * 0.65f) * 20f).roundToInt()
-            (90 + variation).coerceIn(70, 110)
-        }
-        val WARP_FALLBACK_TIMINGS = LongArray(50) { idx ->
-            if (idx % 2 == 0) 14L else 16L
-        }
+        private const val BLOOM_BITMAP_SIZE = 256
 
         fun resolveVibrator(context: Context): Vibrator? {
             return try {
@@ -1753,76 +1757,183 @@ class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
             } catch (_: Exception) {
             }
         }
+
+        // Builds ONE continuous VibrationEffect waveform (~55ms segments) when the warp starts (only allocation point!):
+        // - RAMP (2200ms = 40 segments): amplitudes rising smoothly 12 -> 75 following s(u)
+        // - HOLD (holdMs = N segments): amplitudes between 75 and 105 with subtle variation
+        // - GLOW (1200ms = 22 segments): amplitudes rising 105 -> 150
+        private fun buildWarpWaveformEffect(holdDurationMs: Float, hasAmplitudeControl: Boolean): VibrationEffect? {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+            val segMs = 55L
+            val rampSteps = 40 // 40 * 55ms = 2200ms
+            val holdSteps = (holdDurationMs / 55f).roundToInt().coerceIn(18, 160)
+            val glowSteps = 22 // 22 * 55ms = 1210ms
+            val totalSteps = rampSteps + holdSteps + glowSteps
+
+            return if (hasAmplitudeControl) {
+                val timings = LongArray(totalSteps) { segMs }
+                val amplitudes = IntArray(totalSteps)
+                var idx = 0
+                for (k in 0 until rampSteps) {
+                    val u = k.toFloat() / (rampSteps - 1).coerceAtLeast(1).toFloat()
+                    val su = u * u * (3f - 2f * u)
+                    amplitudes[idx++] = (12f + 63f * su).roundToInt().coerceIn(12, 75)
+                }
+                for (k in 0 until holdSteps) {
+                    val variation = (sin(k * 0.65f) * 15f).roundToInt()
+                    amplitudes[idx++] = (90 + variation).coerceIn(75, 105)
+                }
+                for (k in 0 until glowSteps) {
+                    val u = k.toFloat() / (glowSteps - 1).coerceAtLeast(1).toFloat()
+                    val su = u * u * (3f - 2f * u)
+                    amplitudes[idx++] = (105f + 45f * su).roundToInt().coerceIn(105, 150)
+                }
+                VibrationEffect.createWaveform(timings, amplitudes, -1)
+            } else {
+                // Fallback short ON/OFF pulses with the same 55ms rhythm
+                val timings = LongArray(totalSteps * 2)
+                var idx = 0
+                for (k in 0 until totalSteps) {
+                    val onMs = when {
+                        k < rampSteps -> 10L + (12L * k) / rampSteps
+                        k < rampSteps + holdSteps -> 22L
+                        else -> 26L
+                    }
+                    val offMs = (segMs - onMs).coerceAtLeast(10L)
+                    timings[idx++] = offMs
+                    timings[idx++] = onMs
+                }
+                VibrationEffect.createWaveform(timings, -1)
+            }
+        }
     }
 
+    // Pure bookkeeping tap counter fields
     var tapCount: Int = 0
     var lastTapUpNanos: Long = 0L
     var cooldownEndNanos: Long = 0L
 
-    var chargePulseStartNanos: Long = 0L
-    var chargePulseActive: Boolean = false
-
+    // State machine fields
+    var currentPhase: Int = PHASE_IDLE
     var warpStartNanos: Long = 0L
     var isWarpRunning: Boolean = false
-    var postFlashResetApplied: Boolean = false
-    var warpRumbleStarted: Boolean = false
-    var flashPeakThumpFired: Boolean = false
+    var holdDurationMsSnapshot: Float = 3000f
+    private var prebuiltRampWaveform: VibrationEffect? = null
+    private var rampHapticStarted: Boolean = false
+    private var glowPeakThumpFired: Boolean = false
+    private var postGlowResetApplied: Boolean = false
 
-    // Current frame animation outputs (read directly by DeepSpaceStarfieldSimulation and graphicsLayer)
+    // Current frame animation outputs (read in draw/graphicsLayer phases, zero allocations)
     var currentSpeedMultiplier: Float = 1f
     var currentStreakFactor: Float = 0f
-    var currentCoreScale: Float = 0f
-    var currentCoreAlpha: Float = 0f
+    var currentExtraStarsAlpha: Float = 0f
     var currentShakeOffsetXPx: Float = 0f
     var currentShakeOffsetYPx: Float = 0f
+    var currentBloomRadiusFrac: Float = 0f
+    var currentBloomAlpha: Float = 0f
     var currentWhiteFlashAlpha: Float = 0f
 
-    // Compose states updated ONLY when warp starts/stops or inside the 3.55s warp (0 idle overhead!)
+    // Pre-allocated 256x256 radial gradient bloom Bitmap, Matrix, and Paint (re-tinted only when accentColor changes)
+    val bloomBitmap: Bitmap = Bitmap.createBitmap(BLOOM_BITMAP_SIZE, BLOOM_BITMAP_SIZE, Bitmap.Config.ARGB_8888)
+    val bloomMatrix = Matrix()
+    val bloomPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+        isFilterBitmap = true
+    }
+    private var cachedBloomAccentRgb: Int = -1
+
+    fun ensureBloomBitmapForAccent(accentArgb: Int) {
+        val rgb = accentArgb and 0x00FFFFFF
+        if (cachedBloomAccentRgb == rgb) return
+        cachedBloomAccentRgb = rgb
+        bloomBitmap.eraseColor(android.graphics.Color.TRANSPARENT)
+        val c = android.graphics.Canvas(bloomBitmap)
+        val half = BLOOM_BITMAP_SIZE * 0.5f
+        val r = android.graphics.Color.red(accentArgb)
+        val g = android.graphics.Color.green(accentArgb)
+        val b = android.graphics.Color.blue(accentArgb)
+        // 256x256 radial gradient: white 100% at center (0.0), white 85% at 50% radius (0.5),
+        // current accentColor at 35% opacity at 80% radius (0.8), transparent at edge (1.0)
+        val p = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            style = AndroidPaint.Style.FILL
+            shader = RadialGradient(
+                half,
+                half,
+                half,
+                intArrayOf(
+                    android.graphics.Color.argb(255, 255, 255, 255),
+                    android.graphics.Color.argb(217, 255, 255, 255),
+                    android.graphics.Color.argb(89, r, g, b),
+                    android.graphics.Color.argb(0, r, g, b)
+                ),
+                floatArrayOf(0.0f, 0.50f, 0.80f, 1.0f),
+                AndroidShader.TileMode.CLAMP
+            )
+        }
+        c.drawCircle(half, half, half, p)
+    }
+
+    fun drawBloomAndWhiteOverlay(
+        nativeCanvas: android.graphics.Canvas,
+        width: Float,
+        height: Float,
+        accentArgb: Int
+    ) {
+        if (width <= 0f || height <= 0f) return
+        val bAlpha = currentBloomAlpha.coerceIn(0f, 1f)
+        val bRadFrac = currentBloomRadiusFrac
+        if (bAlpha > 0.002f && bRadFrac > 0.001f) {
+            ensureBloomBitmapForAccent(accentArgb)
+            val fullDiag = hypot(width, height)
+            val targetRadiusPx = (bRadFrac * fullDiag).coerceAtLeast(2f)
+            val bmpHalf = BLOOM_BITMAP_SIZE * 0.5f
+            val scale = targetRadiusPx / bmpHalf
+            val cx = width * 0.5f
+            val cy = height * 0.5f
+            bloomMatrix.reset()
+            bloomMatrix.postTranslate(-bmpHalf, -bmpHalf)
+            bloomMatrix.postScale(scale, scale)
+            bloomMatrix.postTranslate(cx, cy)
+            bloomPaint.alpha = (bAlpha * 255f).roundToInt().coerceIn(0, 255)
+            nativeCanvas.drawBitmap(bloomBitmap, bloomMatrix, bloomPaint)
+        }
+        val wAlpha = currentWhiteFlashAlpha.coerceIn(0f, 1f)
+        if (wAlpha > 0.002f) {
+            val aInt = (wAlpha * 255f).roundToInt().coerceIn(0, 255)
+            nativeCanvas.drawColor(android.graphics.Color.argb(aInt, 255, 255, 255))
+        }
+    }
+
+    // Compose states updated ONLY during the active warp (never touched on pre-trigger taps!)
     var isWarpOverlayVisible by mutableStateOf(false)
     var overlayFrameTick by mutableStateOf(0)
 
-    private val wakeListeners = arrayOfNulls<() -> Unit>(4)
-
-    fun registerWakeListener(listener: () -> Unit) {
-        for (i in wakeListeners.indices) {
-            if (wakeListeners[i] === listener) return
-        }
-        for (i in wakeListeners.indices) {
-            if (wakeListeners[i] == null) {
-                wakeListeners[i] = listener
-                return
-            }
-        }
-        wakeListeners[0] = listener
-    }
-
-    fun unregisterWakeListener(listener: () -> Unit) {
-        for (i in wakeListeners.indices) {
-            if (wakeListeners[i] === listener) {
-                wakeListeners[i] = null
-            }
-        }
-    }
-
-    private fun notifyWakeListeners() {
-        for (i in wakeListeners.indices) {
-            wakeListeners[i]?.invoke()
-        }
+    fun isAt60FpsBoostPhase(): Boolean {
+        return isWarpRunning && (
+            currentPhase == PHASE_RAMP ||
+                currentPhase == PHASE_HOLD ||
+                currentPhase == PHASE_GLOW ||
+                currentPhase == PHASE_RETURN
+            )
     }
 
     fun onNonCleanTouch() {
         tapCount = 0
     }
 
+    /**
+     * Pure bookkeeping before the final required tap:
+     * Updates ONLY [tapCount] and [lastTapUpNanos]. Never calls the renderer, never requests a redraw,
+     * never wakes the frame loop, never writes Compose state, and never changes the FPS cap until
+     * [tapCount] reaches [LiveWallpaperConfig.starfieldTapsToWarp].
+     */
     fun onCleanWallpaperTap(
         nowNanos: Long,
         config: LiveWallpaperConfig,
         canTriggerNow: Boolean,
-        context: Context,
-        view: android.view.View?
+        context: Context
     ) {
         if (!canTriggerNow || !config.starfieldTimeWarpEnabled || isWarpRunning) {
-            tapCount = 0
+            if (!isWarpRunning) tapCount = 0
             return
         }
         // Ignore all taps (no counting) during cooldown
@@ -1840,81 +1951,63 @@ class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
         val requiredTaps = config.starfieldTapsToWarp.coerceIn(3, 10)
         if (tapCount >= requiredTaps) {
             tapCount = 0
-            chargePulseActive = false
-            startWarp(nowNanos, config.starfieldWarpVibration, context, view)
-        } else if (tapCount >= 2) {
-            // Charge-up cue: each counted tap after the first briefly stretches stars (2.5x speed pulse for 150ms with ease-out)
-            chargePulseStartNanos = nowNanos
-            chargePulseActive = true
-            notifyWakeListeners()
+            startWarpAtT0(nowNanos, config, context)
         }
     }
 
-    fun triggerPreviewWarp(nowNanos: Long, config: LiveWallpaperConfig, context: Context, view: android.view.View?) {
+    fun triggerPreviewWarp(nowNanos: Long, config: LiveWallpaperConfig, context: Context) {
         if (isWarpRunning) return
         tapCount = 0
-        chargePulseActive = false
-        startWarp(nowNanos, config.starfieldWarpVibration, context, view)
+        startWarpAtT0(nowNanos, config, context)
     }
 
-    private fun startWarp(
+    private fun startWarpAtT0(
         nowNanos: Long,
-        vibrationSettingEnabled: Boolean,
-        context: Context,
-        view: android.view.View?
+        config: LiveWallpaperConfig,
+        context: Context
     ) {
         if (isWarpRunning) return
         tapCount = 0
-        chargePulseActive = false
         warpStartNanos = nowNanos
         isWarpRunning = true
-        postFlashResetApplied = false
-        warpRumbleStarted = false
-        flashPeakThumpFired = false
+        currentPhase = PHASE_WAIT
+        holdDurationMsSnapshot = (config.starfieldWarpHoldSec.coerceIn(1.0f, 8.0f) * 1000f)
+        rampHapticStarted = false
+        glowPeakThumpFired = false
+        postGlowResetApplied = false
+
+        // Nothing changes on screen at T0 (Phase WAIT 0..500ms)
         currentSpeedMultiplier = 1f
         currentStreakFactor = 0f
-        currentCoreScale = 0f
-        currentCoreAlpha = 0f
+        currentExtraStarsAlpha = 0f
         currentShakeOffsetXPx = 0f
         currentShakeOffsetYPx = 0f
+        currentBloomRadiusFrac = 0f
+        currentBloomAlpha = 0f
         currentWhiteFlashAlpha = 0f
-        isWarpOverlayVisible = true
-        overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
 
-        if (isTouchFeedbackEnabled(context, view, vibrationSettingEnabled)) {
-            val vib = resolveVibrator(context)
-            if (vib != null && vib.hasVibrator()) {
-                val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    if (vib.hasAmplitudeControl()) {
-                        VibrationEffect.createWaveform(CHARGE_TIMINGS, CHARGE_AMPLITUDES, -1)
-                    } else {
-                        VibrationEffect.createWaveform(CHARGE_FALLBACK_TIMINGS, -1)
-                    }
-                } else {
-                    null
-                }
-                if (effect != null) {
-                    playVibrationEffect(context, effect)
-                }
-            }
-        }
-        notifyWakeListeners()
+        // Pre-build the single 55ms-segment haptic waveform once when the warp starts (played at the start of RAMP at 500ms)
+        val vib = resolveVibrator(context)
+        val hasAmp = vib?.hasAmplitudeControl() ?: false
+        prebuiltRampWaveform = buildWarpWaveformEffect(holdDurationMsSnapshot, hasAmp)
     }
 
     fun cancelImmediately(context: Context?) {
-        val wasActive = isWarpRunning || chargePulseActive || isWarpOverlayVisible
+        val wasActive = isWarpRunning || isWarpOverlayVisible
         tapCount = 0
-        chargePulseActive = false
         isWarpRunning = false
-        postFlashResetApplied = false
-        warpRumbleStarted = false
-        flashPeakThumpFired = false
+        currentPhase = PHASE_IDLE
+        prebuiltRampWaveform = null
+        rampHapticStarted = false
+        glowPeakThumpFired = false
+        postGlowResetApplied = false
         currentSpeedMultiplier = 1f
         currentStreakFactor = 0f
-        currentCoreScale = 0f
-        currentCoreAlpha = 0f
+        currentExtraStarsAlpha = 0f
         currentShakeOffsetXPx = 0f
         currentShakeOffsetYPx = 0f
+        currentBloomRadiusFrac = 0f
+        currentBloomAlpha = 0f
         currentWhiteFlashAlpha = 0f
         if (isWarpOverlayVisible) {
             isWarpOverlayVisible = false
@@ -1922,7 +2015,6 @@ class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
         if (wasActive) {
             cancelVibration(context)
             overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
-            notifyWakeListeners()
         }
     }
 
@@ -1934,166 +2026,200 @@ class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
         view: android.view.View?,
         onRestoreNormalStarsAtFullWhite: () -> Unit
     ) {
-        if (isWarpRunning) {
-            val elapsedMs = ((frameTimeNanos - warpStartNanos) / 1_000_000.0).toFloat().coerceAtLeast(0f)
-
-            when {
-                // 1. Charge (0 to 700ms): speed grows 1x -> 60x with cubic ease-in; stars start stretching; shake 0 -> 2dp
-                elapsedMs < 700f -> {
-                    val u = (elapsedMs / 700f).coerceIn(0f, 1f)
-                    val cubicIn = u * u * u
-                    currentSpeedMultiplier = 1f + 59f * cubicIn
-                    currentStreakFactor = cubicIn * 0.42f
-                    currentCoreScale = cubicIn * 0.30f
-                    currentCoreAlpha = cubicIn * 0.40f
-                    currentWhiteFlashAlpha = 0f
-
-                    val tSec = elapsedMs * 0.001f
-                    val ampPx = (2f * u) * dpPx
-                    val nx = 0.62f * sin(tSec * (2f * PI.toFloat() * 37f)) + 0.38f * cos(tSec * (2f * PI.toFloat() * 53f))
-                    val ny = 0.62f * cos(tSec * (2f * PI.toFloat() * 41f)) + 0.38f * sin(tSec * (2f * PI.toFloat() * 59f))
-                    currentShakeOffsetXPx = nx * ampPx
-                    currentShakeOffsetYPx = ny * ampPx
-                }
-
-                // 2. Warp (700 to 2200ms): speed stays 60x; full radial streaks up to 28% diagonal; growing bright core; shake up to 3dp
-                elapsedMs < 2200f -> {
-                    if (!warpRumbleStarted) {
-                        warpRumbleStarted = true
-                        if (isTouchFeedbackEnabled(context, view, config.starfieldWarpVibration)) {
-                            val vib = resolveVibrator(context)
-                            if (vib != null && vib.hasVibrator() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                val effect = if (vib.hasAmplitudeControl()) {
-                                    VibrationEffect.createWaveform(WARP_TIMINGS, WARP_AMPLITUDES, -1)
-                                } else {
-                                    VibrationEffect.createWaveform(WARP_FALLBACK_TIMINGS, -1)
-                                }
-                                playVibrationEffect(context, effect)
-                            }
-                        }
-                    }
-                    val u = ((elapsedMs - 700f) / 1500f).coerceIn(0f, 1f)
-                    val easeOutU = 1f - (1f - u) * (1f - u)
-                    currentSpeedMultiplier = 60f
-                    currentStreakFactor = 0.42f + 0.58f * easeOutU
-                    currentCoreScale = 0.30f + 0.70f * u
-                    currentCoreAlpha = 0.40f + 0.55f * u
-                    currentWhiteFlashAlpha = 0f
-
-                    val tSec = elapsedMs * 0.001f
-                    val ampPx = (2f + 1f * sin(u * PI.toFloat() * 0.5f)) * dpPx
-                    val nx = 0.62f * sin(tSec * (2f * PI.toFloat() * 37f)) + 0.38f * cos(tSec * (2f * PI.toFloat() * 53f))
-                    val ny = 0.62f * cos(tSec * (2f * PI.toFloat() * 41f)) + 0.38f * sin(tSec * (2f * PI.toFloat() * 59f))
-                    currentShakeOffsetXPx = nx * ampPx
-                    currentShakeOffsetYPx = ny * ampPx
-                }
-
-                // 3. Flash (2200 to 2850ms): shake stops; white overlay fades in over 500ms (quad ease-in) and holds 100% for 150ms
-                elapsedMs < 2850f -> {
-                    currentShakeOffsetXPx = 0f
-                    currentShakeOffsetYPx = 0f
-
-                    if (!flashPeakThumpFired && elapsedMs >= 2500f) {
-                        flashPeakThumpFired = true
-                        if (isTouchFeedbackEnabled(context, view, config.starfieldWarpVibration)) {
-                            val thump = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK)
-                            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                VibrationEffect.createOneShot(40L, 180)
-                            } else {
-                                null
-                            }
-                            if (thump != null) {
-                                playVibrationEffect(context, thump)
-                            }
-                        }
-                    }
-
-                    if (elapsedMs < 2700f) {
-                        val uFlash = ((elapsedMs - 2200f) / 500f).coerceIn(0f, 1f)
-                        currentWhiteFlashAlpha = (uFlash * uFlash).coerceIn(0f, 1f)
-                        currentSpeedMultiplier = 60f
-                        currentStreakFactor = 1f
-                        currentCoreScale = 1f
-                        currentCoreAlpha = 0.95f
-                    } else {
-                        currentWhiteFlashAlpha = 1f
-                        if (!postFlashResetApplied) {
-                            postFlashResetApplied = true
-                            currentSpeedMultiplier = 1f
-                            currentStreakFactor = 0f
-                            currentCoreScale = 0f
-                            currentCoreAlpha = 0f
-                            onRestoreNormalStarsAtFullWhite()
-                        }
-                    }
-                }
-
-                // 4. Return (2850 to 3550ms): at 2850ms normal state is restored underneath; white overlay fades out over 700ms (ease-out)
-                elapsedMs < 3550f -> {
-                    if (!postFlashResetApplied) {
-                        postFlashResetApplied = true
-                        onRestoreNormalStarsAtFullWhite()
-                    }
-                    currentSpeedMultiplier = 1f
-                    currentStreakFactor = 0f
-                    currentCoreScale = 0f
-                    currentCoreAlpha = 0f
-                    currentShakeOffsetXPx = 0f
-                    currentShakeOffsetYPx = 0f
-
-                    val uRet = ((elapsedMs - 2850f) / 700f).coerceIn(0f, 1f)
-                    val easeOut = 1f - (1f - uRet) * (1f - uRet)
-                    currentWhiteFlashAlpha = (1f - easeOut).coerceIn(0f, 1f)
-                }
-
-                // 5. Finished (3550ms): start cooldown & restore normal FPS cap
-                else -> {
-                    if (!postFlashResetApplied) {
-                        postFlashResetApplied = true
-                        onRestoreNormalStarsAtFullWhite()
-                    }
-                    isWarpRunning = false
-                    isWarpOverlayVisible = false
-                    currentSpeedMultiplier = 1f
-                    currentStreakFactor = 0f
-                    currentCoreScale = 0f
-                    currentCoreAlpha = 0f
-                    currentShakeOffsetXPx = 0f
-                    currentShakeOffsetYPx = 0f
-                    currentWhiteFlashAlpha = 0f
-                    cancelVibration(context)
-                    if (!isPreviewController) {
-                        val cooldownSec = config.starfieldWarpCooldownSec.coerceIn(2, 30).toLong()
-                        cooldownEndNanos = frameTimeNanos + cooldownSec * 1_000_000_000L
-                    }
-                }
-            }
-            overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
-        } else if (chargePulseActive) {
-            val pulseSec = (frameTimeNanos - chargePulseStartNanos) * 1e-9f
-            if (pulseSec in 0f..0.150f) {
-                val u = (pulseSec / 0.150f).coerceIn(0f, 1f)
-                val easeOut = (1f - u) * (1f - u)
-                currentSpeedMultiplier = 1f + 1.5f * easeOut // 2.5x brief speed pulse with ease-out
-                currentStreakFactor = 0.16f * easeOut
-                currentCoreScale = 0f
-                currentCoreAlpha = 0f
-            } else {
-                chargePulseActive = false
-                currentSpeedMultiplier = 1f
-                currentStreakFactor = 0f
-                currentCoreScale = 0f
-                currentCoreAlpha = 0f
-            }
-        } else {
+        if (!isWarpRunning) {
+            currentPhase = PHASE_IDLE
             currentSpeedMultiplier = 1f
             currentStreakFactor = 0f
-            currentCoreScale = 0f
-            currentCoreAlpha = 0f
+            currentExtraStarsAlpha = 0f
             currentShakeOffsetXPx = 0f
             currentShakeOffsetYPx = 0f
+            currentBloomRadiusFrac = 0f
+            currentBloomAlpha = 0f
             currentWhiteFlashAlpha = 0f
+            return
+        }
+
+        val elapsedMs = ((frameTimeNanos - warpStartNanos) / 1_000_000.0).toFloat().coerceAtLeast(0f)
+        val waitEndMs = 500f
+        val rampDurationMs = 2200f
+        val rampEndMs = waitEndMs + rampDurationMs // 2700ms
+        val holdEndMs = rampEndMs + holdDurationMsSnapshot // default 5700ms
+        val glowDurationMs = 1200f
+        val glowEndMs = holdEndMs + glowDurationMs // default 6900ms
+        val returnDurationMs = 900f
+        val returnEndMs = glowEndMs + returnDurationMs // default 7800ms
+
+        when {
+            // PHASE WAIT (0 to 500ms): Nothing at all changes on screen (no speed change, no shake, no haptic, no overlay, no FPS boost)
+            elapsedMs < waitEndMs -> {
+                currentPhase = PHASE_WAIT
+                currentSpeedMultiplier = 1f
+                currentStreakFactor = 0f
+                currentExtraStarsAlpha = 0f
+                currentShakeOffsetXPx = 0f
+                currentShakeOffsetYPx = 0f
+                currentBloomRadiusFrac = 0f
+                currentBloomAlpha = 0f
+                currentWhiteFlashAlpha = 0f
+            }
+
+            // PHASE RAMP (500ms to 2700ms, 2.2s): v(u) = 1 + 59 * s(u), continuous streaks, +100% extra stars fade in over first 60%, shake 0 -> 2dp
+            elapsedMs < rampEndMs -> {
+                currentPhase = PHASE_RAMP
+                if (!isWarpOverlayVisible) {
+                    isWarpOverlayVisible = true
+                }
+                if (!rampHapticStarted) {
+                    rampHapticStarted = true
+                    val waveform = prebuiltRampWaveform
+                    if (waveform != null && isTouchFeedbackEnabled(context, view, config.starfieldWarpVibration)) {
+                        playVibrationEffect(context, waveform)
+                    }
+                }
+
+                val u = ((elapsedMs - waitEndMs) / rampDurationMs).coerceIn(0f, 1f)
+                val su = u * u * (3f - 2f * u) // smoothstep
+                currentSpeedMultiplier = 1f + 59f * su
+                currentStreakFactor = su
+
+                // Extra stars fade from 0 to 100% during the first 60% of the RAMP (smoothstep)
+                val uExtra = (u / 0.60f).coerceIn(0f, 1f)
+                currentExtraStarsAlpha = uExtra * uExtra * (3f - 2f * uExtra)
+
+                currentBloomRadiusFrac = 0f
+                currentBloomAlpha = 0f
+                currentWhiteFlashAlpha = 0f
+
+                // Shake amplitude follows s(u), up to 2dp
+                val tSec = elapsedMs * 0.001f
+                val ampPx = (2f * su) * dpPx
+                val nx = 0.62f * sin(tSec * (2f * PI.toFloat() * 37f)) + 0.38f * cos(tSec * (2f * PI.toFloat() * 53f))
+                val ny = 0.62f * cos(tSec * (2f * PI.toFloat() * 41f)) + 0.38f * sin(tSec * (2f * PI.toFloat() * 59f))
+                currentShakeOffsetXPx = nx * ampPx
+                currentShakeOffsetYPx = ny * ampPx
+                overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
+            }
+
+            // PHASE HOLD (from 2700ms for "Warp hold" duration, default 3.0s): speed stays at 60x with full-length streaks, ~3dp shake
+            elapsedMs < holdEndMs -> {
+                currentPhase = PHASE_HOLD
+                if (!isWarpOverlayVisible) {
+                    isWarpOverlayVisible = true
+                }
+                currentSpeedMultiplier = 60f
+                currentStreakFactor = 1f
+                currentExtraStarsAlpha = 1f
+                currentBloomRadiusFrac = 0f
+                currentBloomAlpha = 0f
+                currentWhiteFlashAlpha = 0f
+
+                val tSec = elapsedMs * 0.001f
+                val ampPx = 3f * dpPx
+                val nx = 0.62f * sin(tSec * (2f * PI.toFloat() * 37f)) + 0.38f * cos(tSec * (2f * PI.toFloat() * 53f))
+                val ny = 0.62f * cos(tSec * (2f * PI.toFloat() * 41f)) + 0.38f * sin(tSec * (2f * PI.toFloat() * 59f))
+                currentShakeOffsetXPx = nx * ampPx
+                currentShakeOffsetYPx = ny * ampPx
+                overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
+            }
+
+            // PHASE GLOW (1200ms after HOLD ends): speed surges 60x -> 72x (smoothstep), radial bloom + white layer, shake 3dp -> 4dp, heavy click at u = 0.85
+            elapsedMs < glowEndMs -> {
+                currentPhase = PHASE_GLOW
+                if (!isWarpOverlayVisible) {
+                    isWarpOverlayVisible = true
+                }
+                val u = ((elapsedMs - holdEndMs) / glowDurationMs).coerceIn(0f, 1f)
+                val su = u * u * (3f - 2f * u)
+
+                if (!glowPeakThumpFired && u >= 0.85f) {
+                    glowPeakThumpFired = true
+                    if (isTouchFeedbackEnabled(context, view, config.starfieldWarpVibration)) {
+                        val thump = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK)
+                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            VibrationEffect.createOneShot(40L, 180)
+                        } else {
+                            null
+                        }
+                        if (thump != null) {
+                            playVibrationEffect(context, thump)
+                        }
+                    }
+                }
+
+                // Final surge: speed rises 60x -> 72x (smoothstep); stars keep streaking behind the bloom
+                currentSpeedMultiplier = 60f + 12f * su
+                currentStreakFactor = 1f + 0.20f * su
+                currentExtraStarsAlpha = 1f
+
+                // Bloom radius = lerp(6%, 125%) of screen diagonal * (u^3), opacity = u^2
+                val uCubed = u * u * u
+                currentBloomRadiusFrac = (0.06f + (1.25f - 0.06f) * uCubed)
+                currentBloomAlpha = (u * u).coerceIn(0f, 1f)
+
+                // Full-screen white layer with opacity smoothstep((u - 0.8) / 0.2), so screen is pure white at u = 1
+                val w = ((u - 0.80f) / 0.20f).coerceIn(0f, 1f)
+                currentWhiteFlashAlpha = (w * w * (3f - 2f * w)).coerceIn(0f, 1f)
+
+                // Shake rises smoothly from 3dp to 4dp
+                val tSec = elapsedMs * 0.001f
+                val ampPx = (3f + 1f * su) * dpPx
+                val nx = 0.62f * sin(tSec * (2f * PI.toFloat() * 37f)) + 0.38f * cos(tSec * (2f * PI.toFloat() * 53f))
+                val ny = 0.62f * cos(tSec * (2f * PI.toFloat() * 41f)) + 0.38f * sin(tSec * (2f * PI.toFloat() * 59f))
+                currentShakeOffsetXPx = nx * ampPx
+                currentShakeOffsetYPx = ny * ampPx
+                overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
+            }
+
+            // PHASE RETURN (900ms): at the exact moment screen reaches pure white (u = 1), switch state underneath instantly
+            // (speed 1x, no streaks, no extra stars, no shake, no bloom), then fade white layer 100% -> 0% with cubic ease-out
+            elapsedMs < returnEndMs -> {
+                currentPhase = PHASE_RETURN
+                if (!postGlowResetApplied) {
+                    postGlowResetApplied = true
+                    cancelVibration(context)
+                    onRestoreNormalStarsAtFullWhite()
+                }
+                currentSpeedMultiplier = 1f
+                currentStreakFactor = 0f
+                currentExtraStarsAlpha = 0f
+                currentShakeOffsetXPx = 0f
+                currentShakeOffsetYPx = 0f
+                currentBloomRadiusFrac = 0f
+                currentBloomAlpha = 0f
+
+                val u = ((elapsedMs - glowEndMs) / returnDurationMs).coerceIn(0f, 1f)
+                val oneMinusU = 1f - u
+                // Cubic ease-out fade from 100% to 0%: 1 - (1 - (1 - u)^3) = (1 - u)^3
+                currentWhiteFlashAlpha = (oneMinusU * oneMinusU * oneMinusU).coerceIn(0f, 1f)
+                overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
+            }
+
+            // FINISHED: restore FPS cap and start cooldown
+            else -> {
+                if (!postGlowResetApplied) {
+                    postGlowResetApplied = true
+                    onRestoreNormalStarsAtFullWhite()
+                }
+                isWarpRunning = false
+                currentPhase = PHASE_IDLE
+                isWarpOverlayVisible = false
+                prebuiltRampWaveform = null
+                currentSpeedMultiplier = 1f
+                currentStreakFactor = 0f
+                currentExtraStarsAlpha = 0f
+                currentShakeOffsetXPx = 0f
+                currentShakeOffsetYPx = 0f
+                currentBloomRadiusFrac = 0f
+                currentBloomAlpha = 0f
+                currentWhiteFlashAlpha = 0f
+                cancelVibration(context)
+                if (!isPreviewController) {
+                    val cooldownSec = config.starfieldWarpCooldownSec.coerceIn(2, 30).toLong()
+                    cooldownEndNanos = frameTimeNanos + cooldownSec * 1_000_000_000L
+                }
+                overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
+            }
         }
     }
 }
@@ -3938,8 +4064,7 @@ fun NTextLauncherApp(
                                                             nowNanos = System.nanoTime(),
                                                             config = liveWpConfig,
                                                             canTriggerNow = true,
-                                                            context = context,
-                                                            view = null
+                                                            context = context
                                                         )
                                                     } else if (wallpaperPreset == "live_starfield_3d") {
                                                         homeTimeWarpController.onNonCleanTouch()
@@ -4559,17 +4684,27 @@ fun NTextLauncherApp(
                 }
             }
 
-            // Full-Screen Pure White Time Warp Flash Overlay (covers wallpaper, clock, apps & widgets; does NOT consume touches)
+            // Full-Screen Time Warp Bloom & White Overlay (covers wallpaper, clock, apps & widgets; does NOT consume touches)
             if (homeTimeWarpController.isWarpOverlayVisible && currentView == LauncherView.HOME_AND_DRAWER) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            val tick = homeTimeWarpController.overlayFrameTick
-                            alpha = if (tick >= 0) homeTimeWarpController.currentWhiteFlashAlpha.coerceIn(0f, 1f) else 0f
-                        }
-                        .background(Color.White)
+                val overlayAccentArgb = android.graphics.Color.argb(
+                    255,
+                    (accentColor.red * 255f).roundToInt().coerceIn(0, 255),
+                    (accentColor.green * 255f).roundToInt().coerceIn(0, 255),
+                    (accentColor.blue * 255f).roundToInt().coerceIn(0, 255)
                 )
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val tick = homeTimeWarpController.overlayFrameTick
+                    if (tick >= 0) {
+                        drawIntoCanvas { composeCanvas ->
+                            homeTimeWarpController.drawBloomAndWhiteOverlay(
+                                nativeCanvas = composeCanvas.nativeCanvas,
+                                width = size.width,
+                                height = size.height,
+                                accentArgb = overlayAccentArgb
+                            )
+                        }
+                    }
+                }
             }
 
             HomeActionsBottomSheet(
@@ -11883,17 +12018,27 @@ fun LiveWallpapersWindow(
                     )
                 }
 
-                // Preview Time Warp White Flash Overlay (covers ONLY the preview card!)
+                // Preview Time Warp Bloom & White Overlay (covers ONLY the preview card!)
                 if (previewTimeWarpController.isWarpOverlayVisible && selectedWallpaperId == "live_starfield_3d") {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                val tick = previewTimeWarpController.overlayFrameTick
-                                alpha = if (tick >= 0) previewTimeWarpController.currentWhiteFlashAlpha.coerceIn(0f, 1f) else 0f
-                            }
-                            .background(Color.White)
+                    val previewAccentArgb = android.graphics.Color.argb(
+                        255,
+                        (accentColor.red * 255f).roundToInt().coerceIn(0, 255),
+                        (accentColor.green * 255f).roundToInt().coerceIn(0, 255),
+                        (accentColor.blue * 255f).roundToInt().coerceIn(0, 255)
                     )
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val tick = previewTimeWarpController.overlayFrameTick
+                        if (tick >= 0) {
+                            drawIntoCanvas { composeCanvas ->
+                                previewTimeWarpController.drawBloomAndWhiteOverlay(
+                                    nativeCanvas = composeCanvas.nativeCanvas,
+                                    width = size.width,
+                                    height = size.height,
+                                    accentArgb = previewAccentArgb
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -12337,7 +12482,6 @@ fun LiveWallpapersWindow(
                                 // c. Hairline divider + per-wallpaper settings rows
                                 SettingsHairlineDivider()
 
-                                val viewForPreviewWarp = LocalView.current
                                 val currentWpSettingItems = buildLiveWallpaperRowSettingItems(
                                     id = displayedSettingsWallpaperId,
                                     liveWpConfig = liveWpConfig,
@@ -12345,13 +12489,12 @@ fun LiveWallpapersWindow(
                                     onSettingInteractionFinished = { updatedCfg ->
                                         onRefreshWallpaperThumbnail(displayedSettingsWallpaperId, updatedCfg)
                                     },
-                                    isPreviewWarpPlaying = previewTimeWarpController.isWarpOverlayVisible,
+                                    isPreviewWarpPlaying = previewTimeWarpController.isWarpRunning,
                                     onTriggerPreviewTimeWarp = {
                                         previewTimeWarpController.triggerPreviewWarp(
                                             nowNanos = System.nanoTime(),
                                             config = liveWpConfig,
-                                            context = context,
-                                            view = viewForPreviewWarp
+                                            context = context
                                         )
                                     },
                                     accentColor = accentColor,
@@ -12942,6 +13085,30 @@ private fun buildLiveWallpaperRowSettingItems(
                         val next = v.roundToInt().coerceIn(2, 30)
                         if (next != liveWpConfig.starfieldWarpCooldownSec) {
                             onUpdateLiveWpConfig(liveWpConfig.copy(starfieldWarpCooldownSec = next))
+                        }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
+                )
+            }
+            add {
+                NocturnaaSettingSlider(
+                    title = "Warp hold",
+                    description = "How long the stars stay at full speed before the final glow.",
+                    value = liveWpConfig.starfieldWarpHoldSec.coerceIn(1.0f, 8.0f),
+                    valueRange = 1.0f..8.0f,
+                    step = 0.5f,
+                    unit = "s",
+                    defaultValue = 3.0f,
+                    hapticStep = 0.5f,
+                    accentColor = accentColor,
+                    innerCardBorderColor = innerCardBorderColor,
+                    innerCardShape = innerSubCardShape,
+                    lomoFontFamily = launcherFont,
+                    presetChips = listOf(1.0f to "1", 3.0f to "3", 5.0f to "5", 8.0f to "8"),
+                    onValueChange = { v ->
+                        val snapped = ((v * 2f).roundToInt() / 2f).coerceIn(1.0f, 8.0f)
+                        if (abs(snapped - liveWpConfig.starfieldWarpHoldSec) > 0.01f) {
+                            onUpdateLiveWpConfig(liveWpConfig.copy(starfieldWarpHoldSec = snapped))
                         }
                     },
                     onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
@@ -16132,10 +16299,10 @@ fun SettingCard(
 // ============================================================================
 class DeepSpaceStarfieldSimulation {
     companion object {
-        const val MIN_STAR_COUNT = 300
-        const val DEFAULT_STAR_COUNT = 1200
+        const val MIN_STAR_COUNT = 150
+        const val DEFAULT_STAR_COUNT = 600
+        const val MAX_WARP_TOTAL_STARS = 1200
         const val MAX_STAR_COUNT = 2400
-        private const val CORE_BITMAP_SIZE = 128
     }
 
     // Flat primitive arrays allocated once (Zero GC during animation loop)
@@ -16154,54 +16321,41 @@ class DeepSpaceStarfieldSimulation {
         style = android.graphics.Paint.Style.FILL
     }
 
-    // Pre-allocated Time Warp streak line arrays (4 floats per line: x0, y0, x1, y1) and 4 grouped Paints (Zero GC!)
-    private val whiteStreakLines = Array(3) { FloatArray(MAX_STAR_COUNT * 4) }
+    // Pre-allocated Time Warp streak line arrays (4 floats per line: x0, y0, x1, y1):
+    // - 3 white opacity tiers for normal stars
+    // - 1 accent buffer for normal accent stars
+    // - 2 white opacity tiers for the +100% extra hyperspace stars (fading 0 -> 100% over first 60% of RAMP)
+    // - 1 accent buffer for the +100% extra hyperspace accent stars
+    private val whiteStreakLines = Array(3) { FloatArray(MAX_WARP_TOTAL_STARS * 4) }
     private val whiteStreakFloatCounts = IntArray(3)
-    private val accentStreakLines = FloatArray(MAX_STAR_COUNT * 4)
+    private val accentStreakLines = FloatArray(MAX_WARP_TOTAL_STARS * 4)
     private var accentStreakFloatCount = 0
 
-    private val whiteStreakPaints = Array(3) { tier ->
-        val alpha = when (tier) {
-            0 -> 115
-            1 -> 185
-            else -> 255
-        }
+    private val extraWhiteStreakLines = Array(2) { FloatArray(MAX_WARP_TOTAL_STARS * 4) }
+    private val extraWhiteStreakFloatCounts = IntArray(2)
+    private val extraAccentStreakLines = FloatArray(MAX_WARP_TOTAL_STARS * 4)
+    private var extraAccentStreakFloatCount = 0
+
+    private val whiteStreakBaseAlphas = intArrayOf(115, 185, 255)
+    private val whiteStreakPaints = Array(3) {
         android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
             style = android.graphics.Paint.Style.STROKE
             strokeCap = android.graphics.Paint.Cap.ROUND
-            color = android.graphics.Color.argb(alpha, 255, 255, 255)
         }
     }
     private val accentStreakPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
         style = android.graphics.Paint.Style.STROKE
         strokeCap = android.graphics.Paint.Cap.ROUND
     }
-
-    // One pre-built radial gradient Bitmap for the vanishing-point core during Time Warp, scaled with a Matrix
-    private val coreBitmap: Bitmap = Bitmap.createBitmap(CORE_BITMAP_SIZE, CORE_BITMAP_SIZE, Bitmap.Config.ARGB_8888).also { bmp ->
-        val c = android.graphics.Canvas(bmp)
-        val half = CORE_BITMAP_SIZE * 0.5f
-        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            style = android.graphics.Paint.Style.FILL
-            shader = RadialGradient(
-                half,
-                half,
-                half,
-                intArrayOf(
-                    android.graphics.Color.argb(255, 255, 255, 255),
-                    android.graphics.Color.argb(180, 255, 255, 255),
-                    android.graphics.Color.argb(45, 255, 255, 255),
-                    android.graphics.Color.TRANSPARENT
-                ),
-                floatArrayOf(0f, 0.22f, 0.62f, 1f),
-                AndroidShader.TileMode.CLAMP
-            )
+    private val extraWhiteStreakPaints = Array(2) {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE
+            strokeCap = android.graphics.Paint.Cap.ROUND
         }
-        c.drawCircle(half, half, half, p)
     }
-    private val coreMatrix = Matrix()
-    private val corePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-        isFilterBitmap = true
+    private val extraAccentStreakPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        style = android.graphics.Paint.Style.STROKE
+        strokeCap = android.graphics.Paint.Cap.ROUND
     }
 
     private var rngState: Int = 0x6D2B79F5
@@ -16259,7 +16413,7 @@ class DeepSpaceStarfieldSimulation {
     }
 
     fun reseedCalmField() {
-        for (i in 0 until MAX_STAR_COUNT) {
+        for (i in 0 until MAX_WARP_TOTAL_STARS) {
             starPrevZ[i] = starZ[i]
         }
     }
@@ -16272,13 +16426,24 @@ class DeepSpaceStarfieldSimulation {
         isPaused = false
     }
 
-    fun step(dtSec: Float, speedMultiplier: Float, activeCount: Int, warpSpeedMultiplier: Float = 1f) {
+    fun step(
+        dtSec: Float,
+        speedMultiplier: Float,
+        activeCount: Int,
+        warpSpeedMultiplier: Float = 1f,
+        includeExtraStars: Boolean = false
+    ) {
         if (isPaused) return
-        val clampedCount = activeCount.coerceIn(MIN_STAR_COUNT, MAX_STAR_COUNT)
+        val baseCount = activeCount.coerceIn(MIN_STAR_COUNT, MAX_WARP_TOTAL_STARS)
+        val stepCount = if (includeExtraStars) {
+            (baseCount * 2).coerceAtMost(MAX_WARP_TOTAL_STARS)
+        } else {
+            baseCount
+        }
         val forwardDrift = dtSec * 0.038f * speedMultiplier * warpSpeedMultiplier
         twinkleClockSec = (twinkleClockSec + dtSec) % 3600f
 
-        for (i in 0 until clampedCount) {
+        for (i in 0 until stepCount) {
             val curZ = starZ[i]
             val nextZ = curZ - forwardDrift
             if (nextZ <= 0.025f) {
@@ -16300,28 +16465,30 @@ class DeepSpaceStarfieldSimulation {
         scaleMultiplier: Float,
         warpStreakFactor: Float = 0f,
         warpSpeedMultiplier: Float = 1f,
-        warpCoreScale: Float = 0f,
-        warpCoreAlpha: Float = 0f,
+        warpExtraStarsAlpha: Float = 0f,
         accentArgb: Int = android.graphics.Color.rgb(255, 59, 0)
     ) {
         if (width <= 0f || height <= 0f) return
-        val clampedCount = activeCount.coerceIn(MIN_STAR_COUNT, MAX_STAR_COUNT)
+        val baseCount = activeCount.coerceIn(MIN_STAR_COUNT, MAX_WARP_TOTAL_STARS)
         val cx = width * 0.5f
         val cy = height * 0.5f
         val halfSpan = max(width, height) * 0.62f
         val t = twinkleClockSec
         val sizeScale = densityPxPerDp * scaleMultiplier
 
-        // Normal calm 3D Starfield (when no warp or charge-up streak is active)
-        if (warpStreakFactor <= 0.001f) {
-            for (i in 0 until clampedCount) {
+        // When warpStreakFactor < 1, draw the normal stars underneath (fading out smoothly as streaks reach full intensity)
+        // so that at the start of RAMP (s(u) = 0, speed = 1x) there is ZERO pop or jump in brightness, colour, or size!
+        val dotFade = (1f - (warpStreakFactor / 0.35f).coerceIn(0f, 1f))
+        if (dotFade > 0.001f) {
+            val effectiveDotOpacity = opacityMultiplier * dotFade
+            for (i in 0 until baseCount) {
                 val z = starZ[i]
                 val invZ = 1.0f / z
                 val sx = cx + starX[i] * invZ * halfSpan
                 val sy = cy + starY[i] * invZ * halfSpan
 
                 if (sx < -4f || sx > width + 4f || sy < -4f || sy > height + 4f) {
-                    if (!isPaused) {
+                    if (!isPaused && warpStreakFactor <= 0.0001f) {
                         initStar(i, randomDepth = false)
                     }
                     continue
@@ -16331,50 +16498,81 @@ class DeepSpaceStarfieldSimulation {
                 val radiusPx = (starBaseRadiusDp[i] * depthScale * sizeScale).coerceAtLeast(0.65f)
                 val twinkle = 0.74f + 0.26f * sin(t * starTwinkleFreq[i] + starTwinklePhase[i])
                 val depthAlpha = (1.12f - z * 0.65f).coerceIn(0.18f, 1.0f)
-                val alphaFloat = (starBaseAlpha[i] * twinkle * depthAlpha * opacityMultiplier).coerceIn(0.05f, 1.0f)
-                val alphaByte = (alphaFloat * 255f).toInt().coerceIn(12, 255)
-
-                starPaint.color = (alphaByte shl 24) or starRgbNoAlpha[i]
-                nativeCanvas.drawCircle(sx, sy, radiusPx, starPaint)
+                val alphaFloat = (starBaseAlpha[i] * twinkle * depthAlpha * effectiveDotOpacity).coerceIn(0f, 1.0f)
+                val alphaByte = (alphaFloat * 255f).toInt().coerceIn(0, 255)
+                if (alphaByte >= 4) {
+                    starPaint.color = (alphaByte shl 24) or starRgbNoAlpha[i]
+                    nativeCanvas.drawCircle(sx, sy, radiusPx, starPaint)
+                }
             }
-            return
         }
 
-        // Time Warp / Charge-Up Streak Renderer:
-        // Every star is drawn as a LINE pointing away from the vanishing point (cx, cy),
-        // with length proportional to speed and depth (up to ~28% of screen diagonal), batched into 3 white drawLines + 1 accent drawLines!
+        if (warpStreakFactor <= 0.0001f) return
+
+        // Continuous Dot-to-Line Streak Renderer:
+        // - Streak length is strictly proportional to (warpSpeedMultiplier - 1f) and 1/z, growing continuously from 0px at 1x
+        //   up to 28% of the screen diagonal (zero minimum-length jump!).
+        // - Up to +100% extra stars (capped at 1200 in total) from the pre-allocated pool fade in over the first 60% of RAMP.
         val fullDiag = hypot(width, height)
-        val maxStreakLenPx = 0.28f * fullDiag * warpStreakFactor.coerceIn(0f, 1f)
-        val speedNorm = ((warpSpeedMultiplier - 1f) / 59f).coerceIn(0.04f, 1f)
-        val trailZOffset = (0.04f + 0.34f * speedNorm) * warpStreakFactor.coerceIn(0f, 1f)
+        val speedNorm = ((warpSpeedMultiplier - 1f) / 59f).coerceIn(0f, 1.25f)
+        val maxStreakLenPx = 0.28f * fullDiag * speedNorm.coerceIn(0f, 1f)
+        val trailZOffset = 0.36f * speedNorm
+
+        val streakMasterAlpha = (warpStreakFactor / 0.22f).coerceIn(0f, 1f)
+        val extraAlpha = (warpExtraStarsAlpha * streakMasterAlpha).coerceIn(0f, 1f)
+        val totalWarpCount = if (extraAlpha > 0.002f) {
+            (baseCount * 2).coerceAtMost(MAX_WARP_TOTAL_STARS)
+        } else {
+            baseCount
+        }
 
         whiteStreakFloatCounts[0] = 0
         whiteStreakFloatCounts[1] = 0
         whiteStreakFloatCounts[2] = 0
         accentStreakFloatCount = 0
+        extraWhiteStreakFloatCounts[0] = 0
+        extraWhiteStreakFloatCounts[1] = 0
+        extraAccentStreakFloatCount = 0
 
-        val strokeW = (1.25f * densityPxPerDp * scaleMultiplier.coerceIn(0.7f, 1.4f)).coerceAtLeast(1.2f)
+        val strokeW = (1.25f * densityPxPerDp * scaleMultiplier.coerceIn(0.7f, 1.4f)).coerceAtLeast(1.1f)
         for (tier in 0 until 3) {
+            val a = (whiteStreakBaseAlphas[tier] * streakMasterAlpha).roundToInt().coerceIn(0, 255)
             whiteStreakPaints[tier].strokeWidth = if (tier == 2) strokeW * 1.15f else strokeW
+            whiteStreakPaints[tier].color = android.graphics.Color.argb(a, 255, 255, 255)
         }
+        val accAlpha = (255f * streakMasterAlpha).roundToInt().coerceIn(0, 255)
         accentStreakPaint.strokeWidth = strokeW * 1.15f
-        accentStreakPaint.color = (0xFF shl 24) or (accentArgb and 0x00FFFFFF)
+        accentStreakPaint.color = (accAlpha shl 24) or (accentArgb and 0x00FFFFFF)
 
-        for (i in 0 until clampedCount) {
+        if (extraAlpha > 0.002f) {
+            val ea0 = (140f * extraAlpha).roundToInt().coerceIn(0, 255)
+            val ea1 = (235f * extraAlpha).roundToInt().coerceIn(0, 255)
+            extraWhiteStreakPaints[0].strokeWidth = strokeW
+            extraWhiteStreakPaints[0].color = android.graphics.Color.argb(ea0, 255, 255, 255)
+            extraWhiteStreakPaints[1].strokeWidth = strokeW * 1.1f
+            extraWhiteStreakPaints[1].color = android.graphics.Color.argb(ea1, 255, 255, 255)
+
+            val eAccA = (240f * extraAlpha).roundToInt().coerceIn(0, 255)
+            extraAccentStreakPaint.strokeWidth = strokeW * 1.1f
+            extraAccentStreakPaint.color = (eAccA shl 24) or (accentArgb and 0x00FFFFFF)
+        }
+
+        for (i in 0 until totalWarpCount) {
             val z = starZ[i]
             val invZ = 1.0f / z
             val sx = cx + starX[i] * invZ * halfSpan
             val sy = cy + starY[i] * invZ * halfSpan
 
-            if (sx < -maxStreakLenPx || sx > width + maxStreakLenPx || sy < -maxStreakLenPx || sy > height + maxStreakLenPx) {
+            if (sx < -maxStreakLenPx - 8f || sx > width + maxStreakLenPx + 8f || sy < -maxStreakLenPx - 8f || sy > height + maxStreakLenPx + 8f) {
                 if (!isPaused) {
                     initStar(i, randomDepth = false)
                 }
                 continue
             }
 
-            // Compute previous projected position along the ray from (cx, cy) through (sx, sy)
-            val prevZ = max(starPrevZ[i], z + trailZOffset).coerceAtLeast(z + 0.008f)
+            // Continuous trailing Z along the perspective ray from the vanishing point (cx, cy):
+            // At speedNorm == 0 (speed = 1x), prevZ == z so streak length is 0px (a dot), growing smoothly into long lines!
+            val prevZ = (z + trailZOffset).coerceAtLeast(z)
             val invPrevZ = 1.0f / prevZ
             var prevSx = cx + starX[i] * invPrevZ * halfSpan
             var prevSy = cy + starY[i] * invPrevZ * halfSpan
@@ -16382,44 +16580,62 @@ class DeepSpaceStarfieldSimulation {
             val dx = sx - prevSx
             val dy = sy - prevSy
             val lenSq = dx * dx + dy * dy
-            if (lenSq > maxStreakLenPx * maxStreakLenPx && lenSq > 1f) {
+            if (lenSq > maxStreakLenPx * maxStreakLenPx && lenSq > 0.0001f) {
                 val scale = maxStreakLenPx / sqrt(lenSq)
                 prevSx = sx - dx * scale
                 prevSy = sy - dy * scale
-            } else if (lenSq < 2.25f) {
-                // Ensure minimum visible streak line away from vanishing point
-                val rx = sx - cx
-                val ry = sy - cy
-                val rLen = hypot(rx, ry).coerceAtLeast(1f)
-                val minLen = (2.2f * densityPxPerDp).coerceAtLeast(1.5f)
-                prevSx = sx - (rx / rLen) * minLen
-                prevSy = sy - (ry / rLen) * minLen
             }
 
-            // ~10% of streaks are in the current accent colour, remaining 90% are white at full brightness grouped by depth tier
-            if (i % 10 == 0) {
-                val cIdx = accentStreakFloatCount
-                if (cIdx + 4 <= accentStreakLines.size) {
-                    accentStreakLines[cIdx] = prevSx
-                    accentStreakLines[cIdx + 1] = prevSy
-                    accentStreakLines[cIdx + 2] = sx
-                    accentStreakLines[cIdx + 3] = sy
-                    accentStreakFloatCount = cIdx + 4
+            val isExtraStar = i >= baseCount
+            val isAccentStar = (i % 11 == 0)
+
+            if (!isExtraStar) {
+                if (isAccentStar) {
+                    val cIdx = accentStreakFloatCount
+                    if (cIdx + 4 <= accentStreakLines.size) {
+                        accentStreakLines[cIdx] = prevSx
+                        accentStreakLines[cIdx + 1] = prevSy
+                        accentStreakLines[cIdx + 2] = sx
+                        accentStreakLines[cIdx + 3] = sy
+                        accentStreakFloatCount = cIdx + 4
+                    }
+                } else {
+                    val tier = when {
+                        z < 0.34f -> 2
+                        z < 0.68f -> 1
+                        else -> 0
+                    }
+                    val cIdx = whiteStreakFloatCounts[tier]
+                    val buf = whiteStreakLines[tier]
+                    if (cIdx + 4 <= buf.size) {
+                        buf[cIdx] = prevSx
+                        buf[cIdx + 1] = prevSy
+                        buf[cIdx + 2] = sx
+                        buf[cIdx + 3] = sy
+                        whiteStreakFloatCounts[tier] = cIdx + 4
+                    }
                 }
             } else {
-                val tier = when {
-                    z < 0.34f -> 2
-                    z < 0.68f -> 1
-                    else -> 0
-                }
-                val cIdx = whiteStreakFloatCounts[tier]
-                val buf = whiteStreakLines[tier]
-                if (cIdx + 4 <= buf.size) {
-                    buf[cIdx] = prevSx
-                    buf[cIdx + 1] = prevSy
-                    buf[cIdx + 2] = sx
-                    buf[cIdx + 3] = sy
-                    whiteStreakFloatCounts[tier] = cIdx + 4
+                if (isAccentStar) {
+                    val cIdx = extraAccentStreakFloatCount
+                    if (cIdx + 4 <= extraAccentStreakLines.size) {
+                        extraAccentStreakLines[cIdx] = prevSx
+                        extraAccentStreakLines[cIdx + 1] = prevSy
+                        extraAccentStreakLines[cIdx + 2] = sx
+                        extraAccentStreakLines[cIdx + 3] = sy
+                        extraAccentStreakFloatCount = cIdx + 4
+                    }
+                } else {
+                    val tier = if (z < 0.48f) 1 else 0
+                    val cIdx = extraWhiteStreakFloatCounts[tier]
+                    val buf = extraWhiteStreakLines[tier]
+                    if (cIdx + 4 <= buf.size) {
+                        buf[cIdx] = prevSx
+                        buf[cIdx + 1] = prevSy
+                        buf[cIdx + 2] = sx
+                        buf[cIdx + 3] = sy
+                        extraWhiteStreakFloatCounts[tier] = cIdx + 4
+                    }
                 }
             }
         }
@@ -16433,18 +16649,16 @@ class DeepSpaceStarfieldSimulation {
         if (accentStreakFloatCount > 0) {
             nativeCanvas.drawLines(accentStreakLines, 0, accentStreakFloatCount, accentStreakPaint)
         }
-
-        // Small bright core at the vanishing point (cx, cy) using the pre-built radial gradient Bitmap scaled with coreMatrix
-        if (warpCoreAlpha > 0.01f && warpCoreScale > 0.01f) {
-            val targetRadiusPx = (min(width, height) * 0.20f * warpCoreScale).coerceAtLeast(4f)
-            val bmpHalf = CORE_BITMAP_SIZE * 0.5f
-            val scaleFactor = targetRadiusPx / bmpHalf
-            coreMatrix.reset()
-            coreMatrix.postTranslate(-bmpHalf, -bmpHalf)
-            coreMatrix.postScale(scaleFactor, scaleFactor)
-            coreMatrix.postTranslate(cx, cy)
-            corePaint.alpha = (warpCoreAlpha.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
-            nativeCanvas.drawBitmap(coreBitmap, coreMatrix, corePaint)
+        if (extraAlpha > 0.002f) {
+            for (tier in 0 until 2) {
+                val count = extraWhiteStreakFloatCounts[tier]
+                if (count > 0) {
+                    nativeCanvas.drawLines(extraWhiteStreakLines[tier], 0, count, extraWhiteStreakPaints[tier])
+                }
+            }
+            if (extraAccentStreakFloatCount > 0) {
+                nativeCanvas.drawLines(extraAccentStreakLines, 0, extraAccentStreakFloatCount, extraAccentStreakPaint)
+            }
         }
     }
 }
@@ -16842,13 +17056,6 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
         }
     }
 
-    private val timeWarpWakeCallback: () -> Unit = {
-        if (preset == "live_starfield_3d" && canAnimateNow()) {
-            ensureVsyncLoopRunning()
-            invalidate()
-        }
-    }
-
     fun bindRippleBus(bus: TouchRippleEventBus?) {
         if (boundRippleBus === bus) return
         boundRippleBus?.unregisterWakeListener(rippleWakeCallback)
@@ -16857,10 +17064,7 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
     }
 
     fun bindTimeWarpController(controller: StarfieldTimeWarpController?) {
-        if (boundTimeWarpController === controller) return
-        boundTimeWarpController?.unregisterWakeListener(timeWarpWakeCallback)
         boundTimeWarpController = controller
-        controller?.registerWakeListener(timeWarpWakeCallback)
     }
 
     fun onSonarTriggerTokenUpdated(token: Int) {
@@ -16971,7 +17175,6 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
         super.onAttachedToWindow()
         DebugWallpaperFpsState.registerListener(debugToggleCallback)
         boundRippleBus?.registerWakeListener(rippleWakeCallback)
-        boundTimeWarpController?.registerWakeListener(timeWarpWakeCallback)
         syncAnimationState()
     }
 
@@ -16980,7 +17183,6 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
         boundTimeWarpController?.cancelImmediately(context)
         DebugWallpaperFpsState.unregisterListener(debugToggleCallback)
         boundRippleBus?.unregisterWakeListener(rippleWakeCallback)
-        boundTimeWarpController?.unregisterWakeListener(timeWarpWakeCallback)
         super.onDetachedFromWindow()
     }
 
@@ -16993,12 +17195,13 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
         }
 
         val warpCtrl = boundTimeWarpController
-        val isStarfieldWarpOrPulse = preset == "live_starfield_3d" &&
+        // Raise frame rate cap to 60fps ONLY at the START of RAMP (not at the tap, not during WAIT), and restore when RETURN ends
+        val isStarfieldAt60FpsWarpBoost = preset == "live_starfield_3d" &&
             warpCtrl != null &&
-            (warpCtrl.isWarpRunning || warpCtrl.chargePulseActive)
+            warpCtrl.isAt60FpsBoostPhase()
 
         val targetFps = when (preset) {
-            "live_starfield_3d" -> if (isStarfieldWarpOrPulse) 60 else config.starfieldFps.coerceIn(15, 60)
+            "live_starfield_3d" -> if (isStarfieldAt60FpsWarpBoost) 60 else config.starfieldFps.coerceIn(15, 60)
             "live_raster_lines" -> config.crtFps.coerceIn(15, 60)
             "live_touch_ripples" -> config.ripplesFps.coerceIn(30, 60)
             "live_oscilloscope" -> config.oscilloscopeFps.coerceIn(15, 60)
@@ -17056,12 +17259,13 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
                     }
                 )
                 val warpSpeedMult = wc?.currentSpeedMultiplier ?: 1f
+                val includeExtra = (wc?.currentExtraStarsAlpha ?: 0f) > 0.001f
                 val densityMult = config.starfieldDensityPct.coerceIn(25, 200) / 100f
                 val speedMult = config.starfieldSpeedPct.coerceIn(25, 200) / 100f
                 val targetStars = (DeepSpaceStarfieldSimulation.DEFAULT_STAR_COUNT * densityMult)
                     .roundToInt()
-                    .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_STAR_COUNT)
-                starfieldSimulation.step(dtSec, speedMult, targetStars, warpSpeedMult)
+                    .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_WARP_TOTAL_STARS)
+                starfieldSimulation.step(dtSec, speedMult, targetStars, warpSpeedMult, includeExtra)
             }
             "live_raster_lines" -> {
                 val bandSpeedMult = config.crtBandSpeedPct.coerceIn(25, 200) / 100f
@@ -17126,7 +17330,7 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
 
         when (preset) {
             // ================================================================
-            // 1. 3D STARFIELD (With Time Warp streaks & vanishing-point core)
+            // 1. 3D STARFIELD (With continuous RAMP/HOLD/GLOW Time Warp streaks & +100% extra stars)
             // ================================================================
             "live_starfield_3d" -> {
                 val sfDensity = config.starfieldDensityPct.coerceIn(25, 200) / 100f
@@ -17134,7 +17338,7 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
                 val sfBrightness = config.starfieldBrightnessPct.coerceIn(20, 100) / 100f
                 val activeStars = (DeepSpaceStarfieldSimulation.DEFAULT_STAR_COUNT * sfDensity)
                     .roundToInt()
-                    .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_STAR_COUNT)
+                    .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_WARP_TOTAL_STARS)
                 val wc = boundTimeWarpController
                 starfieldSimulation.draw(
                     nativeCanvas = canvas,
@@ -17146,8 +17350,7 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
                     scaleMultiplier = sfSize,
                     warpStreakFactor = wc?.currentStreakFactor ?: 0f,
                     warpSpeedMultiplier = wc?.currentSpeedMultiplier ?: 1f,
-                    warpCoreScale = wc?.currentCoreScale ?: 0f,
-                    warpCoreAlpha = wc?.currentCoreAlpha ?: 0f,
+                    warpExtraStarsAlpha = wc?.currentExtraStarsAlpha ?: 0f,
                     accentArgb = accentArgb
                 )
             }
