@@ -166,6 +166,7 @@ import androidx.compose.ui.platform.LocalView
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.graphics.LinearGradient
+import android.graphics.RadialGradient
 import android.graphics.Matrix
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -1209,6 +1210,10 @@ data class LiveWallpaperConfig(
     val starfieldSizePct: Int = 100,
     val starfieldBrightnessPct: Int = 100,
     val starfieldFps: Int = 60,
+    val starfieldTimeWarpEnabled: Boolean = true,
+    val starfieldTapsToWarp: Int = 5,
+    val starfieldWarpCooldownSec: Int = 6,
+    val starfieldWarpVibration: Boolean = true,
     // 2. CRT Scanlines
     val crtLineDensityPct: Int = 100,
     val crtLineStrengthPct: Int = 100,
@@ -1280,7 +1285,11 @@ data class LiveWallpaperConfig(
                 starfieldSpeedPct = d.starfieldSpeedPct,
                 starfieldSizePct = d.starfieldSizePct,
                 starfieldBrightnessPct = d.starfieldBrightnessPct,
-                starfieldFps = d.starfieldFps
+                starfieldFps = d.starfieldFps,
+                starfieldTimeWarpEnabled = d.starfieldTimeWarpEnabled,
+                starfieldTapsToWarp = d.starfieldTapsToWarp,
+                starfieldWarpCooldownSec = d.starfieldWarpCooldownSec,
+                starfieldWarpVibration = d.starfieldWarpVibration
             )
             "live_raster_lines" -> copy(
                 crtLineDensityPct = d.crtLineDensityPct,
@@ -1383,7 +1392,7 @@ val NEW_7_LIVE_WALLPAPER_IDS = setOf(
 
 val VALID_WP_PREF_KEYS = setOf(
     "wp_dim",
-    "wp_sf_density", "wp_sf_speed", "wp_sf_size", "wp_sf_brightness", "wp_sf_fps",
+    "wp_sf_density", "wp_sf_speed", "wp_sf_size", "wp_sf_brightness", "wp_sf_fps", "wp_sf_warp_enabled", "wp_sf_warp_taps", "wp_sf_warp_cooldown", "wp_sf_warp_vib",
     "wp_crt_density", "wp_crt_strength", "wp_crt_speed", "wp_crt_brightness", "wp_crt_fps",
     "wp_yd_cols", "wp_yd_size", "wp_yd_shape", "wp_yd_pos", "wp_yd_counter", "wp_yd_brightness",
     "wp_mp_size", "wp_mp_detail", "wp_mp_vert", "wp_mp_phase", "wp_mp_brightness",
@@ -1401,6 +1410,10 @@ fun saveLiveWallpaperConfigToPrefs(prefs: SharedPreferences, cfg: LiveWallpaperC
         .putInt("wp_sf_size", cfg.starfieldSizePct)
         .putInt("wp_sf_brightness", cfg.starfieldBrightnessPct)
         .putInt("wp_sf_fps", cfg.starfieldFps)
+        .putBoolean("wp_sf_warp_enabled", cfg.starfieldTimeWarpEnabled)
+        .putInt("wp_sf_warp_taps", cfg.starfieldTapsToWarp)
+        .putInt("wp_sf_warp_cooldown", cfg.starfieldWarpCooldownSec)
+        .putBoolean("wp_sf_warp_vib", cfg.starfieldWarpVibration)
         .putInt("wp_crt_density", cfg.crtLineDensityPct)
         .putInt("wp_crt_strength", cfg.crtLineStrengthPct)
         .putInt("wp_crt_speed", cfg.crtBandSpeedPct)
@@ -1499,6 +1512,10 @@ fun loadAndMigrateLiveWallpaperConfig(prefs: SharedPreferences): LiveWallpaperCo
         starfieldSizePct = prefs.getInt("wp_sf_size", migratedSfSize).coerceIn(50, 200),
         starfieldBrightnessPct = prefs.getInt("wp_sf_brightness", migratedSfCrtBrightness).coerceIn(20, 100),
         starfieldFps = prefs.getInt("wp_sf_fps", 60).let { if (it in listOf(15, 30, 60)) it else 60 },
+        starfieldTimeWarpEnabled = prefs.getBoolean("wp_sf_warp_enabled", true),
+        starfieldTapsToWarp = prefs.getInt("wp_sf_warp_taps", 5).coerceIn(3, 10),
+        starfieldWarpCooldownSec = prefs.getInt("wp_sf_warp_cooldown", 6).coerceIn(2, 30),
+        starfieldWarpVibration = prefs.getBoolean("wp_sf_warp_vib", true),
 
         crtLineDensityPct = prefs.getInt("wp_crt_density", migratedSfCrtDensity.coerceIn(50, 200)).coerceIn(50, 200),
         crtLineStrengthPct = prefs.getInt("wp_crt_strength", 100).coerceIn(20, 100),
@@ -1652,6 +1669,431 @@ class TouchRippleEventBus {
         rippleActive[slot] = true
         for (i in wakeListeners.indices) {
             wakeListeners[i]?.invoke()
+        }
+    }
+}
+
+// ============================================================================
+// 3D STARFIELD TIME WARP CONTROLLER (Zero-allocation frame state, tap counting,
+// 150ms 2.5x charge-up cue, 3.55s Charge -> Warp -> Flash -> Return sequence,
+// smooth dual-sine screen shake, and system-touch-feedback-respecting haptics)
+// ============================================================================
+class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
+    companion object {
+        // Charge (0..700ms): 23 steps of 30ms = 690ms, amplitudes rising 20 -> 70 (out of 255)
+        val CHARGE_TIMINGS = LongArray(23) { 30L }
+        val CHARGE_AMPLITUDES = IntArray(23) { idx ->
+            (20 + (50 * idx) / 22).coerceIn(20, 70)
+        }
+        // Fallback short on/off pulses for devices without amplitude control
+        val CHARGE_FALLBACK_TIMINGS = LongArray(24) { idx ->
+            if (idx % 2 == 0) 18L else 12L
+        }
+
+        // Warp (700..2200ms): 50 steps of 30ms = 1500ms, sustained rumble between 70 and 110
+        val WARP_TIMINGS = LongArray(50) { 30L }
+        val WARP_AMPLITUDES = IntArray(50) { idx ->
+            val variation = (sin(idx * 0.65f) * 20f).roundToInt()
+            (90 + variation).coerceIn(70, 110)
+        }
+        val WARP_FALLBACK_TIMINGS = LongArray(50) { idx ->
+            if (idx % 2 == 0) 14L else 16L
+        }
+
+        fun resolveVibrator(context: Context): Vibrator? {
+            return try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
+                    vm?.defaultVibrator
+                } else {
+                    @Suppress("DEPRECATION")
+                    context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        fun isTouchFeedbackEnabled(context: Context, view: android.view.View?, settingEnabled: Boolean): Boolean {
+            if (!settingEnabled) return false
+            if (view != null && !view.isHapticFeedbackEnabled) return false
+            return try {
+                Settings.System.getInt(context.contentResolver, Settings.System.HAPTIC_FEEDBACK_ENABLED, 1) != 0
+            } catch (_: Exception) {
+                true
+            }
+        }
+
+        @SuppressLint("MissingPermission")
+        fun playVibrationEffect(context: Context, effect: VibrationEffect) {
+            try {
+                val vib = resolveVibrator(context) ?: return
+                if (!vib.hasVibrator()) return
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val attrs = android.os.VibrationAttributes.createForUsage(android.os.VibrationAttributes.USAGE_TOUCH)
+                    vib.vibrate(effect, attrs)
+                } else {
+                    @Suppress("DEPRECATION")
+                    val audioAttrs = android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                    @Suppress("DEPRECATION")
+                    vib.vibrate(effect, audioAttrs)
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        @SuppressLint("MissingPermission")
+        fun cancelVibration(context: Context?) {
+            if (context == null) return
+            try {
+                resolveVibrator(context)?.cancel()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    var tapCount: Int = 0
+    var lastTapUpNanos: Long = 0L
+    var cooldownEndNanos: Long = 0L
+
+    var chargePulseStartNanos: Long = 0L
+    var chargePulseActive: Boolean = false
+
+    var warpStartNanos: Long = 0L
+    var isWarpRunning: Boolean = false
+    var postFlashResetApplied: Boolean = false
+    var warpRumbleStarted: Boolean = false
+    var flashPeakThumpFired: Boolean = false
+
+    // Current frame animation outputs (read directly by DeepSpaceStarfieldSimulation and graphicsLayer)
+    var currentSpeedMultiplier: Float = 1f
+    var currentStreakFactor: Float = 0f
+    var currentCoreScale: Float = 0f
+    var currentCoreAlpha: Float = 0f
+    var currentShakeOffsetXPx: Float = 0f
+    var currentShakeOffsetYPx: Float = 0f
+    var currentWhiteFlashAlpha: Float = 0f
+
+    // Compose states updated ONLY when warp starts/stops or inside the 3.55s warp (0 idle overhead!)
+    var isWarpOverlayVisible by mutableStateOf(false)
+    var overlayFrameTick by mutableStateOf(0)
+
+    private val wakeListeners = arrayOfNulls<() -> Unit>(4)
+
+    fun registerWakeListener(listener: () -> Unit) {
+        for (i in wakeListeners.indices) {
+            if (wakeListeners[i] === listener) return
+        }
+        for (i in wakeListeners.indices) {
+            if (wakeListeners[i] == null) {
+                wakeListeners[i] = listener
+                return
+            }
+        }
+        wakeListeners[0] = listener
+    }
+
+    fun unregisterWakeListener(listener: () -> Unit) {
+        for (i in wakeListeners.indices) {
+            if (wakeListeners[i] === listener) {
+                wakeListeners[i] = null
+            }
+        }
+    }
+
+    private fun notifyWakeListeners() {
+        for (i in wakeListeners.indices) {
+            wakeListeners[i]?.invoke()
+        }
+    }
+
+    fun onNonCleanTouch() {
+        tapCount = 0
+    }
+
+    fun onCleanWallpaperTap(
+        nowNanos: Long,
+        config: LiveWallpaperConfig,
+        canTriggerNow: Boolean,
+        context: Context,
+        view: android.view.View?
+    ) {
+        if (!canTriggerNow || !config.starfieldTimeWarpEnabled || isWarpRunning) {
+            tapCount = 0
+            return
+        }
+        // Ignore all taps (no counting) during cooldown
+        if (nowNanos < cooldownEndNanos) {
+            tapCount = 0
+            return
+        }
+        // Consecutive taps must be at most 600ms apart; otherwise reset counter to zero
+        if (tapCount > 0 && (nowNanos - lastTapUpNanos) > 600_000_000L) {
+            tapCount = 0
+        }
+        tapCount++
+        lastTapUpNanos = nowNanos
+
+        val requiredTaps = config.starfieldTapsToWarp.coerceIn(3, 10)
+        if (tapCount >= requiredTaps) {
+            tapCount = 0
+            chargePulseActive = false
+            startWarp(nowNanos, config.starfieldWarpVibration, context, view)
+        } else if (tapCount >= 2) {
+            // Charge-up cue: each counted tap after the first briefly stretches stars (2.5x speed pulse for 150ms with ease-out)
+            chargePulseStartNanos = nowNanos
+            chargePulseActive = true
+            notifyWakeListeners()
+        }
+    }
+
+    fun triggerPreviewWarp(nowNanos: Long, config: LiveWallpaperConfig, context: Context, view: android.view.View?) {
+        if (isWarpRunning) return
+        tapCount = 0
+        chargePulseActive = false
+        startWarp(nowNanos, config.starfieldWarpVibration, context, view)
+    }
+
+    private fun startWarp(
+        nowNanos: Long,
+        vibrationSettingEnabled: Boolean,
+        context: Context,
+        view: android.view.View?
+    ) {
+        if (isWarpRunning) return
+        tapCount = 0
+        chargePulseActive = false
+        warpStartNanos = nowNanos
+        isWarpRunning = true
+        postFlashResetApplied = false
+        warpRumbleStarted = false
+        flashPeakThumpFired = false
+        currentSpeedMultiplier = 1f
+        currentStreakFactor = 0f
+        currentCoreScale = 0f
+        currentCoreAlpha = 0f
+        currentShakeOffsetXPx = 0f
+        currentShakeOffsetYPx = 0f
+        currentWhiteFlashAlpha = 0f
+        isWarpOverlayVisible = true
+        overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
+
+        if (isTouchFeedbackEnabled(context, view, vibrationSettingEnabled)) {
+            val vib = resolveVibrator(context)
+            if (vib != null && vib.hasVibrator()) {
+                val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    if (vib.hasAmplitudeControl()) {
+                        VibrationEffect.createWaveform(CHARGE_TIMINGS, CHARGE_AMPLITUDES, -1)
+                    } else {
+                        VibrationEffect.createWaveform(CHARGE_FALLBACK_TIMINGS, -1)
+                    }
+                } else {
+                    null
+                }
+                if (effect != null) {
+                    playVibrationEffect(context, effect)
+                }
+            }
+        }
+        notifyWakeListeners()
+    }
+
+    fun cancelImmediately(context: Context?) {
+        val wasActive = isWarpRunning || chargePulseActive || isWarpOverlayVisible
+        tapCount = 0
+        chargePulseActive = false
+        isWarpRunning = false
+        postFlashResetApplied = false
+        warpRumbleStarted = false
+        flashPeakThumpFired = false
+        currentSpeedMultiplier = 1f
+        currentStreakFactor = 0f
+        currentCoreScale = 0f
+        currentCoreAlpha = 0f
+        currentShakeOffsetXPx = 0f
+        currentShakeOffsetYPx = 0f
+        currentWhiteFlashAlpha = 0f
+        if (isWarpOverlayVisible) {
+            isWarpOverlayVisible = false
+        }
+        if (wasActive) {
+            cancelVibration(context)
+            overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
+            notifyWakeListeners()
+        }
+    }
+
+    fun stepFrame(
+        frameTimeNanos: Long,
+        dpPx: Float,
+        config: LiveWallpaperConfig,
+        context: Context,
+        view: android.view.View?,
+        onRestoreNormalStarsAtFullWhite: () -> Unit
+    ) {
+        if (isWarpRunning) {
+            val elapsedMs = ((frameTimeNanos - warpStartNanos) / 1_000_000.0).toFloat().coerceAtLeast(0f)
+
+            when {
+                // 1. Charge (0 to 700ms): speed grows 1x -> 60x with cubic ease-in; stars start stretching; shake 0 -> 2dp
+                elapsedMs < 700f -> {
+                    val u = (elapsedMs / 700f).coerceIn(0f, 1f)
+                    val cubicIn = u * u * u
+                    currentSpeedMultiplier = 1f + 59f * cubicIn
+                    currentStreakFactor = cubicIn * 0.42f
+                    currentCoreScale = cubicIn * 0.30f
+                    currentCoreAlpha = cubicIn * 0.40f
+                    currentWhiteFlashAlpha = 0f
+
+                    val tSec = elapsedMs * 0.001f
+                    val ampPx = (2f * u) * dpPx
+                    val nx = 0.62f * sin(tSec * (2f * PI.toFloat() * 37f)) + 0.38f * cos(tSec * (2f * PI.toFloat() * 53f))
+                    val ny = 0.62f * cos(tSec * (2f * PI.toFloat() * 41f)) + 0.38f * sin(tSec * (2f * PI.toFloat() * 59f))
+                    currentShakeOffsetXPx = nx * ampPx
+                    currentShakeOffsetYPx = ny * ampPx
+                }
+
+                // 2. Warp (700 to 2200ms): speed stays 60x; full radial streaks up to 28% diagonal; growing bright core; shake up to 3dp
+                elapsedMs < 2200f -> {
+                    if (!warpRumbleStarted) {
+                        warpRumbleStarted = true
+                        if (isTouchFeedbackEnabled(context, view, config.starfieldWarpVibration)) {
+                            val vib = resolveVibrator(context)
+                            if (vib != null && vib.hasVibrator() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                val effect = if (vib.hasAmplitudeControl()) {
+                                    VibrationEffect.createWaveform(WARP_TIMINGS, WARP_AMPLITUDES, -1)
+                                } else {
+                                    VibrationEffect.createWaveform(WARP_FALLBACK_TIMINGS, -1)
+                                }
+                                playVibrationEffect(context, effect)
+                            }
+                        }
+                    }
+                    val u = ((elapsedMs - 700f) / 1500f).coerceIn(0f, 1f)
+                    val easeOutU = 1f - (1f - u) * (1f - u)
+                    currentSpeedMultiplier = 60f
+                    currentStreakFactor = 0.42f + 0.58f * easeOutU
+                    currentCoreScale = 0.30f + 0.70f * u
+                    currentCoreAlpha = 0.40f + 0.55f * u
+                    currentWhiteFlashAlpha = 0f
+
+                    val tSec = elapsedMs * 0.001f
+                    val ampPx = (2f + 1f * sin(u * PI.toFloat() * 0.5f)) * dpPx
+                    val nx = 0.62f * sin(tSec * (2f * PI.toFloat() * 37f)) + 0.38f * cos(tSec * (2f * PI.toFloat() * 53f))
+                    val ny = 0.62f * cos(tSec * (2f * PI.toFloat() * 41f)) + 0.38f * sin(tSec * (2f * PI.toFloat() * 59f))
+                    currentShakeOffsetXPx = nx * ampPx
+                    currentShakeOffsetYPx = ny * ampPx
+                }
+
+                // 3. Flash (2200 to 2850ms): shake stops; white overlay fades in over 500ms (quad ease-in) and holds 100% for 150ms
+                elapsedMs < 2850f -> {
+                    currentShakeOffsetXPx = 0f
+                    currentShakeOffsetYPx = 0f
+
+                    if (!flashPeakThumpFired && elapsedMs >= 2500f) {
+                        flashPeakThumpFired = true
+                        if (isTouchFeedbackEnabled(context, view, config.starfieldWarpVibration)) {
+                            val thump = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK)
+                            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                VibrationEffect.createOneShot(40L, 180)
+                            } else {
+                                null
+                            }
+                            if (thump != null) {
+                                playVibrationEffect(context, thump)
+                            }
+                        }
+                    }
+
+                    if (elapsedMs < 2700f) {
+                        val uFlash = ((elapsedMs - 2200f) / 500f).coerceIn(0f, 1f)
+                        currentWhiteFlashAlpha = (uFlash * uFlash).coerceIn(0f, 1f)
+                        currentSpeedMultiplier = 60f
+                        currentStreakFactor = 1f
+                        currentCoreScale = 1f
+                        currentCoreAlpha = 0.95f
+                    } else {
+                        currentWhiteFlashAlpha = 1f
+                        if (!postFlashResetApplied) {
+                            postFlashResetApplied = true
+                            currentSpeedMultiplier = 1f
+                            currentStreakFactor = 0f
+                            currentCoreScale = 0f
+                            currentCoreAlpha = 0f
+                            onRestoreNormalStarsAtFullWhite()
+                        }
+                    }
+                }
+
+                // 4. Return (2850 to 3550ms): at 2850ms normal state is restored underneath; white overlay fades out over 700ms (ease-out)
+                elapsedMs < 3550f -> {
+                    if (!postFlashResetApplied) {
+                        postFlashResetApplied = true
+                        onRestoreNormalStarsAtFullWhite()
+                    }
+                    currentSpeedMultiplier = 1f
+                    currentStreakFactor = 0f
+                    currentCoreScale = 0f
+                    currentCoreAlpha = 0f
+                    currentShakeOffsetXPx = 0f
+                    currentShakeOffsetYPx = 0f
+
+                    val uRet = ((elapsedMs - 2850f) / 700f).coerceIn(0f, 1f)
+                    val easeOut = 1f - (1f - uRet) * (1f - uRet)
+                    currentWhiteFlashAlpha = (1f - easeOut).coerceIn(0f, 1f)
+                }
+
+                // 5. Finished (3550ms): start cooldown & restore normal FPS cap
+                else -> {
+                    if (!postFlashResetApplied) {
+                        postFlashResetApplied = true
+                        onRestoreNormalStarsAtFullWhite()
+                    }
+                    isWarpRunning = false
+                    isWarpOverlayVisible = false
+                    currentSpeedMultiplier = 1f
+                    currentStreakFactor = 0f
+                    currentCoreScale = 0f
+                    currentCoreAlpha = 0f
+                    currentShakeOffsetXPx = 0f
+                    currentShakeOffsetYPx = 0f
+                    currentWhiteFlashAlpha = 0f
+                    cancelVibration(context)
+                    if (!isPreviewController) {
+                        val cooldownSec = config.starfieldWarpCooldownSec.coerceIn(2, 30).toLong()
+                        cooldownEndNanos = frameTimeNanos + cooldownSec * 1_000_000_000L
+                    }
+                }
+            }
+            overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
+        } else if (chargePulseActive) {
+            val pulseSec = (frameTimeNanos - chargePulseStartNanos) * 1e-9f
+            if (pulseSec in 0f..0.150f) {
+                val u = (pulseSec / 0.150f).coerceIn(0f, 1f)
+                val easeOut = (1f - u) * (1f - u)
+                currentSpeedMultiplier = 1f + 1.5f * easeOut // 2.5x brief speed pulse with ease-out
+                currentStreakFactor = 0.16f * easeOut
+                currentCoreScale = 0f
+                currentCoreAlpha = 0f
+            } else {
+                chargePulseActive = false
+                currentSpeedMultiplier = 1f
+                currentStreakFactor = 0f
+                currentCoreScale = 0f
+                currentCoreAlpha = 0f
+            }
+        } else {
+            currentSpeedMultiplier = 1f
+            currentStreakFactor = 0f
+            currentCoreScale = 0f
+            currentCoreAlpha = 0f
+            currentShakeOffsetXPx = 0f
+            currentShakeOffsetYPx = 0f
+            currentWhiteFlashAlpha = 0f
         }
     }
 }
@@ -2054,6 +2496,7 @@ fun NTextLauncherApp(
         mutableStateOf(loadAndMigrateLiveWallpaperConfig(prefs))
     }
     val touchRippleBus = remember { TouchRippleEventBus() }
+    val homeTimeWarpController = remember { StarfieldTimeWarpController(isPreviewController = false) }
     var isPowerSaveMode by remember {
         val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         mutableStateOf(pm?.isPowerSaveMode ?: false)
@@ -3090,6 +3533,7 @@ fun NTextLauncherApp(
     }
 
     fun launchApp(pkg: String) {
+        homeTimeWarpController.cancelImmediately(context)
         clearAllFocusAndKeyboard()
         drawerSearchResetToken++
         context.packageManager.getLaunchIntentForPackage(pkg)?.let { intent ->
@@ -3113,6 +3557,7 @@ fun NTextLauncherApp(
     }
 
     fun openClockApp() {
+        homeTimeWarpController.cancelImmediately(context)
         tickHaptic(heavy = false)
         val clockApp = installedApps.firstOrNull {
             it.packageName.equals("com.google.android.deskclock", ignoreCase = true) ||
@@ -3136,6 +3581,7 @@ fun NTextLauncherApp(
 
     LaunchedEffect(homeIntentTrigger) {
         if (homeIntentTrigger > 0) {
+            homeTimeWarpController.cancelImmediately(context)
             clearAllFocusAndKeyboard()
             contextMenuTarget = null
             showHomeQuickMenu = false
@@ -3161,6 +3607,7 @@ fun NTextLauncherApp(
     }
 
     fun openAppInfo(pkg: String) {
+        homeTimeWarpController.cancelImmediately(context)
         try {
             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = Uri.fromParts("package", pkg, null)
@@ -3170,7 +3617,16 @@ fun NTextLauncherApp(
         }
     }
 
-    LaunchedEffect(currentView) {
+    LaunchedEffect(currentView, wallpaperPreset, shouldRunWidgetsAndWallpapers, isScreenInteractive, liveWpConfig.starfieldTimeWarpEnabled) {
+        if (
+            currentView != LauncherView.HOME_AND_DRAWER ||
+            wallpaperPreset != "live_starfield_3d" ||
+            !shouldRunWidgetsAndWallpapers ||
+            !isScreenInteractive ||
+            !liveWpConfig.starfieldTimeWarpEnabled
+        ) {
+            homeTimeWarpController.cancelImmediately(context)
+        }
         if (currentView != LauncherView.SETTINGS) {
             isLiveWallpapersWindowOpen = false
             isLiveWallpapersWindowFullyOpen = false
@@ -3258,23 +3714,54 @@ fun NTextLauncherApp(
                 LauncherView.WIDGETS -> false
                 LauncherView.SETTINGS -> settingsBgMode != "opaque" && !isLiveWallpapersWindowFullyOpen
             }
-            OledWallpaperCanvas(
-                preset = wallpaperPreset,
-                accentColor = accentColor,
-                dimPercent = wallpaperDimPercent,
-                liveWpConfig = liveWpConfig,
-                batteryPct = batteryPct,
-                isPowerSaveMode = isPowerSaveMode,
-                dateChangeTrigger = dateChangeTrigger,
-                touchRippleBus = touchRippleBus,
-                lomoFontFamily = selectedFont,
-                isScreenVisible = isWallpaperScreenVisible,
-                isPreview = false,
-                userWallpaperRefreshTrigger = userWallpaperRefreshTrigger
-            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        if (homeTimeWarpController.isWarpOverlayVisible) {
+                            val tick = homeTimeWarpController.overlayFrameTick
+                            if (tick >= 0) {
+                                translationX = homeTimeWarpController.currentShakeOffsetXPx
+                                translationY = homeTimeWarpController.currentShakeOffsetYPx
+                            }
+                        } else {
+                            translationX = 0f
+                            translationY = 0f
+                        }
+                    }
+            ) {
+                OledWallpaperCanvas(
+                    preset = wallpaperPreset,
+                    accentColor = accentColor,
+                    dimPercent = wallpaperDimPercent,
+                    liveWpConfig = liveWpConfig,
+                    batteryPct = batteryPct,
+                    isPowerSaveMode = isPowerSaveMode,
+                    dateChangeTrigger = dateChangeTrigger,
+                    touchRippleBus = touchRippleBus,
+                    timeWarpController = homeTimeWarpController,
+                    lomoFontFamily = selectedFont,
+                    isScreenVisible = isWallpaperScreenVisible,
+                    isPreview = false,
+                    userWallpaperRefreshTrigger = userWallpaperRefreshTrigger
+                )
+            }
 
             Column(
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        if (homeTimeWarpController.isWarpOverlayVisible && currentView == LauncherView.HOME_AND_DRAWER) {
+                            val tick = homeTimeWarpController.overlayFrameTick
+                            if (tick >= 0) {
+                                translationX = homeTimeWarpController.currentShakeOffsetXPx
+                                translationY = homeTimeWarpController.currentShakeOffsetYPx
+                            }
+                        } else {
+                            translationX = 0f
+                            translationY = 0f
+                        }
+                    }
             ) {
                 if (editMode && currentView == LauncherView.HOME_AND_DRAWER && isDrawerNearClosed) {
                     val topBtnShape = NocturnaaShapes.S
@@ -3374,25 +3861,93 @@ fun NTextLauncherApp(
                                         }
                                     }
                                     .pointerInput(wallpaperPreset) {
-                                        if (wallpaperPreset != "live_touch_ripples") return@pointerInput
-                                        // Forward touch-down coordinates to Touch Ripples WITHOUT consuming the event
-                                        // so all Home Screen taps, long-presses, and swipe gestures work identically!
+                                        val slop = viewConfiguration.touchSlop
+                                        val longPressTimeoutMs = viewConfiguration.longPressTimeoutMillis.coerceAtLeast(380L)
+                                        // Non-consuming wallpaper touch route (shared by Touch Ripples and 3D Starfield Time Warp)
+                                        // plus empty-home-screen long-press detection that NEVER consumes short clean taps!
                                         awaitEachGesture {
                                             val down = awaitFirstDown(requireUnconsumed = false)
+                                            val downTimeMs = android.os.SystemClock.uptimeMillis()
+                                            val startPos = down.position
                                             if (drawerProgress.value < 0.1f) {
-                                                touchRippleBus.onTouchDown(down.position.x, down.position.y, System.nanoTime(), liveWpConfig.ripplesMaxCount)
+                                                if (wallpaperPreset == "live_touch_ripples") {
+                                                    touchRippleBus.onTouchDown(
+                                                        startPos.x,
+                                                        startPos.y,
+                                                        System.nanoTime(),
+                                                        liveWpConfig.ripplesMaxCount
+                                                    )
+                                                }
+                                            } else {
+                                                homeTimeWarpController.onNonCleanTouch()
                                             }
-                                        }
-                                    }
-                                    .pointerInput(Unit) {
-                                        detectTapGestures(
-                                            onLongPress = {
-                                                if (drawerProgress.value < 0.1f) {
-                                                    tickHaptic(heavy = true)
-                                                    showHomeQuickMenu = true
+
+                                            var movedBeyondSlop = false
+                                            var consumedByChildOrGesture = down.isConsumed
+                                            var longPressFired = false
+                                            val longPressJob = if (!consumedByChildOrGesture && drawerProgress.value < 0.1f && !editMode) {
+                                                scope.launch {
+                                                    delay(longPressTimeoutMs)
+                                                    if (!movedBeyondSlop && !consumedByChildOrGesture && drawerProgress.value < 0.1f && !editMode) {
+                                                        longPressFired = true
+                                                        homeTimeWarpController.onNonCleanTouch()
+                                                        tickHaptic(heavy = true)
+                                                        showHomeQuickMenu = true
+                                                    }
+                                                }
+                                            } else null
+
+                                            while (true) {
+                                                val event = awaitPointerEvent()
+                                                val change = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                                                if (change == null) {
+                                                    longPressJob?.cancel()
+                                                    break
+                                                }
+
+                                                if (change.isConsumed) {
+                                                    consumedByChildOrGesture = true
+                                                    longPressJob?.cancel()
+                                                }
+                                                val dx = change.position.x - startPos.x
+                                                val dy = change.position.y - startPos.y
+                                                if (dx * dx + dy * dy >= slop * slop) {
+                                                    movedBeyondSlop = true
+                                                    longPressJob?.cancel()
+                                                }
+
+                                                if (!change.pressed) {
+                                                    longPressJob?.cancel()
+                                                    val totalDurationMs = android.os.SystemClock.uptimeMillis() - downTimeMs
+                                                    val isWallpaperActive = isWallpaperScreenVisible &&
+                                                        batteryPct >= 15 &&
+                                                        !isPowerSaveMode &&
+                                                        !editMode &&
+                                                        !showHomeQuickMenu &&
+                                                        contextMenuTarget == null &&
+                                                        drawerProgress.value < 0.05f
+                                                    if (
+                                                        wallpaperPreset == "live_starfield_3d" &&
+                                                        !consumedByChildOrGesture &&
+                                                        !movedBeyondSlop &&
+                                                        !longPressFired &&
+                                                        totalDurationMs <= 250L &&
+                                                        isWallpaperActive
+                                                    ) {
+                                                        homeTimeWarpController.onCleanWallpaperTap(
+                                                            nowNanos = System.nanoTime(),
+                                                            config = liveWpConfig,
+                                                            canTriggerNow = true,
+                                                            context = context,
+                                                            view = null
+                                                        )
+                                                    } else if (wallpaperPreset == "live_starfield_3d") {
+                                                        homeTimeWarpController.onNonCleanTouch()
+                                                    }
+                                                    break
                                                 }
                                             }
-                                        )
+                                        }
                                     }
                                     .pointerInput(screenWidthPx, enableLeftPage, isGlobeInteractionActive) {
                                         if (!enableLeftPage || isGlobeInteractionActive) return@pointerInput
@@ -4002,6 +4557,19 @@ fun NTextLauncherApp(
                         }
                     }
                 }
+            }
+
+            // Full-Screen Pure White Time Warp Flash Overlay (covers wallpaper, clock, apps & widgets; does NOT consume touches)
+            if (homeTimeWarpController.isWarpOverlayVisible && currentView == LauncherView.HOME_AND_DRAWER) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            val tick = homeTimeWarpController.overlayFrameTick
+                            alpha = if (tick >= 0) homeTimeWarpController.currentWhiteFlashAlpha.coerceIn(0f, 1f) else 0f
+                        }
+                        .background(Color.White)
+                )
             }
 
             HomeActionsBottomSheet(
@@ -5069,12 +5637,6 @@ fun HomeScreenView(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = {},
-                onLongClick = { onLongPressHome() }
-            )
             .then(
                 if (editMode) {
                     // Edit Mode banner above already consumes statusBars & displayCutout top insets;
@@ -5182,13 +5744,15 @@ fun HomeScreenView(
                                 .border(1.dp, Color(0xFF383838), outerEditShape)
                                 .background(Color(0xFF0A0A0A), outerEditShape)
                                 .padding(8.dp)
-                        } else {
+                        } else if (widgetId != "pinned_apps") {
                             Modifier.combinedClickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
                                 onClick = {},
                                 onLongClick = { onLongPressHome() }
                             )
+                        } else {
+                            Modifier
                         }
                     )
             ) {
@@ -9699,31 +10263,12 @@ fun NocturnaaToggleSwitch(
     val isParentScrollingProvider = LocalParentScrollInProgress.current
     val currentIsParentScrolling by rememberUpdatedState(isParentScrollingProvider)
     val minSlopPx = with(density) { 8.dp.toPx() }
+    val insetPx = with(density) { 3.dp.toPx() }
+    val thumbSizePx = with(density) { 24.dp.toPx() }
 
     val thumbProgressAnim = remember { Animatable(if (checked) 1f else 0f) }
     val pressProgressAnim = remember { Animatable(0f) }
     var isDraggingThumb by remember { mutableStateOf(false) }
-
-    // Cache the bevelled thumb vertical gradients once per density (zero allocations inside onDraw!)
-    val insetPx = with(density) { 3.dp.toPx() }
-    val thumbSizePx = with(density) { 24.dp.toPx() }
-    val innerCapInsetPx = with(density) { 3.dp.toPx() }
-    val innerCapSizePx = thumbSizePx - innerCapInsetPx * 2f
-
-    val outerThumbBrush = remember(insetPx, thumbSizePx) {
-        Brush.verticalGradient(
-            colors = listOf(Color(0xFFF2F2F2), Color(0xFFC4C4C4)),
-            startY = insetPx,
-            endY = insetPx + thumbSizePx
-        )
-    }
-    val innerThumbBrush = remember(insetPx, innerCapInsetPx, innerCapSizePx) {
-        Brush.verticalGradient(
-            colors = listOf(Color(0xFFC9C9C9), Color(0xFFEDEDED)),
-            startY = insetPx + innerCapInsetPx,
-            endY = insetPx + innerCapInsetPx + innerCapSizePx
-        )
-    }
 
     LaunchedEffect(checked, isDraggingThumb) {
         if (!isDraggingThumb) {
@@ -9754,7 +10299,6 @@ fun NocturnaaToggleSwitch(
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     if (!currentEnabled || currentIsParentScrolling()) return@awaitEachGesture
-                    // Never consume down so vertical list scrolling works from anywhere on the toggle!
                     val downTimeMs = android.os.SystemClock.uptimeMillis()
                     val startX = down.position.x
                     val startY = down.position.y
@@ -9791,7 +10335,6 @@ fun NocturnaaToggleSwitch(
                                         horizontalLocked = true
                                         isDraggingThumb = true
                                     } else {
-                                        // Vertical movement -> hand gesture to parent scroll without changing toggle
                                         cancelledForScroll = true
                                         break
                                     }
@@ -9805,8 +10348,6 @@ fun NocturnaaToggleSwitch(
                                 }
                             }
                         } else {
-                            // Pointer lifted: consume the up event for BOTH clean tap (<300ms) and horizontal drag
-                            // so the enclosing NocturnaaToggleRow never double-fires onCheckedChange!
                             val elapsedMs = android.os.SystemClock.uptimeMillis() - downTimeMs
                             if (horizontalLocked || (!cancelledForScroll && elapsedMs <= 300L && !currentIsParentScrolling())) {
                                 change.consume()
@@ -9862,31 +10403,21 @@ fun NocturnaaToggleSwitch(
             },
         contentAlignment = Alignment.Center
     ) {
+        // Completely plain, flat toggle switch:
+        // - Track: 56dp x 30dp, 4dp corner radius (NocturnaaShapes.S_DP), single flat fill (#2B2B2B OFF -> accentColor ON)
+        // - Thumb: 24dp x 24dp square, 3dp inset, 2dp corner radius (NocturnaaShapes.XS_DP), single flat fill (#9E9E9E OFF -> #FFFFFF ON)
+        // - Pressed state: thumb goes to 85% opacity; nothing else changes
+        // - Zero gradients, zero shadows, zero borders, zero bevels, zero highlight lines
         Canvas(modifier = Modifier.fillMaxSize()) {
             val clampedP = thumbProgressAnim.value.coerceIn(0f, 1f)
             val pressP = pressProgressAnim.value.coerceIn(0f, 1f)
 
             val trackW = size.width
             val trackH = size.height
-            val trackCornerPx = NocturnaaShapes.TOGGLE_TRACK_DP.toPx()
-            val stroke1DpPx = 1.dp.toPx()
-            val halfStroke = stroke1DpPx * 0.5f
-            val twoDpPx = 2.dp.toPx()
+            val trackCornerPx = NocturnaaShapes.S_DP.toPx()
+            val thumbCornerPx = NocturnaaShapes.XS_DP.toPx()
 
-            val offTrackFill = Color(0xFF3A3A3A)
-            val offTrackBorder = Color(0xFF242424)
-            val onTrackFill = accentColor
-            val onTrackBorder = Color(
-                red = (accentColor.red * 0.65f).coerceIn(0f, 1f),
-                green = (accentColor.green * 0.65f).coerceIn(0f, 1f),
-                blue = (accentColor.blue * 0.65f).coerceIn(0f, 1f),
-                alpha = 1f
-            )
-
-            val trackFillColor = lerp(offTrackFill, onTrackFill, clampedP)
-            val trackBorderColor = lerp(offTrackBorder, onTrackBorder, clampedP)
-
-            // 1. Track base fill (56dp x 30dp, 5dp corner radius)
+            val trackFillColor = lerp(Color(0xFF2B2B2B), accentColor, clampedP)
             drawRoundRect(
                 color = trackFillColor,
                 topLeft = Offset.Zero,
@@ -9894,81 +10425,18 @@ fun NocturnaaToggleSwitch(
                 cornerRadius = CornerRadius(trackCornerPx, trackCornerPx)
             )
 
-            // 2. Inset 2dp darker band at the top inside edge (black at 25%) in both ON and OFF states
-            val innerTrackCornerPx = (trackCornerPx - stroke1DpPx).coerceAtLeast(1f)
-            val innerTrackW = (trackW - stroke1DpPx * 2f).coerceAtLeast(1f)
-            drawRoundRect(
-                color = Color.Black.copy(alpha = 0.25f),
-                topLeft = Offset(stroke1DpPx, stroke1DpPx),
-                size = Size(innerTrackW, (twoDpPx + innerTrackCornerPx * 2f).coerceAtMost(trackH - stroke1DpPx * 2f)),
-                cornerRadius = CornerRadius(innerTrackCornerPx, innerTrackCornerPx)
-            )
-            drawRoundRect(
-                color = trackFillColor,
-                topLeft = Offset(stroke1DpPx, stroke1DpPx + twoDpPx),
-                size = Size(innerTrackW, (trackH - stroke1DpPx * 2f - twoDpPx).coerceAtLeast(1f)),
-                cornerRadius = CornerRadius(innerTrackCornerPx, innerTrackCornerPx)
-            )
-
-            // 3. 1dp track border (#242424 when OFF, accentColor darkened by 35% when ON)
-            drawRoundRect(
-                color = trackBorderColor,
-                topLeft = Offset(halfStroke, halfStroke),
-                size = Size(trackW - stroke1DpPx, trackH - stroke1DpPx),
-                cornerRadius = CornerRadius(trackCornerPx - halfStroke, trackCornerPx - halfStroke),
-                style = Stroke(width = stroke1DpPx)
-            )
-
-            // 4. Bevelled 24dp square thumb (3dp outer radius, placed 3dp inside track)
             val travelPx = (trackW - insetPx * 2f - thumbSizePx).coerceAtLeast(1f)
             val thumbLeft = insetPx + travelPx * clampedP
             val thumbTop = (trackH - thumbSizePx) * 0.5f
-            val outerThumbRadiusPx = NocturnaaShapes.SWATCH_DP.toPx()
-            val innerCapRadiusPx = NocturnaaShapes.XS_DP.toPx()
+            val thumbBaseColor = lerp(Color(0xFF9E9E9E), Color.White, clampedP)
+            val thumbAlpha = (1f - 0.15f * pressP).coerceIn(0.85f, 1f)
 
-            // 4a. Outer bevel square (#F2F2F2 top -> #C4C4C4 bottom)
             drawRoundRect(
-                brush = outerThumbBrush,
+                color = thumbBaseColor.copy(alpha = thumbAlpha),
                 topLeft = Offset(thumbLeft, thumbTop),
                 size = Size(thumbSizePx, thumbSizePx),
-                cornerRadius = CornerRadius(outerThumbRadiusPx, outerThumbRadiusPx)
+                cornerRadius = CornerRadius(thumbCornerPx, thumbCornerPx)
             )
-
-            // 4b. Inner raised cap inset by 3dp (2dp radius, opposite gradient #C9C9C9 top -> #EDEDED bottom)
-            drawRoundRect(
-                brush = innerThumbBrush,
-                topLeft = Offset(thumbLeft + innerCapInsetPx, thumbTop + innerCapInsetPx),
-                size = Size(innerCapSizePx, innerCapSizePx),
-                cornerRadius = CornerRadius(innerCapRadiusPx, innerCapRadiusPx)
-            )
-
-            // 4c. 1dp top highlight line (white at 60%)
-            val highlightY = thumbTop + stroke1DpPx * 1.5f
-            drawLine(
-                color = Color.White.copy(alpha = 0.60f),
-                start = Offset(thumbLeft + outerThumbRadiusPx, highlightY),
-                end = Offset(thumbLeft + thumbSizePx - outerThumbRadiusPx, highlightY),
-                strokeWidth = stroke1DpPx
-            )
-
-            // 4d. 1dp outer thumb border (#8E8E8E)
-            drawRoundRect(
-                color = Color(0xFF8E8E8E),
-                topLeft = Offset(thumbLeft + halfStroke, thumbTop + halfStroke),
-                size = Size(thumbSizePx - stroke1DpPx, thumbSizePx - stroke1DpPx),
-                cornerRadius = CornerRadius(outerThumbRadiusPx - halfStroke, outerThumbRadiusPx - halfStroke),
-                style = Stroke(width = stroke1DpPx)
-            )
-
-            // 4e. While pressed/dragged, darken the thumb by 6%
-            if (pressP > 0.001f) {
-                drawRoundRect(
-                    color = Color.Black.copy(alpha = 0.06f * pressP),
-                    topLeft = Offset(thumbLeft, thumbTop),
-                    size = Size(thumbSizePx, thumbSizePx),
-                    cornerRadius = CornerRadius(outerThumbRadiusPx, outerThumbRadiusPx)
-                )
-            }
         }
     }
 }
@@ -10898,6 +11366,8 @@ fun LauncherSettingsView(
                                         headerHorizontalPadding = 16.dp,
                                         contentHorizontalPadding = 16.dp,
                                         expandedBgColor = Color(0xFF0C0C0C),
+                                        touchesContainerTop = index == 0,
+                                        touchesContainerBottom = index == settingsSections.lastIndex,
                                         onHeaderHeightMeasured = { hPx -> headerHeightsPx[index] = hPx },
                                         onToggle = {
                                             openSectionIndex = if (openSectionIndex == index) null else index
@@ -11062,9 +11532,21 @@ fun LiveWallpapersWindow(
         }
     }
 
-    // Preview Touch Ripples & Sonar interactive + automatic triggers
+    // Preview Touch Ripples, Sonar & 3D Starfield Time Warp controllers
     val previewRippleBus = remember(selectedWallpaperId) { TouchRippleEventBus() }
+    val previewTimeWarpController = remember { StarfieldTimeWarpController(isPreviewController = true) }
     var previewSonarTriggerToken by remember(selectedWallpaperId) { mutableStateOf(0) }
+
+    LaunchedEffect(selectedWallpaperId, isWindowFullyOpen, isSettingsScreenVisible) {
+        if (selectedWallpaperId != "live_starfield_3d" || !isSettingsScreenVisible) {
+            previewTimeWarpController.cancelImmediately(context)
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            previewTimeWarpController.cancelImmediately(context)
+        }
+    }
     val maxRipplesState by rememberUpdatedState(liveWpConfig.ripplesMaxCount)
 
     val sonarSettingsSignature = Triple(
@@ -11329,8 +11811,18 @@ fun LiveWallpapersWindow(
                         val sizeScale = (curCardH / fixedInternalHeightPx).coerceIn(0.20f, 1.0f)
                         val finalScale = sizeScale * entryScale
 
+                        val shakeX = if (previewTimeWarpController.isWarpOverlayVisible && selectedWallpaperId == "live_starfield_3d") {
+                            val tick = previewTimeWarpController.overlayFrameTick
+                            if (tick >= 0) previewTimeWarpController.currentShakeOffsetXPx else 0f
+                        } else 0f
+                        val shakeY = if (previewTimeWarpController.isWarpOverlayVisible && selectedWallpaperId == "live_starfield_3d") {
+                            val tick = previewTimeWarpController.overlayFrameTick
+                            if (tick >= 0) previewTimeWarpController.currentShakeOffsetYPx else 0f
+                        } else 0f
+
                         transformOrigin = TransformOrigin(0.5f, 0f)
-                        translationY = visualTopY
+                        translationX = shakeX
+                        translationY = visualTopY + shakeY
                         scaleX = finalScale
                         scaleY = finalScale
                         alpha = entryProg
@@ -11382,11 +11874,25 @@ fun LiveWallpapersWindow(
                         isPowerSaveMode = isPowerSaveMode,
                         dateChangeTrigger = dateChangeTrigger,
                         touchRippleBus = previewRippleBus,
+                        timeWarpController = previewTimeWarpController,
                         sonarTriggerToken = previewSonarTriggerToken,
                         lomoFontFamily = launcherFont,
                         isScreenVisible = isWindowFullyOpen && isSettingsScreenVisible,
                         isPreview = true,
                         userWallpaperRefreshTrigger = 0
+                    )
+                }
+
+                // Preview Time Warp White Flash Overlay (covers ONLY the preview card!)
+                if (previewTimeWarpController.isWarpOverlayVisible && selectedWallpaperId == "live_starfield_3d") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                val tick = previewTimeWarpController.overlayFrameTick
+                                alpha = if (tick >= 0) previewTimeWarpController.currentWhiteFlashAlpha.coerceIn(0f, 1f) else 0f
+                            }
+                            .background(Color.White)
                     )
                 }
             }
@@ -11831,12 +12337,22 @@ fun LiveWallpapersWindow(
                                 // c. Hairline divider + per-wallpaper settings rows
                                 SettingsHairlineDivider()
 
+                                val viewForPreviewWarp = LocalView.current
                                 val currentWpSettingItems = buildLiveWallpaperRowSettingItems(
                                     id = displayedSettingsWallpaperId,
                                     liveWpConfig = liveWpConfig,
                                     onUpdateLiveWpConfig = onUpdateLiveWpConfig,
                                     onSettingInteractionFinished = { updatedCfg ->
                                         onRefreshWallpaperThumbnail(displayedSettingsWallpaperId, updatedCfg)
+                                    },
+                                    isPreviewWarpPlaying = previewTimeWarpController.isWarpOverlayVisible,
+                                    onTriggerPreviewTimeWarp = {
+                                        previewTimeWarpController.triggerPreviewWarp(
+                                            nowNanos = System.nanoTime(),
+                                            config = liveWpConfig,
+                                            context = context,
+                                            view = viewForPreviewWarp
+                                        )
                                     },
                                     accentColor = accentColor,
                                     innerCardBorderColor = innerCardBorderColor,
@@ -12244,6 +12760,8 @@ private fun buildLiveWallpaperRowSettingItems(
     liveWpConfig: LiveWallpaperConfig,
     onUpdateLiveWpConfig: (LiveWallpaperConfig) -> Unit,
     onSettingInteractionFinished: (LiveWallpaperConfig) -> Unit = {},
+    isPreviewWarpPlaying: Boolean = false,
+    onTriggerPreviewTimeWarp: () -> Unit = {},
     accentColor: Color,
     innerCardBorderColor: Color,
     innerSubCardShape: RoundedCornerShape,
@@ -12368,6 +12886,110 @@ private fun buildLiveWallpaperRowSettingItems(
                         commitAndRefresh(liveWpConfig.copy(starfieldFps = fps))
                     }
                 )
+            }
+            add {
+                NocturnaaToggleRow(
+                    title = "Time warp",
+                    subtitle = "Tap the empty home screen several times in a row to jump to hyperspace.",
+                    checked = liveWpConfig.starfieldTimeWarpEnabled,
+                    accentColor = accentColor,
+                    lomoFontFamily = launcherFont,
+                    onCheckedChange = { enabled ->
+                        commitAndRefresh(liveWpConfig.copy(starfieldTimeWarpEnabled = enabled))
+                    }
+                )
+            }
+            add {
+                NocturnaaSettingSlider(
+                    title = "Taps to warp",
+                    description = "How many quick taps in a row start the warp. Fewer is easier to trigger by accident.",
+                    value = liveWpConfig.starfieldTapsToWarp.toFloat(),
+                    valueRange = 3f..10f,
+                    step = 1f,
+                    unit = "",
+                    defaultValue = 5f,
+                    hapticStep = 1f,
+                    accentColor = accentColor,
+                    innerCardBorderColor = innerCardBorderColor,
+                    innerCardShape = innerSubCardShape,
+                    lomoFontFamily = launcherFont,
+                    presetChips = listOf(3f to "3", 5f to "5", 7f to "7", 10f to "10"),
+                    onValueChange = { v ->
+                        val next = v.roundToInt().coerceIn(3, 10)
+                        if (next != liveWpConfig.starfieldTapsToWarp) {
+                            onUpdateLiveWpConfig(liveWpConfig.copy(starfieldTapsToWarp = next))
+                        }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
+                )
+            }
+            add {
+                NocturnaaSettingSlider(
+                    title = "Cooldown",
+                    description = "How long to wait after a warp before it can start again. Taps during this time are ignored.",
+                    value = liveWpConfig.starfieldWarpCooldownSec.toFloat(),
+                    valueRange = 2f..30f,
+                    step = 1f,
+                    unit = "s",
+                    defaultValue = 6f,
+                    hapticStep = 2f,
+                    accentColor = accentColor,
+                    innerCardBorderColor = innerCardBorderColor,
+                    innerCardShape = innerSubCardShape,
+                    lomoFontFamily = launcherFont,
+                    presetChips = listOf(2f to "2", 6f to "6", 15f to "15", 30f to "30"),
+                    onValueChange = { v ->
+                        val next = v.roundToInt().coerceIn(2, 30)
+                        if (next != liveWpConfig.starfieldWarpCooldownSec) {
+                            onUpdateLiveWpConfig(liveWpConfig.copy(starfieldWarpCooldownSec = next))
+                        }
+                    },
+                    onValueChangeFinished = { onSettingInteractionFinished(liveWpConfig) }
+                )
+            }
+            add {
+                NocturnaaToggleRow(
+                    title = "Vibration",
+                    subtitle = "Vibrate during the warp. It follows your phone's touch feedback setting.",
+                    checked = liveWpConfig.starfieldWarpVibration,
+                    accentColor = accentColor,
+                    lomoFontFamily = launcherFont,
+                    onCheckedChange = { vibEnabled ->
+                        commitAndRefresh(liveWpConfig.copy(starfieldWarpVibration = vibEnabled))
+                    }
+                )
+            }
+            add {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 42.dp)
+                            .graphicsLayer {
+                                alpha = if (isPreviewWarpPlaying) 0.40f else 1f
+                            }
+                            .border(1.dp, Color(0xFF4D4D4D), NocturnaaShapes.S)
+                            .background(Color(0xFF101010), NocturnaaShapes.S)
+                            .nocturnaaCleanTap(enabled = !isPreviewWarpPlaying) {
+                                onTriggerPreviewTimeWarp()
+                            }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Preview time warp",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontFamily = launcherFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
         }
 
@@ -15123,6 +15745,9 @@ fun NocturnaaCollapsibleSection(
     headerHorizontalPadding: androidx.compose.ui.unit.Dp = 16.dp,
     contentHorizontalPadding: androidx.compose.ui.unit.Dp = 16.dp,
     expandedBgColor: Color = Color(0xFF0C0C0C),
+    touchesContainerTop: Boolean = false,
+    touchesContainerBottom: Boolean = false,
+    containerCornerRadiusDp: androidx.compose.ui.unit.Dp = NocturnaaShapes.M_DP,
     headerTrailingContent: (@Composable () -> Unit)? = null,
     onHeaderHeightMeasured: ((Int) -> Unit)? = null,
     onToggle: () -> Unit,
@@ -15132,8 +15757,8 @@ fun NocturnaaCollapsibleSection(
     val density = LocalDensity.current
     val eightDpPx = with(density) { 8.dp.toPx() }
     val dissolveZone24DpPx = with(density) { 24.dp.toPx() }
-    val targetFade28DpPx = with(density) { 28.dp.toPx() }
-    val barWidth2DpPx = with(density) { 2.dp.toPx() }
+    val snappedBarWidthPx = with(density) { max(1, 2.dp.roundToPx()).toFloat() }
+    val snappedCornerInsetPx = with(density) { containerCornerRadiusDp.roundToPx().toFloat() }
 
     val heightProgressAnim = remember { Animatable(if (expanded) 1f else 0f) }
     val openClockMsAnim = remember { Animatable(if (expanded) 640f else 0f) }
@@ -15142,41 +15767,6 @@ fun NocturnaaCollapsibleSection(
     var measuredHeaderHeightPx by remember { mutableStateOf(with(density) { minHeaderHeight.roundToPx() }) }
     var measuredContentFullHeightPx by remember { mutableStateOf(0) }
     val rowTopYInContentPx = remember(items.size) { IntArray((items.size + 4).coerceAtLeast(4)) }
-
-    // Pre-allocated smoothstep unit shader & matrix for the Left Accent Bar (zero per-frame gradient allocations!)
-    // Uses a 17-stop smoothstep curve (u^2 * (3 - 2u)) from 0% to 100% opacity, mirrored via Matrix for top & bottom fades.
-    val accentArgb = android.graphics.Color.argb(
-        255,
-        (accentColor.red * 255f).roundToInt().coerceIn(0, 255),
-        (accentColor.green * 255f).roundToInt().coerceIn(0, 255),
-        (accentColor.blue * 255f).roundToInt().coerceIn(0, 255)
-    )
-    val barShaderBundle = remember(accentArgb) {
-        val stopsCount = 17
-        val colors = IntArray(stopsCount)
-        val positions = FloatArray(stopsCount)
-        val r = android.graphics.Color.red(accentArgb)
-        val g = android.graphics.Color.green(accentArgb)
-        val b = android.graphics.Color.blue(accentArgb)
-        for (i in 0 until stopsCount) {
-            val u = i.toFloat() / (stopsCount - 1).toFloat()
-            val smooth = u * u * (3f - 2f * u)
-            val a = (smooth * 255f).roundToInt().coerceIn(0, 255)
-            positions[i] = u
-            colors[i] = android.graphics.Color.argb(a, r, g, b)
-        }
-        val unitShader = LinearGradient(0f, 0f, 0f, 1f, colors, positions, AndroidShader.TileMode.CLAMP)
-        val matrix = Matrix()
-        val fadePaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
-            style = AndroidPaint.Style.FILL
-            shader = unitShader
-        }
-        val solidPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
-            style = AndroidPaint.Style.FILL
-            color = accentArgb
-        }
-        Triple(unitShader, matrix, fadePaint to solidPaint)
-    }
 
     LaunchedEffect(expanded) {
         val animScale = try {
@@ -15228,38 +15818,23 @@ fun NocturnaaCollapsibleSection(
                         topLeft = Offset.Zero,
                         size = size
                     )
-                    // Section 5: Symmetric Smoothstep Left Accent Bar
-                    // - Top end stays anchored at y = 0f (top of the section)
-                    // - Bottom end moves down with the section's animated height: barHeightPx = (headerH + contentFullH) * hProg
-                    // - Both ends fade over 28dp using the exact same smoothstep curve (scaled down symmetrically if shorter than 56dp)
-                    // - Zero scaleY stretching, zero hard edges, zero rounded caps, zero per-frame allocations!
+                    // Part 2: Plain, solid, pixel-snapped 2dp Left Accent Bar
+                    // - ONE solid axis-aligned drawRect: constant width (2dp snapped to whole pixels), constant 100% full-opacity accentColor
+                    // - Straight square ends: no gradient, no fade, no alpha ramp, no scaling, no taper, no rounded caps
+                    // - Starts/ends where the container's 6dp corner curve ends when touching top or bottom so the corner never clips or thins it
+                    val topInsetPx = if (touchesContainerTop) snappedCornerInsetPx else 0f
+                    val bottomInsetPx = if (touchesContainerBottom) snappedCornerInsetPx else 0f
                     val totalOpenH = (measuredHeaderHeightPx + measuredContentFullHeightPx).toFloat().coerceAtLeast(size.height)
-                    val barHeightPx = (totalOpenH * hProg).coerceAtMost(size.height)
-                    if (barHeightPx > 0.5f) {
-                        val fadeLenPx = min(targetFade28DpPx, barHeightPx * 0.5f).coerceAtLeast(0.5f)
-                        val (unitShader, shaderMatrix, paintsPair) = barShaderBundle
-                        val (fadePaint, solidPaint) = paintsPair
-                        drawIntoCanvas { composeCanvas ->
-                            val nc = composeCanvas.nativeCanvas
-                            // 1. Top smoothstep fade (0% -> 100% over 0..fadeLenPx)
-                            shaderMatrix.reset()
-                            shaderMatrix.setScale(1f, fadeLenPx)
-                            unitShader.setLocalMatrix(shaderMatrix)
-                            nc.drawRect(0f, 0f, barWidth2DpPx, fadeLenPx, fadePaint)
-
-                            // 2. Full-opacity middle span (fadeLenPx .. barHeightPx - fadeLenPx)
-                            val midBottom = barHeightPx - fadeLenPx
-                            if (midBottom > fadeLenPx) {
-                                nc.drawRect(0f, fadeLenPx, barWidth2DpPx, midBottom, solidPaint)
-                            }
-
-                            // 3. Bottom smoothstep fade (100% -> 0% over (barHeightPx - fadeLenPx)..barHeightPx, exact mirror!)
-                            shaderMatrix.reset()
-                            shaderMatrix.setScale(1f, -fadeLenPx)
-                            shaderMatrix.postTranslate(0f, barHeightPx)
-                            unitShader.setLocalMatrix(shaderMatrix)
-                            nc.drawRect(0f, midBottom.coerceAtLeast(0f), barWidth2DpPx, barHeightPx, fadePaint)
-                        }
+                    val maxBottomPx = (size.height - bottomInsetPx).roundToInt().toFloat().coerceAtLeast(topInsetPx)
+                    val fullBarSpanPx = (totalOpenH - topInsetPx - bottomInsetPx).coerceAtLeast(0f)
+                    val barBottomPx = (topInsetPx + fullBarSpanPx * hProg).roundToInt().toFloat().coerceIn(topInsetPx, maxBottomPx)
+                    val barHeightPx = barBottomPx - topInsetPx
+                    if (barHeightPx >= 1f) {
+                        drawRect(
+                            color = accentColor,
+                            topLeft = Offset(0f, topInsetPx),
+                            size = Size(snappedBarWidthPx, barHeightPx)
+                        )
                     }
                 }
             }
@@ -15343,10 +15918,6 @@ fun NocturnaaCollapsibleSection(
             }
         }
 
-        // Section 4: Uncropped Collapsible Section Content
-        // - 8dp clip bleed on left, right, and top (plus bottom once open) so overhanging thumbs, borders, swatch rings & descenders never clip
-        // - Measures the real full content height (including top/bottom paddings and overhangs) whenever font, font size, or content changes
-        // - Per-row dissolve over a 24dp zone above the moving clip edge when opening and in reverse when closing (no offscreen layer needed)
         if (isContentVisible) {
             Box(
                 modifier = Modifier
@@ -15408,7 +15979,6 @@ fun NocturnaaCollapsibleSection(
                                         rowTopYInContentPx[itemIdx].toFloat()
                                     } else 0f
 
-                                    // Dissolve softly from 0% to 100% over the 24dp zone above the moving edge (and in reverse when closing)
                                     val rawEdgeFrac = if (curHProg >= 0.999f) {
                                         1f
                                     } else {
@@ -15565,21 +16135,73 @@ class DeepSpaceStarfieldSimulation {
         const val MIN_STAR_COUNT = 300
         const val DEFAULT_STAR_COUNT = 1200
         const val MAX_STAR_COUNT = 2400
+        private const val CORE_BITMAP_SIZE = 128
     }
 
     // Flat primitive arrays allocated once (Zero GC during animation loop)
     private val starX = FloatArray(MAX_STAR_COUNT)
     private val starY = FloatArray(MAX_STAR_COUNT)
     private val starZ = FloatArray(MAX_STAR_COUNT)
+    private val starPrevZ = FloatArray(MAX_STAR_COUNT)
     private val starBaseRadiusDp = FloatArray(MAX_STAR_COUNT)
     private val starBaseAlpha = FloatArray(MAX_STAR_COUNT)
     private val starTwinklePhase = FloatArray(MAX_STAR_COUNT)
     private val starTwinkleFreq = FloatArray(MAX_STAR_COUNT)
     private val starRgbNoAlpha = IntArray(MAX_STAR_COUNT)
 
-    // Single reusable native Paint (Zero GC during Canvas rendering)
+    // Single reusable native Paint for normal pinpoint stars
     private val starPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
         style = android.graphics.Paint.Style.FILL
+    }
+
+    // Pre-allocated Time Warp streak line arrays (4 floats per line: x0, y0, x1, y1) and 4 grouped Paints (Zero GC!)
+    private val whiteStreakLines = Array(3) { FloatArray(MAX_STAR_COUNT * 4) }
+    private val whiteStreakFloatCounts = IntArray(3)
+    private val accentStreakLines = FloatArray(MAX_STAR_COUNT * 4)
+    private var accentStreakFloatCount = 0
+
+    private val whiteStreakPaints = Array(3) { tier ->
+        val alpha = when (tier) {
+            0 -> 115
+            1 -> 185
+            else -> 255
+        }
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE
+            strokeCap = android.graphics.Paint.Cap.ROUND
+            color = android.graphics.Color.argb(alpha, 255, 255, 255)
+        }
+    }
+    private val accentStreakPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        style = android.graphics.Paint.Style.STROKE
+        strokeCap = android.graphics.Paint.Cap.ROUND
+    }
+
+    // One pre-built radial gradient Bitmap for the vanishing-point core during Time Warp, scaled with a Matrix
+    private val coreBitmap: Bitmap = Bitmap.createBitmap(CORE_BITMAP_SIZE, CORE_BITMAP_SIZE, Bitmap.Config.ARGB_8888).also { bmp ->
+        val c = android.graphics.Canvas(bmp)
+        val half = CORE_BITMAP_SIZE * 0.5f
+        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.FILL
+            shader = RadialGradient(
+                half,
+                half,
+                half,
+                intArrayOf(
+                    android.graphics.Color.argb(255, 255, 255, 255),
+                    android.graphics.Color.argb(180, 255, 255, 255),
+                    android.graphics.Color.argb(45, 255, 255, 255),
+                    android.graphics.Color.TRANSPARENT
+                ),
+                floatArrayOf(0f, 0.22f, 0.62f, 1f),
+                AndroidShader.TileMode.CLAMP
+            )
+        }
+        c.drawCircle(half, half, half, p)
+    }
+    private val coreMatrix = Matrix()
+    private val corePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        isFilterBitmap = true
     }
 
     private var rngState: Int = 0x6D2B79F5
@@ -15594,7 +16216,6 @@ class DeepSpaceStarfieldSimulation {
         }
     }
 
-    // Fast allocation-free Xorshift32 PRNG returning [0f, 1f)
     private fun nextFloat01(): Float {
         var x = rngState
         x = x xor (x shl 13)
@@ -15605,16 +16226,16 @@ class DeepSpaceStarfieldSimulation {
     }
 
     private fun initStar(index: Int, randomDepth: Boolean) {
-        // Spread across 3D view frustum [-1f, 1f]
         starX[index] = (nextFloat01() * 2f - 1f)
         starY[index] = (nextFloat01() * 2f - 1f)
-        starZ[index] = if (randomDepth) {
+        val z0 = if (randomDepth) {
             0.04f + nextFloat01() * 0.96f
         } else {
-            0.90f + nextFloat01() * 0.10f
+            0.88f + nextFloat01() * 0.12f
         }
+        starZ[index] = z0
+        starPrevZ[index] = z0
 
-        // Varied tiny sizes: 82% micro pinpoints (0.36..0.72dp), 14% subtle mid-stars (0.72..1.08dp), 4% crisp bright stars (1.08..1.42dp)
         val sizeRoll = nextFloat01()
         starBaseRadiusDp[index] = when {
             sizeRoll < 0.82f -> 0.36f + nextFloat01() * 0.36f
@@ -15622,63 +16243,53 @@ class DeepSpaceStarfieldSimulation {
             else -> 1.08f + nextFloat01() * 0.34f
         }
 
-        // Distinct baseline opacities (0.22..0.98)
         starBaseAlpha[index] = 0.22f + nextFloat01() * 0.76f
-
-        // Gentle autonomous ambient twinkling parameters
         starTwinklePhase[index] = nextFloat01() * 6.2831855f
         starTwinkleFreq[index] = 0.55f + nextFloat01() * 1.75f
 
-        // Realistic stellar spectral color tints:
-        // ~78% white, ~13% faint celestial blue, ~9% soft warm orange
         val tintRoll = nextFloat01()
         starRgbNoAlpha[index] = when {
-            tintRoll < 0.52f -> 0x00FFFFFF // Pure Stellar White
-            tintRoll < 0.78f -> 0x00F4F7FB // Crisp Ice-White
-            tintRoll < 0.85f -> 0x00BFDBFE // Faint O-Type Celestial Blue
-            tintRoll < 0.91f -> 0x0093C5FD // Soft B-Type Sky Blue
-            tintRoll < 0.96f -> 0x00FED7AA // Soft K-Type Warm Orange
-            else -> 0x00FDE68A             // Gentle Amber-Orange Tint
+            tintRoll < 0.52f -> 0x00FFFFFF
+            tintRoll < 0.78f -> 0x00F4F7FB
+            tintRoll < 0.85f -> 0x00BFDBFE
+            tintRoll < 0.91f -> 0x0093C5FD
+            tintRoll < 0.96f -> 0x00FED7AA
+            else -> 0x00FDE68A
         }
     }
 
-    /**
-     * Completely freezes the 3D starfield simulation when the screen is hidden or paused.
-     */
+    fun reseedCalmField() {
+        for (i in 0 until MAX_STAR_COUNT) {
+            starPrevZ[i] = starZ[i]
+        }
+    }
+
     fun pause() {
         isPaused = true
     }
 
-    /**
-     * Cleanly resumes the 3D starfield simulation when the screen becomes visible again.
-     */
     fun resume() {
         isPaused = false
     }
 
-    /**
-     * Advances the slow 3D forward drift and ambient twinkling by dtSec (Zero allocations).
-     */
-    fun step(dtSec: Float, speedMultiplier: Float, activeCount: Int) {
+    fun step(dtSec: Float, speedMultiplier: Float, activeCount: Int, warpSpeedMultiplier: Float = 1f) {
         if (isPaused) return
         val clampedCount = activeCount.coerceIn(MIN_STAR_COUNT, MAX_STAR_COUNT)
-        // Slow, calm default forward drift / gentle warp speed along the Z depth axis
-        val forwardDrift = dtSec * 0.038f * speedMultiplier
+        val forwardDrift = dtSec * 0.038f * speedMultiplier * warpSpeedMultiplier
         twinkleClockSec = (twinkleClockSec + dtSec) % 3600f
 
         for (i in 0 until clampedCount) {
-            val nextZ = starZ[i] - forwardDrift
+            val curZ = starZ[i]
+            val nextZ = curZ - forwardDrift
             if (nextZ <= 0.025f) {
                 initStar(i, randomDepth = false)
             } else {
+                starPrevZ[i] = curZ
                 starZ[i] = nextZ
             }
         }
     }
 
-    /**
-     * Renders all >= 1,000 3D stars directly onto the hardware-accelerated native Canvas with zero GC overhead.
-     */
     fun draw(
         nativeCanvas: android.graphics.Canvas,
         width: Float,
@@ -15686,7 +16297,12 @@ class DeepSpaceStarfieldSimulation {
         densityPxPerDp: Float,
         activeCount: Int,
         opacityMultiplier: Float,
-        scaleMultiplier: Float
+        scaleMultiplier: Float,
+        warpStreakFactor: Float = 0f,
+        warpSpeedMultiplier: Float = 1f,
+        warpCoreScale: Float = 0f,
+        warpCoreAlpha: Float = 0f,
+        accentArgb: Int = android.graphics.Color.rgb(255, 59, 0)
     ) {
         if (width <= 0f || height <= 0f) return
         val clampedCount = activeCount.coerceIn(MIN_STAR_COUNT, MAX_STAR_COUNT)
@@ -15696,32 +16312,139 @@ class DeepSpaceStarfieldSimulation {
         val t = twinkleClockSec
         val sizeScale = densityPxPerDp * scaleMultiplier
 
+        // Normal calm 3D Starfield (when no warp or charge-up streak is active)
+        if (warpStreakFactor <= 0.001f) {
+            for (i in 0 until clampedCount) {
+                val z = starZ[i]
+                val invZ = 1.0f / z
+                val sx = cx + starX[i] * invZ * halfSpan
+                val sy = cy + starY[i] * invZ * halfSpan
+
+                if (sx < -4f || sx > width + 4f || sy < -4f || sy > height + 4f) {
+                    if (!isPaused) {
+                        initStar(i, randomDepth = false)
+                    }
+                    continue
+                }
+
+                val depthScale = (1.18f - z * 0.68f).coerceIn(0.42f, 1.35f)
+                val radiusPx = (starBaseRadiusDp[i] * depthScale * sizeScale).coerceAtLeast(0.65f)
+                val twinkle = 0.74f + 0.26f * sin(t * starTwinkleFreq[i] + starTwinklePhase[i])
+                val depthAlpha = (1.12f - z * 0.65f).coerceIn(0.18f, 1.0f)
+                val alphaFloat = (starBaseAlpha[i] * twinkle * depthAlpha * opacityMultiplier).coerceIn(0.05f, 1.0f)
+                val alphaByte = (alphaFloat * 255f).toInt().coerceIn(12, 255)
+
+                starPaint.color = (alphaByte shl 24) or starRgbNoAlpha[i]
+                nativeCanvas.drawCircle(sx, sy, radiusPx, starPaint)
+            }
+            return
+        }
+
+        // Time Warp / Charge-Up Streak Renderer:
+        // Every star is drawn as a LINE pointing away from the vanishing point (cx, cy),
+        // with length proportional to speed and depth (up to ~28% of screen diagonal), batched into 3 white drawLines + 1 accent drawLines!
+        val fullDiag = hypot(width, height)
+        val maxStreakLenPx = 0.28f * fullDiag * warpStreakFactor.coerceIn(0f, 1f)
+        val speedNorm = ((warpSpeedMultiplier - 1f) / 59f).coerceIn(0.04f, 1f)
+        val trailZOffset = (0.04f + 0.34f * speedNorm) * warpStreakFactor.coerceIn(0f, 1f)
+
+        whiteStreakFloatCounts[0] = 0
+        whiteStreakFloatCounts[1] = 0
+        whiteStreakFloatCounts[2] = 0
+        accentStreakFloatCount = 0
+
+        val strokeW = (1.25f * densityPxPerDp * scaleMultiplier.coerceIn(0.7f, 1.4f)).coerceAtLeast(1.2f)
+        for (tier in 0 until 3) {
+            whiteStreakPaints[tier].strokeWidth = if (tier == 2) strokeW * 1.15f else strokeW
+        }
+        accentStreakPaint.strokeWidth = strokeW * 1.15f
+        accentStreakPaint.color = (0xFF shl 24) or (accentArgb and 0x00FFFFFF)
+
         for (i in 0 until clampedCount) {
             val z = starZ[i]
             val invZ = 1.0f / z
             val sx = cx + starX[i] * invZ * halfSpan
             val sy = cy + starY[i] * invZ * halfSpan
 
-            // If perspective projection moves the star outside the screen bounds, recycle it in the far field
-            if (sx < -4f || sx > width + 4f || sy < -4f || sy > height + 4f) {
+            if (sx < -maxStreakLenPx || sx > width + maxStreakLenPx || sy < -maxStreakLenPx || sy > height + maxStreakLenPx) {
                 if (!isPaused) {
                     initStar(i, randomDepth = false)
                 }
                 continue
             }
 
-            // Depth-attenuated tiny radius (closer stars appear slightly crisper, distant stars are sub-pixel pinpoints)
-            val depthScale = (1.18f - z * 0.68f).coerceIn(0.42f, 1.35f)
-            val radiusPx = (starBaseRadiusDp[i] * depthScale * sizeScale).coerceAtLeast(0.65f)
+            // Compute previous projected position along the ray from (cx, cy) through (sx, sy)
+            val prevZ = max(starPrevZ[i], z + trailZOffset).coerceAtLeast(z + 0.008f)
+            val invPrevZ = 1.0f / prevZ
+            var prevSx = cx + starX[i] * invPrevZ * halfSpan
+            var prevSy = cy + starY[i] * invPrevZ * halfSpan
 
-            // Gentle, automatic ambient sinusoidal twinkling
-            val twinkle = 0.74f + 0.26f * sin(t * starTwinkleFreq[i] + starTwinklePhase[i])
-            val depthAlpha = (1.12f - z * 0.65f).coerceIn(0.18f, 1.0f)
-            val alphaFloat = (starBaseAlpha[i] * twinkle * depthAlpha * opacityMultiplier).coerceIn(0.05f, 1.0f)
-            val alphaByte = (alphaFloat * 255f).toInt().coerceIn(12, 255)
+            val dx = sx - prevSx
+            val dy = sy - prevSy
+            val lenSq = dx * dx + dy * dy
+            if (lenSq > maxStreakLenPx * maxStreakLenPx && lenSq > 1f) {
+                val scale = maxStreakLenPx / sqrt(lenSq)
+                prevSx = sx - dx * scale
+                prevSy = sy - dy * scale
+            } else if (lenSq < 2.25f) {
+                // Ensure minimum visible streak line away from vanishing point
+                val rx = sx - cx
+                val ry = sy - cy
+                val rLen = hypot(rx, ry).coerceAtLeast(1f)
+                val minLen = (2.2f * densityPxPerDp).coerceAtLeast(1.5f)
+                prevSx = sx - (rx / rLen) * minLen
+                prevSy = sy - (ry / rLen) * minLen
+            }
 
-            starPaint.color = (alphaByte shl 24) or starRgbNoAlpha[i]
-            nativeCanvas.drawCircle(sx, sy, radiusPx, starPaint)
+            // ~10% of streaks are in the current accent colour, remaining 90% are white at full brightness grouped by depth tier
+            if (i % 10 == 0) {
+                val cIdx = accentStreakFloatCount
+                if (cIdx + 4 <= accentStreakLines.size) {
+                    accentStreakLines[cIdx] = prevSx
+                    accentStreakLines[cIdx + 1] = prevSy
+                    accentStreakLines[cIdx + 2] = sx
+                    accentStreakLines[cIdx + 3] = sy
+                    accentStreakFloatCount = cIdx + 4
+                }
+            } else {
+                val tier = when {
+                    z < 0.34f -> 2
+                    z < 0.68f -> 1
+                    else -> 0
+                }
+                val cIdx = whiteStreakFloatCounts[tier]
+                val buf = whiteStreakLines[tier]
+                if (cIdx + 4 <= buf.size) {
+                    buf[cIdx] = prevSx
+                    buf[cIdx + 1] = prevSy
+                    buf[cIdx + 2] = sx
+                    buf[cIdx + 3] = sy
+                    whiteStreakFloatCounts[tier] = cIdx + 4
+                }
+            }
+        }
+
+        for (tier in 0 until 3) {
+            val count = whiteStreakFloatCounts[tier]
+            if (count > 0) {
+                nativeCanvas.drawLines(whiteStreakLines[tier], 0, count, whiteStreakPaints[tier])
+            }
+        }
+        if (accentStreakFloatCount > 0) {
+            nativeCanvas.drawLines(accentStreakLines, 0, accentStreakFloatCount, accentStreakPaint)
+        }
+
+        // Small bright core at the vanishing point (cx, cy) using the pre-built radial gradient Bitmap scaled with coreMatrix
+        if (warpCoreAlpha > 0.01f && warpCoreScale > 0.01f) {
+            val targetRadiusPx = (min(width, height) * 0.20f * warpCoreScale).coerceAtLeast(4f)
+            val bmpHalf = CORE_BITMAP_SIZE * 0.5f
+            val scaleFactor = targetRadiusPx / bmpHalf
+            coreMatrix.reset()
+            coreMatrix.postTranslate(-bmpHalf, -bmpHalf)
+            coreMatrix.postScale(scaleFactor, scaleFactor)
+            coreMatrix.postTranslate(cx, cy)
+            corePaint.alpha = (warpCoreAlpha.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
+            nativeCanvas.drawBitmap(coreBitmap, coreMatrix, corePaint)
         }
     }
 }
@@ -16082,6 +16805,7 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
     var topStatusInsetPx: Float = 0f
 
     private var boundRippleBus: TouchRippleEventBus? = null
+    private var boundTimeWarpController: StarfieldTimeWarpController? = null
     private var lastSonarTriggerToken: Int = 0
 
     // Choreographer vsync loop state (64-bit Long nanosecond timestamps only)
@@ -16118,11 +16842,25 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
         }
     }
 
+    private val timeWarpWakeCallback: () -> Unit = {
+        if (preset == "live_starfield_3d" && canAnimateNow()) {
+            ensureVsyncLoopRunning()
+            invalidate()
+        }
+    }
+
     fun bindRippleBus(bus: TouchRippleEventBus?) {
         if (boundRippleBus === bus) return
         boundRippleBus?.unregisterWakeListener(rippleWakeCallback)
         boundRippleBus = bus
         bus?.registerWakeListener(rippleWakeCallback)
+    }
+
+    fun bindTimeWarpController(controller: StarfieldTimeWarpController?) {
+        if (boundTimeWarpController === controller) return
+        boundTimeWarpController?.unregisterWakeListener(timeWarpWakeCallback)
+        boundTimeWarpController = controller
+        controller?.registerWakeListener(timeWarpWakeCallback)
     }
 
     fun onSonarTriggerTokenUpdated(token: Int) {
@@ -16233,13 +16971,16 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
         super.onAttachedToWindow()
         DebugWallpaperFpsState.registerListener(debugToggleCallback)
         boundRippleBus?.registerWakeListener(rippleWakeCallback)
+        boundTimeWarpController?.registerWakeListener(timeWarpWakeCallback)
         syncAnimationState()
     }
 
     override fun onDetachedFromWindow() {
         stopVsyncLoopAndGoIdle()
+        boundTimeWarpController?.cancelImmediately(context)
         DebugWallpaperFpsState.unregisterListener(debugToggleCallback)
         boundRippleBus?.unregisterWakeListener(rippleWakeCallback)
+        boundTimeWarpController?.unregisterWakeListener(timeWarpWakeCallback)
         super.onDetachedFromWindow()
     }
 
@@ -16251,8 +16992,13 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
             return
         }
 
+        val warpCtrl = boundTimeWarpController
+        val isStarfieldWarpOrPulse = preset == "live_starfield_3d" &&
+            warpCtrl != null &&
+            (warpCtrl.isWarpRunning || warpCtrl.chargePulseActive)
+
         val targetFps = when (preset) {
-            "live_starfield_3d" -> config.starfieldFps.coerceIn(15, 60)
+            "live_starfield_3d" -> if (isStarfieldWarpOrPulse) 60 else config.starfieldFps.coerceIn(15, 60)
             "live_raster_lines" -> config.crtFps.coerceIn(15, 60)
             "live_touch_ripples" -> config.ripplesFps.coerceIn(30, 60)
             "live_oscilloscope" -> config.oscilloscopeFps.coerceIn(15, 60)
@@ -16298,12 +17044,24 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
                 }
             }
             "live_starfield_3d" -> {
+                val wc = boundTimeWarpController
+                wc?.stepFrame(
+                    frameTimeNanos = frameTimeNanos,
+                    dpPx = dpPx,
+                    config = config,
+                    context = context,
+                    view = this,
+                    onRestoreNormalStarsAtFullWhite = {
+                        starfieldSimulation.reseedCalmField()
+                    }
+                )
+                val warpSpeedMult = wc?.currentSpeedMultiplier ?: 1f
                 val densityMult = config.starfieldDensityPct.coerceIn(25, 200) / 100f
                 val speedMult = config.starfieldSpeedPct.coerceIn(25, 200) / 100f
                 val targetStars = (DeepSpaceStarfieldSimulation.DEFAULT_STAR_COUNT * densityMult)
                     .roundToInt()
                     .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_STAR_COUNT)
-                starfieldSimulation.step(dtSec, speedMult, targetStars)
+                starfieldSimulation.step(dtSec, speedMult, targetStars, warpSpeedMult)
             }
             "live_raster_lines" -> {
                 val bandSpeedMult = config.crtBandSpeedPct.coerceIn(25, 200) / 100f
@@ -16368,7 +17126,7 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
 
         when (preset) {
             // ================================================================
-            // 1. 3D STARFIELD
+            // 1. 3D STARFIELD (With Time Warp streaks & vanishing-point core)
             // ================================================================
             "live_starfield_3d" -> {
                 val sfDensity = config.starfieldDensityPct.coerceIn(25, 200) / 100f
@@ -16377,6 +17135,7 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
                 val activeStars = (DeepSpaceStarfieldSimulation.DEFAULT_STAR_COUNT * sfDensity)
                     .roundToInt()
                     .coerceIn(DeepSpaceStarfieldSimulation.MIN_STAR_COUNT, DeepSpaceStarfieldSimulation.MAX_STAR_COUNT)
+                val wc = boundTimeWarpController
                 starfieldSimulation.draw(
                     nativeCanvas = canvas,
                     width = w,
@@ -16384,7 +17143,12 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
                     densityPxPerDp = dpPx,
                     activeCount = activeStars,
                     opacityMultiplier = sfBrightness,
-                    scaleMultiplier = sfSize
+                    scaleMultiplier = sfSize,
+                    warpStreakFactor = wc?.currentStreakFactor ?: 0f,
+                    warpSpeedMultiplier = wc?.currentSpeedMultiplier ?: 1f,
+                    warpCoreScale = wc?.currentCoreScale ?: 0f,
+                    warpCoreAlpha = wc?.currentCoreAlpha ?: 0f,
+                    accentArgb = accentArgb
                 )
             }
 
@@ -17088,6 +17852,7 @@ fun OledWallpaperCanvas(
     isPowerSaveMode: Boolean = false,
     dateChangeTrigger: Int = 0,
     touchRippleBus: TouchRippleEventBus? = null,
+    timeWarpController: StarfieldTimeWarpController? = null,
     sonarTriggerToken: Int = 0,
     lomoFontFamily: FontFamily = FontFamily.Monospace,
     isScreenVisible: Boolean = true,
@@ -17177,6 +17942,7 @@ fun OledWallpaperCanvas(
                 view.baseDpPx = baseDpPx
                 view.topStatusInsetPx = topStatusInsetPx
                 view.bindRippleBus(touchRippleBus)
+                view.bindTimeWarpController(timeWarpController)
                 view.onSonarTriggerTokenUpdated(sonarTriggerToken)
                 view.syncAnimationState()
             }
