@@ -1723,29 +1723,31 @@ object LiveWallpaperIdleController {
     private var isCallbackScheduled: Boolean = false
     private var isLauncherVisible: Boolean = true
 
-    private val idleTimeoutRunnable = Runnable {
-        isCallbackScheduled = false
-        if (!isLauncherVisible) return@Runnable
+    private val idleTimeoutRunnable: Runnable = object : Runnable {
+        override fun run() {
+            isCallbackScheduled = false
+            if (!isLauncherVisible) return
 
-        // Never enter idle sleep while a time warp is running; check again right after it ends
-        if (ProcessHomeTimeWarpController.isWarpRunning) {
-            val warpRemMs = ProcessHomeTimeWarpController.remainingDurationMs(
-                android.os.SystemClock.elapsedRealtimeNanos()
-            ).coerceAtLeast(250L)
-            isCallbackScheduled = true
-            mainHandler.postDelayed(idleTimeoutRunnable, warpRemMs + 250L)
-            return@Runnable
-        }
+            // Never enter idle sleep while a time warp is running; check again right after it ends
+            if (ProcessHomeTimeWarpController.isWarpRunning) {
+                val warpRemMs = ProcessHomeTimeWarpController.remainingDurationMs(
+                    android.os.SystemClock.elapsedRealtimeNanos()
+                ).coerceAtLeast(250L)
+                isCallbackScheduled = true
+                mainHandler.postDelayed(this, warpRemMs + 250L)
+                return
+            }
 
-        val now = android.os.SystemClock.elapsedRealtime()
-        val remaining = IDLE_PAUSE_MS - (now - lastInteractionElapsedMs)
-        if (remaining > 0L) {
-            isCallbackScheduled = true
-            mainHandler.postDelayed(idleTimeoutRunnable, remaining)
-        } else {
-            if (!isIdleSleeping) {
-                isIdleSleeping = true
-                notifyListeners(true)
+            val now = android.os.SystemClock.elapsedRealtime()
+            val remaining = IDLE_PAUSE_MS - (now - lastInteractionElapsedMs)
+            if (remaining > 0L) {
+                isCallbackScheduled = true
+                mainHandler.postDelayed(this, remaining)
+            } else {
+                if (!isIdleSleeping) {
+                    isIdleSleeping = true
+                    notifyListeners(true)
+                }
             }
         }
     }
@@ -1966,7 +1968,7 @@ class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
     var needsCalmStarfieldReseed: Boolean = false
     var onWarpEndedCallback: (() -> Unit)? = null
 
-    private val warpEndRunnable = Runnable {
+    private val warpEndRunnable: Runnable = Runnable {
         completeWarpEndBookkeeping()
     }
 
