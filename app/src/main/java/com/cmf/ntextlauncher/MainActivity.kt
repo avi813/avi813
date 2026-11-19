@@ -948,10 +948,34 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent?): Boolean {
+        if (ev != null) {
+            val action = ev.actionMasked
+            if (action == android.view.MotionEvent.ACTION_DOWN || action == android.view.MotionEvent.ACTION_POINTER_DOWN) {
+                LiveWallpaperIdleController.wake()
+            } else {
+                LiveWallpaperIdleController.onInteraction(wakeIfSleeping = false)
+            }
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        LiveWallpaperIdleController.onLauncherVisibilityChanged(true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        LiveWallpaperIdleController.onLauncherVisibilityChanged(false)
+        ProcessHomeTimeWarpController.onLauncherHidden(this)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         // Swiping up from the Android 14 navigation bar or pressing Home dispatches ACTION_MAIN / CATEGORY_HOME
+        LiveWallpaperIdleController.wake()
         homeIntentTrigger++
         dismissKeyboardHard()
     }
@@ -1678,20 +1702,129 @@ class TouchRippleEventBus {
 }
 
 // ============================================================================
-// 3D STARFIELD TIME WARP CONTROLLER
+// LIVE WALLPAPER IDLE SLEEP CONTROLLER
+// - Single named constant IDLE_PAUSE_MS = 120_000L (2 minutes).
+// - Uses ONE pending Handler delayed callback scheduled for lastInteraction + IDLE_PAUSE_MS.
+// - No polling, no per-frame checks, no Handler rescheduling on every touch.
+// - Never enters idle sleep while a 3D Starfield Time Warp is running.
+// ============================================================================
+const val IDLE_PAUSE_MS = 120_000L
+
+object LiveWallpaperIdleController {
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val listeners = arrayOfNulls<(Boolean) -> Unit>(8)
+
+    @Volatile
+    var isIdleSleeping: Boolean = false
+        private set
+
+    @Volatile
+    private var lastInteractionElapsedMs: Long = android.os.SystemClock.elapsedRealtime()
+    private var isCallbackScheduled: Boolean = false
+    private var isLauncherVisible: Boolean = true
+
+    private val idleTimeoutRunnable = Runnable {
+        isCallbackScheduled = false
+        if (!isLauncherVisible) return@Runnable
+
+        // Never enter idle sleep while a time warp is running; check again right after it ends
+        if (ProcessHomeTimeWarpController.isWarpRunning) {
+            val warpRemMs = ProcessHomeTimeWarpController.remainingDurationMs(
+                android.os.SystemClock.elapsedRealtimeNanos()
+            ).coerceAtLeast(250L)
+            isCallbackScheduled = true
+            mainHandler.postDelayed(idleTimeoutRunnable, warpRemMs + 250L)
+            return@Runnable
+        }
+
+        val now = android.os.SystemClock.elapsedRealtime()
+        val remaining = IDLE_PAUSE_MS - (now - lastInteractionElapsedMs)
+        if (remaining > 0L) {
+            isCallbackScheduled = true
+            mainHandler.postDelayed(idleTimeoutRunnable, remaining)
+        } else {
+            if (!isIdleSleeping) {
+                isIdleSleeping = true
+                notifyListeners(true)
+            }
+        }
+    }
+
+    fun registerListener(listener: (Boolean) -> Unit) {
+        for (i in listeners.indices) {
+            if (listeners[i] === listener) return
+        }
+        for (i in listeners.indices) {
+            if (listeners[i] == null) {
+                listeners[i] = listener
+                return
+            }
+        }
+        listeners[0] = listener
+    }
+
+    fun unregisterListener(listener: (Boolean) -> Unit) {
+        for (i in listeners.indices) {
+            if (listeners[i] === listener) {
+                listeners[i] = null
+            }
+        }
+    }
+
+    private fun notifyListeners(sleeping: Boolean) {
+        for (i in listeners.indices) {
+            listeners[i]?.invoke(sleeping)
+        }
+    }
+
+    private fun scheduleIfNeeded() {
+        if (!isLauncherVisible || isCallbackScheduled || isIdleSleeping) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        val delayMs = (IDLE_PAUSE_MS - (now - lastInteractionElapsedMs)).coerceAtLeast(16L)
+        isCallbackScheduled = true
+        mainHandler.postDelayed(idleTimeoutRunnable, delayMs)
+    }
+
+    fun onInteraction(wakeIfSleeping: Boolean = true) {
+        lastInteractionElapsedMs = android.os.SystemClock.elapsedRealtime()
+        if (wakeIfSleeping && isIdleSleeping) {
+            wake()
+            return
+        }
+        scheduleIfNeeded()
+    }
+
+    fun wake() {
+        lastInteractionElapsedMs = android.os.SystemClock.elapsedRealtime()
+        if (isIdleSleeping) {
+            isIdleSleeping = false
+            notifyListeners(false)
+        }
+        scheduleIfNeeded()
+    }
+
+    fun onLauncherVisibilityChanged(visible: Boolean) {
+        isLauncherVisible = visible
+        if (visible) {
+            wake()
+        } else {
+            if (isCallbackScheduled) {
+                mainHandler.removeCallbacks(idleTimeoutRunnable)
+                isCallbackScheduled = false
+            }
+        }
+    }
+}
+
+// ============================================================================
+// 3D STARFIELD TIME WARP CONTROLLER (Real-Time Timeline)
 // - Pure bookkeeping before the final required tap: 0 visual/audio/haptic/FPS changes,
 //   0 redraw/wake calls, 0 Compose state writes until tapCount == Taps to warp.
-// - 5-Phase State Machine driven strictly from T0 (warpStartNanos):
-//   * WAIT (0..500ms): nothing changes on screen, no shake, no haptic, no FPS boost; taps ignored.
-//   * RAMP (500..2700ms, 2.2s): v(u) = 1 + 59 * s(u), continuous dot-to-line streaks, +100% extra stars
-//     (capped at 1200 total) fading in over first 60% of RAMP, shake 0 -> 2dp, 60fps boost starts,
-//     and ONE pre-built 55ms-segment haptic waveform starts.
-//   * HOLD (2700ms..2700ms + WarpHold, default 3.0s): 60x speed, full streaks, ~3dp shake.
-//   * GLOW (1200ms after HOLD): final speed surge 60x -> 72x (smoothstep), 256x256 radial bloom bitmap
-//     scaling lerp(6%, 125%) * diag * u^3 with opacity u^2 + full-screen white smoothstep((u - 0.8)/0.2)
-//     covering all home content, shake 3 -> 4dp, EFFECT_HEAVY_CLICK thump at u = 0.85,
-//     and instant reset underneath at u = 1 (speed 1x, no streaks, no extra stars, no shake, no bloom).
-//   * RETURN (900ms): white layer fades 100% -> 0% with cubic ease-out, then cooldown starts.
+// - Driven strictly from SystemClock.elapsedRealtimeNanos() (real-time clock) so the timeline
+//   continues seamlessly across drawer/settings/app navigation, screen off, and activity recreation.
+// - End-of-warp bookkeeping is driven by ONE delayed Handler callback scheduled for the warp's end time.
+// - Haptics cancel immediately when the launcher is hidden and resume from the exact remaining
+//   waveform segments when the launcher becomes visible again during the warp.
 // ============================================================================
 class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
     companion object {
@@ -1702,6 +1835,10 @@ class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
         const val PHASE_GLOW = 4
         const val PHASE_RETURN = 5
 
+        private const val WAIT_DURATION_MS = 500f
+        private const val RAMP_DURATION_MS = 2200f
+        private const val GLOW_DURATION_MS = 1200f
+        private const val RETURN_DURATION_MS = 900f
         private const val BLOOM_BITMAP_SIZE = 256
 
         fun resolveVibrator(context: Context): Vibrator? {
@@ -1758,57 +1895,82 @@ class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
             }
         }
 
-        // Builds ONE continuous VibrationEffect waveform (~55ms segments) when the warp starts (only allocation point!):
+        // Builds a VibrationEffect waveform (~55ms segments) from [startOffsetAfterWaitMs] onward:
         // - RAMP (2200ms = 40 segments): amplitudes rising smoothly 12 -> 75 following s(u)
         // - HOLD (holdMs = N segments): amplitudes between 75 and 105 with subtle variation
         // - GLOW (1200ms = 22 segments): amplitudes rising 105 -> 150
-        private fun buildWarpWaveformEffect(holdDurationMs: Float, hasAmplitudeControl: Boolean): VibrationEffect? {
+        private fun buildWarpWaveformEffect(
+            holdDurationMs: Float,
+            hasAmplitudeControl: Boolean,
+            startOffsetAfterWaitMs: Float = 0f
+        ): VibrationEffect? {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
             val segMs = 55L
             val rampSteps = 40 // 40 * 55ms = 2200ms
             val holdSteps = (holdDurationMs / 55f).roundToInt().coerceIn(18, 160)
             val glowSteps = 22 // 22 * 55ms = 1210ms
             val totalSteps = rampSteps + holdSteps + glowSteps
+            val startStep = (startOffsetAfterWaitMs.coerceAtLeast(0f) / 55f).toInt().coerceAtLeast(0)
+            val remainingSteps = totalSteps - startStep
+            if (remainingSteps <= 0) return null
 
             return if (hasAmplitudeControl) {
-                val timings = LongArray(totalSteps) { segMs }
-                val amplitudes = IntArray(totalSteps)
-                var idx = 0
-                for (k in 0 until rampSteps) {
-                    val u = k.toFloat() / (rampSteps - 1).coerceAtLeast(1).toFloat()
-                    val su = u * u * (3f - 2f * u)
-                    amplitudes[idx++] = (12f + 63f * su).roundToInt().coerceIn(12, 75)
-                }
-                for (k in 0 until holdSteps) {
-                    val variation = (sin(k * 0.65f) * 15f).roundToInt()
-                    amplitudes[idx++] = (90 + variation).coerceIn(75, 105)
-                }
-                for (k in 0 until glowSteps) {
-                    val u = k.toFloat() / (glowSteps - 1).coerceAtLeast(1).toFloat()
-                    val su = u * u * (3f - 2f * u)
-                    amplitudes[idx++] = (105f + 45f * su).roundToInt().coerceIn(105, 150)
+                val timings = LongArray(remainingSteps) { segMs }
+                val amplitudes = IntArray(remainingSteps)
+                var outIdx = 0
+                for (k in startStep until totalSteps) {
+                    val amp = when {
+                        k < rampSteps -> {
+                            val u = k.toFloat() / (rampSteps - 1).coerceAtLeast(1).toFloat()
+                            val su = u * u * (3f - 2f * u)
+                            (12f + 63f * su).roundToInt().coerceIn(12, 75)
+                        }
+                        k < rampSteps + holdSteps -> {
+                            val hk = k - rampSteps
+                            val variation = (sin(hk * 0.65f) * 15f).roundToInt()
+                            (90 + variation).coerceIn(75, 105)
+                        }
+                        else -> {
+                            val gk = k - rampSteps - holdSteps
+                            val u = gk.toFloat() / (glowSteps - 1).coerceAtLeast(1).toFloat()
+                            val su = u * u * (3f - 2f * u)
+                            (105f + 45f * su).roundToInt().coerceIn(105, 150)
+                        }
+                    }
+                    amplitudes[outIdx++] = amp
                 }
                 VibrationEffect.createWaveform(timings, amplitudes, -1)
             } else {
-                // Fallback short ON/OFF pulses with the same 55ms rhythm
-                val timings = LongArray(totalSteps * 2)
-                var idx = 0
-                for (k in 0 until totalSteps) {
+                val timings = LongArray(remainingSteps * 2)
+                var outIdx = 0
+                for (k in startStep until totalSteps) {
                     val onMs = when {
                         k < rampSteps -> 10L + (12L * k) / rampSteps
                         k < rampSteps + holdSteps -> 22L
                         else -> 26L
                     }
                     val offMs = (segMs - onMs).coerceAtLeast(10L)
-                    timings[idx++] = offMs
-                    timings[idx++] = onMs
+                    timings[outIdx++] = offMs
+                    timings[outIdx++] = onMs
                 }
                 VibrationEffect.createWaveform(timings, -1)
             }
         }
     }
 
-    // Pure bookkeeping tap counter fields
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var appContext: Context? = null
+    private var cooldownSecSnapshot: Int = 8
+    private var lastKnownDpPx: Float = 2.625f
+    private var isHapticSuspendedWhileHidden: Boolean = false
+    var needsCalmStarfieldReseed: Boolean = false
+    var onWarpEndedCallback: (() -> Unit)? = null
+
+    private val warpEndRunnable = Runnable {
+        completeWarpEndBookkeeping()
+    }
+
+    // Pure bookkeeping tap counter fields (elapsedRealtimeNanos timebase)
     var tapCount: Int = 0
     var lastTapUpNanos: Long = 0L
     var cooldownEndNanos: Long = 0L
@@ -1816,6 +1978,7 @@ class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
     // State machine fields
     var currentPhase: Int = PHASE_IDLE
     var warpStartNanos: Long = 0L
+    @Volatile
     var isWarpRunning: Boolean = false
     var holdDurationMsSnapshot: Float = 3000f
     private var prebuiltRampWaveform: VibrationEffect? = null
@@ -1851,8 +2014,6 @@ class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
         val r = android.graphics.Color.red(accentArgb)
         val g = android.graphics.Color.green(accentArgb)
         val b = android.graphics.Color.blue(accentArgb)
-        // 256x256 radial gradient: white 100% at center (0.0), white 85% at 50% radius (0.5),
-        // current accentColor at 35% opacity at 80% radius (0.8), transparent at edge (1.0)
         val p = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
             style = AndroidPaint.Style.FILL
             shader = RadialGradient(
@@ -1907,6 +2068,16 @@ class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
     var isWarpOverlayVisible by mutableStateOf(false)
     var overlayFrameTick by mutableStateOf(0)
 
+    private fun totalWarpDurationMs(): Float {
+        return WAIT_DURATION_MS + RAMP_DURATION_MS + holdDurationMsSnapshot + GLOW_DURATION_MS + RETURN_DURATION_MS
+    }
+
+    fun remainingDurationMs(nowRealtimeNanos: Long): Long {
+        if (!isWarpRunning) return 0L
+        val elapsedMs = ((nowRealtimeNanos - warpStartNanos) / 1_000_000L).coerceAtLeast(0L)
+        return (totalWarpDurationMs().toLong() - elapsedMs).coerceAtLeast(0L)
+    }
+
     fun isAt60FpsBoostPhase(): Boolean {
         return isWarpRunning && (
             currentPhase == PHASE_RAMP ||
@@ -1927,16 +2098,16 @@ class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
      * [tapCount] reaches [LiveWallpaperConfig.starfieldTapsToWarp].
      */
     fun onCleanWallpaperTap(
-        nowNanos: Long,
         config: LiveWallpaperConfig,
         canTriggerNow: Boolean,
         context: Context
     ) {
+        val nowNanos = android.os.SystemClock.elapsedRealtimeNanos()
         if (!canTriggerNow || !config.starfieldTimeWarpEnabled || isWarpRunning) {
             if (!isWarpRunning) tapCount = 0
             return
         }
-        // Ignore all taps (no counting) during cooldown
+        // Ignore all taps (no counting) during real-time cooldown
         if (nowNanos < cooldownEndNanos) {
             tapCount = 0
             return
@@ -1955,26 +2126,30 @@ class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
         }
     }
 
-    fun triggerPreviewWarp(nowNanos: Long, config: LiveWallpaperConfig, context: Context) {
+    fun triggerPreviewWarp(config: LiveWallpaperConfig, context: Context) {
         if (isWarpRunning) return
         tapCount = 0
-        startWarpAtT0(nowNanos, config, context)
+        startWarpAtT0(android.os.SystemClock.elapsedRealtimeNanos(), config, context)
     }
 
     private fun startWarpAtT0(
-        nowNanos: Long,
+        nowRealtimeNanos: Long,
         config: LiveWallpaperConfig,
         context: Context
     ) {
         if (isWarpRunning) return
         tapCount = 0
-        warpStartNanos = nowNanos
+        appContext = context.applicationContext
+        warpStartNanos = nowRealtimeNanos
         isWarpRunning = true
         currentPhase = PHASE_WAIT
         holdDurationMsSnapshot = (config.starfieldWarpHoldSec.coerceIn(1.0f, 8.0f) * 1000f)
+        cooldownSecSnapshot = config.starfieldWarpCooldownSec.coerceIn(2, 30)
         rampHapticStarted = false
         glowPeakThumpFired = false
         postGlowResetApplied = false
+        isHapticSuspendedWhileHidden = false
+        needsCalmStarfieldReseed = false
 
         // Nothing changes on screen at T0 (Phase WAIT 0..500ms)
         currentSpeedMultiplier = 1f
@@ -1989,10 +2164,105 @@ class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
         // Pre-build the single 55ms-segment haptic waveform once when the warp starts (played at the start of RAMP at 500ms)
         val vib = resolveVibrator(context)
         val hasAmp = vib?.hasAmplitudeControl() ?: false
-        prebuiltRampWaveform = buildWarpWaveformEffect(holdDurationMsSnapshot, hasAmp)
+        prebuiltRampWaveform = buildWarpWaveformEffect(holdDurationMsSnapshot, hasAmp, 0f)
+
+        // Schedule ONE delayed callback for end-of-warp bookkeeping so it fires even if the launcher is hidden
+        mainHandler.removeCallbacks(warpEndRunnable)
+        mainHandler.postDelayed(warpEndRunnable, totalWarpDurationMs().toLong().coerceAtLeast(100L))
+    }
+
+    fun onLauncherHidden(context: Context?) {
+        if (isPreviewController || !isWarpRunning) return
+        isHapticSuspendedWhileHidden = true
+        cancelVibration(context ?: appContext)
+    }
+
+    fun onLauncherVisible(context: Context, view: android.view.View?, vibrationEnabled: Boolean) {
+        if (isPreviewController) return
+        appContext = context.applicationContext
+        if (!isWarpRunning) return
+
+        val nowNanos = android.os.SystemClock.elapsedRealtimeNanos()
+        val elapsedMs = ((nowNanos - warpStartNanos) / 1_000_000.0).toFloat().coerceAtLeast(0f)
+        val rampEndMs = WAIT_DURATION_MS + RAMP_DURATION_MS
+        val holdEndMs = rampEndMs + holdDurationMsSnapshot
+        val glowEndMs = holdEndMs + GLOW_DURATION_MS
+        val returnEndMs = glowEndMs + RETURN_DURATION_MS
+
+        if (elapsedMs >= returnEndMs) {
+            completeWarpEndBookkeeping()
+            return
+        }
+
+        // Immediately sync visual outputs to the exact real-time timeline position before the first frame draws
+        applyVisualStateForElapsedMs(elapsedMs, lastKnownDpPx)
+
+        // Resume haptics from the exact remaining waveform segments (allocation allowed only on this resume event)
+        if (isHapticSuspendedWhileHidden) {
+            isHapticSuspendedWhileHidden = false
+            if (elapsedMs < WAIT_DURATION_MS) {
+                rampHapticStarted = false
+            } else if (elapsedMs < glowEndMs) {
+                rampHapticStarted = true
+                val glowU = if (elapsedMs >= holdEndMs) ((elapsedMs - holdEndMs) / GLOW_DURATION_MS).coerceIn(0f, 1f) else 0f
+                if (glowU >= 0.85f) {
+                    glowPeakThumpFired = true
+                }
+                if (isTouchFeedbackEnabled(context, view, vibrationEnabled)) {
+                    val vib = resolveVibrator(context)
+                    val hasAmp = vib?.hasAmplitudeControl() ?: false
+                    val remainingEffect = buildWarpWaveformEffect(
+                        holdDurationMs = holdDurationMsSnapshot,
+                        hasAmplitudeControl = hasAmp,
+                        startOffsetAfterWaitMs = (elapsedMs - WAIT_DURATION_MS).coerceAtLeast(0f)
+                    )
+                    if (remainingEffect != null) {
+                        playVibrationEffect(context, remainingEffect)
+                    }
+                }
+            } else {
+                // Already in RETURN phase: no rumble
+                rampHapticStarted = true
+                glowPeakThumpFired = true
+                cancelVibration(context)
+            }
+        }
+    }
+
+    private fun completeWarpEndBookkeeping() {
+        mainHandler.removeCallbacks(warpEndRunnable)
+        val wasRunning = isWarpRunning || isWarpOverlayVisible
+        if (!wasRunning) return
+
+        if (!postGlowResetApplied) {
+            postGlowResetApplied = true
+            needsCalmStarfieldReseed = true
+        }
+        isWarpRunning = false
+        currentPhase = PHASE_IDLE
+        isWarpOverlayVisible = false
+        prebuiltRampWaveform = null
+        isHapticSuspendedWhileHidden = false
+        currentSpeedMultiplier = 1f
+        currentStreakFactor = 0f
+        currentExtraStarsAlpha = 0f
+        currentShakeOffsetXPx = 0f
+        currentShakeOffsetYPx = 0f
+        currentBloomRadiusFrac = 0f
+        currentBloomAlpha = 0f
+        currentWhiteFlashAlpha = 0f
+        cancelVibration(appContext)
+
+        if (!isPreviewController) {
+            val endNanos = warpStartNanos + (totalWarpDurationMs().toLong() * 1_000_000L)
+            cooldownEndNanos = endNanos + cooldownSecSnapshot.toLong() * 1_000_000_000L
+        }
+        overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
+        onWarpEndedCallback?.invoke()
     }
 
     fun cancelImmediately(context: Context?) {
+        mainHandler.removeCallbacks(warpEndRunnable)
         val wasActive = isWarpRunning || isWarpOverlayVisible
         tapCount = 0
         isWarpRunning = false
@@ -2001,6 +2271,8 @@ class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
         rampHapticStarted = false
         glowPeakThumpFired = false
         postGlowResetApplied = false
+        isHapticSuspendedWhileHidden = false
+        needsCalmStarfieldReseed = false
         currentSpeedMultiplier = 1f
         currentStreakFactor = 0f
         currentExtraStarsAlpha = 0f
@@ -2013,19 +2285,116 @@ class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
             isWarpOverlayVisible = false
         }
         if (wasActive) {
-            cancelVibration(context)
+            cancelVibration(context ?: appContext)
             overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
         }
     }
 
+    private fun applyVisualStateForElapsedMs(elapsedMs: Float, dpPx: Float) {
+        val rampEndMs = WAIT_DURATION_MS + RAMP_DURATION_MS
+        val holdEndMs = rampEndMs + holdDurationMsSnapshot
+        val glowEndMs = holdEndMs + GLOW_DURATION_MS
+
+        when {
+            elapsedMs < WAIT_DURATION_MS -> {
+                currentPhase = PHASE_WAIT
+                currentSpeedMultiplier = 1f
+                currentStreakFactor = 0f
+                currentExtraStarsAlpha = 0f
+                currentShakeOffsetXPx = 0f
+                currentShakeOffsetYPx = 0f
+                currentBloomRadiusFrac = 0f
+                currentBloomAlpha = 0f
+                currentWhiteFlashAlpha = 0f
+            }
+            elapsedMs < rampEndMs -> {
+                currentPhase = PHASE_RAMP
+                if (!isWarpOverlayVisible) isWarpOverlayVisible = true
+                val u = ((elapsedMs - WAIT_DURATION_MS) / RAMP_DURATION_MS).coerceIn(0f, 1f)
+                val su = u * u * (3f - 2f * u)
+                currentSpeedMultiplier = 1f + 59f * su
+                currentStreakFactor = su
+                val uExtra = (u / 0.60f).coerceIn(0f, 1f)
+                currentExtraStarsAlpha = uExtra * uExtra * (3f - 2f * uExtra)
+                currentBloomRadiusFrac = 0f
+                currentBloomAlpha = 0f
+                currentWhiteFlashAlpha = 0f
+                val tSec = elapsedMs * 0.001f
+                val ampPx = (2f * su) * dpPx
+                val nx = 0.62f * sin(tSec * (2f * PI.toFloat() * 37f)) + 0.38f * cos(tSec * (2f * PI.toFloat() * 53f))
+                val ny = 0.62f * cos(tSec * (2f * PI.toFloat() * 41f)) + 0.38f * sin(tSec * (2f * PI.toFloat() * 59f))
+                currentShakeOffsetXPx = nx * ampPx
+                currentShakeOffsetYPx = ny * ampPx
+                overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
+            }
+            elapsedMs < holdEndMs -> {
+                currentPhase = PHASE_HOLD
+                if (!isWarpOverlayVisible) isWarpOverlayVisible = true
+                currentSpeedMultiplier = 60f
+                currentStreakFactor = 1f
+                currentExtraStarsAlpha = 1f
+                currentBloomRadiusFrac = 0f
+                currentBloomAlpha = 0f
+                currentWhiteFlashAlpha = 0f
+                val tSec = elapsedMs * 0.001f
+                val ampPx = 3f * dpPx
+                val nx = 0.62f * sin(tSec * (2f * PI.toFloat() * 37f)) + 0.38f * cos(tSec * (2f * PI.toFloat() * 53f))
+                val ny = 0.62f * cos(tSec * (2f * PI.toFloat() * 41f)) + 0.38f * sin(tSec * (2f * PI.toFloat() * 59f))
+                currentShakeOffsetXPx = nx * ampPx
+                currentShakeOffsetYPx = ny * ampPx
+                overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
+            }
+            elapsedMs < glowEndMs -> {
+                currentPhase = PHASE_GLOW
+                if (!isWarpOverlayVisible) isWarpOverlayVisible = true
+                val u = ((elapsedMs - holdEndMs) / GLOW_DURATION_MS).coerceIn(0f, 1f)
+                val su = u * u * (3f - 2f * u)
+                currentSpeedMultiplier = 60f + 12f * su
+                currentStreakFactor = 1f + 0.20f * su
+                currentExtraStarsAlpha = 1f
+                val uCubed = u * u * u
+                currentBloomRadiusFrac = (0.06f + (1.25f - 0.06f) * uCubed)
+                currentBloomAlpha = (u * u).coerceIn(0f, 1f)
+                val w = ((u - 0.80f) / 0.20f).coerceIn(0f, 1f)
+                currentWhiteFlashAlpha = (w * w * (3f - 2f * w)).coerceIn(0f, 1f)
+                val tSec = elapsedMs * 0.001f
+                val ampPx = (3f + 1f * su) * dpPx
+                val nx = 0.62f * sin(tSec * (2f * PI.toFloat() * 37f)) + 0.38f * cos(tSec * (2f * PI.toFloat() * 53f))
+                val ny = 0.62f * cos(tSec * (2f * PI.toFloat() * 41f)) + 0.38f * sin(tSec * (2f * PI.toFloat() * 59f))
+                currentShakeOffsetXPx = nx * ampPx
+                currentShakeOffsetYPx = ny * ampPx
+                overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
+            }
+            else -> {
+                currentPhase = PHASE_RETURN
+                if (!isWarpOverlayVisible) isWarpOverlayVisible = true
+                currentSpeedMultiplier = 1f
+                currentStreakFactor = 0f
+                currentExtraStarsAlpha = 0f
+                currentShakeOffsetXPx = 0f
+                currentShakeOffsetYPx = 0f
+                currentBloomRadiusFrac = 0f
+                currentBloomAlpha = 0f
+                val u = ((elapsedMs - glowEndMs) / RETURN_DURATION_MS).coerceIn(0f, 1f)
+                val oneMinusU = 1f - u
+                currentWhiteFlashAlpha = (oneMinusU * oneMinusU * oneMinusU).coerceIn(0f, 1f)
+                overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
+            }
+        }
+    }
+
     fun stepFrame(
-        frameTimeNanos: Long,
         dpPx: Float,
         config: LiveWallpaperConfig,
         context: Context,
         view: android.view.View?,
         onRestoreNormalStarsAtFullWhite: () -> Unit
     ) {
+        lastKnownDpPx = dpPx
+        if (needsCalmStarfieldReseed) {
+            needsCalmStarfieldReseed = false
+            onRestoreNormalStarsAtFullWhite()
+        }
         if (!isWarpRunning) {
             currentPhase = PHASE_IDLE
             currentSpeedMultiplier = 1f
@@ -2039,190 +2408,64 @@ class StarfieldTimeWarpController(val isPreviewController: Boolean = false) {
             return
         }
 
-        val elapsedMs = ((frameTimeNanos - warpStartNanos) / 1_000_000.0).toFloat().coerceAtLeast(0f)
-        val waitEndMs = 500f
-        val rampDurationMs = 2200f
-        val rampEndMs = waitEndMs + rampDurationMs // 2700ms
-        val holdEndMs = rampEndMs + holdDurationMsSnapshot // default 5700ms
-        val glowDurationMs = 1200f
-        val glowEndMs = holdEndMs + glowDurationMs // default 6900ms
-        val returnDurationMs = 900f
-        val returnEndMs = glowEndMs + returnDurationMs // default 7800ms
+        val nowNanos = android.os.SystemClock.elapsedRealtimeNanos()
+        val elapsedMs = ((nowNanos - warpStartNanos) / 1_000_000.0).toFloat().coerceAtLeast(0f)
+        val rampEndMs = WAIT_DURATION_MS + RAMP_DURATION_MS
+        val holdEndMs = rampEndMs + holdDurationMsSnapshot
+        val glowEndMs = holdEndMs + GLOW_DURATION_MS
+        val returnEndMs = glowEndMs + RETURN_DURATION_MS
 
-        when {
-            // PHASE WAIT (0 to 500ms): Nothing at all changes on screen (no speed change, no shake, no haptic, no overlay, no FPS boost)
-            elapsedMs < waitEndMs -> {
-                currentPhase = PHASE_WAIT
-                currentSpeedMultiplier = 1f
-                currentStreakFactor = 0f
-                currentExtraStarsAlpha = 0f
-                currentShakeOffsetXPx = 0f
-                currentShakeOffsetYPx = 0f
-                currentBloomRadiusFrac = 0f
-                currentBloomAlpha = 0f
-                currentWhiteFlashAlpha = 0f
+        if (elapsedMs >= returnEndMs) {
+            if (!postGlowResetApplied) {
+                postGlowResetApplied = true
+                onRestoreNormalStarsAtFullWhite()
             }
+            completeWarpEndBookkeeping()
+            return
+        }
 
-            // PHASE RAMP (500ms to 2700ms, 2.2s): v(u) = 1 + 59 * s(u), continuous streaks, +100% extra stars fade in over first 60%, shake 0 -> 2dp
-            elapsedMs < rampEndMs -> {
-                currentPhase = PHASE_RAMP
-                if (!isWarpOverlayVisible) {
-                    isWarpOverlayVisible = true
-                }
-                if (!rampHapticStarted) {
-                    rampHapticStarted = true
-                    val waveform = prebuiltRampWaveform
-                    if (waveform != null && isTouchFeedbackEnabled(context, view, config.starfieldWarpVibration)) {
-                        playVibrationEffect(context, waveform)
-                    }
-                }
-
-                val u = ((elapsedMs - waitEndMs) / rampDurationMs).coerceIn(0f, 1f)
-                val su = u * u * (3f - 2f * u) // smoothstep
-                currentSpeedMultiplier = 1f + 59f * su
-                currentStreakFactor = su
-
-                // Extra stars fade from 0 to 100% during the first 60% of the RAMP (smoothstep)
-                val uExtra = (u / 0.60f).coerceIn(0f, 1f)
-                currentExtraStarsAlpha = uExtra * uExtra * (3f - 2f * uExtra)
-
-                currentBloomRadiusFrac = 0f
-                currentBloomAlpha = 0f
-                currentWhiteFlashAlpha = 0f
-
-                // Shake amplitude follows s(u), up to 2dp
-                val tSec = elapsedMs * 0.001f
-                val ampPx = (2f * su) * dpPx
-                val nx = 0.62f * sin(tSec * (2f * PI.toFloat() * 37f)) + 0.38f * cos(tSec * (2f * PI.toFloat() * 53f))
-                val ny = 0.62f * cos(tSec * (2f * PI.toFloat() * 41f)) + 0.38f * sin(tSec * (2f * PI.toFloat() * 59f))
-                currentShakeOffsetXPx = nx * ampPx
-                currentShakeOffsetYPx = ny * ampPx
-                overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
-            }
-
-            // PHASE HOLD (from 2700ms for "Warp hold" duration, default 3.0s): speed stays at 60x with full-length streaks, ~3dp shake
-            elapsedMs < holdEndMs -> {
-                currentPhase = PHASE_HOLD
-                if (!isWarpOverlayVisible) {
-                    isWarpOverlayVisible = true
-                }
-                currentSpeedMultiplier = 60f
-                currentStreakFactor = 1f
-                currentExtraStarsAlpha = 1f
-                currentBloomRadiusFrac = 0f
-                currentBloomAlpha = 0f
-                currentWhiteFlashAlpha = 0f
-
-                val tSec = elapsedMs * 0.001f
-                val ampPx = 3f * dpPx
-                val nx = 0.62f * sin(tSec * (2f * PI.toFloat() * 37f)) + 0.38f * cos(tSec * (2f * PI.toFloat() * 53f))
-                val ny = 0.62f * cos(tSec * (2f * PI.toFloat() * 41f)) + 0.38f * sin(tSec * (2f * PI.toFloat() * 59f))
-                currentShakeOffsetXPx = nx * ampPx
-                currentShakeOffsetYPx = ny * ampPx
-                overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
-            }
-
-            // PHASE GLOW (1200ms after HOLD ends): speed surges 60x -> 72x (smoothstep), radial bloom + white layer, shake 3dp -> 4dp, heavy click at u = 0.85
-            elapsedMs < glowEndMs -> {
-                currentPhase = PHASE_GLOW
-                if (!isWarpOverlayVisible) {
-                    isWarpOverlayVisible = true
-                }
-                val u = ((elapsedMs - holdEndMs) / glowDurationMs).coerceIn(0f, 1f)
-                val su = u * u * (3f - 2f * u)
-
-                if (!glowPeakThumpFired && u >= 0.85f) {
-                    glowPeakThumpFired = true
-                    if (isTouchFeedbackEnabled(context, view, config.starfieldWarpVibration)) {
-                        val thump = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK)
-                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            VibrationEffect.createOneShot(40L, 180)
-                        } else {
-                            null
-                        }
-                        if (thump != null) {
-                            playVibrationEffect(context, thump)
-                        }
-                    }
-                }
-
-                // Final surge: speed rises 60x -> 72x (smoothstep); stars keep streaking behind the bloom
-                currentSpeedMultiplier = 60f + 12f * su
-                currentStreakFactor = 1f + 0.20f * su
-                currentExtraStarsAlpha = 1f
-
-                // Bloom radius = lerp(6%, 125%) of screen diagonal * (u^3), opacity = u^2
-                val uCubed = u * u * u
-                currentBloomRadiusFrac = (0.06f + (1.25f - 0.06f) * uCubed)
-                currentBloomAlpha = (u * u).coerceIn(0f, 1f)
-
-                // Full-screen white layer with opacity smoothstep((u - 0.8) / 0.2), so screen is pure white at u = 1
-                val w = ((u - 0.80f) / 0.20f).coerceIn(0f, 1f)
-                currentWhiteFlashAlpha = (w * w * (3f - 2f * w)).coerceIn(0f, 1f)
-
-                // Shake rises smoothly from 3dp to 4dp
-                val tSec = elapsedMs * 0.001f
-                val ampPx = (3f + 1f * su) * dpPx
-                val nx = 0.62f * sin(tSec * (2f * PI.toFloat() * 37f)) + 0.38f * cos(tSec * (2f * PI.toFloat() * 53f))
-                val ny = 0.62f * cos(tSec * (2f * PI.toFloat() * 41f)) + 0.38f * sin(tSec * (2f * PI.toFloat() * 59f))
-                currentShakeOffsetXPx = nx * ampPx
-                currentShakeOffsetYPx = ny * ampPx
-                overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
-            }
-
-            // PHASE RETURN (900ms): at the exact moment screen reaches pure white (u = 1), switch state underneath instantly
-            // (speed 1x, no streaks, no extra stars, no shake, no bloom), then fade white layer 100% -> 0% with cubic ease-out
-            elapsedMs < returnEndMs -> {
-                currentPhase = PHASE_RETURN
-                if (!postGlowResetApplied) {
-                    postGlowResetApplied = true
-                    cancelVibration(context)
-                    onRestoreNormalStarsAtFullWhite()
-                }
-                currentSpeedMultiplier = 1f
-                currentStreakFactor = 0f
-                currentExtraStarsAlpha = 0f
-                currentShakeOffsetXPx = 0f
-                currentShakeOffsetYPx = 0f
-                currentBloomRadiusFrac = 0f
-                currentBloomAlpha = 0f
-
-                val u = ((elapsedMs - glowEndMs) / returnDurationMs).coerceIn(0f, 1f)
-                val oneMinusU = 1f - u
-                // Cubic ease-out fade from 100% to 0%: 1 - (1 - (1 - u)^3) = (1 - u)^3
-                currentWhiteFlashAlpha = (oneMinusU * oneMinusU * oneMinusU).coerceIn(0f, 1f)
-                overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
-            }
-
-            // FINISHED: restore FPS cap and start cooldown
-            else -> {
-                if (!postGlowResetApplied) {
-                    postGlowResetApplied = true
-                    onRestoreNormalStarsAtFullWhite()
-                }
-                isWarpRunning = false
-                currentPhase = PHASE_IDLE
-                isWarpOverlayVisible = false
-                prebuiltRampWaveform = null
-                currentSpeedMultiplier = 1f
-                currentStreakFactor = 0f
-                currentExtraStarsAlpha = 0f
-                currentShakeOffsetXPx = 0f
-                currentShakeOffsetYPx = 0f
-                currentBloomRadiusFrac = 0f
-                currentBloomAlpha = 0f
-                currentWhiteFlashAlpha = 0f
-                cancelVibration(context)
-                if (!isPreviewController) {
-                    val cooldownSec = config.starfieldWarpCooldownSec.coerceIn(2, 30).toLong()
-                    cooldownEndNanos = frameTimeNanos + cooldownSec * 1_000_000_000L
-                }
-                overlayFrameTick = (overlayFrameTick + 1) and 0x7FFFFFFF
+        // Trigger RAMP waveform once at 500ms if not already started
+        if (elapsedMs >= WAIT_DURATION_MS && elapsedMs < glowEndMs && !rampHapticStarted && !isHapticSuspendedWhileHidden) {
+            rampHapticStarted = true
+            val waveform = prebuiltRampWaveform
+            if (waveform != null && isTouchFeedbackEnabled(context, view, config.starfieldWarpVibration)) {
+                playVibrationEffect(context, waveform)
             }
         }
+
+        // Trigger heavier peak thump at u = 0.85 of GLOW
+        if (elapsedMs >= holdEndMs && elapsedMs < glowEndMs && !glowPeakThumpFired && !isHapticSuspendedWhileHidden) {
+            val u = ((elapsedMs - holdEndMs) / GLOW_DURATION_MS).coerceIn(0f, 1f)
+            if (u >= 0.85f) {
+                glowPeakThumpFired = true
+                if (isTouchFeedbackEnabled(context, view, config.starfieldWarpVibration)) {
+                    val thump = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK)
+                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        VibrationEffect.createOneShot(40L, 180)
+                    } else {
+                        null
+                    }
+                    if (thump != null) {
+                        playVibrationEffect(context, thump)
+                    }
+                }
+            }
+        }
+
+        // At full white (start of RETURN), instantly restore normal starfield underneath and stop rumble
+        if (elapsedMs >= glowEndMs && !postGlowResetApplied) {
+            postGlowResetApplied = true
+            cancelVibration(context)
+            onRestoreNormalStarsAtFullWhite()
+        }
+
+        applyVisualStateForElapsedMs(elapsedMs, dpPx)
     }
 }
+
+// Single process-level real-time Time Warp controller shared across activity lifecycles & rotations
+val ProcessHomeTimeWarpController = StarfieldTimeWarpController(isPreviewController = false)
 
 data class LiveWallpaperCatalogItem(
     val id: String,
@@ -2622,7 +2865,7 @@ fun NTextLauncherApp(
         mutableStateOf(loadAndMigrateLiveWallpaperConfig(prefs))
     }
     val touchRippleBus = remember { TouchRippleEventBus() }
-    val homeTimeWarpController = remember { StarfieldTimeWarpController(isPreviewController = false) }
+    val homeTimeWarpController = ProcessHomeTimeWarpController
     var isPowerSaveMode by remember {
         val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         mutableStateOf(pm?.isPowerSaveMode ?: false)
@@ -2703,25 +2946,49 @@ fun NTextLauncherApp(
     }
 
     val appLifecycleOwner = LocalLifecycleOwner.current
+    var isActivityStarted by remember {
+        mutableStateOf(appLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+    }
     var isLauncherInForeground by remember { mutableStateOf(true) }
     var hasWindowFocus by remember { mutableStateOf(true) }
     var isScreenInteractive by remember {
         val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         mutableStateOf(pm?.isInteractive ?: true)
     }
+    val warpVibrationEnabledState by rememberUpdatedState(liveWpConfig.starfieldWarpVibration)
 
     DisposableEffect(appLifecycleOwner, activity) {
         val obs = LifecycleEventObserver { _, event ->
             when (event) {
+                Lifecycle.Event.ON_START -> {
+                    isActivityStarted = true
+                    isLauncherInForeground = true
+                    val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                    val interactiveNow = pm?.isInteractive ?: true
+                    isScreenInteractive = interactiveNow
+                    isPowerSaveMode = pm?.isPowerSaveMode ?: false
+                    dateChangeTrigger++
+                    if (interactiveNow) {
+                        LiveWallpaperIdleController.onLauncherVisibilityChanged(true)
+                        homeTimeWarpController.onLauncherVisible(context, null, warpVibrationEnabledState)
+                    }
+                }
                 Lifecycle.Event.ON_RESUME -> {
                     isLauncherInForeground = true
                     val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
                     isScreenInteractive = pm?.isInteractive ?: true
                     isPowerSaveMode = pm?.isPowerSaveMode ?: false
-                    dateChangeTrigger++
                 }
-                Lifecycle.Event.ON_START -> isLauncherInForeground = true
-                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> isLauncherInForeground = false
+                Lifecycle.Event.ON_PAUSE -> {
+                    // Only affects widgets; live wallpapers & time warp keep running during transitions!
+                    isLauncherInForeground = false
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    isActivityStarted = false
+                    isLauncherInForeground = false
+                    LiveWallpaperIdleController.onLauncherVisibilityChanged(false)
+                    homeTimeWarpController.onLauncherHidden(context)
+                }
                 else -> {}
             }
         }
@@ -2740,16 +3007,14 @@ fun NTextLauncherApp(
         }
     }
 
-    // Permanent automatic visibility & lifecycle gating for all Live Wallpapers & Home Screen widgets (including the 3D Spinning Globe):
-    // Always pauses when:
-    // - screen is off (!isScreenInteractive)
-    // - another app is in front (!isLauncherInForeground || !hasWindowFocus)
-    // - the app drawer fully covers the home screen (isDrawerFullyOpen)
-    // - an opaque settings screen or widget manager covers the home screen
-    val shouldRunWidgetsAndWallpapers = isScreenInteractive && isLauncherInForeground && hasWindowFocus
-    val isHomeWidgetsVisible = shouldRunWidgetsAndWallpapers &&
+    // Widgets (including the 3D Spinning Globe) keep their existing pause rules unchanged.
+    val shouldRunWidgets = isScreenInteractive && isLauncherInForeground && hasWindowFocus
+    val isHomeWidgetsVisible = shouldRunWidgets &&
         currentView == LauncherView.HOME_AND_DRAWER &&
         !isDrawerFullyOpen
+
+    // Live Wallpapers & Time Warp stop rendering ONLY when the launcher window is truly hidden (onStop or screen off).
+    val isLauncherWindowVisible = isActivityStarted && isScreenInteractive
 
     LaunchedEffect(userWallpaperRefreshTrigger) {
         if (userWallpaperRefreshTrigger > 0) {
@@ -3133,9 +3398,16 @@ fun NTextLauncherApp(
                 when (intent?.action) {
                     Intent.ACTION_SCREEN_OFF -> {
                         isScreenInteractive = false
+                        LiveWallpaperIdleController.onLauncherVisibilityChanged(false)
+                        homeTimeWarpController.onLauncherHidden(context)
                     }
-                    Intent.ACTION_SCREEN_ON -> {
+                    Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
                         isScreenInteractive = true
+                        LiveWallpaperIdleController.onLauncherVisibilityChanged(isActivityStarted)
+                        if (isActivityStarted) {
+                            LiveWallpaperIdleController.wake()
+                            homeTimeWarpController.onLauncherVisible(context, null, warpVibrationEnabledState)
+                        }
                         refreshRealtimeSystemTelemetry()
                     }
                     Intent.ACTION_BATTERY_CHANGED -> {
@@ -3166,6 +3438,7 @@ fun NTextLauncherApp(
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
             addAction(Intent.ACTION_BATTERY_CHANGED)
             addAction(Intent.ACTION_POWER_CONNECTED)
             addAction(Intent.ACTION_POWER_DISCONNECTED)
@@ -3659,7 +3932,6 @@ fun NTextLauncherApp(
     }
 
     fun launchApp(pkg: String) {
-        homeTimeWarpController.cancelImmediately(context)
         clearAllFocusAndKeyboard()
         drawerSearchResetToken++
         context.packageManager.getLaunchIntentForPackage(pkg)?.let { intent ->
@@ -3683,7 +3955,6 @@ fun NTextLauncherApp(
     }
 
     fun openClockApp() {
-        homeTimeWarpController.cancelImmediately(context)
         tickHaptic(heavy = false)
         val clockApp = installedApps.firstOrNull {
             it.packageName.equals("com.google.android.deskclock", ignoreCase = true) ||
@@ -3707,7 +3978,6 @@ fun NTextLauncherApp(
 
     LaunchedEffect(homeIntentTrigger) {
         if (homeIntentTrigger > 0) {
-            homeTimeWarpController.cancelImmediately(context)
             clearAllFocusAndKeyboard()
             contextMenuTarget = null
             showHomeQuickMenu = false
@@ -3733,7 +4003,6 @@ fun NTextLauncherApp(
     }
 
     fun openAppInfo(pkg: String) {
-        homeTimeWarpController.cancelImmediately(context)
         try {
             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = Uri.fromParts("package", pkg, null)
@@ -3743,16 +4012,13 @@ fun NTextLauncherApp(
         }
     }
 
-    LaunchedEffect(currentView, wallpaperPreset, shouldRunWidgetsAndWallpapers, isScreenInteractive, liveWpConfig.starfieldTimeWarpEnabled) {
-        if (
-            currentView != LauncherView.HOME_AND_DRAWER ||
-            wallpaperPreset != "live_starfield_3d" ||
-            !shouldRunWidgetsAndWallpapers ||
-            !isScreenInteractive ||
-            !liveWpConfig.starfieldTimeWarpEnabled
-        ) {
+    // ONLY cancel a running Time Warp if the user chooses a different wallpaper or switches off "Time warp" in settings.
+    LaunchedEffect(wallpaperPreset, liveWpConfig.starfieldTimeWarpEnabled) {
+        if (wallpaperPreset != "live_starfield_3d" || !liveWpConfig.starfieldTimeWarpEnabled) {
             homeTimeWarpController.cancelImmediately(context)
         }
+    }
+    LaunchedEffect(currentView) {
         if (currentView != LauncherView.SETTINGS) {
             isLiveWallpapersWindowOpen = false
             isLiveWallpapersWindowFullyOpen = false
@@ -3834,17 +4100,19 @@ fun NTextLauncherApp(
                 usableHomeHeightDp = computedUsableHeightDp
             }
 
-            // Full-Screen Edge-to-Edge Wallpaper Canvas (Zero blur or RenderEffect overhead during drawer transitions)
-            val isWallpaperScreenVisible = shouldRunWidgetsAndWallpapers && when (currentView) {
-                LauncherView.HOME_AND_DRAWER -> !isDrawerFullyOpen
-                LauncherView.WIDGETS -> false
-                LauncherView.SETTINGS -> settingsBgMode != "opaque" && !isLiveWallpapersWindowFullyOpen
-            }
+            // Full-Screen Edge-to-Edge Wallpaper Canvas:
+            // Keeps animating behind the app drawer (in every style), Actions menu, menus/dialogs,
+            // widget manager, edit mode, search bar, and all Settings screens.
+            // Narrow exception: stops drawing only while the opaque black Live Wallpapers window is fully open.
+            val isOpaqueLiveWallpapersWindowCovering = currentView == LauncherView.SETTINGS && isLiveWallpapersWindowFullyOpen
+            val isWallpaperScreenVisible = isLauncherWindowVisible && !isOpaqueLiveWallpapersWindowCovering
+            val showRootWarpEffects = homeTimeWarpController.isWarpOverlayVisible && !isOpaqueLiveWallpapersWindowCovering
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        if (homeTimeWarpController.isWarpOverlayVisible) {
+                        if (showRootWarpEffects) {
                             val tick = homeTimeWarpController.overlayFrameTick
                             if (tick >= 0) {
                                 translationX = homeTimeWarpController.currentShakeOffsetXPx
@@ -3877,7 +4145,7 @@ fun NTextLauncherApp(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        if (homeTimeWarpController.isWarpOverlayVisible && currentView == LauncherView.HOME_AND_DRAWER) {
+                        if (showRootWarpEffects) {
                             val tick = homeTimeWarpController.overlayFrameTick
                             if (tick >= 0) {
                                 translationX = homeTimeWarpController.currentShakeOffsetXPx
@@ -4061,7 +4329,6 @@ fun NTextLauncherApp(
                                                         isWallpaperActive
                                                     ) {
                                                         homeTimeWarpController.onCleanWallpaperTap(
-                                                            nowNanos = System.nanoTime(),
                                                             config = liveWpConfig,
                                                             canTriggerNow = true,
                                                             context = context
@@ -4530,7 +4797,7 @@ fun NTextLauncherApp(
                                 batteryPct = batteryPct,
                                 isPowerSaveMode = isPowerSaveMode,
                                 dateChangeTrigger = dateChangeTrigger,
-                                isSettingsScreenVisible = shouldRunWidgetsAndWallpapers && currentView == LauncherView.SETTINGS,
+                                isSettingsScreenVisible = isLauncherWindowVisible && currentView == LauncherView.SETTINGS,
                                 isLiveWallpapersWindowOpen = isLiveWallpapersWindowOpen,
                                 liveWallpapersPredictiveBackProgress = liveWallpapersPredictiveBackProgress,
                                 wallpaperTileThumbnails = wallpaperTileThumbnails,
@@ -4678,29 +4945,6 @@ fun NTextLauncherApp(
                                 onPickCustomWallpaperImage = onPickCustomWallpaperImage,
                                 onRequestDefaultHomeRole = onRequestDefaultHomeRole,
                                 onBack = { currentView = LauncherView.HOME_AND_DRAWER }
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Full-Screen Time Warp Bloom & White Overlay (covers wallpaper, clock, apps & widgets; does NOT consume touches)
-            if (homeTimeWarpController.isWarpOverlayVisible && currentView == LauncherView.HOME_AND_DRAWER) {
-                val overlayAccentArgb = android.graphics.Color.argb(
-                    255,
-                    (accentColor.red * 255f).roundToInt().coerceIn(0, 255),
-                    (accentColor.green * 255f).roundToInt().coerceIn(0, 255),
-                    (accentColor.blue * 255f).roundToInt().coerceIn(0, 255)
-                )
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val tick = homeTimeWarpController.overlayFrameTick
-                    if (tick >= 0) {
-                        drawIntoCanvas { composeCanvas ->
-                            homeTimeWarpController.drawBloomAndWhiteOverlay(
-                                nativeCanvas = composeCanvas.nativeCanvas,
-                                width = size.width,
-                                height = size.height,
-                                accentArgb = overlayAccentArgb
                             )
                         }
                     }
@@ -4958,6 +5202,29 @@ fun NTextLauncherApp(
                             fontFamily = selectedFont,
                             lineHeight = 18.sp
                         )
+                    }
+                }
+            }
+
+            // Top-Level Root Time Warp Bloom & White Overlay (covers home screen, app drawer, Actions menu, dialogs & settings; does NOT consume touches)
+            if (showRootWarpEffects) {
+                val overlayAccentArgb = android.graphics.Color.argb(
+                    255,
+                    (accentColor.red * 255f).roundToInt().coerceIn(0, 255),
+                    (accentColor.green * 255f).roundToInt().coerceIn(0, 255),
+                    (accentColor.blue * 255f).roundToInt().coerceIn(0, 255)
+                )
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val tick = homeTimeWarpController.overlayFrameTick
+                    if (tick >= 0) {
+                        drawIntoCanvas { composeCanvas ->
+                            homeTimeWarpController.drawBloomAndWhiteOverlay(
+                                nativeCanvas = composeCanvas.nativeCanvas,
+                                width = size.width,
+                                height = size.height,
+                                accentArgb = overlayAccentArgb
+                            )
+                        }
                     }
                 }
             }
@@ -9769,6 +10036,7 @@ fun AppDrawerView(
                     BasicTextField(
                         value = query,
                         onValueChange = {
+                            LiveWallpaperIdleController.onInteraction(wakeIfSleeping = true)
                             pinnedRailLetterIndex = -1
                             query = it
                         },
@@ -12492,7 +12760,6 @@ fun LiveWallpapersWindow(
                                     isPreviewWarpPlaying = previewTimeWarpController.isWarpRunning,
                                     onTriggerPreviewTimeWarp = {
                                         previewTimeWarpController.triggerPreviewWarp(
-                                            nowNanos = System.nanoTime(),
                                             config = liveWpConfig,
                                             context = context
                                         )
@@ -16797,6 +17064,15 @@ private class NewLiveWallpapersEngine {
         debugFpsCharLen = 4
     }
 
+    fun setDebugTextSleep() {
+        debugFpsChars[0] = 'S'
+        debugFpsChars[1] = 'L'
+        debugFpsChars[2] = 'E'
+        debugFpsChars[3] = 'E'
+        debugFpsChars[4] = 'P'
+        debugFpsCharLen = 5
+    }
+
     // Formats "FPS XX | X.Xms" directly into debugFpsChars without allocating any String or StringBuilder!
     fun formatDebugFps(fps: Int, avgTenthsMs: Int) {
         var idx = 0
@@ -17012,7 +17288,7 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
     var isPowerSaveMode: Boolean = false
     var dateChangeTrigger: Int = 0
     var isScreenVisible: Boolean = true
-    var isLifecycleResumed: Boolean = true
+    var isLifecycleStarted: Boolean = true
     var isPreview: Boolean = false
     var realScreenWidthPx: Float = 1080f
     var baseDpPx: Float = 2.625f
@@ -17043,9 +17319,34 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
 
     private val debugToggleCallback: () -> Unit = {
         if (!isVsyncLoopPosted) {
-            engine.setDebugTextIdle()
+            if (!isPreview && LiveWallpaperIdleController.isIdleSleeping) {
+                engine.setDebugTextSleep()
+            } else {
+                engine.setDebugTextIdle()
+            }
         }
         invalidate()
+    }
+
+    private val idleSleepCallback: (Boolean) -> Unit = { sleeping ->
+        if (!isPreview) {
+            if (sleeping && !(preset == "live_starfield_3d" && boundTimeWarpController?.isWarpRunning == true)) {
+                stopVsyncLoopAndGoIdle(isSleep = true)
+                invalidate()
+            } else if (!sleeping) {
+                syncAnimationState()
+            }
+        }
+    }
+
+    private val warpEndedViewCallback: () -> Unit = {
+        if (preset == "live_starfield_3d") {
+            if (boundTimeWarpController?.needsCalmStarfieldReseed == true) {
+                boundTimeWarpController?.needsCalmStarfieldReseed = false
+                starfieldSimulation.reseedCalmField()
+            }
+            syncAnimationState()
+        }
     }
 
     private val sonarWakeRunnable = Runnable {
@@ -17064,7 +17365,14 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
     }
 
     fun bindTimeWarpController(controller: StarfieldTimeWarpController?) {
+        if (boundTimeWarpController === controller) return
+        if (boundTimeWarpController?.onWarpEndedCallback === warpEndedViewCallback) {
+            boundTimeWarpController?.onWarpEndedCallback = null
+        }
         boundTimeWarpController = controller
+        if (isAttachedToWindow) {
+            controller?.onWarpEndedCallback = warpEndedViewCallback
+        }
     }
 
     fun onSonarTriggerTokenUpdated(token: Int) {
@@ -17088,10 +17396,14 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
     }
 
     private fun canAnimateNow(): Boolean {
+        val isWarpActive = preset == "live_starfield_3d" && (boundTimeWarpController?.isWarpRunning == true)
+        val blockedByLowBattery = isLowBatteryPaused() && !isWarpActive
+        val blockedByIdleSleep = !isPreview && LiveWallpaperIdleController.isIdleSleeping && !isWarpActive
         return isAttachedToWindow &&
             isScreenVisible &&
-            isLifecycleResumed &&
-            !isLowBatteryPaused() &&
+            isLifecycleStarted &&
+            !blockedByLowBattery &&
+            !blockedByIdleSleep &&
             preset in VALID_LIVE_WALLPAPER_IDS &&
             preset != "live_year_in_dots" &&
             preset != "live_moon_phase"
@@ -17117,8 +17429,26 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
     }
 
     fun syncAnimationState() {
-        if (isScreenVisible && isLifecycleResumed) {
+        val isSleepingNow = !isPreview && LiveWallpaperIdleController.isIdleSleeping
+        val isWarpActive = preset == "live_starfield_3d" && (boundTimeWarpController?.isWarpRunning == true)
+        if (isScreenVisible && isLifecycleStarted && (!isSleepingNow || isWarpActive)) {
             starfieldSimulation.resume()
+            // If returning to the launcher while a Time Warp is running (or right after it ended while hidden),
+            // sync the exact real-time phase immediately before the first frame draws so there is zero calm-state flash.
+            if (preset == "live_starfield_3d") {
+                val wc = boundTimeWarpController
+                if (wc != null && (wc.isWarpRunning || wc.needsCalmStarfieldReseed)) {
+                    val w = getWidth().toFloat()
+                    val viewportScale = if (isPreview && realScreenWidthPx > 0f && w > 0f) (w / realScreenWidthPx).coerceIn(0.15f, 1.0f) else 1.0f
+                    wc.stepFrame(
+                        dpPx = baseDpPx * viewportScale,
+                        config = config,
+                        context = context,
+                        view = this,
+                        onRestoreNormalStarsAtFullWhite = { starfieldSimulation.reseedCalmField() }
+                    )
+                }
+            }
         } else {
             starfieldSimulation.pause()
         }
@@ -17126,7 +17456,7 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
             engine.ensureOscilloscopeInitialized(config.oscilloscopeCurve)
         }
         if (!canAnimateNow()) {
-            stopVsyncLoopAndGoIdle()
+            stopVsyncLoopAndGoIdle(isSleep = isSleepingNow && isScreenVisible && isLifecycleStarted)
             invalidate()
             return
         }
@@ -17134,7 +17464,7 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
             if (hasActiveTouchRipples(System.nanoTime())) {
                 ensureVsyncLoopRunning()
             } else {
-                stopVsyncLoopAndGoIdle()
+                stopVsyncLoopAndGoIdle(isSleep = false)
                 invalidate()
             }
         } else if (preset == "live_sonar") {
@@ -17157,7 +17487,7 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
         }
     }
 
-    private fun stopVsyncLoopAndGoIdle() {
+    private fun stopVsyncLoopAndGoIdle(isSleep: Boolean = false) {
         if (isVsyncLoopPosted) {
             Choreographer.getInstance().removeFrameCallback(this)
             isVsyncLoopPosted = false
@@ -17168,20 +17498,33 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
         fpsWindowStartNanos = 0L
         fpsFramesDrawnInWindow = 0
         fpsAccumDrawNanos = 0L
-        engine.setDebugTextIdle()
+        if (isSleep) {
+            engine.setDebugTextSleep()
+        } else {
+            engine.setDebugTextIdle()
+        }
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         DebugWallpaperFpsState.registerListener(debugToggleCallback)
+        LiveWallpaperIdleController.registerListener(idleSleepCallback)
         boundRippleBus?.registerWakeListener(rippleWakeCallback)
+        boundTimeWarpController?.onWarpEndedCallback = warpEndedViewCallback
         syncAnimationState()
     }
 
     override fun onDetachedFromWindow() {
-        stopVsyncLoopAndGoIdle()
-        boundTimeWarpController?.cancelImmediately(context)
+        stopVsyncLoopAndGoIdle(isSleep = false)
+        // Preview-only warp cancels when the Live Wallpapers window closes; process-level home warp NEVER cancels on detach!
+        if (boundTimeWarpController?.isPreviewController == true) {
+            boundTimeWarpController?.cancelImmediately(context)
+        }
+        if (boundTimeWarpController?.onWarpEndedCallback === warpEndedViewCallback) {
+            boundTimeWarpController?.onWarpEndedCallback = null
+        }
         DebugWallpaperFpsState.unregisterListener(debugToggleCallback)
+        LiveWallpaperIdleController.unregisterListener(idleSleepCallback)
         boundRippleBus?.unregisterWakeListener(rippleWakeCallback)
         super.onDetachedFromWindow()
     }
@@ -17189,7 +17532,8 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
     override fun doFrame(frameTimeNanos: Long) {
         isVsyncLoopPosted = false
         if (!canAnimateNow()) {
-            stopVsyncLoopAndGoIdle()
+            val isSleep = !isPreview && LiveWallpaperIdleController.isIdleSleeping && isScreenVisible && isLifecycleStarted
+            stopVsyncLoopAndGoIdle(isSleep = isSleep)
             invalidate()
             return
         }
@@ -17226,10 +17570,11 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
             return
         }
 
+        // All wallpaper animation advances by frame delta time clamped to a maximum of 50ms per frame
         val dtSec = if (lastVsyncFrameNanos == 0L) {
-            1f / targetFps.toFloat()
+            (1f / targetFps.toFloat()).coerceAtMost(0.05f)
         } else {
-            ((frameTimeNanos - lastVsyncFrameNanos) * 1e-9f).coerceIn(0.001f, 0.12f)
+            ((frameTimeNanos - lastVsyncFrameNanos) * 1e-9f).coerceIn(0.001f, 0.05f)
         }
         lastVsyncFrameNanos = frameTimeNanos
 
@@ -17249,7 +17594,6 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
             "live_starfield_3d" -> {
                 val wc = boundTimeWarpController
                 wc?.stepFrame(
-                    frameTimeNanos = frameTimeNanos,
                     dpPx = dpPx,
                     config = config,
                     context = context,
@@ -18016,8 +18360,8 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
                 fpsWindowStartNanos = drawEndNs
                 fpsFramesDrawnInWindow = 0
                 fpsAccumDrawNanos = 0L
-            } else if (engine.debugFpsCharLen == 4) {
-                // First active frame after waking from IDLE: immediately show target/initial readout
+            } else if (engine.debugFpsCharLen == 4 || engine.debugFpsCharLen == 5) {
+                // First active frame after waking from IDLE or SLEEP: immediately show target/initial readout
                 val firstTenthsMs = (((drawEndNs - drawStartNs).coerceAtLeast(0L) + 50_000L) / 100_000L).toInt()
                 val initFps = when (preset) {
                     "live_starfield_3d" -> config.starfieldFps.coerceIn(15, 60)
@@ -18032,7 +18376,11 @@ private class LiveWallpaperHardwareView(context: Context) : android.view.View(co
                 engine.formatDebugFps(initFps, firstTenthsMs)
             }
         } else {
-            engine.setDebugTextIdle()
+            if (!isPreview && LiveWallpaperIdleController.isIdleSleeping) {
+                engine.setDebugTextSleep()
+            } else {
+                engine.setDebugTextIdle()
+            }
         }
 
         if (DebugWallpaperFpsState.enabled) {
@@ -18077,17 +18425,19 @@ fun OledWallpaperCanvas(
         WindowInsets.displayCutout.getTop(density).toFloat()
     )
 
-    var isLifecycleResumed by remember { mutableStateOf(true) }
+    var isLifecycleStarted by remember {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+    }
     var midnightDateTick by remember { mutableStateOf(0) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME, Lifecycle.Event.ON_START -> {
-                    isLifecycleResumed = true
+                Lifecycle.Event.ON_START -> {
+                    isLifecycleStarted = true
                 }
-                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
-                    isLifecycleResumed = false
+                Lifecycle.Event.ON_STOP -> {
+                    isLifecycleStarted = false
                 }
                 else -> {}
             }
@@ -18139,7 +18489,7 @@ fun OledWallpaperCanvas(
                 view.isPowerSaveMode = isPowerSaveMode
                 view.dateChangeTrigger = combinedDateTrigger
                 view.isScreenVisible = isScreenVisible
-                view.isLifecycleResumed = isLifecycleResumed
+                view.isLifecycleStarted = isLifecycleStarted
                 view.isPreview = isPreview
                 view.realScreenWidthPx = realScreenWidthPx
                 view.baseDpPx = baseDpPx
